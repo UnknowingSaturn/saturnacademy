@@ -20,8 +20,14 @@ interface EventPayload {
   idempotency_key: string;
   terminal_id: string;
   account_id?: string;
-  event_type: "open" | "modify" | "partial_close" | "close";
-  ticket: number;
+  // FIX Issue #3: Accept entry/exit event types
+  event_type: "entry" | "exit" | "open" | "modify" | "partial_close" | "close";
+  // FIX Issue #1: Accept all three IDs explicitly
+  position_id: number;
+  deal_id: number;
+  order_id: number;
+  // Legacy field for backwards compatibility
+  ticket?: number;
   symbol: string;
   direction: "buy" | "sell";
   lot_size: number;
@@ -31,7 +37,9 @@ interface EventPayload {
   commission?: number;
   swap?: number;
   profit?: number;
+  // FIX Issue #6: Accept both UTC timestamp and server_time
   timestamp: string;
+  server_time?: string;
   account_info?: AccountInfo;
   raw_payload?: Record<string, unknown>;
 }
@@ -60,7 +68,7 @@ serve(async (req) => {
 
     // Parse request body first to get account_info
     const payload: EventPayload = await req.json();
-    console.log("Received event:", payload.idempotency_key, payload.event_type);
+    console.log("Received event:", payload.idempotency_key, payload.event_type, "position:", payload.position_id, "deal:", payload.deal_id);
 
     // Look up account by API key
     let { data: account, error: accountError } = await supabase
@@ -185,6 +193,18 @@ serve(async (req) => {
       );
     }
 
+    // Map new event types to database enum values
+    let dbEventType = payload.event_type;
+    if (payload.event_type === "entry") {
+      dbEventType = "open";
+    } else if (payload.event_type === "exit") {
+      // Will be determined as partial_close or close during processing
+      dbEventType = "close"; // Default, will be updated if partial
+    }
+
+    // Use position_id as the trade grouping key (was previously called ticket)
+    const tradeTicket = payload.position_id || payload.ticket;
+
     // Insert event
     const { data: newEvent, error: insertError } = await supabase
       .from("events")
@@ -192,8 +212,8 @@ serve(async (req) => {
         idempotency_key: payload.idempotency_key,
         account_id: account.id,
         terminal_id: payload.terminal_id,
-        event_type: payload.event_type,
-        ticket: payload.ticket,
+        event_type: dbEventType,
+        ticket: tradeTicket,
         symbol: payload.symbol,
         direction: payload.direction,
         lot_size: payload.lot_size,
@@ -204,7 +224,14 @@ serve(async (req) => {
         swap: payload.swap || 0,
         profit: payload.profit,
         event_timestamp: payload.timestamp,
-        raw_payload: payload.raw_payload,
+        raw_payload: {
+          ...payload.raw_payload,
+          // Store all IDs in raw_payload for reference
+          position_id: payload.position_id,
+          deal_id: payload.deal_id,
+          order_id: payload.order_id,
+          server_time: payload.server_time,
+        },
         processed: false,
       })
       .select()
@@ -219,7 +246,7 @@ serve(async (req) => {
     }
 
     // Process event into trades table
-    await processEvent(supabase, newEvent, account.user_id);
+    await processEvent(supabase, newEvent, account.user_id, payload);
 
     console.log("Event processed:", newEvent.id);
     return new Response(
@@ -242,10 +269,11 @@ serve(async (req) => {
   }
 });
 
-async function processEvent(supabase: any, event: any, userId: string) {
-  const { event_type, ticket, account_id } = event;
+async function processEvent(supabase: any, event: any, userId: string, originalPayload: EventPayload) {
+  const { event_type, ticket, account_id, lot_size } = event;
+  const originalEventType = originalPayload.event_type;
 
-  // Find existing trade for this ticket
+  // Find existing trade for this position_id (ticket in DB)
   const { data: existingTrade } = await supabase
     .from("trades")
     .select("*")
@@ -261,71 +289,124 @@ async function processEvent(supabase: any, event: any, userId: string) {
   else if (hour >= 13 && hour < 17) session = "overlap_london_ny";
   else if (hour >= 17 && hour < 22) session = "new_york";
 
-  if (event_type === "open") {
-    // Create new trade
-    await supabase.from("trades").insert({
-      user_id: userId,
-      account_id: account_id,
-      terminal_id: event.terminal_id,
-      ticket: ticket,
-      symbol: event.symbol,
-      direction: event.direction,
-      total_lots: event.lot_size,
-      entry_price: event.price,
-      entry_time: event.event_timestamp,
-      sl_initial: event.sl,
-      tp_initial: event.tp,
-      sl_final: event.sl,
-      tp_final: event.tp,
-      session: session,
-      is_open: true,
-    });
-  } else if (event_type === "modify" && existingTrade) {
-    // Update SL/TP
-    await supabase.from("trades").update({
-      sl_final: event.sl,
-      tp_final: event.tp,
-    }).eq("id", existingTrade.id);
-  } else if (event_type === "partial_close" && existingTrade) {
-    // Add to partial closes array
-    const partialCloses = existingTrade.partial_closes || [];
-    partialCloses.push({
-      time: event.event_timestamp,
-      lots: event.lot_size,
-      price: event.price,
-      pnl: event.profit || 0,
-    });
-    
-    await supabase.from("trades").update({
-      partial_closes: partialCloses,
-      total_lots: existingTrade.total_lots - event.lot_size,
-    }).eq("id", existingTrade.id);
-  } else if (event_type === "close" && existingTrade) {
-    // Close the trade
-    const duration = Math.floor(
-      (new Date(event.event_timestamp).getTime() - new Date(existingTrade.entry_time).getTime()) / 1000
-    );
-    
-    // Calculate R-multiple if SL was set
-    let rMultiple = null;
-    if (existingTrade.sl_initial && event.profit) {
-      const risk = Math.abs(existingTrade.entry_price - existingTrade.sl_initial) * existingTrade.total_lots;
-      if (risk > 0) {
-        rMultiple = event.profit / risk;
-      }
+  // Handle entry event (open)
+  if (originalEventType === "entry" || event_type === "open") {
+    if (existingTrade) {
+      // Trade already exists - might be adding to position
+      console.log("Trade already exists for position:", ticket);
+    } else {
+      // Create new trade
+      await supabase.from("trades").insert({
+        user_id: userId,
+        account_id: account_id,
+        terminal_id: event.terminal_id,
+        ticket: ticket,
+        symbol: event.symbol,
+        direction: event.direction,
+        total_lots: event.lot_size,
+        entry_price: event.price,
+        entry_time: event.event_timestamp,
+        sl_initial: event.sl,
+        tp_initial: event.tp,
+        sl_final: event.sl,
+        tp_final: event.tp,
+        session: session,
+        is_open: true,
+      });
+      console.log("Created new trade for position:", ticket);
+    }
+  } 
+  // Handle exit event - determine if partial or full close
+  else if (originalEventType === "exit" || event_type === "close" || event_type === "partial_close") {
+    if (!existingTrade) {
+      console.log("No existing trade found for exit event, position:", ticket);
+      // Mark event as processed anyway
+      await supabase.from("events").update({ processed: true }).eq("id", event.id);
+      return;
     }
 
+    // Calculate remaining lots after this exit
+    const remainingLots = existingTrade.total_lots - lot_size;
+    const isPartialClose = remainingLots > 0.001; // Small tolerance for floating point
+
+    if (isPartialClose) {
+      // Partial close - add to partial_closes array
+      const partialCloses = existingTrade.partial_closes || [];
+      partialCloses.push({
+        time: event.event_timestamp,
+        lots: lot_size,
+        price: event.price,
+        pnl: event.profit || 0,
+        deal_id: originalPayload.deal_id,
+      });
+      
+      await supabase.from("trades").update({
+        partial_closes: partialCloses,
+        total_lots: remainingLots,
+        // Update SL/TP if provided
+        sl_final: event.sl || existingTrade.sl_final,
+        tp_final: event.tp || existingTrade.tp_final,
+      }).eq("id", existingTrade.id);
+
+      // Update event type to partial_close
+      await supabase.from("events").update({ event_type: "partial_close" }).eq("id", event.id);
+      console.log("Processed partial close for position:", ticket, "remaining lots:", remainingLots);
+    } else {
+      // Full close
+      const duration = Math.floor(
+        (new Date(event.event_timestamp).getTime() - new Date(existingTrade.entry_time).getTime()) / 1000
+      );
+      
+      // Calculate total PnL including partials
+      let totalGrossPnl = event.profit || 0;
+      let totalCommission = event.commission || 0;
+      let totalSwap = event.swap || 0;
+      
+      // Add PnL from partial closes
+      if (existingTrade.partial_closes) {
+        for (const partial of existingTrade.partial_closes) {
+          totalGrossPnl += partial.pnl || 0;
+        }
+      }
+      // Add existing commission/swap
+      totalCommission += existingTrade.commission || 0;
+      totalSwap += existingTrade.swap || 0;
+      
+      // Calculate R-multiple if SL was set
+      let rMultiple = null;
+      if (existingTrade.sl_initial) {
+        const riskPerLot = Math.abs(existingTrade.entry_price - existingTrade.sl_initial);
+        const totalRisk = riskPerLot * existingTrade.total_lots;
+        if (totalRisk > 0) {
+          rMultiple = totalGrossPnl / totalRisk;
+        }
+      }
+
+      await supabase.from("trades").update({
+        exit_price: event.price,
+        exit_time: event.event_timestamp,
+        gross_pnl: totalGrossPnl,
+        commission: totalCommission,
+        swap: totalSwap,
+        net_pnl: totalGrossPnl - totalCommission - Math.abs(totalSwap),
+        r_multiple_actual: rMultiple,
+        duration_seconds: duration,
+        is_open: false,
+        total_lots: 0, // All closed
+        sl_final: event.sl || existingTrade.sl_final,
+        tp_final: event.tp || existingTrade.tp_final,
+      }).eq("id", existingTrade.id);
+      
+      console.log("Processed full close for position:", ticket, "total PnL:", totalGrossPnl);
+    }
+  }
+  // Handle legacy modify event
+  else if (event_type === "modify" && existingTrade) {
     await supabase.from("trades").update({
-      exit_price: event.price,
-      exit_time: event.event_timestamp,
-      gross_pnl: event.profit,
-      commission: (existingTrade.commission || 0) + (event.commission || 0),
-      swap: (existingTrade.swap || 0) + (event.swap || 0),
-      net_pnl: event.profit - (event.commission || 0) - (event.swap || 0),
-      r_multiple_actual: rMultiple,
-      duration_seconds: duration,
-      is_open: false,
+      sl_final: event.sl,
+      tp_final: event.tp,
     }).eq("id", existingTrade.id);
+    console.log("Processed modify for position:", ticket);
   }
 
   // Mark event as processed

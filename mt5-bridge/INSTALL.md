@@ -37,10 +37,18 @@ Download `TradeJournalBridge.mq5` from this folder.
 ## That's It!
 
 Your account will be created automatically after your first trade. The EA will:
-- ✅ Capture all trades in real-time
-- ✅ Track opens, modifies, partial closes, and full closes
+- ✅ Capture all trade entries and exits in real-time
+- ✅ Track partial closes with proper volume aggregation
 - ✅ Auto-detect your broker and account type
 - ✅ Work with prop firm accounts (FTMO, FundedNext, etc.)
+
+## How It Works
+
+The EA sends **deal events** (entries and exits) to your journal. The backend:
+- Groups deals by position ID to track trades
+- Automatically detects partial closes vs full closes
+- Calculates total PnL including all partial exits
+- Computes R-multiples when stop-loss is set
 
 ## Features
 
@@ -48,6 +56,17 @@ Your account will be created automatically after your first trade. The EA will:
 - **Direct Cloud Connection**: No relay server needed
 - **Auto-Retry**: Failed sends are queued and retried automatically
 - **Idempotent**: Duplicate events are handled gracefully
+- **UTC Timestamps**: All times are recorded in UTC for consistency
+
+## Known Limitations
+
+### SL/TP Modifications
+The EA captures SL/TP values from deal events only. If you modify SL/TP without closing or opening a position, those changes are captured on the next deal event. Real-time SL/TP modification tracking would require handling `TRADE_TRANSACTION_POSITION` events, which adds complexity.
+
+**Workaround**: Your final SL/TP values are always captured when the trade closes.
+
+### Position Restart
+The EA tracks processed deals in memory. If MT5 restarts, it may attempt to resend recent deals. The backend handles duplicates gracefully using idempotency keys.
 
 ## Troubleshooting
 
@@ -66,6 +85,11 @@ Your account will be created automatically after your first trade. The EA will:
 2. Make sure you copied the complete key
 3. The key is case-sensitive
 
+### Trades not appearing in journal
+1. Check the EA's Experts tab for error messages
+2. Enable "Verbose Mode" in EA settings for detailed logging
+3. Check `MQL5/Files/TradeJournal.log` for debug information
+
 ## Optional Settings
 
 | Setting | Default | Description |
@@ -74,6 +98,21 @@ Your account will be created automatically after your first trade. The EA will:
 | Magic Filter | 0 | Only capture specific magic number (0 = all) |
 | Enable Logging | true | Write logs to file for debugging |
 | Verbose Mode | false | Show detailed console output |
+
+## Technical Details
+
+### Event Types
+- **entry**: New position opened (DEAL_ENTRY_IN)
+- **exit**: Position closed partially or fully (DEAL_ENTRY_OUT)
+
+### IDs Sent
+- `position_id`: Groups all deals for a single trade
+- `deal_id`: Unique identifier for each deal
+- `order_id`: The order that created this deal
+
+### Timestamps
+- `timestamp`: UTC time (using TimeGMT())
+- `server_time`: Broker server time (for reference)
 
 ## Support
 

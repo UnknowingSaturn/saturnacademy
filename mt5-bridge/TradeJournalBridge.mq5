@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Trade Journal Bridge"
 #property link      ""
-#property version   "2.00"
+#property version   "2.10"
 #property description "Captures trade lifecycle events and sends to journal backend"
 #property description "SAFE: Read-only, no trading operations, prop-firm compliant"
 #property description "Connects directly to cloud - no relay server needed!"
@@ -38,7 +38,7 @@ const string   EDGE_FUNCTION_URL = "https://soosdjmnpcyuqppdjsse.supabase.co/fun
 //| Global Variables                                                  |
 //+------------------------------------------------------------------+
 string         g_logFileName     = "TradeJournal.log";
-string         g_queueFileName   = "TradeJournalQueue.csv";
+string         g_queueFileName   = "TradeJournalQueue.txt";    // Changed to .txt for FILE_TXT mode
 int            g_logHandle       = INVALID_HANDLE;
 datetime       g_lastQueueCheck  = 0;
 bool           g_webRequestOk    = false;
@@ -71,7 +71,7 @@ int OnInit()
       if(g_logHandle != INVALID_HANDLE)
       {
          FileSeek(g_logHandle, 0, SEEK_END);
-         LogMessage("=== Trade Journal Bridge v2.0 Started ===");
+         LogMessage("=== Trade Journal Bridge v2.10 Started ===");
          LogMessage("Terminal ID: " + g_terminalId);
          LogMessage("Account: " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
          LogMessage("Broker: " + AccountInfoString(ACCOUNT_COMPANY));
@@ -90,7 +90,7 @@ int OnInit()
    ArrayResize(g_processedDeals, 0);
    
    Print("=================================================");
-   Print("Trade Journal Bridge v2.0 - Direct Cloud Connection");
+   Print("Trade Journal Bridge v2.10 - Direct Cloud Connection");
    Print("=================================================");
    Print("Account: ", AccountInfoInteger(ACCOUNT_LOGIN));
    Print("Broker: ", AccountInfoString(ACCOUNT_COMPANY));
@@ -168,7 +168,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    if(InpMagicFilter != 0 && magic != InpMagicFilter)
       return;
    
-   // Determine event type
+   // Get deal type and entry
    ENUM_DEAL_TYPE dealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
    ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
    
@@ -180,12 +180,26 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
       dealType == DEAL_TYPE_COMMISSION_MONTHLY)
       return;
    
-   string eventType = DetermineEventType(dealTicket, dealEntry);
+   // FIX Issue #2: Explicit direction handling - skip non-buy/sell deals
+   string direction = "";
+   if(dealType == DEAL_TYPE_BUY)
+      direction = "buy";
+   else if(dealType == DEAL_TYPE_SELL)
+      direction = "sell";
+   else
+   {
+      if(InpVerboseMode)
+         Print("Skipping non-buy/sell deal type: ", dealType);
+      return;
+   }
+   
+   // FIX Issue #3: Simplified event type - let backend determine partial/full close
+   string eventType = DetermineEventType(dealEntry);
    if(eventType == "")
       return;
    
    // Build and send event
-   string payload = BuildEventPayload(dealTicket, eventType);
+   string payload = BuildEventPayload(dealTicket, eventType, direction);
    
    if(InpVerboseMode)
       Print("Event captured: ", eventType, " | Deal: ", dealTicket, " | Symbol: ", symbol);
@@ -193,10 +207,10 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    LogMessage("Captured " + eventType + " event for deal " + IntegerToString(dealTicket));
    
    // Attempt to send
-   if(!SendEvent(payload))
+   if(!SendEvent(payload, dealTicket))
    {
       // Add to queue for retry
-      AddToQueue(payload);
+      AddToQueue(payload, dealTicket);
       LogMessage("Event queued for retry: " + IntegerToString(dealTicket));
    }
    else
@@ -228,33 +242,18 @@ void OnTick()
 }
 
 //+------------------------------------------------------------------+
-//| Determine Event Type from Deal Entry                              |
+//| Determine Event Type from Deal Entry (Simplified)                 |
+//| FIX Issue #3: Backend will determine partial vs full close        |
 //+------------------------------------------------------------------+
-string DetermineEventType(ulong dealTicket, ENUM_DEAL_ENTRY dealEntry)
+string DetermineEventType(ENUM_DEAL_ENTRY dealEntry)
 {
    if(dealEntry == DEAL_ENTRY_IN)
    {
-      return "open";
+      return "entry";
    }
-   else if(dealEntry == DEAL_ENTRY_OUT)
+   else if(dealEntry == DEAL_ENTRY_OUT || dealEntry == DEAL_ENTRY_INOUT)
    {
-      // Check if position still exists (partial close) or fully closed
-      long positionId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
-      
-      // Check if position is still open
-      if(PositionSelectByTicket(positionId))
-      {
-         return "partial_close";
-      }
-      else
-      {
-         return "close";
-      }
-   }
-   else if(dealEntry == DEAL_ENTRY_INOUT)
-   {
-      // Reverse position = close
-      return "close";
+      return "exit";
    }
    
    return "";
@@ -262,14 +261,15 @@ string DetermineEventType(ulong dealTicket, ENUM_DEAL_ENTRY dealEntry)
 
 //+------------------------------------------------------------------+
 //| Build JSON Payload for Event                                      |
+//| FIX Issue #1: Send position_id, deal_id, order_id explicitly      |
+//| FIX Issue #6: Use TimeGMT() for UTC timestamps                    |
 //+------------------------------------------------------------------+
-string BuildEventPayload(ulong dealTicket, string eventType)
+string BuildEventPayload(ulong dealTicket, string eventType, string direction)
 {
    // Get all deal information
    string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
    long positionId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
    long orderId = HistoryDealGetInteger(dealTicket, DEAL_ORDER);
-   ENUM_DEAL_TYPE dealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
    double volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
    double price = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
    double sl = HistoryDealGetDouble(dealTicket, DEAL_SL);
@@ -281,14 +281,12 @@ string BuildEventPayload(ulong dealTicket, string eventType)
    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
    string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
    
-   // Determine direction
-   string direction = (dealType == DEAL_TYPE_BUY) ? "buy" : "sell";
-   
-   // Build idempotency key
+   // Build idempotency key using deal_id for uniqueness
    string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
    
-   // Format timestamp as ISO 8601
-   string timestamp = FormatTimestamp(dealTime);
+   // FIX Issue #6: Use TimeGMT() for proper UTC timestamp
+   string utcTimestamp = FormatTimestampUTC(TimeGMT());
+   string serverTimestamp = FormatTimestamp(dealTime);
    
    // Get symbol digits for price formatting
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -317,7 +315,12 @@ string BuildEventPayload(ulong dealTicket, string eventType)
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
    json += "\"event_type\":\"" + eventType + "\",";
-   json += "\"ticket\":" + IntegerToString(positionId) + ",";
+   
+   // FIX Issue #1: Send all three IDs explicitly
+   json += "\"position_id\":" + IntegerToString(positionId) + ",";
+   json += "\"deal_id\":" + IntegerToString(dealTicket) + ",";
+   json += "\"order_id\":" + IntegerToString(orderId) + ",";
+   
    json += "\"symbol\":\"" + symbol + "\",";
    json += "\"direction\":\"" + direction + "\",";
    json += "\"lot_size\":" + DoubleToString(volume, 2) + ",";
@@ -332,7 +335,10 @@ string BuildEventPayload(ulong dealTicket, string eventType)
    json += "\"commission\":" + DoubleToString(commission, 2) + ",";
    json += "\"swap\":" + DoubleToString(swap, 2) + ",";
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
-   json += "\"timestamp\":\"" + timestamp + "\",";
+   
+   // FIX Issue #6: UTC timestamp and separate server time
+   json += "\"timestamp\":\"" + utcTimestamp + "\",";
+   json += "\"server_time\":\"" + serverTimestamp + "\",";
    
    // Account info for auto-creation
    json += "\"account_info\":{";
@@ -346,8 +352,6 @@ string BuildEventPayload(ulong dealTicket, string eventType)
    
    // Raw metadata
    json += "\"raw_payload\":{";
-   json += "\"deal_id\":" + IntegerToString(dealTicket) + ",";
-   json += "\"order_id\":" + IntegerToString(orderId) + ",";
    json += "\"magic\":" + IntegerToString(magic) + ",";
    json += "\"comment\":\"" + EscapeJsonString(comment) + "\",";
    json += "\"local_time\":\"" + FormatTimestamp(TimeLocal()) + "\"";
@@ -361,7 +365,7 @@ string BuildEventPayload(ulong dealTicket, string eventType)
 //+------------------------------------------------------------------+
 //| Send Event to Edge Function (Direct Cloud)                        |
 //+------------------------------------------------------------------+
-bool SendEvent(string payload)
+bool SendEvent(string payload, ulong dealId = 0)
 {
    if(!g_webRequestOk)
    {
@@ -452,18 +456,25 @@ bool SendEvent(string payload)
 
 //+------------------------------------------------------------------+
 //| Add Event to Persistent Queue                                     |
+//| FIX Issue #7: Use FILE_TXT mode for proper line handling          |
+//| FIX Issue #10: Include deal_id for queue processing               |
 //+------------------------------------------------------------------+
-void AddToQueue(string payload)
+void AddToQueue(string payload, ulong dealId)
 {
-   int handle = FileOpen(g_queueFileName, FILE_WRITE|FILE_READ|FILE_CSV|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE, '|');
+   int handle = FileOpen(g_queueFileName, FILE_WRITE|FILE_READ|FILE_TXT|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE);
    
    if(handle != INVALID_HANDLE)
    {
       FileSeek(handle, 0, SEEK_END);
       
-      // Format: timestamp|retry_count|payload
-      string line = TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "|0|" + EncodeBase64(payload);
-      FileWrite(handle, line);
+      // Format: timestamp|retry_count|deal_id|payload (no base64 needed for FILE_TXT)
+      // Use pipe delimiter and escape any pipes in payload
+      string escapedPayload = payload;
+      StringReplace(escapedPayload, "|", "{{PIPE}}");
+      
+      string line = TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "|0|" + 
+                    IntegerToString(dealId) + "|" + escapedPayload + "\n";
+      FileWriteString(handle, line);
       FileClose(handle);
       
       if(InpVerboseMode)
@@ -477,13 +488,15 @@ void AddToQueue(string payload)
 
 //+------------------------------------------------------------------+
 //| Process Retry Queue                                               |
+//| FIX Issue #7: Use FILE_TXT mode for proper line reading           |
+//| FIX Issue #10: Mark deals as processed after queue success        |
 //+------------------------------------------------------------------+
 void ProcessQueue()
 {
    if(!FileIsExist(g_queueFileName))
       return;
    
-   int handle = FileOpen(g_queueFileName, FILE_READ|FILE_CSV|FILE_ANSI|FILE_SHARE_READ, '|');
+   int handle = FileOpen(g_queueFileName, FILE_READ|FILE_TXT|FILE_ANSI|FILE_SHARE_READ);
    
    if(handle == INVALID_HANDLE)
       return;
@@ -520,27 +533,37 @@ void ProcessQueue()
       string parts[];
       int partCount = StringSplit(entries[i], '|', parts);
       
-      if(partCount < 3)
+      if(partCount < 4)
          continue;
       
       string timestamp = parts[0];
       int retryCount = (int)StringToInteger(parts[1]);
-      string encodedPayload = parts[2];
+      ulong dealId = (ulong)StringToInteger(parts[2]);
       
-      // Decode payload
-      string payload = DecodeBase64(encodedPayload);
+      // Reconstruct payload (may have been split on |)
+      string escapedPayload = parts[3];
+      for(int j = 4; j < partCount; j++)
+      {
+         escapedPayload += "|" + parts[j];
+      }
+      
+      // Unescape pipes
+      StringReplace(escapedPayload, "{{PIPE}}", "|");
+      string payload = escapedPayload;
       
       // Check retry limit
       if(retryCount >= InpMaxRetries)
       {
-         LogMessage("Max retries exceeded for event, discarding");
+         LogMessage("Max retries exceeded for deal " + IntegerToString(dealId) + ", discarding");
          Print("Event discarded after ", InpMaxRetries, " retries");
          continue;
       }
       
       // Attempt to send
-      if(SendEvent(payload))
+      if(SendEvent(payload, dealId))
       {
+         // FIX Issue #10: Mark deal as processed after successful queue send
+         MarkDealProcessed(dealId);
          if(InpVerboseMode)
             Print("Queued event sent successfully");
          LogMessage("Queued event sent successfully after " + IntegerToString(retryCount) + " retries");
@@ -548,8 +571,11 @@ void ProcessQueue()
       else
       {
          // Re-queue with incremented retry count
+         string escapedForRequeue = payload;
+         StringReplace(escapedForRequeue, "|", "{{PIPE}}");
          ArrayResize(remainingEntries, remainingCount + 1);
-         remainingEntries[remainingCount] = timestamp + "|" + IntegerToString(retryCount + 1) + "|" + encodedPayload;
+         remainingEntries[remainingCount] = timestamp + "|" + IntegerToString(retryCount + 1) + "|" + 
+                                            IntegerToString(dealId) + "|" + escapedForRequeue;
          remainingCount++;
       }
    }
@@ -557,12 +583,12 @@ void ProcessQueue()
    // Rewrite queue file with remaining entries
    if(remainingCount > 0)
    {
-      handle = FileOpen(g_queueFileName, FILE_WRITE|FILE_CSV|FILE_ANSI, '|');
+      handle = FileOpen(g_queueFileName, FILE_WRITE|FILE_TXT|FILE_ANSI);
       if(handle != INVALID_HANDLE)
       {
          for(int i = 0; i < remainingCount; i++)
          {
-            FileWrite(handle, remainingEntries[i]);
+            FileWriteString(handle, remainingEntries[i] + "\n");
          }
          FileClose(handle);
       }
@@ -575,6 +601,7 @@ void ProcessQueue()
 
 //+------------------------------------------------------------------+
 //| Test WebRequest Availability                                      |
+//| FIX Issue #5: Use proper OPTIONS request without body             |
 //+------------------------------------------------------------------+
 void TestWebRequest()
 {
@@ -582,8 +609,9 @@ void TestWebRequest()
    char result[];
    string resultHeaders;
    
-   // Simple OPTIONS request to test connectivity
-   string headers = "Content-Type: application/json\r\n";
+   // FIX Issue #5: Empty body for OPTIONS request, minimal headers
+   ArrayResize(postData, 0);
+   string headers = "";
    
    ResetLastError();
    int responseCode = WebRequest("OPTIONS", EDGE_FUNCTION_URL, headers, 5000, postData, result, resultHeaders);
@@ -658,13 +686,30 @@ void MarkDealProcessed(ulong dealTicket)
 }
 
 //+------------------------------------------------------------------+
-//| Format Timestamp as ISO 8601                                      |
+//| Format Timestamp as ISO 8601 (without Z - for non-UTC times)      |
+//| FIX Issue #6: Don't append Z to non-UTC timestamps                |
 //+------------------------------------------------------------------+
 string FormatTimestamp(datetime time)
 {
    MqlDateTime dt;
    TimeToStruct(time, dt);
    
+   // No Z suffix - this is server/local time, not UTC
+   return StringFormat("%04d-%02d-%02dT%02d:%02d:%02d",
+                       dt.year, dt.mon, dt.day,
+                       dt.hour, dt.min, dt.sec);
+}
+
+//+------------------------------------------------------------------+
+//| Format Timestamp as ISO 8601 UTC (with Z suffix)                  |
+//| FIX Issue #6: Proper UTC timestamp with Z suffix                  |
+//+------------------------------------------------------------------+
+string FormatTimestampUTC(datetime time)
+{
+   MqlDateTime dt;
+   TimeToStruct(time, dt);
+   
+   // Z suffix indicates UTC
    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",
                        dt.year, dt.mon, dt.day,
                        dt.hour, dt.min, dt.sec);
@@ -682,38 +727,6 @@ string EscapeJsonString(string str)
    StringReplace(result, "\r", "\\r");
    StringReplace(result, "\t", "\\t");
    return result;
-}
-
-//+------------------------------------------------------------------+
-//| Simple Base64 Encoding (for queue persistence)                    |
-//+------------------------------------------------------------------+
-string EncodeBase64(string str)
-{
-   uchar src[];
-   uchar dst[];
-   StringToCharArray(str, src, 0, WHOLE_ARRAY, CP_UTF8);
-   int srcLen = ArraySize(src) - 1; // Exclude null terminator
-   ArrayResize(src, srcLen);
-   
-   CryptEncode(CRYPT_BASE64, src, dst, dst);
-   
-   return CharArrayToString(dst, 0, WHOLE_ARRAY, CP_UTF8);
-}
-
-//+------------------------------------------------------------------+
-//| Simple Base64 Decoding                                            |
-//+------------------------------------------------------------------+
-string DecodeBase64(string str)
-{
-   uchar src[];
-   uchar dst[];
-   StringToCharArray(str, src, 0, WHOLE_ARRAY, CP_UTF8);
-   int srcLen = ArraySize(src) - 1;
-   ArrayResize(src, srcLen);
-   
-   CryptDecode(CRYPT_BASE64, src, dst, dst);
-   
-   return CharArrayToString(dst, 0, WHOLE_ARRAY, CP_UTF8);
 }
 
 //+------------------------------------------------------------------+
