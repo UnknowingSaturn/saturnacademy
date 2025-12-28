@@ -3,6 +3,7 @@ import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ChecklistQues
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
+import { AIAnalysisDisplay } from "./AIAnalysisDisplay";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,7 +38,7 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
   const { data: playbooks } = usePlaybooks();
   const createReview = useCreateTradeReview();
   const updateReview = useUpdateTradeReview();
-  const { analyzeTrade, isAnalyzing, analysis } = useAIAnalysis();
+  const { analyzeTrade, isAnalyzing, analysisResult, submitFeedback } = useAIAnalysis();
 
   const existingReview = trade.review;
 
@@ -499,7 +500,7 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
       </div>
 
       {/* AI Analysis Result */}
-      {analysis && (
+      {analysisResult && (
         <Card className="bg-muted/30 border-primary/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -508,9 +509,14 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <div className="whitespace-pre-wrap text-sm">{analysis}</div>
-            </div>
+            <AIAnalysisDisplay
+              analysis={analysisResult.analysis}
+              compliance={analysisResult.compliance}
+              similarTrades={analysisResult.similar_trades}
+              onSubmitFeedback={(isAccurate, isUseful, notes) => {
+                // Feedback submission handled in the component
+              }}
+            />
           </CardContent>
         </Card>
       )}
