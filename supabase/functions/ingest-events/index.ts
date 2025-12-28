@@ -4,7 +4,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+interface AccountInfo {
+  login: number;
+  broker: string;
+  server: string;
+  balance: number;
+  equity: number;
+  account_type: "demo" | "live" | "prop";
+}
 
 interface EventPayload {
   idempotency_key: string;
@@ -22,6 +32,7 @@ interface EventPayload {
   swap?: number;
   profit?: number;
   timestamp: string;
+  account_info?: AccountInfo;
   raw_payload?: Record<string, unknown>;
 }
 
@@ -35,6 +46,7 @@ serve(async (req) => {
     // Get API key from header
     const apiKey = req.headers.get("x-api-key");
     if (!apiKey) {
+      console.error("Missing API key");
       return new Response(
         JSON.stringify({ status: "error", message: "Missing API key" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -46,15 +58,91 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Validate API key and get account
-    const { data: account, error: accountError } = await supabase
+    // Parse request body first to get account_info
+    const payload: EventPayload = await req.json();
+    console.log("Received event:", payload.idempotency_key, payload.event_type);
+
+    // Look up account by API key
+    let { data: account, error: accountError } = await supabase
       .from("accounts")
-      .select("id, user_id")
+      .select("id, user_id, terminal_id")
       .eq("api_key", apiKey)
       .eq("is_active", true)
       .single();
 
-    if (accountError || !account) {
+    // If no account found, try auto-creation if we have account_info
+    if ((accountError || !account) && payload.account_info) {
+      console.log("No account found, attempting auto-creation...");
+      
+      // Get user_id from api_key - check if this is a setup token
+      const { data: setupToken, error: tokenError } = await supabase
+        .from("setup_tokens")
+        .select("user_id, used")
+        .eq("token", apiKey)
+        .single();
+
+      if (tokenError || !setupToken) {
+        console.error("Invalid API key and no valid setup token:", accountError);
+        return new Response(
+          JSON.stringify({ status: "error", message: "Invalid API key" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (setupToken.used) {
+        console.error("Setup token already used");
+        return new Response(
+          JSON.stringify({ status: "error", message: "Setup token already used" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Detect prop firm from server name
+      let propFirm = null;
+      const serverLower = payload.account_info.server.toLowerCase();
+      if (serverLower.includes("ftmo")) {
+        propFirm = "ftmo";
+      } else if (serverLower.includes("fundednext")) {
+        propFirm = "fundednext";
+      }
+
+      // Create the account
+      const accountName = `${payload.account_info.broker} - ${payload.account_info.login}`;
+      const { data: newAccount, error: createError } = await supabase
+        .from("accounts")
+        .insert({
+          user_id: setupToken.user_id,
+          name: accountName,
+          broker: payload.account_info.broker,
+          account_number: String(payload.account_info.login),
+          account_type: payload.account_info.account_type,
+          balance_start: payload.account_info.balance,
+          equity_current: payload.account_info.equity,
+          terminal_id: payload.terminal_id,
+          api_key: apiKey,
+          prop_firm: propFirm,
+          is_active: true,
+        })
+        .select("id, user_id, terminal_id")
+        .single();
+
+      if (createError) {
+        console.error("Failed to create account:", createError);
+        return new Response(
+          JSON.stringify({ status: "error", message: "Failed to create account: " + createError.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Mark setup token as used
+      await supabase
+        .from("setup_tokens")
+        .update({ used: true, used_at: new Date().toISOString() })
+        .eq("token", apiKey);
+
+      account = newAccount;
+      console.log("Auto-created account:", account.id, accountName);
+    } else if (accountError || !account) {
       console.error("Invalid API key:", accountError);
       return new Response(
         JSON.stringify({ status: "error", message: "Invalid API key" }),
@@ -62,9 +150,21 @@ serve(async (req) => {
       );
     }
 
-    // Parse request body
-    const payload: EventPayload = await req.json();
-    console.log("Received event:", payload.idempotency_key, payload.event_type);
+    // Update terminal_id if not set
+    if (!account.terminal_id && payload.terminal_id) {
+      await supabase
+        .from("accounts")
+        .update({ terminal_id: payload.terminal_id })
+        .eq("id", account.id);
+    }
+
+    // Update equity if provided
+    if (payload.account_info?.equity) {
+      await supabase
+        .from("accounts")
+        .update({ equity_current: payload.account_info.equity })
+        .eq("id", account.id);
+    }
 
     // Check for duplicate (idempotency)
     const { data: existingEvent } = await supabase
@@ -126,6 +226,7 @@ serve(async (req) => {
       JSON.stringify({ 
         status: "accepted", 
         event_id: newEvent.id,
+        account_id: account.id,
         message: "Event processed successfully" 
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

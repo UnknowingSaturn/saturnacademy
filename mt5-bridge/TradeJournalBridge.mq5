@@ -5,17 +5,16 @@
 //+------------------------------------------------------------------+
 #property copyright "Trade Journal Bridge"
 #property link      ""
-#property version   "1.00"
+#property version   "2.00"
 #property description "Captures trade lifecycle events and sends to journal backend"
 #property description "SAFE: Read-only, no trading operations, prop-firm compliant"
+#property description "Connects directly to cloud - no relay server needed!"
 
 //+------------------------------------------------------------------+
 //| Input Parameters                                                  |
 //+------------------------------------------------------------------+
 input group "=== Connection Settings ==="
-input string   InpTerminalID     = "TERMINAL_01";              // Terminal ID (unique identifier)
-input string   InpApiKey         = "";                         // API Key (from journal account)
-input string   InpServerUrl      = "http://127.0.0.1:8080";    // Relay Server URL
+input string   InpApiKey         = "";                         // API Key (from journal app)
 
 input group "=== Retry Settings ==="
 input int      InpMaxRetries     = 5;                          // Max retry attempts
@@ -31,6 +30,11 @@ input string   InpSymbolFilter   = "";                         // Symbol filter 
 input long     InpMagicFilter    = 0;                          // Magic number filter (0 = all)
 
 //+------------------------------------------------------------------+
+//| Constants - Direct Edge Function URL                              |
+//+------------------------------------------------------------------+
+const string   EDGE_FUNCTION_URL = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/ingest-events";
+
+//+------------------------------------------------------------------+
 //| Global Variables                                                  |
 //+------------------------------------------------------------------+
 string         g_logFileName     = "TradeJournal.log";
@@ -38,6 +42,7 @@ string         g_queueFileName   = "TradeJournalQueue.csv";
 int            g_logHandle       = INVALID_HANDLE;
 datetime       g_lastQueueCheck  = 0;
 bool           g_webRequestOk    = false;
+string         g_terminalId      = "";
 
 // Track processed deals to avoid duplicates
 ulong          g_processedDeals[];
@@ -51,15 +56,13 @@ int OnInit()
    // Validate inputs
    if(StringLen(InpApiKey) == 0)
    {
-      Print("ERROR: API Key is required. Get it from your journal account settings.");
+      Print("ERROR: API Key is required. Get it from your journal app's Accounts page.");
       return INIT_PARAMETERS_INCORRECT;
    }
    
-   if(StringLen(InpTerminalID) == 0)
-   {
-      Print("ERROR: Terminal ID is required.");
-      return INIT_PARAMETERS_INCORRECT;
-   }
+   // Generate terminal ID from account info for uniqueness
+   g_terminalId = "MT5_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "_" + 
+                  StringSubstr(AccountInfoString(ACCOUNT_SERVER), 0, 10);
    
    // Initialize logging
    if(InpEnableLogging)
@@ -68,11 +71,12 @@ int OnInit()
       if(g_logHandle != INVALID_HANDLE)
       {
          FileSeek(g_logHandle, 0, SEEK_END);
-         LogMessage("=== Trade Journal Bridge Started ===");
-         LogMessage("Terminal ID: " + InpTerminalID);
+         LogMessage("=== Trade Journal Bridge v2.0 Started ===");
+         LogMessage("Terminal ID: " + g_terminalId);
          LogMessage("Account: " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
          LogMessage("Broker: " + AccountInfoString(ACCOUNT_COMPANY));
          LogMessage("Server: " + AccountInfoString(ACCOUNT_SERVER));
+         LogMessage("Direct Edge Function: " + EDGE_FUNCTION_URL);
       }
    }
    
@@ -85,9 +89,16 @@ int OnInit()
    // Initialize processed deals array
    ArrayResize(g_processedDeals, 0);
    
-   Print("Trade Journal Bridge initialized successfully");
-   Print("Terminal ID: ", InpTerminalID);
-   Print("Server URL: ", InpServerUrl);
+   Print("=================================================");
+   Print("Trade Journal Bridge v2.0 - Direct Cloud Connection");
+   Print("=================================================");
+   Print("Account: ", AccountInfoInteger(ACCOUNT_LOGIN));
+   Print("Broker: ", AccountInfoString(ACCOUNT_COMPANY));
+   Print("Server: ", AccountInfoString(ACCOUNT_SERVER));
+   Print("");
+   Print("Your account will be created automatically");
+   Print("after your first trade!");
+   Print("=================================================");
    
    return INIT_SUCCEEDED;
 }
@@ -274,7 +285,7 @@ string BuildEventPayload(ulong dealTicket, string eventType)
    string direction = (dealType == DEAL_TYPE_BUY) ? "buy" : "sell";
    
    // Build idempotency key
-   string idempotencyKey = InpTerminalID + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
    
    // Format timestamp as ISO 8601
    string timestamp = FormatTimestamp(dealTime);
@@ -283,10 +294,28 @@ string BuildEventPayload(ulong dealTicket, string eventType)
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
    
+   // Get account info for auto-account creation
+   long accountLogin = AccountInfoInteger(ACCOUNT_LOGIN);
+   string broker = AccountInfoString(ACCOUNT_COMPANY);
+   string server = AccountInfoString(ACCOUNT_SERVER);
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   
+   // Detect account type from server name
+   string accountType = "live";
+   string serverLower = server;
+   StringToLower(serverLower);
+   if(StringFind(serverLower, "demo") >= 0)
+      accountType = "demo";
+   else if(StringFind(serverLower, "ftmo") >= 0 || 
+           StringFind(serverLower, "fundednext") >= 0 ||
+           StringFind(serverLower, "prop") >= 0)
+      accountType = "prop";
+   
    // Build JSON payload
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
-   json += "\"terminal_id\":\"" + InpTerminalID + "\",";
+   json += "\"terminal_id\":\"" + g_terminalId + "\",";
    json += "\"event_type\":\"" + eventType + "\",";
    json += "\"ticket\":" + IntegerToString(positionId) + ",";
    json += "\"symbol\":\"" + symbol + "\",";
@@ -305,15 +334,22 @@ string BuildEventPayload(ulong dealTicket, string eventType)
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
    json += "\"timestamp\":\"" + timestamp + "\",";
    
-   // Optional metadata
+   // Account info for auto-creation
+   json += "\"account_info\":{";
+   json += "\"login\":" + IntegerToString(accountLogin) + ",";
+   json += "\"broker\":\"" + EscapeJsonString(broker) + "\",";
+   json += "\"server\":\"" + server + "\",";
+   json += "\"balance\":" + DoubleToString(balance, 2) + ",";
+   json += "\"equity\":" + DoubleToString(equity, 2) + ",";
+   json += "\"account_type\":\"" + accountType + "\"";
+   json += "},";
+   
+   // Raw metadata
    json += "\"raw_payload\":{";
    json += "\"deal_id\":" + IntegerToString(dealTicket) + ",";
    json += "\"order_id\":" + IntegerToString(orderId) + ",";
    json += "\"magic\":" + IntegerToString(magic) + ",";
    json += "\"comment\":\"" + EscapeJsonString(comment) + "\",";
-   json += "\"account_login\":" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",";
-   json += "\"broker\":\"" + EscapeJsonString(AccountInfoString(ACCOUNT_COMPANY)) + "\",";
-   json += "\"server\":\"" + AccountInfoString(ACCOUNT_SERVER) + "\",";
    json += "\"local_time\":\"" + FormatTimestamp(TimeLocal()) + "\"";
    json += "}";
    
@@ -323,7 +359,7 @@ string BuildEventPayload(ulong dealTicket, string eventType)
 }
 
 //+------------------------------------------------------------------+
-//| Send Event to Relay Server                                        |
+//| Send Event to Edge Function (Direct Cloud)                        |
 //+------------------------------------------------------------------+
 bool SendEvent(string payload)
 {
@@ -342,16 +378,15 @@ bool SendEvent(string payload)
    int payloadLen = StringToCharArray(payload, postData, 0, WHOLE_ARRAY, CP_UTF8);
    ArrayResize(postData, payloadLen - 1); // Remove null terminator
    
-   // Build headers
+   // Build headers for Edge Function
    string headers = "Content-Type: application/json\r\n";
    headers += "x-api-key: " + InpApiKey + "\r\n";
    
-   // Send request
-   string url = InpServerUrl + "/api/trades";
-   int timeout = 10000; // 10 seconds
+   // Send directly to Edge Function
+   int timeout = 15000; // 15 seconds
    
    ResetLastError();
-   int responseCode = WebRequest("POST", url, headers, timeout, postData, result, resultHeaders);
+   int responseCode = WebRequest("POST", EDGE_FUNCTION_URL, headers, timeout, postData, result, resultHeaders);
    
    if(responseCode == -1)
    {
@@ -359,11 +394,19 @@ bool SendEvent(string payload)
       string errorMsg = "WebRequest failed. Error: " + IntegerToString(error);
       
       if(error == 4060)
-         errorMsg += " - URL not allowed. Add " + InpServerUrl + " to MT5 Options > Expert Advisors > Allow WebRequest";
+      {
+         errorMsg += " - URL not allowed. Add to MT5 Options > Expert Advisors";
+         Print("=================================================");
+         Print("ACTION REQUIRED: Enable WebRequest");
+         Print("1. Go to: Tools > Options > Expert Advisors");
+         Print("2. Check 'Allow WebRequest for listed URL'");
+         Print("3. Add: https://soosdjmnpcyuqppdjsse.supabase.co");
+         Print("=================================================");
+      }
       else if(error == 4014)
          errorMsg += " - WebRequest not allowed for this EA";
       else if(error == 5203)
-         errorMsg += " - Connection failed. Is relay server running?";
+         errorMsg += " - Connection failed. Check internet connection.";
       
       Print(errorMsg);
       LogMessage("ERROR: " + errorMsg);
@@ -385,6 +428,12 @@ bool SendEvent(string payload)
       if(InpVerboseMode)
          Print("Event already processed (duplicate)");
       return true;
+   }
+   else if(responseCode == 401)
+   {
+      Print("ERROR: Invalid API Key. Please check your API key in the EA settings.");
+      LogMessage("ERROR: Invalid API Key");
+      return false;
    }
    else if(responseCode == 503 || responseCode == 429)
    {
@@ -533,37 +582,38 @@ void TestWebRequest()
    char result[];
    string resultHeaders;
    
-   // Simple test request
-   string testPayload = "{\"test\":true}";
-   int len = StringToCharArray(testPayload, postData, 0, WHOLE_ARRAY, CP_UTF8);
-   ArrayResize(postData, len - 1);
-   
+   // Simple OPTIONS request to test connectivity
    string headers = "Content-Type: application/json\r\n";
-   string url = InpServerUrl + "/health";
    
    ResetLastError();
-   int responseCode = WebRequest("GET", url, headers, 5000, postData, result, resultHeaders);
+   int responseCode = WebRequest("OPTIONS", EDGE_FUNCTION_URL, headers, 5000, postData, result, resultHeaders);
    
    if(responseCode == -1)
    {
       int error = GetLastError();
       if(error == 4060)
       {
-         Print("WARNING: WebRequest not allowed for ", InpServerUrl);
-         Print("Go to: Tools > Options > Expert Advisors > Allow WebRequest for listed URL");
-         Print("Add: ", InpServerUrl);
+         Print("=================================================");
+         Print("SETUP REQUIRED: Enable WebRequest");
+         Print("");
+         Print("1. Go to: Tools > Options > Expert Advisors");
+         Print("2. Check 'Allow WebRequest for listed URL'");
+         Print("3. Click 'Add' and enter:");
+         Print("   https://soosdjmnpcyuqppdjsse.supabase.co");
+         Print("4. Click OK and restart the EA");
+         Print("=================================================");
          LogMessage("WebRequest not allowed - add URL to MT5 settings");
       }
       else if(error == 5203)
       {
-         Print("INFO: Relay server not responding. Make sure it's running on ", InpServerUrl);
-         LogMessage("Relay server not responding");
+         Print("INFO: Could not connect to server. Check internet connection.");
+         LogMessage("Connection test failed - check internet");
       }
       g_webRequestOk = false;
    }
    else
    {
-      Print("WebRequest OK. Relay server responding.");
+      Print("Connection OK! Ready to send trade events.");
       LogMessage("WebRequest test successful");
       g_webRequestOk = true;
    }
