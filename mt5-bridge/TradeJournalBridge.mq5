@@ -586,6 +586,9 @@ void ProcessQueue()
       }
       else
       {
+         // FIX: Add retry delay to avoid hammering server
+         Sleep(InpRetryDelayMs);
+         
          // Re-queue with incremented retry count
          string escapedForRequeue = payload;
          StringReplace(escapedForRequeue, "|", "{{PIPE}}");
@@ -953,8 +956,9 @@ string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direct
    // Build idempotency key - use history_sync prefix to differentiate
    string idempotencyKey = g_terminalId + "_history_" + IntegerToString(dealTicket) + "_" + eventType;
    
-   // Convert deal time to UTC (approximate - use as-is since it's historical)
-   string dealTimestamp = FormatTimestampUTC(dealTime);
+   // FIX: Use FormatTimestamp (no Z suffix) since dealTime is server time, not UTC
+   // Historical timestamps are approximate - we don't have reliable UTC conversion
+   string dealTimestamp = FormatTimestamp(dealTime);
    
    // Get symbol digits for price formatting
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -1029,17 +1033,5 @@ string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direct
    json += "}";
    
    return json;
-}
-//+------------------------------------------------------------------+
-      case REASON_RECOMPILE:   return "EA recompiled";
-      case REASON_CHARTCHANGE: return "Chart symbol/period changed";
-      case REASON_CHARTCLOSE:  return "Chart closed";
-      case REASON_PARAMETERS:  return "Parameters changed";
-      case REASON_ACCOUNT:     return "Account changed";
-      case REASON_TEMPLATE:    return "Template applied";
-      case REASON_INITFAILED:  return "OnInit failed";
-      case REASON_CLOSE:       return "Terminal closed";
-      default:                 return "Unknown reason (" + IntegerToString(reason) + ")";
-   }
 }
 //+------------------------------------------------------------------+
