@@ -498,19 +498,24 @@ export type Database = {
       trades: {
         Row: {
           account_id: string | null
+          alignment: string[] | null
           commission: number | null
           created_at: string
           direction: Database["public"]["Enums"]["trade_direction"]
           duration_seconds: number | null
           entry_price: number
           entry_time: string
+          entry_timeframes: string[] | null
           exit_price: number | null
           exit_time: string | null
           gross_pnl: number | null
           id: string
           is_open: boolean | null
+          model: string | null
           net_pnl: number | null
           partial_closes: Json | null
+          place: string | null
+          profile: string | null
           r_multiple_actual: number | null
           r_multiple_planned: number | null
           session: Database["public"]["Enums"]["session_type"] | null
@@ -523,24 +528,30 @@ export type Database = {
           total_lots: number
           tp_final: number | null
           tp_initial: number | null
+          trade_number: number | null
           updated_at: string
           user_id: string
         }
         Insert: {
           account_id?: string | null
+          alignment?: string[] | null
           commission?: number | null
           created_at?: string
           direction: Database["public"]["Enums"]["trade_direction"]
           duration_seconds?: number | null
           entry_price: number
           entry_time: string
+          entry_timeframes?: string[] | null
           exit_price?: number | null
           exit_time?: string | null
           gross_pnl?: number | null
           id?: string
           is_open?: boolean | null
+          model?: string | null
           net_pnl?: number | null
           partial_closes?: Json | null
+          place?: string | null
+          profile?: string | null
           r_multiple_actual?: number | null
           r_multiple_planned?: number | null
           session?: Database["public"]["Enums"]["session_type"] | null
@@ -553,24 +564,30 @@ export type Database = {
           total_lots: number
           tp_final?: number | null
           tp_initial?: number | null
+          trade_number?: number | null
           updated_at?: string
           user_id: string
         }
         Update: {
           account_id?: string | null
+          alignment?: string[] | null
           commission?: number | null
           created_at?: string
           direction?: Database["public"]["Enums"]["trade_direction"]
           duration_seconds?: number | null
           entry_price?: number
           entry_time?: string
+          entry_timeframes?: string[] | null
           exit_price?: number | null
           exit_time?: string | null
           gross_pnl?: number | null
           id?: string
           is_open?: boolean | null
+          model?: string | null
           net_pnl?: number | null
           partial_closes?: Json | null
+          place?: string | null
+          profile?: string | null
           r_multiple_actual?: number | null
           r_multiple_planned?: number | null
           session?: Database["public"]["Enums"]["session_type"] | null
@@ -583,6 +600,7 @@ export type Database = {
           total_lots?: number
           tp_final?: number | null
           tp_initial?: number | null
+          trade_number?: number | null
           updated_at?: string
           user_id?: string
         }
