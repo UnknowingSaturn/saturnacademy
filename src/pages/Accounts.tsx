@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Link } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccounts } from '@/hooks/useAccounts';
 import { AccountCard } from '@/components/accounts/AccountCard';
 import { CreateAccountDialog } from '@/components/accounts/CreateAccountDialog';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
+import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
 import { Account } from '@/types/trading';
 
 export default function Accounts() {
   const { data: accounts, isLoading } = useAccounts();
   const [createOpen, setCreateOpen] = useState(false);
+  const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
 
   return (
@@ -19,10 +21,16 @@ export default function Accounts() {
           <h1 className="text-2xl font-bold">Accounts</h1>
           <p className="text-muted-foreground">Manage your trading accounts and MT5 connections</p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Account
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setQuickConnectOpen(true)}>
+            <Link className="h-4 w-4 mr-2" />
+            Connect MT5
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Account
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -34,11 +42,17 @@ export default function Accounts() {
       ) : accounts?.length === 0 ? (
         <div className="text-center py-12 border border-dashed rounded-lg">
           <h3 className="text-lg font-medium">No accounts yet</h3>
-          <p className="text-muted-foreground mt-1">Create your first trading account to get started</p>
-          <Button className="mt-4" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Create Account
-          </Button>
+          <p className="text-muted-foreground mt-1 mb-4">Connect your MT5 terminal or create a manual account</p>
+          <div className="flex gap-2 justify-center">
+            <Button variant="outline" onClick={() => setQuickConnectOpen(true)}>
+              <Link className="h-4 w-4 mr-2" />
+              Connect MT5
+            </Button>
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create Manual Account
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
@@ -54,6 +68,7 @@ export default function Accounts() {
 
       <CreateAccountDialog open={createOpen} onOpenChange={setCreateOpen} />
       <MT5SetupDialog account={setupAccount} onOpenChange={(open) => !open && setSetupAccount(null)} />
+      <QuickConnectDialog open={quickConnectOpen} onOpenChange={setQuickConnectOpen} />
     </div>
   );
 }
