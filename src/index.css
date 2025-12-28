@@ -520,4 +520,33 @@
       opacity: 1;
     }
   }
+
+  /* Emotion state colors */
+  .emotion-positive {
+    @apply text-profit;
+  }
+
+  .emotion-neutral {
+    @apply text-muted-foreground;
+  }
+
+  .emotion-negative {
+    @apply text-loss;
+  }
+
+  /* Expand animation */
+  .expand-content {
+    animation: expand-in 0.2s ease-out;
+  }
+
+  @keyframes expand-in {
+    0% {
+      opacity: 0;
+      max-height: 0;
+    }
+    100% {
+      opacity: 1;
+      max-height: 1000px;
+    }
+  }
 }
