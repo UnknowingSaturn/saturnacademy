@@ -84,7 +84,7 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
   const handleDownload = () => {
     // Create a download link for the EA file
     const link = document.createElement('a');
-    link.href = '/mt5-bridge/TradeJournalBridge.mq5';
+    link.href = '/TradeJournalBridge.mq5';
     link.download = 'TradeJournalBridge.mq5';
     document.body.appendChild(link);
     link.click();
@@ -155,7 +155,7 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
               <p>2. Check <strong>"Allow WebRequest for listed URL"</strong></p>
               <p>3. Click <strong>Add</strong> and enter:</p>
               <code className="block bg-muted px-2 py-1 rounded text-xs mt-1">
-                https://soosdjmnpcyuqppdjsse.supabase.co
+                {import.meta.env.VITE_SUPABASE_URL}
               </code>
             </div>
           </div>
