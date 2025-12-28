@@ -1,0 +1,22 @@
+{
+  "name": "trade-journal-relay",
+  "version": "1.0.0",
+  "description": "Local relay server for MT5 Trade Journal Bridge",
+  "main": "relay-server.js",
+  "scripts": {
+    "start": "node relay-server.js",
+    "dev": "node relay-server.js"
+  },
+  "keywords": [
+    "mt5",
+    "metatrader",
+    "trading",
+    "journal",
+    "relay"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
