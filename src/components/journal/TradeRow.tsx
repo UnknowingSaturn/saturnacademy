@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Trade, SessionType } from "@/types/trading";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Image, Sparkles } from "lucide-react";
 import { TradeReviewPanel } from "./TradeReviewPanel";
+import { Badge } from "@/components/ui/badge";
 
 interface TradeRowProps {
   trade: Trade;
@@ -34,22 +35,39 @@ export function TradeRow({ trade }: TradeRowProps) {
   const isBreakeven = pnl === 0 && !trade.is_open;
 
   const score = trade.review?.score || 0;
+  const hasScreenshots = trade.review?.screenshots && trade.review.screenshots.length > 0;
+  const hasReview = !!trade.review;
 
   return (
     <div className={cn(
-      "trade-row",
+      "trade-row group",
       isWin && "trade-row-win",
       isLoss && "trade-row-loss",
-      isBreakeven && "trade-row-breakeven"
+      isBreakeven && "trade-row-breakeven",
+      isExpanded && "bg-accent/20"
     )}>
+      {/* Ambient Glow Effect for Wins */}
+      {isWin && !isExpanded && (
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+          <div className="absolute inset-0 bg-gradient-to-r from-profit/5 via-transparent to-transparent" />
+        </div>
+      )}
+
       {/* Collapsed Row */}
       <div 
-        className="flex items-center gap-4 p-4 cursor-pointer hover:bg-muted/30 transition-colors"
+        className={cn(
+          "relative flex items-center gap-4 p-4 cursor-pointer transition-all duration-200",
+          "hover:bg-accent/30",
+          isExpanded && "bg-accent/40"
+        )}
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <button className="p-1 rounded hover:bg-muted">
+        <button className={cn(
+          "p-1.5 rounded-md transition-colors",
+          isExpanded ? "bg-primary/20 text-primary" : "hover:bg-muted"
+        )}>
           {isExpanded ? (
-            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+            <ChevronDown className="w-4 h-4" />
           ) : (
             <ChevronRight className="w-4 h-4 text-muted-foreground" />
           )}
@@ -67,13 +85,20 @@ export function TradeRow({ trade }: TradeRowProps) {
 
         {/* Symbol & Direction */}
         <div className="w-28 shrink-0">
-          <p className="font-medium">{trade.symbol}</p>
-          <p className={cn(
-            "text-xs font-medium uppercase",
-            trade.direction === "buy" ? "text-profit" : "text-loss"
-          )}>
-            {trade.direction}
-          </p>
+          <p className="font-semibold tracking-tight">{trade.symbol}</p>
+          <div className="flex items-center gap-1.5">
+            <span className={cn(
+              "text-xs font-bold uppercase px-1.5 py-0.5 rounded",
+              trade.direction === "buy" 
+                ? "bg-profit/15 text-profit" 
+                : "bg-loss/15 text-loss"
+            )}>
+              {trade.direction}
+            </span>
+            <span className="text-xs text-muted-foreground font-mono-numbers">
+              {trade.total_lots}L
+            </span>
+          </div>
         </div>
 
         {/* Session */}
@@ -89,36 +114,39 @@ export function TradeRow({ trade }: TradeRowProps) {
         <div className="w-20 shrink-0 text-center">
           {trade.r_multiple_actual !== null ? (
             <span className={cn(
-              "font-mono-numbers font-medium",
-              trade.r_multiple_actual >= 0 ? "text-profit" : "text-loss"
+              "font-mono-numbers font-bold text-sm",
+              trade.r_multiple_actual >= 0 ? "text-profit text-glow-profit" : "text-loss"
             )}>
               {trade.r_multiple_actual >= 0 ? "+" : ""}{trade.r_multiple_actual.toFixed(2)}R
             </span>
           ) : (
-            <span className="text-muted-foreground">—</span>
+            <span className="text-muted-foreground text-sm">—</span>
           )}
         </div>
 
         {/* P&L */}
-        <div className="w-24 shrink-0 text-right">
+        <div className="w-28 shrink-0 text-right">
           {trade.is_open ? (
-            <span className="text-sm text-muted-foreground">Open</span>
+            <Badge variant="outline" className="animate-pulse">Open</Badge>
           ) : (
-            <span className={cn(
-              "font-mono-numbers font-medium",
-              isWin && "text-profit",
-              isLoss && "text-loss"
-            )}>
-              {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
-            </span>
+            <div>
+              <span className={cn(
+                "font-mono-numbers font-bold text-lg",
+                isWin && "text-profit text-glow-profit",
+                isLoss && "text-loss",
+                isBreakeven && "text-breakeven"
+              )}>
+                {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+              </span>
+            </div>
           )}
         </div>
 
         {/* Score */}
         <div className="w-16 shrink-0 text-center">
-          {trade.review ? (
+          {hasReview ? (
             <span className={cn(
-              "score-indicator w-8 h-8",
+              "score-indicator w-9 h-9 text-xs",
               score >= 4 && "score-high",
               score >= 2 && score < 4 && "score-medium",
               score < 2 && "score-low"
@@ -126,28 +154,45 @@ export function TradeRow({ trade }: TradeRowProps) {
               {score}/5
             </span>
           ) : (
-            <span className="text-xs text-muted-foreground">No review</span>
+            <span className="text-xs text-muted-foreground">—</span>
           )}
         </div>
 
-        {/* Emotional State */}
-        <div className="flex-1 min-w-0">
+        {/* Indicators */}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          {/* Emotional State */}
           {trade.review?.emotional_state_before && (
             <span className={cn(
-              "text-xs capitalize",
-              ["great", "good", "calm", "confident", "focused"].includes(trade.review.emotional_state_before) && "emotion-positive",
-              ["alright", "okay", "normal"].includes(trade.review.emotional_state_before) && "emotion-neutral",
-              ["rough", "anxious", "fomo", "revenge", "tilted", "exhausted"].includes(trade.review.emotional_state_before) && "emotion-negative"
+              "text-xs capitalize px-2 py-0.5 rounded-full",
+              ["great", "good", "calm", "confident", "focused"].includes(trade.review.emotional_state_before) 
+                && "bg-profit/10 text-profit border border-profit/20",
+              ["alright", "okay", "normal"].includes(trade.review.emotional_state_before) 
+                && "bg-muted text-muted-foreground border border-border",
+              ["rough", "anxious", "fomo", "revenge", "tilted", "exhausted"].includes(trade.review.emotional_state_before) 
+                && "bg-loss/10 text-loss border border-loss/20"
             )}>
               {trade.review.emotional_state_before}
             </span>
+          )}
+
+          {/* Screenshot indicator */}
+          {hasScreenshots && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Image className="w-3.5 h-3.5" />
+              {trade.review?.screenshots?.length}
+            </span>
+          )}
+
+          {/* AI Analysis indicator */}
+          {trade.review?.thoughts && trade.review.thoughts.includes("**VERDICT**") && (
+            <Sparkles className="w-3.5 h-3.5 text-primary" />
           )}
         </div>
       </div>
 
       {/* Expanded Review Panel */}
       {isExpanded && (
-        <div className="expand-content border-t border-border bg-muted/20">
+        <div className="expand-content border-t border-border bg-card/50 backdrop-blur-sm">
           <TradeReviewPanel trade={trade} />
         </div>
       )}
