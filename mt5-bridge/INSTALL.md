@@ -1,262 +1,80 @@
-# Trade Journal Bridge - Installation Guide
+# MT5 Trade Journal Bridge - Installation Guide
 
-Complete setup guide for the MT5 Expert Advisor that automatically captures and sends trade events to your journal.
+This Expert Advisor captures your MT5 trades in real-time and sends them directly to your Trade Journal. No relay server required!
 
-## Overview
+## Quick Setup (3 minutes)
 
-```
-┌─────────────────────┐     HTTP      ┌─────────────────────┐     HTTPS     ┌─────────────────────┐
-│       MT5           │ ──────────► │   Relay Server      │ ──────────► │    Journal API      │
-│  TradeJournalBridge │   localhost   │   (Node.js)         │              │   (Supabase)        │
-└─────────────────────┘               └─────────────────────┘              └─────────────────────┘
-```
+### Step 1: Download the EA
+Download `TradeJournalBridge.mq5` from this folder.
 
-## Prerequisites
+### Step 2: Install in MetaTrader 5
+1. Open MT5
+2. Go to **File → Open Data Folder**
+3. Navigate to **MQL5 → Experts**
+4. Copy `TradeJournalBridge.mq5` to this folder
+5. Restart MT5 or right-click the Navigator panel and select **Refresh**
 
-- MetaTrader 5 terminal
-- Node.js 14+ (for relay server)
-- An account on the Trade Journal app
+### Step 3: Enable WebRequest
+1. Go to **Tools → Options → Expert Advisors**
+2. Check **"Allow WebRequest for listed URL"**
+3. Click **Add** and enter:
+   ```
+   https://soosdjmnpcyuqppdjsse.supabase.co
+   ```
+4. Click **OK**
 
----
+### Step 4: Get Your API Key
+1. Go to the Accounts page in your Trade Journal
+2. Click **"Connect MT5"**
+3. Copy the generated API Key
 
-## Step 1: Get Your API Key
+### Step 5: Attach the EA
+1. In MT5 Navigator, find **Expert Advisors → TradeJournalBridge**
+2. Drag it onto any chart
+3. In the settings, paste your API Key
+4. Click **OK**
 
-1. Log into your Trade Journal account
-2. Go to **Dashboard** → **Accounts**
-3. Create or select an account
-4. Copy the **API Key** (you'll need this for the EA)
+## That's It!
 
-> ⚠️ **Important**: Keep your API key secret. Anyone with this key can add trades to your account.
+Your account will be created automatically after your first trade. The EA will:
+- ✅ Capture all trades in real-time
+- ✅ Track opens, modifies, partial closes, and full closes
+- ✅ Auto-detect your broker and account type
+- ✅ Work with prop firm accounts (FTMO, FundedNext, etc.)
 
----
+## Features
 
-## Step 2: Install the Expert Advisor
-
-### 2.1 Locate MT5 Data Folder
-
-1. Open MetaTrader 5
-2. Go to **File** → **Open Data Folder**
-3. Navigate to `MQL5/Experts/`
-
-### 2.2 Copy EA File
-
-1. Copy `TradeJournalBridge.mq5` to the `MQL5/Experts/` folder
-2. In MT5, go to **Tools** → **MetaEditor** (or press F4)
-3. In the Navigator panel, find `Experts/TradeJournalBridge.mq5`
-4. Press **F7** to compile
-5. Verify no errors in the output log
-
-### 2.3 Enable WebRequest
-
-This is **critical** - the EA needs permission to make HTTP requests:
-
-1. In MT5, go to **Tools** → **Options**
-2. Click the **Expert Advisors** tab
-3. Check ✅ **Allow WebRequest for listed URL:**
-4. Click **Add** and enter: `http://127.0.0.1`
-5. Click **OK**
-
-![WebRequest Settings](https://i.imgur.com/example.png)
-
----
-
-## Step 3: Install the Relay Server
-
-### 3.1 Install Node.js
-
-If you don't have Node.js installed:
-
-1. Download from [nodejs.org](https://nodejs.org/)
-2. Install the LTS version
-3. Verify installation: `node --version`
-
-### 3.2 Setup Relay Server
-
-```bash
-# Navigate to the relay server folder
-cd mt5-bridge
-
-# Install dependencies (there are none, but run anyway)
-npm install
-
-# Start the relay server
-npm start
-```
-
-You should see:
-
-```
-╔═══════════════════════════════════════════════════════════╗
-║         Trade Journal Bridge - Relay Server               ║
-╠═══════════════════════════════════════════════════════════╣
-║  Server running on http://127.0.0.1:8080                  ║
-║                                                           ║
-║  Endpoints:                                               ║
-║    POST /api/trades  - Forward trade events               ║
-║    GET  /health      - Health check                       ║
-║    GET  /stats       - Request statistics                 ║
-║                                                           ║
-║  Press Ctrl+C to stop                                     ║
-╚═══════════════════════════════════════════════════════════╝
-```
-
-### 3.3 Run as Background Service (Optional)
-
-**Windows (using PM2):**
-```bash
-npm install -g pm2
-pm2 start relay-server.js --name trade-journal-relay
-pm2 save
-pm2 startup
-```
-
-**Linux/macOS:**
-```bash
-npm install -g pm2
-pm2 start relay-server.js --name trade-journal-relay
-pm2 save
-pm2 startup
-```
-
----
-
-## Step 4: Attach EA to Chart
-
-1. In MT5, open any chart (recommended: EURUSD M1)
-2. In the Navigator panel (Ctrl+N), expand **Expert Advisors**
-3. Drag **TradeJournalBridge** onto the chart
-4. Configure the inputs:
-
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| **Terminal ID** | `TERMINAL_01` | Unique name for this MT5 instance |
-| **API Key** | `your-api-key` | From Step 1 |
-| **Server URL** | `http://127.0.0.1:8080` | Leave default |
-| **Enable Logging** | `true` | Recommended |
-| **Verbose Mode** | `false` | Set to true for debugging |
-| **Symbol Filter** | *(empty)* | Leave empty for all symbols |
-| **Magic Filter** | `0` | 0 = all magic numbers |
-
-5. Click **OK**
-6. Make sure the **AutoTrading** button in the toolbar is enabled
-
----
-
-## Step 5: Verify Installation
-
-### 5.1 Check EA Status
-
-Look at the chart. You should see in the **Experts** tab (bottom panel):
-```
-Trade Journal Bridge initialized successfully
-Terminal ID: TERMINAL_01
-Server URL: http://127.0.0.1:8080
-WebRequest OK. Relay server responding.
-```
-
-### 5.2 Test with a Demo Trade
-
-1. Open a small demo trade manually
-2. Check the relay server console - you should see:
-```
-[INFO] Received event: open for EURUSD
-[INFO] Event forwarded successfully { event_id: "...", trade_id: "..." }
-```
-
-3. Close the trade
-4. Check the console again for the `close` event
-5. Verify the trade appears in your journal
-
----
+- **Read-Only**: Cannot place or modify trades - prop-firm safe
+- **Direct Cloud Connection**: No relay server needed
+- **Auto-Retry**: Failed sends are queued and retried automatically
+- **Idempotent**: Duplicate events are handled gracefully
 
 ## Troubleshooting
 
-### EA shows "WebRequest not allowed"
+### "WebRequest not allowed" error
+1. Make sure you added the URL in Tools → Options → Expert Advisors
+2. The exact URL is: `https://soosdjmnpcyuqppdjsse.supabase.co`
+3. Restart MT5 after adding the URL
 
-1. Go to **Tools** → **Options** → **Expert Advisors**
-2. Make sure `http://127.0.0.1` is in the allowed URLs list
-3. Restart the EA
+### EA not showing in Navigator
+1. Make sure the file is in the correct folder: `MQL5/Experts/`
+2. Right-click Navigator → Refresh
+3. Check that you have the .mq5 file (not .ex5)
 
-### EA shows "Relay server not responding"
+### "Invalid API Key" error
+1. Generate a new API Key from the Accounts page
+2. Make sure you copied the complete key
+3. The key is case-sensitive
 
-1. Make sure the relay server is running: `npm start`
-2. Check if port 8080 is available
-3. Try accessing http://127.0.0.1:8080/health in a browser
+## Optional Settings
 
-### Events not appearing in journal
-
-1. Check the relay server console for errors
-2. Verify your API key is correct
-3. Check the log file: `MQL5/Files/TradeJournal.log`
-4. Check the queue file: `MQL5/Files/TradeJournalQueue.csv`
-
-### "Invalid API key" error
-
-1. Go to your journal account settings
-2. Regenerate or copy the correct API key
-3. Update the EA input parameter
-
----
-
-## Multiple MT5 Terminals
-
-If you run multiple MT5 terminals (e.g., different prop firm accounts):
-
-1. Use a **unique Terminal ID** for each terminal
-2. Use the **same relay server** (it can handle multiple terminals)
-3. Each terminal should have its own API key (linked to the correct account)
-
-Example setup:
-- Terminal 1: `FTMO_MAIN` with API key for FTMO account
-- Terminal 2: `FUNDEDNEXT_1` with API key for FundedNext account
-- Terminal 3: `DEMO_TEST` with API key for demo account
-
----
-
-## Security Notes
-
-1. **API keys are secret** - never share them
-2. **Relay server runs locally** - no external exposure
-3. **EA is read-only** - cannot place or modify trades
-4. **Prop firm safe** - tested with FTMO and FundedNext
-
----
-
-## Log Files
-
-| File | Location | Purpose |
-|------|----------|---------|
-| `TradeJournal.log` | `MQL5/Files/` | EA activity log |
-| `TradeJournalQueue.csv` | `MQL5/Files/` | Failed events queue |
-| Relay console | Terminal | Server activity |
-
----
-
-## Updating
-
-### Update EA
-
-1. Copy new `TradeJournalBridge.mq5` to `MQL5/Experts/`
-2. Recompile in MetaEditor (F7)
-3. Remove and re-attach EA to chart
-
-### Update Relay Server
-
-1. Stop the relay server (Ctrl+C or `pm2 stop trade-journal-relay`)
-2. Replace `relay-server.js`
-3. Restart: `npm start` or `pm2 restart trade-journal-relay`
-
----
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Symbol Filter | (empty) | Only capture specific symbol (e.g., "EURUSD") |
+| Magic Filter | 0 | Only capture specific magic number (0 = all) |
+| Enable Logging | true | Write logs to file for debugging |
+| Verbose Mode | false | Show detailed console output |
 
 ## Support
 
-If you encounter issues:
-
-1. Check the troubleshooting section above
-2. Review log files for error messages
-3. Enable verbose mode for detailed logging
-4. Contact support with:
-   - MT5 version
-   - EA log file contents
-   - Relay server console output
-   - Steps to reproduce the issue
+If you need help, check the documentation or contact support through the app.
