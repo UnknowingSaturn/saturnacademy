@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { useTrades } from "@/hooks/useTrades";
 import { TradeRow } from "@/components/journal/TradeRow";
-import { Button } from "@/components/ui/button";
+import { ManualTradeForm } from "@/components/journal/ManualTradeForm";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SessionType } from "@/types/trading";
-import { Plus, Search, Calendar, Filter } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Search } from "lucide-react";
 
 export default function Journal() {
   const [symbolFilter, setSymbolFilter] = useState("");
@@ -36,12 +35,7 @@ export default function Journal() {
           <h1 className="text-2xl font-bold">Trade Journal</h1>
           <p className="text-muted-foreground">Review and analyze your trades</p>
         </div>
-        <Link to="/import">
-          <Button className="gap-2">
-            <Plus className="w-4 h-4" />
-            Add Trade
-          </Button>
-        </Link>
+        <ManualTradeForm />
       </div>
 
       {/* Filters */}
