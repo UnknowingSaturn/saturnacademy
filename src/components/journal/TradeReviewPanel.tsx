@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Plus, X, Sparkles, Loader2 } from "lucide-react";
+import { ScreenshotUpload } from "./ScreenshotUpload";
 
 interface TradeReviewPanelProps {
   trade: Trade;
@@ -52,6 +53,7 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
   const [toImprove, setToImprove] = useState<string[]>(existingReview?.to_improve || []);
   const [actionableSteps, setActionableSteps] = useState<ActionableStep[]>(existingReview?.actionable_steps || []);
   const [thoughts, setThoughts] = useState(existingReview?.thoughts || "");
+  const [screenshots, setScreenshots] = useState<string[]>(existingReview?.screenshots || []);
   const [newItem, setNewItem] = useState({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
 
   const selectedPlaybook = playbooks?.find(p => p.id === playbookId);
@@ -75,7 +77,7 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
       to_improve: toImprove,
       actionable_steps: actionableSteps,
       thoughts: thoughts || null,
-      screenshots: existingReview?.screenshots || [],
+      screenshots,
       reviewed_at: new Date().toISOString(),
     };
 
@@ -464,6 +466,20 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
               </CollapsibleContent>
             </Card>
           </Collapsible>
+
+          {/* Screenshots */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Chart Screenshots</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ScreenshotUpload
+                tradeId={trade.id}
+                screenshots={screenshots}
+                onScreenshotsChange={setScreenshots}
+              />
+            </CardContent>
+          </Card>
 
           {/* Thoughts */}
           <Card>

@@ -203,6 +203,59 @@ export type Database = {
           },
         ]
       }
+      notebook_entries: {
+        Row: {
+          content: string | null
+          created_at: string
+          energy_level: number | null
+          entry_date: string
+          goals: Json | null
+          id: string
+          market_conditions: string | null
+          mood_rating: number | null
+          reflection: string | null
+          tags: string[] | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string
+          energy_level?: number | null
+          entry_date: string
+          goals?: Json | null
+          id?: string
+          market_conditions?: string | null
+          mood_rating?: number | null
+          reflection?: string | null
+          tags?: string[] | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content?: string | null
+          created_at?: string
+          energy_level?: number | null
+          entry_date?: string
+          goals?: Json | null
+          id?: string
+          market_conditions?: string | null
+          mood_rating?: number | null
+          reflection?: string | null
+          tags?: string[] | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notebook_entries_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       playbooks: {
         Row: {
           checklist_questions: Json

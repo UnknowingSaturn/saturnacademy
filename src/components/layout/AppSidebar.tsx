@@ -6,7 +6,8 @@ import {
   Settings,
   Upload,
   TrendingUp,
-  LogOut
+  LogOut,
+  Notebook
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -27,6 +28,7 @@ import { Button } from "@/components/ui/button";
 const mainItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Trade Journal", url: "/journal", icon: BookOpen },
+  { title: "Daily Notebook", url: "/notebook", icon: Notebook },
   { title: "Playbooks", url: "/playbooks", icon: FileText },
   { title: "Compliance", url: "/compliance", icon: Shield },
 ];
