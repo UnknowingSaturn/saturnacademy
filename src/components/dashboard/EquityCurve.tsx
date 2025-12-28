@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Trade } from "@/types/trading";
 import { format } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface EquityCurveProps {
   trades: Trade[];
@@ -31,63 +30,102 @@ export function EquityCurve({ trades, startingBalance = 10000 }: EquityCurveProp
   }, [trades, startingBalance]);
 
   const isProfit = data.length > 1 && data[data.length - 1].balance > startingBalance;
+  const currentBalance = data.length > 0 ? data[data.length - 1].balance : startingBalance;
+  const totalPnl = currentBalance - startingBalance;
+  const pnlPercent = ((totalPnl / startingBalance) * 100).toFixed(2);
 
   return (
-    <Card className="col-span-2">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-lg font-medium">Equity Curve</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="h-[300px]">
+    <div className="col-span-2 rounded-xl border border-border/50 bg-card/80 backdrop-blur-xl overflow-hidden"
+      style={{
+        boxShadow: "0 0 0 1px hsl(0 0% 100% / 0.05), 0 8px 32px -8px hsl(0 0% 0% / 0.5)"
+      }}
+    >
+      <div className="p-6 pb-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Equity Curve</h3>
+            <p className="text-sm text-muted-foreground">Account balance over time</p>
+          </div>
+          <div className="text-right">
+            <p className={`text-2xl font-bold font-mono ${isProfit ? 'text-profit' : 'text-loss'}`}
+              style={{ textShadow: isProfit ? "0 0 20px hsl(var(--profit) / 0.4)" : "0 0 20px hsl(var(--loss) / 0.4)" }}
+            >
+              ${currentBalance.toLocaleString()}
+            </p>
+            <p className={`text-sm font-medium ${isProfit ? 'text-profit' : 'text-loss'}`}>
+              {totalPnl >= 0 ? '+' : ''}{pnlPercent}%
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="px-2 pb-4">
+        <div className="h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
                   <stop 
-                    offset="5%" 
-                    stopColor={isProfit ? "hsl(var(--profit))" : "hsl(var(--loss))"} 
-                    stopOpacity={0.3}
+                    offset="0%" 
+                    stopColor={isProfit ? "hsl(152, 95%, 45%)" : "hsl(0, 85%, 58%)"} 
+                    stopOpacity={0.4}
                   />
                   <stop 
-                    offset="95%" 
-                    stopColor={isProfit ? "hsl(var(--profit))" : "hsl(var(--loss))"} 
+                    offset="100%" 
+                    stopColor={isProfit ? "hsl(152, 95%, 45%)" : "hsl(0, 85%, 58%)"} 
                     stopOpacity={0}
                   />
                 </linearGradient>
+                <filter id="glow">
+                  <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                  <feMerge>
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
               </defs>
               <XAxis 
                 dataKey="date" 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                tick={{ fill: "hsl(0, 0%, 55%)", fontSize: 11 }}
+                dy={10}
               />
               <YAxis 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                tickFormatter={(value) => `$${value.toLocaleString()}`}
+                tick={{ fill: "hsl(0, 0%, 55%)", fontSize: 11 }}
+                tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                width={50}
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "hsl(var(--card))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "8px",
+                  backgroundColor: "hsl(0, 0%, 6%)",
+                  border: "1px solid hsl(0, 0%, 15%)",
+                  borderRadius: "12px",
+                  boxShadow: "0 8px 32px -8px hsl(0 0% 0% / 0.6)",
+                  padding: "12px 16px",
                 }}
-                labelStyle={{ color: "hsl(var(--foreground))" }}
-                formatter={(value: number) => [`$${value.toLocaleString()}`, "Balance"]}
+                labelStyle={{ color: "hsl(0, 0%, 95%)", fontWeight: 600, marginBottom: 4 }}
+                formatter={(value: number) => [
+                  <span style={{ color: isProfit ? "hsl(152, 95%, 45%)" : "hsl(0, 85%, 58%)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>
+                    ${value.toLocaleString()}
+                  </span>, 
+                  "Balance"
+                ]}
               />
               <Area
                 type="monotone"
                 dataKey="balance"
-                stroke={isProfit ? "hsl(var(--profit))" : "hsl(var(--loss))"}
-                strokeWidth={2}
+                stroke={isProfit ? "hsl(152, 95%, 45%)" : "hsl(0, 85%, 58%)"}
+                strokeWidth={2.5}
                 fillOpacity={1}
                 fill="url(#colorBalance)"
+                filter="url(#glow)"
               />
             </AreaChart>
           </ResponsiveContainer>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
