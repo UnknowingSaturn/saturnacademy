@@ -7,7 +7,8 @@ import {
   Upload,
   TrendingUp,
   LogOut,
-  Notebook
+  Notebook,
+  FileBarChart
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -36,6 +37,7 @@ const mainItems = [
 const toolItems = [
   { title: "Import Trades", url: "/import", icon: Upload },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
+  { title: "Reports", url: "/reports", icon: FileBarChart },
 ];
 
 export function AppSidebar() {
