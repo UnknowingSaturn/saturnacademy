@@ -12,10 +12,10 @@ interface TradePropertiesProps {
 }
 
 const sessionOptions = [
-  { value: "tokyo", label: "Tokyo", color: "tokyo" },
+  { value: "new_york_am", label: "New York AM", color: "newyork" },
   { value: "london", label: "London", color: "london" },
-  { value: "new_york", label: "New York", color: "newyork" },
-  { value: "overlap_london_ny", label: "Overlap", color: "overlap" },
+  { value: "tokyo", label: "Tokyo", color: "tokyo" },
+  { value: "new_york_pm", label: "New York PM", color: "newyork" },
   { value: "off_hours", label: "Off Hours", color: "muted" },
 ];
 

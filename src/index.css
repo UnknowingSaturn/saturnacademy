@@ -45,10 +45,9 @@
     --breakeven-foreground: 0 0% 10%;
 
     /* Session colors */
-    --session-tokyo: 280 65% 60%;
+    --session-tokyo: 330 80% 60%;
     --session-london: 210 80% 55%;
-    --session-newyork: 152 70% 45%;
-    --session-overlap: 35 90% 55%;
+    --session-newyork: 35 95% 50%;
 
     /* Chart colors */
     --chart-1: 217 91% 60%;
@@ -112,10 +111,9 @@
     --breakeven-foreground: 0 0% 0%;
 
     /* Session colors - luminous */
-    --session-tokyo: 280 75% 65%;
+    --session-tokyo: 330 80% 60%;
     --session-london: 210 90% 60%;
-    --session-newyork: 152 85% 50%;
-    --session-overlap: 35 95% 60%;
+    --session-newyork: 35 95% 50%;
 
     /* Chart colors - OLED optimized */
     --chart-1: 217 100% 60%;

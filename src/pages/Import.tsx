@@ -40,12 +40,20 @@ const dbFields = [
 function detectSession(dateStr: string): SessionType {
   try {
     const date = new Date(dateStr);
-    const hour = date.getUTCHours();
+    // Convert UTC to EST (UTC-5)
+    const estHour = (date.getUTCHours() - 5 + 24) % 24;
+    const estMinutes = date.getUTCMinutes();
+    const estTime = estHour + estMinutes / 60;
     
-    if (hour >= 0 && hour < 8) return "tokyo";
-    if (hour >= 8 && hour < 13) return "london";
-    if (hour >= 13 && hour < 17) return "overlap_london_ny";
-    if (hour >= 17 && hour < 22) return "new_york";
+    // Tokyo: 20:00 - 00:00 EST
+    if (estTime >= 20 || estTime < 0) return "tokyo";
+    // London: 02:00 - 05:00 EST
+    if (estTime >= 2 && estTime < 5) return "london";
+    // New York AM: 08:30 - 11:00 EST
+    if (estTime >= 8.5 && estTime < 11) return "new_york_am";
+    // New York PM: 13:00 - 16:00 EST
+    if (estTime >= 13 && estTime < 16) return "new_york_pm";
+    
     return "off_hours";
   } catch {
     return "off_hours";
@@ -62,8 +70,9 @@ function parseSession(value: string): SessionType | null {
   const lower = value.toLowerCase().trim();
   if (lower.includes("tokyo") || lower.includes("asia")) return "tokyo";
   if (lower.includes("london") || lower.includes("ldn")) return "london";
-  if (lower.includes("new york") || lower.includes("ny") || lower.includes("us")) return "new_york";
-  if (lower.includes("overlap")) return "overlap_london_ny";
+  if (lower.includes("ny am") || lower.includes("new york am")) return "new_york_am";
+  if (lower.includes("ny pm") || lower.includes("new york pm")) return "new_york_pm";
+  if (lower.includes("new york") || lower.includes("ny") || lower.includes("us")) return "new_york_am";
   return null;
 }
 

@@ -6,10 +6,10 @@ interface SessionBreakdownProps {
 }
 
 const sessionConfig: Record<SessionType, { label: string; className: string; color: string }> = {
-  tokyo: { label: "Tokyo", className: "session-tokyo", color: "hsl(280, 75%, 65%)" },
+  new_york_am: { label: "New York AM", className: "session-newyork", color: "hsl(35, 95%, 50%)" },
   london: { label: "London", className: "session-london", color: "hsl(210, 90%, 60%)" },
-  new_york: { label: "New York", className: "session-newyork", color: "hsl(152, 85%, 50%)" },
-  overlap_london_ny: { label: "Overlap", className: "session-overlap", color: "hsl(35, 95%, 60%)" },
+  tokyo: { label: "Tokyo", className: "session-tokyo", color: "hsl(330, 80%, 60%)" },
+  new_york_pm: { label: "New York PM", className: "session-newyork", color: "hsl(35, 95%, 50%)" },
   off_hours: { label: "Off Hours", className: "bg-muted/50 text-muted-foreground border border-border/50", color: "hsl(0, 0%, 55%)" },
 };
 

@@ -44,7 +44,7 @@ export function useDashboardMetrics(trades: Trade[]): DashboardMetrics {
     }
 
     // Calculate by session
-    const sessions: SessionType[] = ['tokyo', 'london', 'new_york', 'overlap_london_ny', 'off_hours'];
+    const sessions: SessionType[] = ['new_york_am', 'london', 'tokyo', 'new_york_pm', 'off_hours'];
     const bySession = sessions.reduce((acc, session) => {
       const sessionTrades = closedTrades.filter(t => t.session === session);
       const sessionWins = sessionTrades.filter(t => (t.net_pnl || 0) > 0);

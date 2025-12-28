@@ -195,10 +195,10 @@ export function ManualTradeForm() {
                   <SelectValue placeholder="Select session" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="tokyo">Tokyo</SelectItem>
+                  <SelectItem value="new_york_am">New York AM</SelectItem>
                   <SelectItem value="london">London</SelectItem>
-                  <SelectItem value="new_york">New York</SelectItem>
-                  <SelectItem value="overlap_london_ny">Overlap</SelectItem>
+                  <SelectItem value="tokyo">Tokyo</SelectItem>
+                  <SelectItem value="new_york_pm">New York PM</SelectItem>
                   <SelectItem value="off_hours">Off Hours</SelectItem>
                 </SelectContent>
               </Select>

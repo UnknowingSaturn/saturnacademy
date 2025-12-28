@@ -16,10 +16,10 @@ export function SymbolBreakdownTable({ metrics }: SymbolBreakdownTableProps) {
     .sort((a, b) => b[1].pnl - a[1].pnl);
 
   const sessionLabels: Record<string, string> = {
-    tokyo: 'Tokyo',
+    new_york_am: 'New York AM',
     london: 'London',
-    new_york: 'New York',
-    overlap_london_ny: 'London/NY Overlap',
+    tokyo: 'Tokyo',
+    new_york_pm: 'New York PM',
     off_hours: 'Off Hours',
     unknown: 'Unknown',
   };
