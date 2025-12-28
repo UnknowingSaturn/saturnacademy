@@ -5,7 +5,8 @@ import {
   Shield, 
   Upload,
   TrendingUp,
-  LogOut
+  LogOut,
+  Wallet
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -33,6 +34,7 @@ const mainItems = [
 const toolItems = [
   { title: "Import Trades", url: "/import", icon: Upload },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
+  { title: "Accounts", url: "/accounts", icon: Wallet },
 ];
 
 export function AppSidebar() {
