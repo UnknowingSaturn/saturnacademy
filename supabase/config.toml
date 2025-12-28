@@ -8,3 +8,12 @@ verify_jwt = false
 
 [functions.analyze-trade]
 verify_jwt = true
+
+[functions.compute-trade-features]
+verify_jwt = true
+
+[functions.score-trade-compliance]
+verify_jwt = true
+
+[functions.find-similar-trades]
+verify_jwt = true

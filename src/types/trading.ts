@@ -121,9 +121,22 @@ export interface Playbook {
   session_filter: SessionType[] | null;
   symbol_filter: string[] | null;
   checklist_questions: ChecklistQuestion[];
+  // Enhanced playbook rules for AI analysis
+  valid_regimes: RegimeType[];
+  entry_zone_rules: EntryZoneRules;
+  confirmation_rules: string[];
+  invalidation_rules: string[];
+  management_rules: string[];
+  failure_modes: string[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface EntryZoneRules {
+  min_percentile?: number;
+  max_percentile?: number;
+  require_htf_alignment?: boolean;
 }
 
 export interface ChecklistQuestion {
@@ -234,6 +247,93 @@ export interface OverlayTrade {
   tp: number | null;
   r_multiple: number | null;
   result: 'win' | 'loss' | 'breakeven' | 'open';
+}
+
+// Trade Features (computed by edge function)
+export interface TradeFeatures {
+  id: string;
+  trade_id: string;
+  day_of_week: number | null;
+  time_since_session_open_mins: number | null;
+  volatility_regime: 'low' | 'normal' | 'high' | null;
+  range_size_pips: number | null;
+  entry_percentile: number | null;
+  distance_to_mean_pips: number | null;
+  htf_bias: 'bull' | 'bear' | 'neutral' | null;
+  entry_efficiency: number | null;
+  exit_efficiency: number | null;
+  stop_location_quality: number | null;
+  computed_at: string;
+}
+
+// AI Analysis structured output
+export interface AIAnalysisOutput {
+  technical_review: {
+    matched_rules: string[];
+    deviations: string[];
+    failure_type: 'structural' | 'execution' | 'both' | 'none';
+  };
+  mistake_attribution: {
+    primary: string | null;
+    secondary: string[];
+    is_recurring: boolean;
+  };
+  psychology_analysis: {
+    influence: string;
+    past_correlation: string;
+    psychology_vs_structure: 'psychology' | 'structure' | 'both' | 'neither';
+  };
+  comparison_to_past: {
+    differs_from_winners: string[];
+    resembles_losers: string[];
+  };
+  actionable_guidance: {
+    rule_to_reinforce: string;
+    avoid_condition: string;
+  };
+  confidence: 'low' | 'medium' | 'high';
+}
+
+// AI Review (stored in database)
+export interface AIReview {
+  id: string;
+  trade_id: string;
+  technical_review: AIAnalysisOutput['technical_review'];
+  mistake_attribution: AIAnalysisOutput['mistake_attribution'];
+  psychology_analysis: AIAnalysisOutput['psychology_analysis'];
+  comparison_to_past: AIAnalysisOutput['comparison_to_past'];
+  actionable_guidance: AIAnalysisOutput['actionable_guidance'];
+  confidence: AIAnalysisOutput['confidence'];
+  setup_compliance_score: number;
+  rule_violations: string[];
+  context_alignment_score: number;
+  similar_winners: string[];
+  similar_losers: string[];
+  raw_analysis: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// AI Feedback for learning loop
+export interface AIFeedback {
+  id: string;
+  ai_review_id: string;
+  user_id: string;
+  is_accurate: boolean | null;
+  is_useful: boolean | null;
+  feedback_notes: string | null;
+  created_at: string;
+}
+
+// Similar trade for display
+export interface SimilarTrade {
+  trade_id: string;
+  similarity_score: number;
+  net_pnl: number;
+  r_multiple: number | null;
+  symbol: string;
+  session: string | null;
+  entry_percentile: number | null;
 }
 
 // Dashboard metrics

@@ -73,6 +73,44 @@ export type Database = {
           },
         ]
       }
+      ai_feedback: {
+        Row: {
+          ai_review_id: string
+          created_at: string | null
+          feedback_notes: string | null
+          id: string
+          is_accurate: boolean | null
+          is_useful: boolean | null
+          user_id: string
+        }
+        Insert: {
+          ai_review_id: string
+          created_at?: string | null
+          feedback_notes?: string | null
+          id?: string
+          is_accurate?: boolean | null
+          is_useful?: boolean | null
+          user_id: string
+        }
+        Update: {
+          ai_review_id?: string
+          created_at?: string | null
+          feedback_notes?: string | null
+          id?: string
+          is_accurate?: boolean | null
+          is_useful?: boolean | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_feedback_ai_review_id_fkey"
+            columns: ["ai_review_id"]
+            isOneToOne: false
+            referencedRelation: "ai_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_prompts: {
         Row: {
           created_at: string
@@ -125,6 +163,71 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_reviews: {
+        Row: {
+          actionable_guidance: Json | null
+          comparison_to_past: Json | null
+          confidence: string | null
+          context_alignment_score: number | null
+          created_at: string | null
+          id: string
+          mistake_attribution: Json | null
+          psychology_analysis: Json | null
+          raw_analysis: string | null
+          rule_violations: string[] | null
+          setup_compliance_score: number | null
+          similar_losers: string[] | null
+          similar_winners: string[] | null
+          technical_review: Json | null
+          trade_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          actionable_guidance?: Json | null
+          comparison_to_past?: Json | null
+          confidence?: string | null
+          context_alignment_score?: number | null
+          created_at?: string | null
+          id?: string
+          mistake_attribution?: Json | null
+          psychology_analysis?: Json | null
+          raw_analysis?: string | null
+          rule_violations?: string[] | null
+          setup_compliance_score?: number | null
+          similar_losers?: string[] | null
+          similar_winners?: string[] | null
+          technical_review?: Json | null
+          trade_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          actionable_guidance?: Json | null
+          comparison_to_past?: Json | null
+          confidence?: string | null
+          context_alignment_score?: number | null
+          created_at?: string | null
+          id?: string
+          mistake_attribution?: Json | null
+          psychology_analysis?: Json | null
+          raw_analysis?: string | null
+          rule_violations?: string[] | null
+          setup_compliance_score?: number | null
+          similar_losers?: string[] | null
+          similar_winners?: string[] | null
+          technical_review?: Json | null
+          trade_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_reviews_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
             referencedColumns: ["id"]
           },
         ]
@@ -259,39 +362,57 @@ export type Database = {
       playbooks: {
         Row: {
           checklist_questions: Json
+          confirmation_rules: string[] | null
           created_at: string
           description: string | null
+          entry_zone_rules: Json | null
+          failure_modes: string[] | null
           id: string
+          invalidation_rules: string[] | null
           is_active: boolean | null
+          management_rules: string[] | null
           name: string
           session_filter: Database["public"]["Enums"]["session_type"][] | null
           symbol_filter: string[] | null
           updated_at: string
           user_id: string
+          valid_regimes: string[] | null
         }
         Insert: {
           checklist_questions?: Json
+          confirmation_rules?: string[] | null
           created_at?: string
           description?: string | null
+          entry_zone_rules?: Json | null
+          failure_modes?: string[] | null
           id?: string
+          invalidation_rules?: string[] | null
           is_active?: boolean | null
+          management_rules?: string[] | null
           name: string
           session_filter?: Database["public"]["Enums"]["session_type"][] | null
           symbol_filter?: string[] | null
           updated_at?: string
           user_id: string
+          valid_regimes?: string[] | null
         }
         Update: {
           checklist_questions?: Json
+          confirmation_rules?: string[] | null
           created_at?: string
           description?: string | null
+          entry_zone_rules?: Json | null
+          failure_modes?: string[] | null
           id?: string
+          invalidation_rules?: string[] | null
           is_active?: boolean | null
+          management_rules?: string[] | null
           name?: string
           session_filter?: Database["public"]["Enums"]["session_type"][] | null
           symbol_filter?: string[] | null
           updated_at?: string
           user_id?: string
+          valid_regimes?: string[] | null
         }
         Relationships: [
           {
@@ -436,6 +557,62 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trade_features: {
+        Row: {
+          computed_at: string | null
+          day_of_week: number | null
+          distance_to_mean_pips: number | null
+          entry_efficiency: number | null
+          entry_percentile: number | null
+          exit_efficiency: number | null
+          htf_bias: string | null
+          id: string
+          range_size_pips: number | null
+          stop_location_quality: number | null
+          time_since_session_open_mins: number | null
+          trade_id: string
+          volatility_regime: string | null
+        }
+        Insert: {
+          computed_at?: string | null
+          day_of_week?: number | null
+          distance_to_mean_pips?: number | null
+          entry_efficiency?: number | null
+          entry_percentile?: number | null
+          exit_efficiency?: number | null
+          htf_bias?: string | null
+          id?: string
+          range_size_pips?: number | null
+          stop_location_quality?: number | null
+          time_since_session_open_mins?: number | null
+          trade_id: string
+          volatility_regime?: string | null
+        }
+        Update: {
+          computed_at?: string | null
+          day_of_week?: number | null
+          distance_to_mean_pips?: number | null
+          entry_efficiency?: number | null
+          entry_percentile?: number | null
+          exit_efficiency?: number | null
+          htf_bias?: string | null
+          id?: string
+          range_size_pips?: number | null
+          stop_location_quality?: number | null
+          time_since_session_open_mins?: number | null
+          trade_id?: string
+          volatility_regime?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_features_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: true
+            referencedRelation: "trades"
             referencedColumns: ["id"]
           },
         ]
