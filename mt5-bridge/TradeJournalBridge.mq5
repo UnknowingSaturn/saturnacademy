@@ -29,6 +29,10 @@ input group "=== Filters ==="
 input string   InpSymbolFilter   = "";                         // Symbol filter (empty = all)
 input long     InpMagicFilter    = 0;                          // Magic number filter (0 = all)
 
+input group "=== History Sync ==="
+input bool     InpSyncHistory    = true;                       // Sync historical trades on first run
+input int      InpSyncDaysBack   = 30;                         // Days of history to sync
+
 //+------------------------------------------------------------------+
 //| Constants - Direct Edge Function URL                              |
 //+------------------------------------------------------------------+
@@ -39,6 +43,7 @@ const string   EDGE_FUNCTION_URL = "https://soosdjmnpcyuqppdjsse.supabase.co/fun
 //+------------------------------------------------------------------+
 string         g_logFileName     = "TradeJournal.log";
 string         g_queueFileName   = "TradeJournalQueue.txt";    // Changed to .txt for FILE_TXT mode
+string         g_syncFlagFile    = "";                         // Flag file to track history sync
 int            g_logHandle       = INVALID_HANDLE;
 datetime       g_lastQueueCheck  = 0;
 bool           g_webRequestOk    = false;
@@ -63,6 +68,9 @@ int OnInit()
    // Generate terminal ID from account info for uniqueness
    g_terminalId = "MT5_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "_" + 
                   StringSubstr(AccountInfoString(ACCOUNT_SERVER), 0, 10);
+   
+   // Generate sync flag file name unique to this account
+   g_syncFlagFile = "TradeJournalSynced_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".flag";
    
    // Initialize logging
    if(InpEnableLogging)
@@ -99,6 +107,14 @@ int OnInit()
    Print("Your account will be created automatically");
    Print("after your first trade!");
    Print("=================================================");
+   
+   // Sync historical trades on first run (after a brief delay to ensure connection is ready)
+   if(InpSyncHistory && g_webRequestOk && !IsHistorySynced())
+   {
+      Print("");
+      Print("First run detected - syncing historical trades...");
+      SyncHistoricalDeals();
+   }
    
    return INIT_SUCCEEDED;
 }
@@ -751,6 +767,270 @@ string GetDeinitReasonText(int reason)
    {
       case REASON_PROGRAM:     return "EA stopped by program";
       case REASON_REMOVE:      return "EA removed from chart";
+      case REASON_RECOMPILE:   return "EA recompiled";
+      case REASON_CHARTCHANGE: return "Chart symbol/period changed";
+      case REASON_CHARTCLOSE:  return "Chart closed";
+      case REASON_PARAMETERS:  return "Parameters changed";
+      case REASON_ACCOUNT:     return "Account changed";
+      case REASON_TEMPLATE:    return "Template applied";
+      case REASON_INITFAILED:  return "OnInit failed";
+      case REASON_CLOSE:       return "Terminal closed";
+      default:                 return "Unknown reason (" + IntegerToString(reason) + ")";
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Check if History Already Synced (flag file exists)               |
+//+------------------------------------------------------------------+
+bool IsHistorySynced()
+{
+   return FileIsExist(g_syncFlagFile);
+}
+
+//+------------------------------------------------------------------+
+//| Mark History as Synced (create flag file)                         |
+//+------------------------------------------------------------------+
+void MarkHistorySynced(int dealCount)
+{
+   int handle = FileOpen(g_syncFlagFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle != INVALID_HANDLE)
+   {
+      string info = "History synced at " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\n";
+      info += "Deals synced: " + IntegerToString(dealCount) + "\n";
+      info += "Days back: " + IntegerToString(InpSyncDaysBack) + "\n";
+      FileWriteString(handle, info);
+      FileClose(handle);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Sync Historical Deals                                             |
+//| Scans deal history and sends past trades to the journal           |
+//+------------------------------------------------------------------+
+void SyncHistoricalDeals()
+{
+   datetime fromTime = TimeCurrent() - (InpSyncDaysBack * 86400);
+   datetime toTime = TimeCurrent();
+   
+   // Request deal history
+   if(!HistorySelect(fromTime, toTime))
+   {
+      Print("ERROR: Could not load deal history");
+      LogMessage("History sync failed - could not load history");
+      return;
+   }
+   
+   int totalDeals = HistoryDealsTotal();
+   Print("Scanning ", totalDeals, " deals from the last ", InpSyncDaysBack, " days...");
+   LogMessage("History sync started - scanning " + IntegerToString(totalDeals) + " deals");
+   
+   int sentCount = 0;
+   int skippedCount = 0;
+   int errorCount = 0;
+   
+   for(int i = 0; i < totalDeals; i++)
+   {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket == 0)
+         continue;
+      
+      // Get deal details
+      string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+      long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+      ENUM_DEAL_TYPE dealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
+      ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+      
+      // Apply filters
+      if(StringLen(InpSymbolFilter) > 0 && symbol != InpSymbolFilter)
+      {
+         skippedCount++;
+         continue;
+      }
+      
+      if(InpMagicFilter != 0 && magic != InpMagicFilter)
+      {
+         skippedCount++;
+         continue;
+      }
+      
+      // Skip balance/credit/commission deals
+      if(dealType == DEAL_TYPE_BALANCE || 
+         dealType == DEAL_TYPE_CREDIT ||
+         dealType == DEAL_TYPE_COMMISSION ||
+         dealType == DEAL_TYPE_COMMISSION_DAILY ||
+         dealType == DEAL_TYPE_COMMISSION_MONTHLY)
+      {
+         skippedCount++;
+         continue;
+      }
+      
+      // Explicit direction handling - skip non-buy/sell deals
+      string direction = "";
+      if(dealType == DEAL_TYPE_BUY)
+         direction = "buy";
+      else if(dealType == DEAL_TYPE_SELL)
+         direction = "sell";
+      else
+      {
+         skippedCount++;
+         continue;
+      }
+      
+      // Determine event type
+      string eventType = "";
+      if(dealEntry == DEAL_ENTRY_IN)
+         eventType = "entry";
+      else if(dealEntry == DEAL_ENTRY_OUT || dealEntry == DEAL_ENTRY_INOUT)
+         eventType = "exit";
+      else
+      {
+         skippedCount++;
+         continue;
+      }
+      
+      // Build payload with history_sync event type
+      string payload = BuildHistorySyncPayload(dealTicket, eventType, direction);
+      
+      // Progress update every 10 deals
+      if(sentCount > 0 && sentCount % 10 == 0)
+      {
+         Print("Syncing history... ", sentCount, "/", totalDeals - skippedCount, " deals sent");
+      }
+      
+      // Send event (with small delay to avoid rate limiting)
+      if(SendEvent(payload, dealTicket))
+      {
+         MarkDealProcessed(dealTicket);
+         sentCount++;
+      }
+      else
+      {
+         // Add to queue for later retry
+         AddToQueue(payload, dealTicket);
+         errorCount++;
+      }
+      
+      // Small delay between events to avoid overwhelming the server
+      Sleep(50);
+   }
+   
+   // Mark history as synced
+   MarkHistorySynced(sentCount);
+   
+   Print("=================================================");
+   Print("History sync complete!");
+   Print("  Deals sent: ", sentCount);
+   Print("  Queued for retry: ", errorCount);
+   Print("  Skipped (filtered): ", skippedCount);
+   Print("=================================================");
+   
+   LogMessage("History sync complete - sent: " + IntegerToString(sentCount) + 
+              ", queued: " + IntegerToString(errorCount) + 
+              ", skipped: " + IntegerToString(skippedCount));
+}
+
+//+------------------------------------------------------------------+
+//| Build JSON Payload for History Sync Event                         |
+//| Similar to BuildEventPayload but with history_sync event type     |
+//+------------------------------------------------------------------+
+string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direction)
+{
+   // Get all deal information
+   string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+   long positionId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+   long orderId = HistoryDealGetInteger(dealTicket, DEAL_ORDER);
+   double volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+   double price = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+   double sl = HistoryDealGetDouble(dealTicket, DEAL_SL);
+   double tp = HistoryDealGetDouble(dealTicket, DEAL_TP);
+   double commission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+   double swap = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+   double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+   datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+   long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+   string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
+   
+   // Build idempotency key - use history_sync prefix to differentiate
+   string idempotencyKey = g_terminalId + "_history_" + IntegerToString(dealTicket) + "_" + eventType;
+   
+   // Convert deal time to UTC (approximate - use as-is since it's historical)
+   string dealTimestamp = FormatTimestampUTC(dealTime);
+   
+   // Get symbol digits for price formatting
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(digits <= 0) digits = 5;
+   
+   // Get account info for auto-account creation
+   long accountLogin = AccountInfoInteger(ACCOUNT_LOGIN);
+   string broker = AccountInfoString(ACCOUNT_COMPANY);
+   string server = AccountInfoString(ACCOUNT_SERVER);
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   
+   // Detect account type from server name
+   string accountType = "live";
+   string serverLower = server;
+   StringToLower(serverLower);
+   if(StringFind(serverLower, "demo") >= 0)
+      accountType = "demo";
+   else if(StringFind(serverLower, "ftmo") >= 0 || 
+           StringFind(serverLower, "fundednext") >= 0 ||
+           StringFind(serverLower, "prop") >= 0)
+      accountType = "prop";
+   
+   // Build JSON payload - use history_sync as the wrapper event type
+   string json = "{";
+   json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
+   json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"event_type\":\"history_sync\",";
+   json += "\"original_event_type\":\"" + eventType + "\",";  // entry or exit
+   
+   // Send all three IDs explicitly
+   json += "\"position_id\":" + IntegerToString(positionId) + ",";
+   json += "\"deal_id\":" + IntegerToString(dealTicket) + ",";
+   json += "\"order_id\":" + IntegerToString(orderId) + ",";
+   
+   json += "\"symbol\":\"" + symbol + "\",";
+   json += "\"direction\":\"" + direction + "\",";
+   json += "\"lot_size\":" + DoubleToString(volume, 2) + ",";
+   json += "\"price\":" + DoubleToString(price, digits) + ",";
+   
+   // SL/TP - only include if set
+   if(sl > 0)
+      json += "\"sl\":" + DoubleToString(sl, digits) + ",";
+   if(tp > 0)
+      json += "\"tp\":" + DoubleToString(tp, digits) + ",";
+   
+   json += "\"commission\":" + DoubleToString(commission, 2) + ",";
+   json += "\"swap\":" + DoubleToString(swap, 2) + ",";
+   json += "\"profit\":" + DoubleToString(profit, 2) + ",";
+   
+   // Use deal time as timestamp (historical data)
+   json += "\"timestamp\":\"" + dealTimestamp + "\",";
+   json += "\"server_time\":\"" + FormatTimestamp(dealTime) + "\",";
+   
+   // Account info for auto-creation
+   json += "\"account_info\":{";
+   json += "\"login\":" + IntegerToString(accountLogin) + ",";
+   json += "\"broker\":\"" + EscapeJsonString(broker) + "\",";
+   json += "\"server\":\"" + server + "\",";
+   json += "\"balance\":" + DoubleToString(balance, 2) + ",";
+   json += "\"equity\":" + DoubleToString(equity, 2) + ",";
+   json += "\"account_type\":\"" + accountType + "\"";
+   json += "},";
+   
+   // Raw metadata
+   json += "\"raw_payload\":{";
+   json += "\"magic\":" + IntegerToString(magic) + ",";
+   json += "\"comment\":\"" + EscapeJsonString(comment) + "\",";
+   json += "\"is_history_sync\":true";
+   json += "}";
+   
+   json += "}";
+   
+   return json;
+}
+//+------------------------------------------------------------------+
       case REASON_RECOMPILE:   return "EA recompiled";
       case REASON_CHARTCHANGE: return "Chart symbol/period changed";
       case REASON_CHARTCLOSE:  return "Chart closed";
