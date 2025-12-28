@@ -45,7 +45,6 @@ function AppRoutes() {
       <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
       <Route path="/compliance" element={<ProtectedRoute><Compliance /></ProtectedRoute>} />
       <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
-      <Route path="/analytics" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
