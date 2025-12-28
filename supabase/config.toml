@@ -1,1 +1,10 @@
 project_id = "soosdjmnpcyuqppdjsse"
+
+[functions.ingest-events]
+verify_jwt = false
+
+[functions.trades-overlay]
+verify_jwt = false
+
+[functions.analyze-trade]
+verify_jwt = true
