@@ -60,6 +60,11 @@ export interface TradeEvent {
   processed: boolean;
 }
 
+// Model types for trade categorization
+export type TradeModel = 'type_a' | 'type_b' | 'type_c';
+export type TimeframeAlignment = '1min' | '5min' | '15min' | '1hr' | '4hr' | 'daily';
+export type TradeProfile = 'consolidation' | 'expansion' | 'reversal' | 'continuation';
+
 export interface Trade {
   id: string;
   user_id: string;
@@ -89,6 +94,13 @@ export interface Trade {
   is_open: boolean;
   created_at: string;
   updated_at: string;
+  // New Notion-style fields
+  model: TradeModel | null;
+  alignment: TimeframeAlignment[] | null;
+  entry_timeframes: TimeframeAlignment[] | null;
+  profile: TradeProfile | null;
+  place: string | null;
+  trade_number: number | null;
   // Joined data
   review?: TradeReview;
   account?: Account;

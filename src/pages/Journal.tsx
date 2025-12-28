@@ -1,17 +1,19 @@
 import { useState } from "react";
 import { useTrades } from "@/hooks/useTrades";
-import { TradeRow } from "@/components/journal/TradeRow";
+import { TradeTable } from "@/components/journal/TradeTable";
+import { TradeDetailPanel } from "@/components/journal/TradeDetailPanel";
 import { ManualTradeForm } from "@/components/journal/ManualTradeForm";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SessionType } from "@/types/trading";
+import { SessionType, Trade } from "@/types/trading";
 import { Search } from "lucide-react";
 
 export default function Journal() {
   const [symbolFilter, setSymbolFilter] = useState("");
   const [sessionFilter, setSessionFilter] = useState<SessionType | "all">("all");
   const [resultFilter, setResultFilter] = useState<"all" | "win" | "loss" | "open">("all");
+  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
 
   const { data: trades, isLoading } = useTrades();
 
@@ -75,19 +77,7 @@ export default function Journal() {
         </Select>
       </div>
 
-      {/* Trade List Header */}
-      <div className="flex items-center gap-4 px-4 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider border-b border-border">
-        <div className="w-8" /> {/* Expand button space */}
-        <div className="w-24">Date</div>
-        <div className="w-28">Symbol</div>
-        <div className="w-24">Session</div>
-        <div className="w-20 text-center">R:R</div>
-        <div className="w-24 text-right">P&L</div>
-        <div className="w-16 text-center">Score</div>
-        <div className="flex-1">Emotion</div>
-      </div>
-
-      {/* Trade List */}
+      {/* Trade Table */}
       {isLoading ? (
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => (
@@ -100,12 +90,15 @@ export default function Journal() {
           <p className="text-sm">Import trades or add them manually to get started</p>
         </div>
       ) : (
-        <div className="border border-border rounded-lg overflow-hidden">
-          {filteredTrades.map((trade) => (
-            <TradeRow key={trade.id} trade={trade} />
-          ))}
-        </div>
+        <TradeTable trades={filteredTrades} onTradeClick={setSelectedTrade} />
       )}
+
+      {/* Trade Detail Panel */}
+      <TradeDetailPanel
+        trade={selectedTrade}
+        isOpen={!!selectedTrade}
+        onClose={() => setSelectedTrade(null)}
+      />
     </div>
   );
 }
