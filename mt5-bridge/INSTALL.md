@@ -37,6 +37,7 @@ Download `TradeJournalBridge.mq5` from this folder.
 ## That's It!
 
 Your account will be created automatically after your first trade. The EA will:
+- ✅ **Auto-sync historical trades** from the last 30 days on first run
 - ✅ Capture all trade entries and exits in real-time
 - ✅ Track partial closes with proper volume aggregation
 - ✅ Auto-detect your broker and account type
@@ -44,6 +45,10 @@ Your account will be created automatically after your first trade. The EA will:
 
 ## How It Works
 
+### Historical Sync (First Run)
+When you first install the EA, it automatically syncs your last 30 days of trades. This happens only once - subsequent restarts won't re-sync. To re-sync history, delete the flag file: `MQL5/Files/TradeJournalSynced_[ACCOUNT].flag`
+
+### Real-Time Capture
 The EA sends **deal events** (entries and exits) to your journal. The backend:
 - Groups deals by position ID to track trades
 - Automatically detects partial closes vs full closes
@@ -96,6 +101,8 @@ The EA tracks processed deals in memory. If MT5 restarts, it may attempt to rese
 |---------|---------|-------------|
 | Symbol Filter | (empty) | Only capture specific symbol (e.g., "EURUSD") |
 | Magic Filter | 0 | Only capture specific magic number (0 = all) |
+| **Sync History** | **true** | Sync historical trades on first run |
+| **Sync Days Back** | **30** | Number of days of history to sync |
 | Enable Logging | true | Write logs to file for debugging |
 | Verbose Mode | false | Show detailed console output |
 

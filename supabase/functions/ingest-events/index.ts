@@ -20,9 +20,11 @@ interface EventPayload {
   idempotency_key: string;
   terminal_id: string;
   account_id?: string;
-  // FIX Issue #3: Accept entry/exit event types
-  event_type: "entry" | "exit" | "open" | "modify" | "partial_close" | "close";
-  // FIX Issue #1: Accept all three IDs explicitly
+  // Accept all event types including history_sync
+  event_type: "entry" | "exit" | "history_sync" | "open" | "modify" | "partial_close" | "close";
+  // For history_sync, this contains the actual event type (entry/exit)
+  original_event_type?: "entry" | "exit";
+  // Accept all three IDs explicitly
   position_id: number;
   deal_id: number;
   order_id: number;
@@ -37,7 +39,7 @@ interface EventPayload {
   commission?: number;
   swap?: number;
   profit?: number;
-  // FIX Issue #6: Accept both UTC timestamp and server_time
+  // Accept both UTC timestamp and server_time
   timestamp: string;
   server_time?: string;
   account_info?: AccountInfo;
@@ -194,8 +196,16 @@ serve(async (req) => {
     }
 
     // Map new event types to database enum values
+    // For history_sync, use the original_event_type to determine actual event
     let dbEventType = payload.event_type;
-    if (payload.event_type === "entry") {
+    let effectiveEventType = payload.event_type;
+    
+    if (payload.event_type === "history_sync") {
+      // History sync events use original_event_type for processing
+      effectiveEventType = payload.original_event_type || "entry";
+      dbEventType = effectiveEventType === "entry" ? "open" : "close";
+      console.log("Processing history sync event, original type:", effectiveEventType);
+    } else if (payload.event_type === "entry") {
       dbEventType = "open";
     } else if (payload.event_type === "exit") {
       // Will be determined as partial_close or close during processing
@@ -271,7 +281,10 @@ serve(async (req) => {
 
 async function processEvent(supabase: any, event: any, userId: string, originalPayload: EventPayload) {
   const { event_type, ticket, account_id, lot_size } = event;
-  const originalEventType = originalPayload.event_type;
+  // For history_sync, use original_event_type; otherwise use the payload event_type
+  const effectiveEventType = originalPayload.event_type === "history_sync" 
+    ? originalPayload.original_event_type 
+    : originalPayload.event_type;
 
   // Find existing trade for this position_id (ticket in DB)
   const { data: existingTrade } = await supabase
@@ -289,8 +302,8 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
   else if (hour >= 13 && hour < 17) session = "overlap_london_ny";
   else if (hour >= 17 && hour < 22) session = "new_york";
 
-  // Handle entry event (open)
-  if (originalEventType === "entry" || event_type === "open") {
+  // Handle entry event (open) - including history_sync entries
+  if (effectiveEventType === "entry" || event_type === "open") {
     if (existingTrade) {
       // Trade already exists - might be adding to position
       console.log("Trade already exists for position:", ticket);
@@ -316,8 +329,8 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       console.log("Created new trade for position:", ticket);
     }
   } 
-  // Handle exit event - determine if partial or full close
-  else if (originalEventType === "exit" || event_type === "close" || event_type === "partial_close") {
+  // Handle exit event - determine if partial or full close (including history_sync exits)
+  else if (effectiveEventType === "exit" || event_type === "close" || event_type === "partial_close") {
     if (!existingTrade) {
       console.log("No existing trade found for exit event, position:", ticket);
       // Mark event as processed anyway
