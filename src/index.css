@@ -2,20 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Trading Journal Design System - Professional Dark Theme */
+/* TradeLog - Luxury OLED Dark Theme */
 
 @layer base {
   :root {
-    --background: 220 20% 97%;
-    --foreground: 220 20% 10%;
+    --background: 0 0% 100%;
+    --foreground: 0 0% 5%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 220 20% 10%;
+    --card: 0 0% 98%;
+    --card-foreground: 0 0% 5%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 20% 10%;
+    --popover-foreground: 0 0% 5%;
 
-    --primary: 220 70% 50%;
+    --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 220 15% 92%;
@@ -32,115 +32,120 @@
 
     --border: 220 15% 88%;
     --input: 220 15% 88%;
-    --ring: 220 70% 50%;
+    --ring: 217 91% 60%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
     /* Trading-specific colors */
-    --profit: 142 71% 45%;
+    --profit: 152 82% 45%;
     --profit-foreground: 0 0% 100%;
-    --loss: 0 72% 51%;
+    --loss: 0 84% 60%;
     --loss-foreground: 0 0% 100%;
     --breakeven: 45 93% 47%;
     --breakeven-foreground: 0 0% 10%;
 
     /* Session colors */
-    --session-tokyo: 280 60% 55%;
-    --session-london: 210 70% 55%;
-    --session-newyork: 142 60% 45%;
+    --session-tokyo: 280 65% 60%;
+    --session-london: 210 80% 55%;
+    --session-newyork: 152 70% 45%;
     --session-overlap: 35 90% 55%;
 
-    /* Emotional state colors */
-    --state-positive: 142 60% 45%;
-    --state-neutral: 220 15% 55%;
-    --state-negative: 0 65% 55%;
-
     /* Chart colors */
-    --chart-1: 220 70% 50%;
-    --chart-2: 142 71% 45%;
-    --chart-3: 0 72% 51%;
-    --chart-4: 45 93% 47%;
-    --chart-5: 280 60% 55%;
+    --chart-1: 217 91% 60%;
+    --chart-2: 152 82% 45%;
+    --chart-3: 0 84% 60%;
+    --chart-4: 45 93% 55%;
+    --chart-5: 280 65% 60%;
 
-    --sidebar-background: 220 20% 97%;
-    --sidebar-foreground: 220 20% 25%;
-    --sidebar-primary: 220 70% 50%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 0 0% 20%;
+    --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 15% 92%;
-    --sidebar-accent-foreground: 220 20% 20%;
+    --sidebar-accent-foreground: 0 0% 20%;
     --sidebar-border: 220 15% 88%;
-    --sidebar-ring: 220 70% 50%;
+    --sidebar-ring: 217 91% 60%;
+
+    /* Glassmorphism */
+    --glass-bg: 0 0% 100% / 0.7;
+    --glass-border: 0 0% 100% / 0.2;
   }
 
   .dark {
-    --background: 222 25% 8%;
-    --foreground: 210 20% 95%;
+    /* True OLED Black */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 95%;
 
-    --card: 222 25% 11%;
-    --card-foreground: 210 20% 95%;
+    /* Elevated surfaces */
+    --card: 0 0% 4%;
+    --card-foreground: 0 0% 95%;
 
-    --popover: 222 25% 11%;
-    --popover-foreground: 210 20% 95%;
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 95%;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 25% 8%;
+    /* Premium electric blue */
+    --primary: 217 100% 60%;
+    --primary-foreground: 0 0% 0%;
 
-    --secondary: 222 20% 16%;
-    --secondary-foreground: 210 20% 90%;
+    --secondary: 0 0% 8%;
+    --secondary-foreground: 0 0% 90%;
 
-    --muted: 222 20% 16%;
-    --muted-foreground: 215 15% 55%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 55%;
 
-    --accent: 222 20% 18%;
-    --accent-foreground: 210 20% 95%;
+    --accent: 0 0% 12%;
+    --accent-foreground: 0 0% 95%;
 
-    --destructive: 0 62% 50%;
+    --destructive: 0 75% 55%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 222 15% 18%;
-    --input: 222 15% 18%;
-    --ring: 217 91% 60%;
+    --border: 0 0% 12%;
+    --input: 0 0% 12%;
+    --ring: 217 100% 60%;
 
-    /* Trading-specific colors - dark mode */
-    --profit: 142 71% 45%;
-    --profit-foreground: 0 0% 100%;
-    --loss: 0 65% 55%;
+    /* Trading-specific colors - vivid for OLED */
+    --profit: 152 95% 45%;
+    --profit-foreground: 0 0% 0%;
+    --loss: 0 85% 58%;
     --loss-foreground: 0 0% 100%;
-    --breakeven: 45 90% 50%;
-    --breakeven-foreground: 0 0% 10%;
+    --breakeven: 45 95% 55%;
+    --breakeven-foreground: 0 0% 0%;
 
-    /* Session colors - dark mode */
-    --session-tokyo: 280 65% 60%;
-    --session-london: 210 75% 60%;
-    --session-newyork: 142 65% 50%;
-    --session-overlap: 35 85% 55%;
+    /* Session colors - luminous */
+    --session-tokyo: 280 75% 65%;
+    --session-london: 210 90% 60%;
+    --session-newyork: 152 85% 50%;
+    --session-overlap: 35 95% 60%;
 
-    /* Emotional state colors - dark mode */
-    --state-positive: 142 65% 50%;
-    --state-neutral: 220 15% 50%;
-    --state-negative: 0 62% 50%;
+    /* Chart colors - OLED optimized */
+    --chart-1: 217 100% 60%;
+    --chart-2: 152 95% 45%;
+    --chart-3: 0 85% 58%;
+    --chart-4: 45 95% 55%;
+    --chart-5: 280 75% 65%;
 
-    /* Chart colors - dark mode */
-    --chart-1: 217 91% 60%;
-    --chart-2: 142 71% 45%;
-    --chart-3: 0 65% 55%;
-    --chart-4: 45 90% 50%;
-    --chart-5: 280 65% 60%;
+    --sidebar-background: 0 0% 2%;
+    --sidebar-foreground: 0 0% 85%;
+    --sidebar-primary: 217 100% 60%;
+    --sidebar-primary-foreground: 0 0% 0%;
+    --sidebar-accent: 0 0% 8%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 0 0% 10%;
+    --sidebar-ring: 217 100% 60%;
 
-    --sidebar-background: 222 25% 10%;
-    --sidebar-foreground: 210 20% 85%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 222 25% 8%;
-    --sidebar-accent: 222 20% 16%;
-    --sidebar-accent-foreground: 210 20% 90%;
-    --sidebar-border: 222 15% 18%;
-    --sidebar-ring: 217 91% 60%;
+    /* Glassmorphism - dark */
+    --glass-bg: 0 0% 5% / 0.8;
+    --glass-border: 0 0% 100% / 0.08;
   }
 }
 
 @layer base {
   * {
     @apply border-border;
+  }
+
+  html {
+    @apply dark;
   }
 
   body {
@@ -156,22 +161,87 @@
 }
 
 @layer components {
-  /* Metric card styles */
+  /* Premium Glass Card */
+  .glass-card {
+    @apply relative rounded-xl border border-border/50 bg-card/80 backdrop-blur-xl;
+    box-shadow: 
+      0 0 0 1px hsl(var(--glass-border)),
+      0 8px 32px -8px hsl(0 0% 0% / 0.5),
+      inset 0 1px 0 0 hsl(0 0% 100% / 0.05);
+  }
+
+  .glass-card::before {
+    @apply absolute inset-0 rounded-xl opacity-50 pointer-events-none;
+    content: "";
+    background: linear-gradient(
+      135deg,
+      hsl(0 0% 100% / 0.08) 0%,
+      transparent 50%,
+      transparent 100%
+    );
+  }
+
+  /* Metric card with glow */
   .metric-card {
-    @apply rounded-lg border border-border bg-card p-4 transition-all duration-200;
+    @apply relative rounded-xl border border-border/50 bg-card/80 p-5 backdrop-blur-xl transition-all duration-300;
+    box-shadow: 
+      0 0 0 1px hsl(var(--glass-border)),
+      0 4px 24px -4px hsl(0 0% 0% / 0.4);
   }
 
   .metric-card:hover {
-    @apply border-primary/30 shadow-sm;
+    @apply border-primary/30;
+    box-shadow: 
+      0 0 0 1px hsl(var(--primary) / 0.2),
+      0 8px 32px -4px hsl(0 0% 0% / 0.5),
+      0 0 24px -8px hsl(var(--primary) / 0.3);
+    transform: translateY(-2px);
+  }
+
+  .metric-card-profit {
+    @apply metric-card;
+    box-shadow: 
+      0 0 0 1px hsl(var(--profit) / 0.2),
+      0 4px 24px -4px hsl(0 0% 0% / 0.4),
+      0 0 32px -8px hsl(var(--profit) / 0.15);
+  }
+
+  .metric-card-loss {
+    @apply metric-card;
+    box-shadow: 
+      0 0 0 1px hsl(var(--loss) / 0.2),
+      0 4px 24px -4px hsl(0 0% 0% / 0.4),
+      0 0 32px -8px hsl(var(--loss) / 0.15);
+  }
+
+  /* Gradient border effect */
+  .gradient-border {
+    @apply relative rounded-xl;
+  }
+
+  .gradient-border::before {
+    @apply absolute -inset-px rounded-xl opacity-0 transition-opacity duration-300 pointer-events-none;
+    content: "";
+    background: linear-gradient(
+      135deg,
+      hsl(var(--primary)) 0%,
+      hsl(var(--chart-5)) 50%,
+      hsl(var(--profit)) 100%
+    );
+    z-index: -1;
+  }
+
+  .gradient-border:hover::before {
+    @apply opacity-100;
   }
 
   /* Trade row styles */
   .trade-row {
-    @apply border-b border-border transition-colors duration-150;
+    @apply border-b border-border/50 transition-all duration-200;
   }
 
   .trade-row:hover {
-    @apply bg-muted/50;
+    @apply bg-accent/30;
   }
 
   .trade-row-win {
@@ -186,63 +256,73 @@
     @apply border-l-2 border-l-breakeven;
   }
 
-  /* Session badges */
+  /* Session badges - glassmorphism */
   .session-badge {
-    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold backdrop-blur-sm;
   }
 
   .session-tokyo {
-    @apply bg-[hsl(var(--session-tokyo)/0.15)] text-[hsl(var(--session-tokyo))];
+    @apply bg-[hsl(var(--session-tokyo)/0.15)] text-[hsl(var(--session-tokyo))] border border-[hsl(var(--session-tokyo)/0.3)];
   }
 
   .session-london {
-    @apply bg-[hsl(var(--session-london)/0.15)] text-[hsl(var(--session-london))];
+    @apply bg-[hsl(var(--session-london)/0.15)] text-[hsl(var(--session-london))] border border-[hsl(var(--session-london)/0.3)];
   }
 
   .session-newyork {
-    @apply bg-[hsl(var(--session-newyork)/0.15)] text-[hsl(var(--session-newyork))];
+    @apply bg-[hsl(var(--session-newyork)/0.15)] text-[hsl(var(--session-newyork))] border border-[hsl(var(--session-newyork)/0.3)];
   }
 
   .session-overlap {
-    @apply bg-[hsl(var(--session-overlap)/0.15)] text-[hsl(var(--session-overlap))];
+    @apply bg-[hsl(var(--session-overlap)/0.15)] text-[hsl(var(--session-overlap))] border border-[hsl(var(--session-overlap)/0.3)];
   }
 
-  /* Emotional state indicators */
-  .emotion-positive {
-    @apply text-[hsl(var(--state-positive))];
+  /* Premium stat display */
+  .stat-value {
+    @apply text-3xl font-bold tracking-tight font-mono-numbers;
+    text-shadow: 0 0 40px currentColor;
   }
 
-  .emotion-neutral {
-    @apply text-[hsl(var(--state-neutral))];
+  .stat-value-profit {
+    @apply stat-value text-profit;
+    text-shadow: 0 0 40px hsl(var(--profit) / 0.5);
   }
 
-  .emotion-negative {
-    @apply text-[hsl(var(--state-negative))];
+  .stat-value-loss {
+    @apply stat-value text-loss;
+    text-shadow: 0 0 40px hsl(var(--loss) / 0.5);
   }
 
-  /* Checklist score */
-  .score-indicator {
-    @apply inline-flex items-center justify-center rounded-full text-xs font-bold;
+  /* Calendar day cell */
+  .calendar-day {
+    @apply relative rounded-lg p-2 text-center transition-all duration-200 cursor-pointer border border-transparent;
   }
 
-  .score-high {
-    @apply bg-profit/20 text-profit;
+  .calendar-day:hover {
+    @apply bg-accent/50 border-border;
   }
 
-  .score-medium {
-    @apply bg-breakeven/20 text-breakeven;
+  .calendar-day-profit {
+    @apply bg-profit/10 border-profit/20;
   }
 
-  .score-low {
-    @apply bg-loss/20 text-loss;
+  .calendar-day-profit:hover {
+    @apply bg-profit/20 border-profit/40;
   }
 
-  /* Expandable row animation */
-  .expand-content {
-    @apply overflow-hidden transition-all duration-300 ease-in-out;
+  .calendar-day-loss {
+    @apply bg-loss/10 border-loss/20;
   }
 
-  /* Prop firm compliance bar */
+  .calendar-day-loss:hover {
+    @apply bg-loss/20 border-loss/40;
+  }
+
+  .calendar-day-breakeven {
+    @apply bg-breakeven/10 border-breakeven/20;
+  }
+
+  /* Compliance bar */
   .compliance-bar {
     @apply h-2 rounded-full bg-muted overflow-hidden;
   }
@@ -253,30 +333,132 @@
 
   .compliance-safe {
     @apply bg-profit;
+    box-shadow: 0 0 12px hsl(var(--profit) / 0.5);
   }
 
   .compliance-warning {
     @apply bg-breakeven;
+    box-shadow: 0 0 12px hsl(var(--breakeven) / 0.5);
   }
 
   .compliance-danger {
     @apply bg-loss;
+    box-shadow: 0 0 12px hsl(var(--loss) / 0.5);
+  }
+
+  /* Score indicators */
+  .score-indicator {
+    @apply inline-flex items-center justify-center rounded-full text-xs font-bold;
+  }
+
+  .score-high {
+    @apply bg-profit/20 text-profit border border-profit/30;
+  }
+
+  .score-medium {
+    @apply bg-breakeven/20 text-breakeven border border-breakeven/30;
+  }
+
+  .score-low {
+    @apply bg-loss/20 text-loss border border-loss/30;
+  }
+
+  /* Premium button */
+  .btn-premium {
+    @apply relative overflow-hidden rounded-lg bg-primary px-6 py-3 font-semibold text-primary-foreground transition-all duration-300;
+    box-shadow: 
+      0 0 0 1px hsl(var(--primary) / 0.5),
+      0 4px 16px -4px hsl(var(--primary) / 0.5),
+      0 0 32px -8px hsl(var(--primary) / 0.3);
+  }
+
+  .btn-premium:hover {
+    box-shadow: 
+      0 0 0 1px hsl(var(--primary)),
+      0 8px 24px -4px hsl(var(--primary) / 0.6),
+      0 0 48px -8px hsl(var(--primary) / 0.5);
+    transform: translateY(-2px);
+  }
+
+  .btn-premium::before {
+    @apply absolute inset-0 opacity-0 transition-opacity duration-300;
+    content: "";
+    background: linear-gradient(
+      135deg,
+      hsl(0 0% 100% / 0.2) 0%,
+      transparent 50%,
+      transparent 100%
+    );
+  }
+
+  .btn-premium:hover::before {
+    @apply opacity-100;
   }
 }
 
 @layer utilities {
-  /* Gradient backgrounds */
-  .gradient-card {
-    @apply bg-gradient-to-br from-card to-card/80;
-  }
-
-  /* Glow effects */
+  /* Ambient glow effects */
   .glow-profit {
-    box-shadow: 0 0 20px hsl(var(--profit) / 0.2);
+    box-shadow: 
+      0 0 0 1px hsl(var(--profit) / 0.2),
+      0 0 32px -4px hsl(var(--profit) / 0.3),
+      0 0 64px -8px hsl(var(--profit) / 0.2);
   }
 
   .glow-loss {
-    box-shadow: 0 0 20px hsl(var(--loss) / 0.2);
+    box-shadow: 
+      0 0 0 1px hsl(var(--loss) / 0.2),
+      0 0 32px -4px hsl(var(--loss) / 0.3),
+      0 0 64px -8px hsl(var(--loss) / 0.2);
+  }
+
+  .glow-primary {
+    box-shadow: 
+      0 0 0 1px hsl(var(--primary) / 0.2),
+      0 0 32px -4px hsl(var(--primary) / 0.3),
+      0 0 64px -8px hsl(var(--primary) / 0.2);
+  }
+
+  /* Text glow */
+  .text-glow-profit {
+    text-shadow: 0 0 20px hsl(var(--profit) / 0.6);
+  }
+
+  .text-glow-loss {
+    text-shadow: 0 0 20px hsl(var(--loss) / 0.6);
+  }
+
+  .text-glow-primary {
+    text-shadow: 0 0 20px hsl(var(--primary) / 0.6);
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(
+      135deg,
+      hsl(var(--foreground)) 0%,
+      hsl(var(--muted-foreground)) 100%
+    );
+  }
+
+  .text-gradient-primary {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(
+      135deg,
+      hsl(var(--primary)) 0%,
+      hsl(var(--chart-5)) 100%
+    );
+  }
+
+  /* Gradient backgrounds */
+  .gradient-mesh {
+    background-image: 
+      radial-gradient(at 40% 20%, hsl(var(--primary) / 0.08) 0px, transparent 50%),
+      radial-gradient(at 80% 0%, hsl(var(--chart-5) / 0.06) 0px, transparent 50%),
+      radial-gradient(at 0% 50%, hsl(var(--profit) / 0.05) 0px, transparent 50%),
+      radial-gradient(at 80% 50%, hsl(var(--primary) / 0.04) 0px, transparent 50%),
+      radial-gradient(at 0% 100%, hsl(var(--chart-5) / 0.05) 0px, transparent 50%);
   }
 
   /* Scrollbar styling */
@@ -290,10 +472,52 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-muted-foreground/20 rounded-full;
+    @apply bg-border rounded-full;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     @apply bg-muted-foreground/40;
+  }
+
+  /* Shimmer loading effect */
+  .shimmer {
+    @apply relative overflow-hidden;
+  }
+
+  .shimmer::after {
+    @apply absolute inset-0;
+    content: "";
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(0 0% 100% / 0.05) 50%,
+      transparent 100%
+    );
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  /* Number counter animation */
+  .counter-animate {
+    animation: counter-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  @keyframes counter-pop {
+    0% {
+      transform: scale(0.8);
+      opacity: 0;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
   }
 }
