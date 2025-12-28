@@ -116,24 +116,25 @@ export function TradeTable({ trades, onTradeClick }: TradeTableProps) {
   };
 
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      {/* Header */}
-      <div className="grid grid-cols-[50px_120px_60px_80px_100px_90px_100px_100px_100px_80px_80px_100px_100px_1fr] gap-2 px-4 py-3 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground uppercase tracking-wider">
-        <div>#</div>
-        <div>Date (EST)</div>
-        <div>Day</div>
-        <div>Pair</div>
-        <div>Session</div>
-        <div>Model</div>
-        <div>Alignment</div>
-        <div>Entry</div>
-        <div>Profile</div>
-        <div className="text-right">R:R</div>
-        <div className="text-center">Result</div>
-        <div>Emotion</div>
-        <div>Place</div>
-        <div></div>
-      </div>
+    <div className="border border-border rounded-lg overflow-x-auto">
+      <div className="min-w-[1400px]">
+        {/* Header */}
+        <div className="grid grid-cols-[50px_120px_60px_80px_100px_90px_100px_100px_100px_80px_80px_100px_100px_1fr] gap-2 px-4 py-3 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <div>#</div>
+          <div>Date (EST)</div>
+          <div>Day</div>
+          <div>Pair</div>
+          <div>Session</div>
+          <div>Model</div>
+          <div>Alignment</div>
+          <div>Entry</div>
+          <div>Profile</div>
+          <div className="text-right">R:R</div>
+          <div className="text-center">Result</div>
+          <div>Emotion</div>
+          <div>Place</div>
+          <div></div>
+        </div>
 
       {/* Rows */}
       <div className="divide-y divide-border">
@@ -292,6 +293,7 @@ export function TradeTable({ trades, onTradeClick }: TradeTableProps) {
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );
