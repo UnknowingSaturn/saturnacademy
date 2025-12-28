@@ -1,109 +1,161 @@
-import { useTrades } from "@/hooks/useTrades";
-import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
-import { MetricCard } from "@/components/dashboard/MetricCard";
-import { EquityCurve } from "@/components/dashboard/EquityCurve";
-import { SessionBreakdown } from "@/components/dashboard/SessionBreakdown";
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Target, 
-  Percent, 
-  DollarSign,
-  BarChart3,
-  Flame,
-  Trophy
-} from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useState } from 'react';
+import { useTrades } from '@/hooks/useTrades';
+import { useReports, getWeekPeriod, getMonthPeriod, ReportPeriod } from '@/hooks/useReports';
+import { ReportMetricsGrid } from '@/components/reports/ReportMetricsGrid';
+import { TradeHighlights } from '@/components/reports/TradeHighlights';
+import { SymbolBreakdownTable } from '@/components/reports/SymbolBreakdownTable';
+import { ExportControls } from '@/components/reports/ExportControls';
+import { EquityCurve } from '@/components/dashboard/EquityCurve';
+import { SessionBreakdown } from '@/components/dashboard/SessionBreakdown';
+import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Loader2 } from 'lucide-react';
+import { addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 
 export default function Dashboard() {
-  const { data: trades, isLoading } = useTrades();
-  const metrics = useDashboardMetrics(trades || []);
+  const { data: trades = [], isLoading } = useTrades();
+  const [periodType, setPeriodType] = useState<'week' | 'month'>('week');
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  const period: ReportPeriod = periodType === 'week' 
+    ? getWeekPeriod(currentDate) 
+    : getMonthPeriod(currentDate);
+
+  const { filteredTrades, metrics } = useReports(trades, period);
+  const dashboardMetrics = useDashboardMetrics(filteredTrades);
+
+  const navigatePrev = () => {
+    setCurrentDate(prev => 
+      periodType === 'week' ? subWeeks(prev, 1) : subMonths(prev, 1)
+    );
+  };
+
+  const navigateNext = () => {
+    setCurrentDate(prev => 
+      periodType === 'week' ? addWeeks(prev, 1) : addMonths(prev, 1)
+    );
+  };
+
+  const goToCurrentPeriod = () => {
+    setCurrentDate(new Date());
+  };
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">Your trading performance at a glance</p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[...Array(8)].map((_, i) => (
-            <Skeleton key={i} className="h-[120px] rounded-lg" />
-          ))}
-        </div>
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-muted-foreground">Your trading performance at a glance</p>
+    <div className="space-y-6 p-6 animate-fade-in">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-primary/10">
+            <LayoutDashboard className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+            <p className="text-muted-foreground text-sm">
+              Your trading performance at a glance
+            </p>
+          </div>
+        </div>
+
+        {/* Period Selector */}
+        <div className="flex items-center gap-4">
+          <Tabs 
+            value={periodType} 
+            onValueChange={(v) => setPeriodType(v as 'week' | 'month')}
+          >
+            <TabsList className="glass-card">
+              <TabsTrigger value="week">Weekly</TabsTrigger>
+              <TabsTrigger value="month">Monthly</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
-      {/* Key Metrics */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          title="Total P&L"
-          value={`${metrics.totalPnl >= 0 ? "+" : ""}$${metrics.totalPnl.toFixed(2)}`}
-          subtitle={`${metrics.totalTrades} closed trades`}
-          icon={<DollarSign className="w-5 h-5" />}
-          trend={metrics.totalPnl >= 0 ? "up" : "down"}
-        />
-        <MetricCard
-          title="Win Rate"
-          value={`${metrics.winRate.toFixed(1)}%`}
-          subtitle={`${Math.round(metrics.totalTrades * metrics.winRate / 100)} wins`}
-          icon={<Percent className="w-5 h-5" />}
-          trend={metrics.winRate >= 50 ? "up" : "down"}
-        />
-        <MetricCard
-          title="Profit Factor"
-          value={metrics.profitFactor === Infinity ? "∞" : metrics.profitFactor.toFixed(2)}
-          subtitle="Gross profit / Gross loss"
-          icon={<BarChart3 className="w-5 h-5" />}
-          trend={metrics.profitFactor >= 1.5 ? "up" : metrics.profitFactor >= 1 ? "neutral" : "down"}
-        />
-        <MetricCard
-          title="Avg R-Multiple"
-          value={`${metrics.avgRMultiple >= 0 ? "+" : ""}${metrics.avgRMultiple.toFixed(2)}R`}
-          subtitle="Risk-adjusted returns"
-          icon={<Target className="w-5 h-5" />}
-          trend={metrics.avgRMultiple >= 0 ? "up" : "down"}
-        />
-        <MetricCard
-          title="Best Trade"
-          value={`+$${metrics.bestTrade.toFixed(2)}`}
-          icon={<Trophy className="w-5 h-5" />}
-          trend="up"
-        />
-        <MetricCard
-          title="Worst Trade"
-          value={`$${metrics.worstTrade.toFixed(2)}`}
-          icon={<TrendingDown className="w-5 h-5" />}
-          trend="down"
-        />
-        <MetricCard
-          title="Expectancy"
-          value={`$${metrics.expectancy.toFixed(2)}`}
-          subtitle="Per trade average"
-          icon={<TrendingUp className="w-5 h-5" />}
-          trend={metrics.expectancy >= 0 ? "up" : "down"}
-        />
-        <MetricCard
-          title="Current Streak"
-          value={`${metrics.currentStreak.count} ${metrics.currentStreak.type}${metrics.currentStreak.count !== 1 ? "s" : ""}`}
-          icon={<Flame className="w-5 h-5" />}
-          trend={metrics.currentStreak.type === "win" ? "up" : "down"}
-        />
+      {/* Period Navigation */}
+      <div className="flex items-center justify-between">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={navigatePrev}
+          className="h-10 w-10"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </Button>
+
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold text-foreground">
+            {period.label}
+          </h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={goToCurrentPeriod}
+            className="text-xs"
+          >
+            Today
+          </Button>
+        </div>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={navigateNext}
+          className="h-10 w-10"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </Button>
       </div>
+
+      {/* Metrics Grid */}
+      <ReportMetricsGrid metrics={metrics} />
 
       {/* Charts Row */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <EquityCurve trades={trades || []} />
-        <SessionBreakdown bySession={metrics.bySession} />
+        <EquityCurve trades={filteredTrades} />
+        <SessionBreakdown bySession={dashboardMetrics.bySession} />
       </div>
+
+      {/* Main Content */}
+      <div className="grid lg:grid-cols-4 gap-6">
+        <div className="lg:col-span-3 space-y-6">
+          {/* Trade Highlights */}
+          <TradeHighlights metrics={metrics} />
+
+          {/* Breakdown Tables */}
+          <SymbolBreakdownTable metrics={metrics} />
+        </div>
+
+        {/* Sidebar - Export Controls */}
+        <div className="space-y-4">
+          <ExportControls 
+            trades={trades}
+            metrics={metrics}
+            period={period}
+            filteredTrades={filteredTrades}
+          />
+        </div>
+      </div>
+
+      {/* No Data State */}
+      {filteredTrades.length === 0 && (
+        <div className="text-center py-12">
+          <LayoutDashboard className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-2">
+            No trades for this period
+          </h3>
+          <p className="text-muted-foreground text-sm">
+            Try selecting a different date range or period type.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
