@@ -296,13 +296,21 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
     .eq("account_id", account_id)
     .single();
 
-  // Determine session from timestamp
-  const hour = new Date(event.event_timestamp).getUTCHours();
+  // Determine session from timestamp - convert UTC to EST (UTC-5)
+  const eventDate = new Date(event.event_timestamp);
+  const estHour = (eventDate.getUTCHours() - 5 + 24) % 24;
+  const estMinutes = eventDate.getUTCMinutes();
+  const estTime = estHour + estMinutes / 60;
+  
   let session = "off_hours";
-  if (hour >= 0 && hour < 8) session = "tokyo";
-  else if (hour >= 8 && hour < 13) session = "london";
-  else if (hour >= 13 && hour < 17) session = "overlap_london_ny";
-  else if (hour >= 17 && hour < 22) session = "new_york";
+  // Tokyo: 20:00 - 00:00 EST
+  if (estTime >= 20 || estTime < 0) session = "tokyo";
+  // London: 02:00 - 05:00 EST
+  else if (estTime >= 2 && estTime < 5) session = "london";
+  // New York AM: 08:30 - 11:00 EST
+  else if (estTime >= 8.5 && estTime < 11) session = "new_york_am";
+  // New York PM: 13:00 - 16:00 EST
+  else if (estTime >= 13 && estTime < 16) session = "new_york_pm";
 
   // Handle entry event (open) - including history_sync entries
   if (effectiveEventType === "entry" || event_type === "open") {

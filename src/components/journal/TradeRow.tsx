@@ -11,18 +11,18 @@ interface TradeRowProps {
 }
 
 const sessionBadges: Record<SessionType, string> = {
-  tokyo: "session-tokyo",
+  new_york_am: "session-newyork",
   london: "session-london",
-  new_york: "session-newyork",
-  overlap_london_ny: "session-overlap",
+  tokyo: "session-tokyo",
+  new_york_pm: "session-newyork",
   off_hours: "bg-muted text-muted-foreground",
 };
 
 const sessionLabels: Record<SessionType, string> = {
-  tokyo: "Tokyo",
+  new_york_am: "New York AM",
   london: "London",
-  new_york: "New York",
-  overlap_london_ny: "Overlap",
+  tokyo: "Tokyo",
+  new_york_pm: "New York PM",
   off_hours: "Off Hours",
 };
 

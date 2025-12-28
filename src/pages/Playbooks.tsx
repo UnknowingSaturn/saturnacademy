@@ -17,10 +17,10 @@ import { Plus, Edit, Trash2, GripVertical, Loader2, X, BookOpen, Target, AlertTr
 import { cn } from "@/lib/utils";
 
 const SESSIONS: { value: SessionType; label: string }[] = [
-  { value: "tokyo", label: "Tokyo" },
+  { value: "new_york_am", label: "New York AM" },
   { value: "london", label: "London" },
-  { value: "new_york", label: "New York" },
-  { value: "overlap_london_ny", label: "London/NY Overlap" },
+  { value: "tokyo", label: "Tokyo" },
+  { value: "new_york_pm", label: "New York PM" },
   { value: "off_hours", label: "Off Hours" },
 ];
 
