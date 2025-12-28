@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep } from "@/types/trading";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
@@ -47,7 +47,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
   const [newItem, setNewItem] = useState({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
 
   // Reset state when trade changes
-  useState(() => {
+  useEffect(() => {
     if (trade?.review) {
       setPlaybookId(trade.review.playbook_id || "");
       setChecklistAnswers(trade.review.checklist_answers || {});
@@ -61,8 +61,22 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
       setToImprove(trade.review.to_improve || []);
       setActionableSteps(trade.review.actionable_steps || []);
       setThoughts(trade.review.thoughts || "");
+    } else {
+      // Reset to defaults when no review
+      setPlaybookId("");
+      setChecklistAnswers({});
+      setRegime("");
+      setNewsRisk("none");
+      setEmotionBefore("");
+      setEmotionAfter("");
+      setPsychNotes("");
+      setMistakes([]);
+      setDidWell([]);
+      setToImprove([]);
+      setActionableSteps([]);
+      setThoughts("");
     }
-  });
+  }, [trade?.id, trade?.review]);
 
   const score = Object.values(checklistAnswers).filter(Boolean).length;
 

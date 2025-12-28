@@ -129,9 +129,32 @@ export function useUpdateTrade() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Trade> & { id: string }) => {
-      const updateData: Record<string, unknown> = { ...updates };
+      const updateData: Record<string, unknown> = {};
+      
+      // Handle array fields
       if (updates.partial_closes) {
         updateData.partial_closes = updates.partial_closes as unknown as Json;
+      }
+      if (updates.alignment) {
+        updateData.alignment = updates.alignment;
+      }
+      if (updates.entry_timeframes) {
+        updateData.entry_timeframes = updates.entry_timeframes;
+      }
+      
+      // Handle scalar fields
+      const scalarFields = [
+        'symbol', 'direction', 'total_lots', 'entry_price', 'entry_time',
+        'exit_price', 'exit_time', 'sl_initial', 'tp_initial', 'sl_final',
+        'tp_final', 'net_pnl', 'gross_pnl', 'commission', 'swap',
+        'r_multiple_actual', 'r_multiple_planned', 'session', 'is_open',
+        'model', 'profile', 'place', 'trade_number'
+      ] as const;
+      
+      for (const field of scalarFields) {
+        if (updates[field] !== undefined) {
+          updateData[field] = updates[field];
+        }
       }
       
       const { data, error } = await supabase
