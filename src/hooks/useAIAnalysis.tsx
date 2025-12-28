@@ -1,19 +1,37 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { AIAnalysisOutput, SimilarTrade } from "@/types/trading";
+
+interface ComplianceResult {
+  setup_compliance_score: number;
+  context_alignment_score: number;
+  rule_violations: string[];
+  matched_rules: string[];
+}
+
+interface AnalysisResult {
+  analysis: AIAnalysisOutput | null;
+  compliance: ComplianceResult;
+  similar_trades: {
+    similar_winners: SimilarTrade[];
+    similar_losers: SimilarTrade[];
+  };
+  raw_analysis: string;
+}
 
 export function useAIAnalysis() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const { toast } = useToast();
 
-  const analyzeTrade = async (tradeId: string) => {
+  const analyzeTrade = async (tradeId: string): Promise<AnalysisResult | null> => {
     setIsAnalyzing(true);
-    setAnalysis(null);
+    setAnalysisResult(null);
 
     try {
       const { data, error } = await supabase.functions.invoke("analyze-trade", {
-        body: { trade_id: tradeId, analysis_type: "trade" },
+        body: { trade_id: tradeId },
       });
 
       if (error) throw error;
@@ -29,8 +47,21 @@ export function useAIAnalysis() {
         return null;
       }
 
-      setAnalysis(data.analysis);
-      return data.analysis;
+      const result: AnalysisResult = {
+        analysis: data.analysis || null,
+        compliance: data.compliance || {
+          setup_compliance_score: 0,
+          context_alignment_score: 0,
+          rule_violations: [],
+          matched_rules: [],
+        },
+        similar_trades: data.similar_trades || { similar_winners: [], similar_losers: [] },
+        raw_analysis: data.raw_analysis || "",
+      };
+
+      setAnalysisResult(result);
+      toast({ title: "Analysis Complete", description: "AI review has been generated." });
+      return result;
     } catch (error) {
       console.error("AI analysis error:", error);
       toast({ 
@@ -44,5 +75,37 @@ export function useAIAnalysis() {
     }
   };
 
-  return { analyzeTrade, isAnalyzing, analysis, setAnalysis };
+  const submitFeedback = async (aiReviewId: string, isAccurate: boolean, isUseful: boolean, notes?: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { error } = await supabase.from("ai_feedback").insert({
+        ai_review_id: aiReviewId,
+        user_id: user.id,
+        is_accurate: isAccurate,
+        is_useful: isUseful,
+        feedback_notes: notes || null,
+      });
+
+      if (error) throw error;
+
+      toast({ title: "Feedback Submitted", description: "Thanks for helping improve the analysis." });
+    } catch (error) {
+      console.error("Feedback error:", error);
+      toast({ 
+        title: "Feedback Failed", 
+        description: "Could not save your feedback", 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  return { 
+    analyzeTrade, 
+    isAnalyzing, 
+    analysisResult, 
+    setAnalysisResult,
+    submitFeedback 
+  };
 }

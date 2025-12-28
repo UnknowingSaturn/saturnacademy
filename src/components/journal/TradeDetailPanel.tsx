@@ -6,6 +6,7 @@ import { useAIAnalysis } from "@/hooks/useAIAnalysis";
 import { TradeChart } from "@/components/chart/TradeChart";
 import { TradeProperties } from "./TradeProperties";
 import { TradeComments } from "./TradeComments";
+import { AIAnalysisDisplay } from "./AIAnalysisDisplay";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -28,7 +29,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
   const { data: playbooks } = usePlaybooks();
   const createReview = useCreateTradeReview();
   const updateReview = useUpdateTradeReview();
-  const { analyzeTrade, isAnalyzing } = useAIAnalysis();
+  const { analyzeTrade, isAnalyzing, analysisResult, submitFeedback } = useAIAnalysis();
 
   const existingReview = trade?.review;
 
@@ -364,6 +365,28 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                     rows={4}
                   />
                 </div>
+
+                {/* AI Analysis Section */}
+                {analysisResult && (
+                  <>
+                    <Separator />
+                    <div>
+                      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4" />
+                        AI Analysis
+                      </h3>
+                      <AIAnalysisDisplay
+                        analysis={analysisResult.analysis}
+                        compliance={analysisResult.compliance}
+                        similarTrades={analysisResult.similar_trades}
+                        onSubmitFeedback={(isAccurate, isUseful, notes) => {
+                          // TODO: Get AI review ID from response
+                          // submitFeedback(aiReviewId, isAccurate, isUseful, notes);
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Right Sidebar - Properties */}
