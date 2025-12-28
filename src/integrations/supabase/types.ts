@@ -874,6 +874,8 @@ export type Database = {
         | "new_york"
         | "overlap_london_ny"
         | "off_hours"
+        | "new_york_am"
+        | "new_york_pm"
       trade_direction: "buy" | "sell"
     }
     CompositeTypes: {
@@ -1030,6 +1032,8 @@ export const Constants = {
         "new_york",
         "overlap_london_ny",
         "off_hours",
+        "new_york_am",
+        "new_york_pm",
       ],
       trade_direction: ["buy", "sell"],
     },
