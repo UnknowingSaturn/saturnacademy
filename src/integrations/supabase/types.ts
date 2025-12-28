@@ -551,6 +551,7 @@ export type Database = {
           is_open: boolean | null
           model: string | null
           net_pnl: number | null
+          original_lots: number | null
           partial_closes: Json | null
           place: string | null
           profile: string | null
@@ -587,6 +588,7 @@ export type Database = {
           is_open?: boolean | null
           model?: string | null
           net_pnl?: number | null
+          original_lots?: number | null
           partial_closes?: Json | null
           place?: string | null
           profile?: string | null
@@ -623,6 +625,7 @@ export type Database = {
           is_open?: boolean | null
           model?: string | null
           net_pnl?: number | null
+          original_lots?: number | null
           partial_closes?: Json | null
           place?: string | null
           profile?: string | null

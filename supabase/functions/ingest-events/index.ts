@@ -85,10 +85,12 @@ serve(async (req) => {
       console.log("No account found, attempting auto-creation...");
       
       // Get user_id from api_key - check if this is a setup token
+      // FIX: Add expires_at check to prevent use of expired tokens
       const { data: setupToken, error: tokenError } = await supabase
         .from("setup_tokens")
         .select("user_id, used")
         .eq("token", apiKey)
+        .gt("expires_at", new Date().toISOString())
         .single();
 
       if (tokenError || !setupToken) {
@@ -308,7 +310,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       // Trade already exists - might be adding to position
       console.log("Trade already exists for position:", ticket);
     } else {
-      // Create new trade
+      // Create new trade - store original_lots to preserve initial position size
       await supabase.from("trades").insert({
         user_id: userId,
         account_id: account_id,
@@ -317,6 +319,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         symbol: event.symbol,
         direction: event.direction,
         total_lots: event.lot_size,
+        original_lots: event.lot_size, // FIX: Preserve original position size
         entry_price: event.price,
         entry_time: event.event_timestamp,
         sl_initial: event.sl,
@@ -385,15 +388,16 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       totalCommission += existingTrade.commission || 0;
       totalSwap += existingTrade.swap || 0;
       
-      // Calculate R-multiple if SL was set
+      // FIX: R-multiple calculation requires pip value and contract size for accuracy
+      // Current approach is flawed as it doesn't account for:
+      // - Pip value differences between currency pairs
+      // - Contract size / lot size value
+      // - Account currency conversion
+      // Set to null for now - proper implementation needs symbol info from MT5
       let rMultiple = null;
-      if (existingTrade.sl_initial) {
-        const riskPerLot = Math.abs(existingTrade.entry_price - existingTrade.sl_initial);
-        const totalRisk = riskPerLot * existingTrade.total_lots;
-        if (totalRisk > 0) {
-          rMultiple = totalGrossPnl / totalRisk;
-        }
-      }
+      // TODO: Implement proper R-multiple when we have pip value data
+      // Formula should be: R = PnL / (risk_in_account_currency)
+      // where risk_in_account_currency = |entry - SL| * lots * pip_value * contract_size
 
       await supabase.from("trades").update({
         exit_price: event.price,
