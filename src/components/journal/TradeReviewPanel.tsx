@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ChecklistQuestion, ActionableStep } from "@/types/trading";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
+import { useAIAnalysis } from "@/hooks/useAIAnalysis";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,6 +36,7 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
   const { data: playbooks } = usePlaybooks();
   const createReview = useCreateTradeReview();
   const updateReview = useUpdateTradeReview();
+  const { analyzeTrade, isAnalyzing, analysis } = useAIAnalysis();
 
   const existingReview = trade.review;
 
@@ -480,11 +482,37 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
         </div>
       </div>
 
+      {/* AI Analysis Result */}
+      {analysis && (
+        <Card className="bg-muted/30 border-primary/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" />
+              AI Analysis
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <div className="whitespace-pre-wrap text-sm">{analysis}</div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Save Button */}
       <div className="flex justify-end gap-3 pt-4 border-t border-border">
-        <Button variant="outline" className="gap-2">
-          <Sparkles className="w-4 h-4" />
-          AI Analysis
+        <Button 
+          variant="outline" 
+          className="gap-2"
+          onClick={() => analyzeTrade(trade.id)}
+          disabled={isAnalyzing}
+        >
+          {isAnalyzing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Sparkles className="w-4 h-4" />
+          )}
+          {isAnalyzing ? "Analyzing..." : "AI Analysis"}
         </Button>
         <Button 
           onClick={handleSave} 
