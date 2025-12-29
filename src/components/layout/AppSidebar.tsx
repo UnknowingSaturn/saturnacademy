@@ -75,7 +75,12 @@ export function AppSidebar() {
                       activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
                     >
                       <item.icon className="w-5 h-5 shrink-0" />
-                      {!collapsed && <span>{item.title}</span>}
+                      {!collapsed && <span className="flex-1">{item.title}</span>}
+                      {item.url === '/live-trades' && openTradesCount > 0 && (
+                        <Badge variant="secondary" className="ml-auto h-5 min-w-5 px-1.5 text-xs">
+                          {openTradesCount}
+                        </Badge>
+                      )}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
