@@ -34,6 +34,7 @@ export function useTrades(filters?: {
   dateFrom?: string;
   dateTo?: string;
   isOpen?: boolean;
+  isArchived?: boolean;
 }) {
   return useQuery({
     queryKey: ['trades', filters],
@@ -51,6 +52,13 @@ export function useTrades(filters?: {
           account:accounts (*)
         `)
         .order('entry_time', { ascending: false });
+
+      // Default to showing non-archived trades unless explicitly requested
+      if (filters?.isArchived !== undefined) {
+        query = query.eq('is_archived', filters.isArchived);
+      } else {
+        query = query.eq('is_archived', false);
+      }
 
       if (filters?.accountId) query = query.eq('account_id', filters.accountId);
       if (filters?.symbol) query = query.eq('symbol', filters.symbol);
@@ -202,7 +210,7 @@ export function useDeleteTrade() {
   });
 }
 
-export function useBulkDeleteTrades() {
+export function useBulkArchiveTrades() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -210,7 +218,7 @@ export function useBulkDeleteTrades() {
     mutationFn: async (tradeIds: string[]) => {
       const { error } = await supabase
         .from('trades')
-        .delete()
+        .update({ is_archived: true, archived_at: new Date().toISOString() })
         .in('id', tradeIds);
       if (error) throw error;
       return tradeIds.length;
@@ -218,10 +226,61 @@ export function useBulkDeleteTrades() {
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ['trades'] });
       queryClient.invalidateQueries({ queryKey: ['open-trades'] });
-      toast({ title: `${count} trade${count !== 1 ? 's' : ''} deleted successfully` });
+      queryClient.invalidateQueries({ queryKey: ['archived-trades'] });
+      toast({ title: `${count} trade${count !== 1 ? 's' : ''} archived` });
     },
     onError: (error) => {
-      toast({ title: 'Failed to delete trades', description: error.message, variant: 'destructive' });
+      toast({ title: 'Failed to archive trades', description: error.message, variant: 'destructive' });
+    },
+  });
+}
+
+export function useRestoreTrades() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (tradeIds: string[]) => {
+      const { error } = await supabase
+        .from('trades')
+        .update({ is_archived: false, archived_at: null })
+        .in('id', tradeIds);
+      if (error) throw error;
+      return tradeIds.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
+      queryClient.invalidateQueries({ queryKey: ['archived-trades'] });
+      toast({ title: `${count} trade${count !== 1 ? 's' : ''} restored` });
+    },
+    onError: (error) => {
+      toast({ title: 'Failed to restore trades', description: error.message, variant: 'destructive' });
+    },
+  });
+}
+
+export function useArchivedTrades() {
+  return useQuery({
+    queryKey: ['archived-trades'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('trades')
+        .select(`
+          *,
+          playbook:playbooks (*),
+          trade_reviews (
+            *,
+            playbook:playbooks (*)
+          ),
+          ai_reviews (*),
+          account:accounts (*)
+        `)
+        .eq('is_archived', true)
+        .order('archived_at', { ascending: false });
+
+      if (error) throw error;
+      return (data || []).map(transformTrade);
     },
   });
 }

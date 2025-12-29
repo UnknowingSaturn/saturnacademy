@@ -835,6 +835,7 @@ export type Database = {
         Row: {
           account_id: string | null
           alignment: string[] | null
+          archived_at: string | null
           balance_at_entry: number | null
           commission: number | null
           created_at: string
@@ -848,6 +849,7 @@ export type Database = {
           exit_time: string | null
           gross_pnl: number | null
           id: string
+          is_archived: boolean | null
           is_open: boolean | null
           net_pnl: number | null
           original_lots: number | null
@@ -874,6 +876,7 @@ export type Database = {
         Insert: {
           account_id?: string | null
           alignment?: string[] | null
+          archived_at?: string | null
           balance_at_entry?: number | null
           commission?: number | null
           created_at?: string
@@ -887,6 +890,7 @@ export type Database = {
           exit_time?: string | null
           gross_pnl?: number | null
           id?: string
+          is_archived?: boolean | null
           is_open?: boolean | null
           net_pnl?: number | null
           original_lots?: number | null
@@ -913,6 +917,7 @@ export type Database = {
         Update: {
           account_id?: string | null
           alignment?: string[] | null
+          archived_at?: string | null
           balance_at_entry?: number | null
           commission?: number | null
           created_at?: string
@@ -926,6 +931,7 @@ export type Database = {
           exit_time?: string | null
           gross_pnl?: number | null
           id?: string
+          is_archived?: boolean | null
           is_open?: boolean | null
           net_pnl?: number | null
           original_lots?: number | null

@@ -103,6 +103,8 @@ export interface Trade {
   duration_seconds: number | null;
   partial_closes: PartialClose[];
   is_open: boolean;
+  is_archived?: boolean;
+  archived_at?: string;
   created_at: string;
   updated_at: string;
   // Balance tracking

@@ -10,15 +10,17 @@ import { ManualTradeForm } from "@/components/journal/ManualTradeForm";
 import { JournalSettingsDialog } from "@/components/journal/JournalSettingsDialog";
 import { JournalCalendarView } from "@/components/journal/JournalCalendarView";
 import { FilterBar } from "@/components/journal/FilterBar";
+import { ArchivedTradesView } from "@/components/journal/ArchivedTradesView";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { SessionType, Trade } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
-import { Search, Settings, Table, CalendarDays, X, RefreshCw } from "lucide-react";
+import { Search, Settings, Table, CalendarDays, X, RefreshCw, Archive } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -34,6 +36,7 @@ export default function Journal() {
   const [activeFilters, setActiveFilters] = useState<FilterCondition[]>([]);
   const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
   const [isRecalculating, setIsRecalculating] = useState(false);
+  const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
 
   const { data: trades, isLoading } = useTrades();
   const { data: settings } = useUserSettings();
@@ -80,8 +83,6 @@ export default function Journal() {
       setModelFilter(modelParam);
     }
   }, [searchParams]);
-
-  // No longer need selectedTrade sync effect - TradeDetailPanel fetches fresh data by ID
 
   const clearModelFilter = () => {
     setModelFilter(null);
@@ -195,15 +196,17 @@ export default function Journal() {
             <RefreshCw className={`w-4 h-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
             {isRecalculating ? 'Recalculating...' : 'Recalculate Sessions'}
           </Button>
-          {/* View Toggle */}
-          <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "table" | "calendar")}>
-            <ToggleGroupItem value="table" aria-label="Table view" className="px-3">
-              <Table className="w-4 h-4" />
-            </ToggleGroupItem>
-            <ToggleGroupItem value="calendar" aria-label="Calendar view" className="px-3">
-              <CalendarDays className="w-4 h-4" />
-            </ToggleGroupItem>
-          </ToggleGroup>
+          {/* View Toggle - only show for active tab */}
+          {activeTab === "active" && (
+            <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "table" | "calendar")}>
+              <ToggleGroupItem value="table" aria-label="Table view" className="px-3">
+                <Table className="w-4 h-4" />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="calendar" aria-label="Calendar view" className="px-3">
+                <CalendarDays className="w-4 h-4" />
+              </ToggleGroupItem>
+            </ToggleGroup>
+          )}
           <Button variant="outline" size="icon" onClick={() => setSettingsOpen(true)}>
             <Settings className="w-4 h-4" />
           </Button>
@@ -211,88 +214,105 @@ export default function Journal() {
         </div>
       </div>
 
-      {/* Active Strategy Filter Badge */}
-      {modelFilter && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
-          <span className="text-sm text-muted-foreground">Showing trades for:</span>
-          <Badge variant="default" className="gap-1">
-            {modelFilter}
-            <button onClick={clearModelFilter} className="ml-1 hover:bg-primary-foreground/20 rounded">
-              <X className="w-3 h-3" />
-            </button>
-          </Badge>
-        </div>
-      )}
+      {/* Active/Archived Tabs */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "active" | "archived")}>
+        <TabsList>
+          <TabsTrigger value="active">Active</TabsTrigger>
+          <TabsTrigger value="archived" className="gap-2">
+            <Archive className="w-4 h-4" />
+            Archived
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Filters - only show for table view */}
-      {viewMode === "table" && (
-        <div className="flex flex-wrap gap-3 items-center">
-          <div className="relative flex-1 min-w-[200px] max-w-[300px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              value={symbolFilter}
-              onChange={(e) => setSymbolFilter(e.target.value)}
-              placeholder="Search symbol..."
-              className="pl-9"
+        <TabsContent value="active" className="mt-4 space-y-4">
+          {/* Active Strategy Filter Badge */}
+          {modelFilter && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+              <span className="text-sm text-muted-foreground">Showing trades for:</span>
+              <Badge variant="default" className="gap-1">
+                {modelFilter}
+                <button onClick={clearModelFilter} className="ml-1 hover:bg-primary-foreground/20 rounded">
+                  <X className="w-3 h-3" />
+                </button>
+              </Badge>
+            </div>
+          )}
+
+          {/* Filters - only show for table view */}
+          {viewMode === "table" && (
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[200px] max-w-[300px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  value={symbolFilter}
+                  onChange={(e) => setSymbolFilter(e.target.value)}
+                  placeholder="Search symbol..."
+                  className="pl-9"
+                />
+              </div>
+              <Select value={sessionFilter} onValueChange={(v) => setSessionFilter(v as SessionType | "all")}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Session" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sessions</SelectItem>
+                  <SelectItem value="new_york_am">New York AM</SelectItem>
+                  <SelectItem value="london">London</SelectItem>
+                  <SelectItem value="tokyo">Tokyo</SelectItem>
+                  <SelectItem value="new_york_pm">New York PM</SelectItem>
+                  <SelectItem value="off_hours">Off Hours</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={resultFilter} onValueChange={(v) => setResultFilter(v as typeof resultFilter)}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder="Result" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="win">Wins</SelectItem>
+                  <SelectItem value="loss">Losses</SelectItem>
+                  <SelectItem value="open">Open</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              {/* Advanced Filter Bar */}
+              <FilterBar filters={activeFilters} onFiltersChange={setActiveFilters} />
+            </div>
+          )}
+
+          {/* Content based on view mode */}
+          {isLoading ? (
+            <div className="space-y-2">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-16 rounded-lg" />
+              ))}
+            </div>
+          ) : viewMode === "table" ? (
+            filteredTrades.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <p>No trades found</p>
+                <p className="text-sm">Import trades or add them manually to get started</p>
+              </div>
+            ) : (
+              <TradeTable 
+                trades={filteredTrades} 
+                onTradeClick={(trade) => setSelectedTradeId(trade.id)}
+                visibleColumns={settings?.visible_columns}
+                onEditProperty={handleEditProperty}
+              />
+            )
+          ) : (
+            <JournalCalendarView 
+              trades={trades || []} 
+              onTradeClick={(trade) => setSelectedTradeId(trade.id)}
             />
-          </div>
-          <Select value={sessionFilter} onValueChange={(v) => setSessionFilter(v as SessionType | "all")}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Session" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Sessions</SelectItem>
-              <SelectItem value="new_york_am">New York AM</SelectItem>
-              <SelectItem value="london">London</SelectItem>
-              <SelectItem value="tokyo">Tokyo</SelectItem>
-              <SelectItem value="new_york_pm">New York PM</SelectItem>
-              <SelectItem value="off_hours">Off Hours</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={resultFilter} onValueChange={(v) => setResultFilter(v as typeof resultFilter)}>
-            <SelectTrigger className="w-[120px]">
-              <SelectValue placeholder="Result" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="win">Wins</SelectItem>
-              <SelectItem value="loss">Losses</SelectItem>
-              <SelectItem value="open">Open</SelectItem>
-            </SelectContent>
-          </Select>
-          
-          {/* Advanced Filter Bar */}
-          <FilterBar filters={activeFilters} onFiltersChange={setActiveFilters} />
-        </div>
-      )}
+          )}
+        </TabsContent>
 
-      {/* Content based on view mode */}
-      {isLoading ? (
-        <div className="space-y-2">
-          {[...Array(5)].map((_, i) => (
-            <Skeleton key={i} className="h-16 rounded-lg" />
-          ))}
-        </div>
-      ) : viewMode === "table" ? (
-        filteredTrades.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <p>No trades found</p>
-            <p className="text-sm">Import trades or add them manually to get started</p>
-          </div>
-        ) : (
-          <TradeTable 
-            trades={filteredTrades} 
-            onTradeClick={(trade) => setSelectedTradeId(trade.id)}
-            visibleColumns={settings?.visible_columns}
-            onEditProperty={handleEditProperty}
-          />
-        )
-      ) : (
-        <JournalCalendarView 
-          trades={trades || []} 
-          onTradeClick={(trade) => setSelectedTradeId(trade.id)}
-        />
-      )}
+        <TabsContent value="archived" className="mt-4">
+          <ArchivedTradesView />
+        </TabsContent>
+      </Tabs>
 
       {/* Trade Detail Panel */}
       <TradeDetailPanel

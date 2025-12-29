@@ -1,4 +1,4 @@
-import { Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -14,13 +14,16 @@ import {
 
 interface BulkActionBarProps {
   selectedCount: number;
-  onDelete: () => void;
+  onAction: () => void;
   onClear: () => void;
-  isDeleting?: boolean;
+  isLoading?: boolean;
+  mode?: 'archive' | 'restore';
 }
 
-export function BulkActionBar({ selectedCount, onDelete, onClear, isDeleting }: BulkActionBarProps) {
+export function BulkActionBar({ selectedCount, onAction, onClear, isLoading, mode = 'archive' }: BulkActionBarProps) {
   if (selectedCount === 0) return null;
+
+  const isArchive = mode === 'archive';
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-200">
@@ -33,25 +36,53 @@ export function BulkActionBar({ selectedCount, onDelete, onClear, isDeleting }: 
         
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button variant="destructive" size="sm" disabled={isDeleting}>
-              <Trash2 className="h-4 w-4 mr-2" />
-              {isDeleting ? 'Deleting...' : 'Delete Selected'}
+            <Button 
+              variant={isArchive ? "destructive" : "default"} 
+              size="sm" 
+              disabled={isLoading}
+            >
+              {isArchive ? (
+                <Archive className="h-4 w-4 mr-2" />
+              ) : (
+                <ArchiveRestore className="h-4 w-4 mr-2" />
+              )}
+              {isLoading 
+                ? (isArchive ? 'Archiving...' : 'Restoring...') 
+                : (isArchive ? 'Archive Selected' : 'Restore Selected')
+              }
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete {selectedCount} trade{selectedCount !== 1 ? 's' : ''}?</AlertDialogTitle>
+              <AlertDialogTitle>
+                {isArchive 
+                  ? `Archive ${selectedCount} trade${selectedCount !== 1 ? 's' : ''}?` 
+                  : `Restore ${selectedCount} trade${selectedCount !== 1 ? 's' : ''}?`
+                }
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                This action cannot be undone. The selected trades will be permanently deleted from your journal.
-                <br /><br />
-                <strong>Note:</strong> The events data will remain, so trades won't reappear if you restart your EA. 
-                Use "Fresh Start" on the Accounts page if you want trades to re-import.
+                {isArchive ? (
+                  <>
+                    Archived trades will be hidden from your journal, dashboard, and reports. 
+                    You can restore them anytime from the "Archived" tab.
+                  </>
+                ) : (
+                  <>
+                    Restored trades will reappear in your journal, dashboard, and reports.
+                  </>
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={onDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                Delete Trades
+              <AlertDialogAction 
+                onClick={onAction} 
+                className={isArchive 
+                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" 
+                  : ""
+                }
+              >
+                {isArchive ? 'Archive Trades' : 'Restore Trades'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
