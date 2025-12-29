@@ -11,7 +11,6 @@ const SYSTEM_PROMPT = `You are a professional trading performance analyst review
 You must NOT:
 - Predict markets or suggest new setups
 - Give generic trading advice like "use proper risk management" or "stick to your plan"
-- Guess based on charts alone
 - Use motivational language or trading clichés
 
 You must ONLY:
@@ -27,6 +26,20 @@ ABOUT CONFIRMATION RULES:
 - If no checklist answers exist confirming these rules, state them as "unable to verify from available data" - NOT "not met" or "violated"
 - Only mark confirmation rules as deviations if the trader explicitly marked them as failed in their checklist answers
 - Do NOT assume rules were violated just because you cannot see chart data
+
+VISUAL CHART ANALYSIS (when screenshots are provided):
+- Analyze the chart images to verify entry/exit quality
+- Assess whether entry was at a key level (support/resistance, order block, fair value gap)
+- Evaluate if exit was optimal or if more could have been captured
+- Check if stop placement was behind structure or arbitrary
+- Verify if confirmation signals were visibly met on the chart
+- Reference specific visual elements (price levels, candle patterns, structure) in your analysis
+- Compare entry/exit locations to visible price action structure
+
+STRATEGY REFINEMENT:
+- Based on your analysis, suggest specific rule improvements
+- Identify patterns that could become systematic filters
+- Observe potential edges that could be added to the playbook
 
 Your tone is that of a research analyst: precise, data-driven, and constructive but not soft.`;
 
@@ -54,7 +67,20 @@ interface AIAnalysisOutput {
     rule_to_reinforce: string;
     avoid_condition: string;
   };
+  visual_analysis?: {
+    entry_quality: string;
+    exit_quality: string;
+    stop_placement: string;
+    confirmations_visible: string[];
+    chart_observations: string[];
+  };
+  strategy_refinement?: {
+    rule_suggestion: string | null;
+    filter_recommendation: string | null;
+    edge_observation: string | null;
+  };
   confidence: "low" | "medium" | "high";
+  screenshots_analyzed: boolean;
 }
 
 function buildUserPrompt(
@@ -179,7 +205,9 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
   }
 
   prompt += `
-Based on this data, provide your structured analysis using the trade_analysis function.`;
+Based on this data, provide your structured analysis using the trade_analysis function.
+
+IMPORTANT: If chart screenshots are provided, analyze them carefully to verify entry/exit quality and confirmation signals. Your visual analysis can verify or challenge the text-based data.`;
 
   return prompt;
 }
@@ -324,6 +352,29 @@ serve(async (req) => {
       similarTrades
     );
 
+    // 6. Build multimodal messages with screenshots if available
+    const screenshots = review?.screenshots || [];
+    const hasScreenshots = Array.isArray(screenshots) && screenshots.length > 0;
+    
+    console.log(`Found ${screenshots.length} screenshots for visual analysis`);
+
+    // Build user content - multimodal if screenshots exist
+    const userContent: any[] = [{ type: "text", text: userPrompt }];
+    
+    if (hasScreenshots) {
+      // Add up to 4 screenshots to avoid token limits
+      for (const screenshot of screenshots.slice(0, 4)) {
+        const url = typeof screenshot === 'string' ? screenshot : screenshot.url;
+        if (url) {
+          userContent.push({
+            type: "image_url",
+            image_url: { url }
+          });
+          console.log("Added screenshot for analysis:", url.substring(0, 50) + "...");
+        }
+      }
+    }
+
     console.log("Calling Lovable AI with structured output...");
 
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -336,10 +387,8 @@ serve(async (req) => {
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt },
+          { role: "user", content: hasScreenshots ? userContent : userPrompt },
         ],
-        temperature: 0.7,
-        max_tokens: 2000,
         tools: [
           {
             type: "function",
@@ -439,10 +488,63 @@ serve(async (req) => {
                     },
                     required: ["rule_to_reinforce", "avoid_condition"]
                   },
+                  visual_analysis: {
+                    type: "object",
+                    description: "Analysis based on chart screenshots (only if images provided)",
+                    properties: {
+                      entry_quality: {
+                        type: "string",
+                        description: "Assessment of entry location relative to price structure"
+                      },
+                      exit_quality: {
+                        type: "string",
+                        description: "Assessment of exit timing and location"
+                      },
+                      stop_placement: {
+                        type: "string",
+                        description: "Evaluation of stop loss placement relative to structure"
+                      },
+                      confirmations_visible: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "Confirmation signals visually verified on the chart"
+                      },
+                      chart_observations: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "Key observations from the chart that inform the analysis"
+                      }
+                    }
+                  },
+                  strategy_refinement: {
+                    type: "object",
+                    description: "Suggestions for improving the trading strategy",
+                    properties: {
+                      rule_suggestion: {
+                        type: "string",
+                        nullable: true,
+                        description: "A new rule to add to the playbook based on this trade's outcome"
+                      },
+                      filter_recommendation: {
+                        type: "string",
+                        nullable: true,
+                        description: "A condition to filter out similar losing setups in the future"
+                      },
+                      edge_observation: {
+                        type: "string",
+                        nullable: true,
+                        description: "An observed edge or pattern that could be systematized"
+                      }
+                    }
+                  },
                   confidence: {
                     type: "string",
                     enum: ["low", "medium", "high"],
                     description: "Confidence in this analysis based on available data"
+                  },
+                  screenshots_analyzed: {
+                    type: "boolean",
+                    description: "Whether chart screenshots were analyzed"
                   }
                 },
                 required: [
@@ -451,7 +553,8 @@ serve(async (req) => {
                   "psychology_analysis",
                   "comparison_to_past",
                   "actionable_guidance",
-                  "confidence"
+                  "confidence",
+                  "screenshots_analyzed"
                 ]
               }
             }

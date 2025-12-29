@@ -495,7 +495,18 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Chart Screenshots</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              {screenshots.length === 0 && (
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+                  <Sparkles className="w-5 h-5 text-primary mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-foreground">Enable Visual AI Analysis</p>
+                    <p className="text-muted-foreground text-xs mt-0.5">
+                      Upload chart screenshots for AI to analyze entry/exit quality, stop placement, and verify confirmation signals
+                    </p>
+                  </div>
+                </div>
+              )}
               <TradeScreenshotGallery
                 tradeId={trade.id}
                 screenshots={screenshots}
