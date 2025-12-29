@@ -9,6 +9,7 @@ import { ExportControls } from '@/components/reports/ExportControls';
 import { EquityCurve } from '@/components/dashboard/EquityCurve';
 import { SessionBreakdown } from '@/components/dashboard/SessionBreakdown';
 import { PlaybookCompliance } from '@/components/dashboard/PlaybookCompliance';
+import { OpenTradesWidget } from '@/components/dashboard/OpenTradesWidget';
 import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -141,8 +142,9 @@ export default function Dashboard() {
 
         {/* Sidebar - Export Controls & Compliance */}
         <div className="space-y-4">
+          <OpenTradesWidget />
           <PlaybookCompliance />
-          <ExportControls 
+          <ExportControls
             trades={trades}
             metrics={metrics}
             period={period}
