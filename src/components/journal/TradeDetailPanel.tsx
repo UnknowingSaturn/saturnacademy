@@ -52,6 +52,9 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   // Use trade.playbook_id (set via Model property) for compliance checklist
   const selectedPlaybook = playbooks?.find(p => p.id === trade?.playbook_id);
 
+  // Track last trade ID to detect actual trade switches vs data refreshes
+  const [lastTradeId, setLastTradeId] = useState<string | null>(null);
+
   // Remove playbookId state - Model in TradeProperties handles playbook selection
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, boolean>>(existingReview?.checklist_answers || {});
   const [regime, setRegime] = useState<RegimeType | "">(existingReview?.regime || "");
@@ -92,10 +95,15 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
 
   // Reset state when trade changes
   useEffect(() => {
-    // Clear previous AI analysis when switching trades
-    setAnalysisResult(null);
+    const isTradeSwitch = trade?.id !== lastTradeId;
     
-    // Load saved AI review if exists
+    // Only clear AI analysis when switching to a different trade
+    if (isTradeSwitch) {
+      setLastTradeId(trade?.id || null);
+      setAnalysisResult(null);
+    }
+    
+    // Load saved AI review if exists (whether switching or refreshing after save)
     if (trade?.ai_review) {
       setAnalysisResult({
         analysis: {
@@ -120,35 +128,38 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       });
     }
     
-    if (trade?.review) {
-      setChecklistAnswers(trade.review.checklist_answers || {});
-      setRegime(trade.review.regime || "");
-      setNewsRisk(trade.review.news_risk || "none");
-      setEmotionBefore(trade.review.emotional_state_before || "");
-      setEmotionAfter(trade.review.emotional_state_after || "");
-      setPsychNotes(trade.review.psychology_notes || "");
-      setMistakes(trade.review.mistakes || []);
-      setDidWell(trade.review.did_well || []);
-      setToImprove(trade.review.to_improve || []);
-      setActionableSteps(trade.review.actionable_steps || []);
-      setThoughts(trade.review.thoughts || "");
-      setScreenshots(parseScreenshots(trade.review.screenshots));
-    } else {
-      // Reset to defaults when no review
-      setChecklistAnswers({});
-      setRegime("");
-      setNewsRisk("none");
-      setEmotionBefore("");
-      setEmotionAfter("");
-      setPsychNotes("");
-      setMistakes([]);
-      setDidWell([]);
-      setToImprove([]);
-      setActionableSteps([]);
-      setThoughts("");
-      setScreenshots([]);
+    // Only reset manual review fields when switching trades
+    if (isTradeSwitch) {
+      if (trade?.review) {
+        setChecklistAnswers(trade.review.checklist_answers || {});
+        setRegime(trade.review.regime || "");
+        setNewsRisk(trade.review.news_risk || "none");
+        setEmotionBefore(trade.review.emotional_state_before || "");
+        setEmotionAfter(trade.review.emotional_state_after || "");
+        setPsychNotes(trade.review.psychology_notes || "");
+        setMistakes(trade.review.mistakes || []);
+        setDidWell(trade.review.did_well || []);
+        setToImprove(trade.review.to_improve || []);
+        setActionableSteps(trade.review.actionable_steps || []);
+        setThoughts(trade.review.thoughts || "");
+        setScreenshots(parseScreenshots(trade.review.screenshots));
+      } else {
+        // Reset to defaults when no review
+        setChecklistAnswers({});
+        setRegime("");
+        setNewsRisk("none");
+        setEmotionBefore("");
+        setEmotionAfter("");
+        setPsychNotes("");
+        setMistakes([]);
+        setDidWell([]);
+        setToImprove([]);
+        setActionableSteps([]);
+        setThoughts("");
+        setScreenshots([]);
+      }
     }
-  }, [trade?.id, trade?.review, trade?.ai_review, setAnalysisResult]);
+  }, [trade?.id, trade?.review, trade?.ai_review, setAnalysisResult, lastTradeId]);
 
   const score = Object.values(checklistAnswers).filter(Boolean).length;
 
