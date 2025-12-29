@@ -83,11 +83,21 @@ function calculateSimilarity(
     }
   }
 
-  // 7. Same playbook
-  if (currentReview?.playbook_id && candidateReview?.playbook_id) {
+  // 7. Same playbook (check both playbook_id and model name)
+  const currentPlaybookId = currentReview?.playbook_id;
+  const candidatePlaybookId = candidateReview?.playbook_id;
+  const currentModel = currentTrade.model;
+  const candidateModel = candidateTrade.model;
+  
+  if (currentPlaybookId || currentModel) {
     maxScore += 20;
-    if (candidateReview.playbook_id === currentReview.playbook_id) {
+    if (currentPlaybookId && candidatePlaybookId && currentPlaybookId === candidatePlaybookId) {
       score += 20;
+    } else if (currentModel && candidateModel && currentModel === candidateModel) {
+      score += 20;
+    } else if (currentModel && candidatePlaybookId) {
+      // Partial match: same model name exists, playbook assigned differently
+      score += 5;
     }
   }
 
