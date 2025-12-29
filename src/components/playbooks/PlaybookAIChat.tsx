@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
@@ -355,19 +355,31 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
 
       {/* Input - always pinned at bottom */}
       <div className="flex-shrink-0 p-3 border-t bg-background">
-        <div className="flex gap-2">
-          <Input
+        <div className="flex gap-2 items-end">
+          <Textarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+            onChange={(e) => {
+              setInput(e.target.value);
+              // Auto-resize
+              e.target.style.height = 'auto';
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
             placeholder="Describe your trading setup..."
             disabled={isLoading}
-            className="text-sm"
+            className="text-sm min-h-[40px] max-h-[120px] resize-none"
+            rows={1}
           />
           <Button 
             size="icon" 
             onClick={() => sendMessage()}
             disabled={!input.trim() || isLoading}
+            className="flex-shrink-0"
           >
             <Send className="w-4 h-4" />
           </Button>
