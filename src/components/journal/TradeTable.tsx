@@ -162,15 +162,15 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   const getColumn = (key: string): ColumnDefinition | undefined => 
     DEFAULT_COLUMNS.find(c => c.key === key);
 
-  // Build grid template columns based on visible columns
+  // Build grid template columns based on visible columns using minmax() for proportional scaling
   const gridCols = activeColumns.map(key => {
     const col = getColumn(key);
-    return col?.width || '100px';
-  }).join(' ') + ' 1fr'; // Add 1fr for the expand arrow
+    return col?.width || 'minmax(80px, 1fr)';
+  }).join(' ') + ' 40px'; // Fixed width for expand arrow
 
   return (
     <div className="border border-border rounded-lg overflow-x-auto">
-      <div className="min-w-[1200px]">
+      <div className="w-full">
         {/* Header */}
         <div 
           className="grid gap-2 px-4 py-3 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground uppercase tracking-wider"
