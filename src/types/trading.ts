@@ -116,6 +116,7 @@ export interface Trade {
   review?: TradeReview;
   account?: Account;
   playbook?: Playbook;
+  ai_review?: AIReview;
 }
 
 export interface PartialClose {

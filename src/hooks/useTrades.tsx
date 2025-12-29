@@ -11,6 +11,7 @@ function transformTrade(row: any): Trade {
     partial_closes: (row.partial_closes as PartialClose[]) || [],
     review: row.trade_reviews?.[0] ? transformReview(row.trade_reviews[0]) : undefined,
     playbook: row.playbook || undefined,
+    ai_review: row.ai_reviews?.[0] || undefined,
   };
 }
 
@@ -46,6 +47,7 @@ export function useTrades(filters?: {
             *,
             playbook:playbooks (*)
           ),
+          ai_reviews (*),
           account:accounts (*)
         `)
         .order('entry_time', { ascending: false });
@@ -71,7 +73,7 @@ export function useTrade(tradeId: string | undefined) {
       if (!tradeId) return null;
       const { data, error } = await supabase
         .from('trades')
-        .select(`*, playbook:playbooks (*), trade_reviews (*, playbook:playbooks (*)), account:accounts (*)`)
+        .select(`*, playbook:playbooks (*), trade_reviews (*, playbook:playbooks (*)), ai_reviews (*), account:accounts (*)`)
         .eq('id', tradeId)
         .maybeSingle();
       if (error) throw error;
