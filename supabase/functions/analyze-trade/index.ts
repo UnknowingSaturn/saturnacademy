@@ -12,6 +12,7 @@ You must NOT:
 - Predict markets or suggest new setups
 - Give generic trading advice like "use proper risk management" or "stick to your plan"
 - Use motivational language or trading clichés
+- Contradict trader-confirmed attestations without explicit visual evidence
 
 You must ONLY:
 - Evaluate against the trader's specific playbook rules provided
@@ -20,21 +21,31 @@ You must ONLY:
 - Explain WHY based on rules and data, not opinion
 - Be direct, analytical, and blunt
 
+GROUNDING RULES (CRITICAL - Follow these strictly):
+1. TRADER ATTESTATIONS ARE GROUND TRUTH: If the trader marked a confirmation as "✓ CONFIRMED", you MUST NOT claim that rule was "violated" or "not met". The trader verified this visually on their chart.
+2. SCREENSHOT DESCRIPTIONS ARE FIRST-HAND ACCOUNTS: When the trader provides screenshot descriptions, treat these as authoritative accounts of what happened. Do not contradict them.
+3. DISTINGUISH THESIS vs EXECUTION FAILURES: 
+   - THESIS CORRECT: The trade idea was right (price eventually went to target) but stopped out prematurely
+   - THESIS WRONG: The trade idea was incorrect (price never went to target)
+   - EXECUTION FAILURE: Right idea, wrong timing/sizing/management
+   - EXTERNAL FACTOR: Correct in all respects but stopped out by uncontrollable event (e.g., late-session micro sweep, news spike)
+4. POST-TRADE CONTEXT MATTERS: If the trader notes "price reached target after my stop", this means the thesis was CORRECT. Analyze WHY the stop was hit, not whether the setup was wrong.
+5. NEVER INVENT VIOLATIONS: For each deviation you cite, you MUST reference which specific data point shows the violation. If you cannot cite evidence, say "unable to verify" - NOT "violated".
+6. WEIGHT CONFIRMED CHECKLISTS HEAVILY: A fully confirmed checklist (all items TRUE) is strong evidence the setup was valid. Question execution/timing, not the setup itself.
+
 ABOUT CONFIRMATION RULES:
-- Confirmation rules are textual descriptions the trader must manually verify during entry (e.g. "Wait for BOS", "HTF alignment required")
+- Confirmation rules are textual descriptions the trader must manually verify during entry
 - These rules require chart data or manual trader input to verify
-- If no checklist answers exist confirming these rules, state them as "unable to verify from available data" - NOT "not met" or "violated"
-- Only mark confirmation rules as deviations if the trader explicitly marked them as failed in their checklist answers
-- Do NOT assume rules were violated just because you cannot see chart data
+- If no checklist answers exist confirming these rules, state them as "unable to verify from available data"
+- Only mark confirmation rules as deviations if the trader explicitly marked them as failed
 
 VISUAL CHART ANALYSIS (when screenshots are provided):
 - Analyze the chart images to verify entry/exit quality
+- USE SCREENSHOT DESCRIPTIONS as context - they tell you what the trader saw
 - Assess whether entry was at a key level (support/resistance, order block, fair value gap)
 - Evaluate if exit was optimal or if more could have been captured
 - Check if stop placement was behind structure or arbitrary
-- Verify if confirmation signals were visibly met on the chart
 - Reference specific visual elements (price levels, candle patterns, structure) in your analysis
-- Compare entry/exit locations to visible price action structure
 
 STRATEGY REFINEMENT:
 - Based on your analysis, suggest specific rule improvements
@@ -48,6 +59,11 @@ interface AIAnalysisOutput {
     matched_rules: string[];
     deviations: string[];
     failure_type: "structural" | "execution" | "both" | "none";
+  };
+  thesis_evaluation: {
+    thesis_correct: boolean;
+    thesis_explanation: string;
+    failure_category: "thesis_wrong" | "execution_failure" | "external_factor" | "no_failure";
   };
   mistake_attribution: {
     primary: string | null;
@@ -143,14 +159,42 @@ Management Rules: ${playbook.management_rules?.join(', ') || 'None defined'}
 Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
 `;
 
-    // Add checklist context for confirmation rules
+    // Add TRADER ATTESTATIONS section - clear display of what trader verified
+    prompt += `
+## TRADER ATTESTATIONS (Verified by Trader - DO NOT CONTRADICT without evidence)
+`;
+    
+    if (playbook.confirmation_rules && Array.isArray(playbook.confirmation_rules) && playbook.confirmation_rules.length > 0) {
+      const checklistAnswers = review?.checklist_answers || {};
+      playbook.confirmation_rules.forEach((rule: string, i: number) => {
+        const answer = checklistAnswers[`confirmation_${i}`];
+        if (answer === true) {
+          prompt += `- ✓ CONFIRMED: "${rule}" (Trader verified this was met)\n`;
+        } else if (answer === false) {
+          prompt += `- ✗ NOT MET: "${rule}" (Trader marked this as failed)\n`;
+        } else {
+          prompt += `- ? NOT ANSWERED: "${rule}" (Unable to verify - do NOT assume violated)\n`;
+        }
+      });
+    }
+    
+    // Add checklist questions (range, OB, etc.) if present
     if (playbook.checklist_questions && Array.isArray(playbook.checklist_questions) && playbook.checklist_questions.length > 0) {
-      prompt += `\nPlaybook Checklist Questions: ${JSON.stringify(playbook.checklist_questions)}`;
-      if (review?.checklist_answers && Object.keys(review.checklist_answers).length > 0) {
-        prompt += `\nTrader's Checklist Answers: ${JSON.stringify(review.checklist_answers)}`;
-      } else {
-        prompt += `\nNote: No checklist answers recorded for this trade - confirmation rules cannot be verified from data alone.`;
-      }
+      const checklistAnswers = review?.checklist_answers || {};
+      playbook.checklist_questions.forEach((q: any) => {
+        const answer = checklistAnswers[q.id];
+        if (answer === true || answer === 'yes') {
+          prompt += `- ✓ YES: "${q.question}"\n`;
+        } else if (answer === false || answer === 'no') {
+          prompt += `- ✗ NO: "${q.question}"\n`;
+        } else if (answer !== undefined && answer !== null) {
+          prompt += `- "${q.question}": ${answer}\n`;
+        }
+      });
+    }
+    
+    if (!review?.checklist_answers || Object.keys(review.checklist_answers).length === 0) {
+      prompt += `Note: No checklist answers recorded - confirmation rules cannot be verified from data alone.\n`;
     }
   } else {
     prompt += `No playbook assigned to this trade.\n`;
@@ -182,6 +226,29 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
     prompt += `No review data available for this trade.\n`;
   }
 
+  // Add TRADER'S VISUAL DOCUMENTATION section with screenshot descriptions
+  prompt += `
+## TRADER'S VISUAL DOCUMENTATION (First-hand accounts - treat as authoritative)
+`;
+
+  const screenshots = review?.screenshots || [];
+  if (Array.isArray(screenshots) && screenshots.length > 0) {
+    screenshots.forEach((screenshot: any, i: number) => {
+      const url = typeof screenshot === 'string' ? screenshot : screenshot.url;
+      const description = typeof screenshot === 'object' ? screenshot.description : null;
+      const timeframe = typeof screenshot === 'object' ? screenshot.timeframe : null;
+      
+      if (description) {
+        prompt += `Screenshot ${i + 1}${timeframe ? ` (${timeframe})` : ''}: "${description}"\n`;
+      } else if (url) {
+        prompt += `Screenshot ${i + 1}${timeframe ? ` (${timeframe})` : ''}: [No description provided]\n`;
+      }
+    });
+    prompt += `\nIMPORTANT: These descriptions are from the trader who took the trade. They describe what actually happened. Do NOT contradict them without explicit visual evidence from the screenshots.\n`;
+  } else {
+    prompt += `No screenshot documentation provided.\n`;
+  }
+
   prompt += `
 ## SIMILAR HISTORICAL TRADES
 `;
@@ -207,7 +274,12 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
   prompt += `
 Based on this data, provide your structured analysis using the trade_analysis function.
 
-IMPORTANT: If chart screenshots are provided, analyze them carefully to verify entry/exit quality and confirmation signals. Your visual analysis can verify or challenge the text-based data.`;
+CRITICAL ANALYSIS GUIDELINES:
+1. Use screenshot descriptions as first-hand accounts of what happened
+2. Do NOT contradict trader-confirmed attestations (marked with ✓ CONFIRMED)
+3. If this is a loss but trader notes "price reached target after stop" - the THESIS was correct, analyze WHY execution failed
+4. For each deviation you cite, reference the specific data point that shows it
+5. Distinguish between thesis failure, execution failure, and external factors`;
 
   return prompt;
 }
@@ -419,6 +491,26 @@ serve(async (req) => {
                     },
                     required: ["matched_rules", "deviations", "failure_type"]
                   },
+                  thesis_evaluation: {
+                    type: "object",
+                    description: "Evaluation of whether the trade thesis (idea) was correct, regardless of outcome",
+                    properties: {
+                      thesis_correct: {
+                        type: "boolean",
+                        description: "Whether the trade idea/thesis was fundamentally correct (e.g., price eventually went to target)"
+                      },
+                      thesis_explanation: {
+                        type: "string",
+                        description: "Explanation of why the thesis was correct or wrong"
+                      },
+                      failure_category: {
+                        type: "string",
+                        enum: ["thesis_wrong", "execution_failure", "external_factor", "no_failure"],
+                        description: "Category of failure: thesis was wrong, execution was poor, external factor (news/late session), or no failure"
+                      }
+                    },
+                    required: ["thesis_correct", "thesis_explanation", "failure_category"]
+                  },
                   mistake_attribution: {
                     type: "object",
                     properties: {
@@ -549,6 +641,7 @@ serve(async (req) => {
                 },
                 required: [
                   "technical_review",
+                  "thesis_evaluation",
                   "mistake_attribution",
                   "psychology_analysis",
                   "comparison_to_past",

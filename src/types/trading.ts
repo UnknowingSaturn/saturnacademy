@@ -290,6 +290,11 @@ export interface AIAnalysisOutput {
     deviations: string[];
     failure_type: 'structural' | 'execution' | 'both' | 'none';
   };
+  thesis_evaluation?: {
+    thesis_correct: boolean;
+    thesis_explanation: string;
+    failure_category: 'thesis_wrong' | 'execution_failure' | 'external_factor' | 'no_failure';
+  };
   mistake_attribution: {
     primary: string | null;
     secondary: string[];

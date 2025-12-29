@@ -137,6 +137,43 @@ export function AIAnalysisDisplay({ analysis, compliance, similarTrades, onSubmi
             </CardContent>
           </Card>
 
+          {/* Thesis Evaluation - Key insight: was the trade idea right? */}
+          {analysis.thesis_evaluation && (
+            <Card className={cn(
+              analysis.thesis_evaluation.thesis_correct ? "border-profit/30 bg-profit/5" : "border-loss/30 bg-loss/5"
+            )}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <Target className="w-4 h-4" />
+                    Trade Thesis
+                  </CardTitle>
+                  <Badge variant={analysis.thesis_evaluation.thesis_correct ? "default" : "destructive"}>
+                    {analysis.thesis_evaluation.thesis_correct ? "Thesis Correct" : "Thesis Wrong"}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="text-sm space-y-3">
+                <p>{analysis.thesis_evaluation.thesis_explanation}</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Failure Category:</span>
+                  <Badge variant="outline" className={cn(
+                    "text-xs",
+                    analysis.thesis_evaluation.failure_category === "no_failure" && "bg-profit/10 text-profit border-profit/20",
+                    analysis.thesis_evaluation.failure_category === "thesis_wrong" && "bg-loss/10 text-loss border-loss/20",
+                    analysis.thesis_evaluation.failure_category === "execution_failure" && "bg-amber-500/10 text-amber-600 border-amber-500/20",
+                    analysis.thesis_evaluation.failure_category === "external_factor" && "bg-blue-500/10 text-blue-600 border-blue-500/20"
+                  )}>
+                    {analysis.thesis_evaluation.failure_category === "no_failure" ? "No Failure" :
+                     analysis.thesis_evaluation.failure_category === "thesis_wrong" ? "Wrong Thesis" :
+                     analysis.thesis_evaluation.failure_category === "execution_failure" ? "Execution Failure" :
+                     "External Factor"}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Mistake Attribution */}
           {analysis.mistake_attribution.primary && (
             <Card className="border-loss/30">
