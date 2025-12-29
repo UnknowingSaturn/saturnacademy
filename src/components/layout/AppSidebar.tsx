@@ -5,7 +5,8 @@ import {
   Upload,
   TrendingUp,
   LogOut,
-  Wallet
+  Wallet,
+  Activity
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -22,10 +23,13 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { useOpenTradesCount } from "@/hooks/useOpenTrades";
+import { Badge } from "@/components/ui/badge";
 
 const mainItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Trade Journal", url: "/journal", icon: BookOpen },
+  { title: "Live Trades", url: "/live-trades", icon: Activity },
   { title: "Playbooks", url: "/playbooks", icon: FileText },
 ];
 
@@ -38,6 +42,7 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const { signOut, user } = useAuth();
+  const openTradesCount = useOpenTradesCount();
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border bg-sidebar">
