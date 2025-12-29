@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { RefreshCw, Clock } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -25,8 +27,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
 import { useUpdateAccount } from '@/hooks/useAccounts';
 import { Account, AccountType, PropFirm } from '@/types/trading';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 const formSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -36,6 +41,7 @@ const formSchema = z.object({
   prop_firm: z.enum(['ftmo', 'fundednext', 'other']).optional(),
   balance_start: z.coerce.number().min(0),
   equity_current: z.coerce.number().min(0),
+  broker_utc_offset: z.coerce.number().min(-12).max(14),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -48,6 +54,8 @@ interface EditAccountDialogProps {
 
 export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDialogProps) {
   const updateAccount = useUpdateAccount();
+  const { toast } = useToast();
+  const [isReprocessing, setIsReprocessing] = useState(false);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -59,6 +67,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       prop_firm: account.prop_firm || undefined,
       balance_start: account.balance_start || 0,
       equity_current: account.equity_current || 0,
+      broker_utc_offset: account.broker_utc_offset ?? 2,
     },
   });
 
@@ -72,6 +81,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
         prop_firm: account.prop_firm || undefined,
         balance_start: account.balance_start || 0,
         equity_current: account.equity_current || 0,
+        broker_utc_offset: account.broker_utc_offset ?? 2,
       });
     }
   }, [open, account, form]);
@@ -88,9 +98,58 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       prop_firm: data.account_type === 'prop' ? (data.prop_firm as PropFirm) || null : null,
       balance_start: data.balance_start,
       equity_current: data.equity_current,
+      broker_utc_offset: data.broker_utc_offset,
     });
     onOpenChange(false);
   };
+
+  const handleReprocessTrades = async () => {
+    const currentOffset = form.getValues('broker_utc_offset');
+    
+    // Save current offset first
+    await updateAccount.mutateAsync({
+      id: account.id,
+      broker_utc_offset: currentOffset,
+    });
+    
+    setIsReprocessing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('reprocess-trades', {
+        body: { 
+          account_id: account.id,
+          broker_utc_offset: currentOffset,
+        },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Trades reprocessed',
+        description: `Updated ${data.trades_updated || 0} trades with corrected times and R%.`,
+      });
+    } catch (error) {
+      console.error('Reprocess error:', error);
+      toast({
+        title: 'Failed to reprocess trades',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsReprocessing(false);
+    }
+  };
+
+  // Common broker timezone offsets
+  const timezoneOptions = [
+    { value: -5, label: 'UTC-5 (EST / New York)' },
+    { value: -4, label: 'UTC-4 (EDT / New York DST)' },
+    { value: 0, label: 'UTC+0 (GMT / London)' },
+    { value: 1, label: 'UTC+1 (CET / London DST)' },
+    { value: 2, label: 'UTC+2 (EET / Most Forex Brokers)' },
+    { value: 3, label: 'UTC+3 (EEST / Broker DST)' },
+    { value: 8, label: 'UTC+8 (SGT / Hong Kong)' },
+    { value: 9, label: 'UTC+9 (JST / Tokyo)' },
+  ];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -222,6 +281,60 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
                   </FormItem>
                 )}
               />
+            </div>
+
+            <Separator />
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Timezone Settings</span>
+              </div>
+              
+              <FormField
+                control={form.control}
+                name="broker_utc_offset"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Broker Server Timezone</FormLabel>
+                    <Select 
+                      onValueChange={(v) => field.onChange(parseInt(v))} 
+                      value={String(field.value)}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {timezoneOptions.map((tz) => (
+                          <SelectItem key={tz.value} value={String(tz.value)}>
+                            {tz.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Most forex brokers use UTC+2 (EET). Check your MT5 Market Watch for your broker's time.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleReprocessTrades}
+                disabled={isReprocessing}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isReprocessing ? 'animate-spin' : ''}`} />
+                {isReprocessing ? 'Reprocessing...' : 'Reprocess All Trades'}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Recalculates trade times, sessions, and R% using the selected timezone offset.
+              </p>
             </div>
 
             <div className="flex justify-end gap-2 pt-4">

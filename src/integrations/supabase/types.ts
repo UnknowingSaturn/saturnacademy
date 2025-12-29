@@ -21,6 +21,7 @@ export type Database = {
           api_key: string | null
           balance_start: number | null
           broker: string | null
+          broker_utc_offset: number | null
           created_at: string
           equity_current: number | null
           id: string
@@ -37,6 +38,7 @@ export type Database = {
           api_key?: string | null
           balance_start?: number | null
           broker?: string | null
+          broker_utc_offset?: number | null
           created_at?: string
           equity_current?: number | null
           id?: string
@@ -53,6 +55,7 @@ export type Database = {
           api_key?: string | null
           balance_start?: number | null
           broker?: string | null
+          broker_utc_offset?: number | null
           created_at?: string
           equity_current?: number | null
           id?: string

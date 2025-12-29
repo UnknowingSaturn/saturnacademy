@@ -9,6 +9,9 @@ verify_jwt = false
 [functions.backfill-trades]
 verify_jwt = false
 
+[functions.reprocess-trades]
+verify_jwt = true
+
 [functions.analyze-trade]
 verify_jwt = true
 
