@@ -714,6 +714,7 @@ export type Database = {
         Row: {
           account_id: string | null
           alignment: string[] | null
+          balance_at_entry: number | null
           commission: number | null
           created_at: string
           direction: Database["public"]["Enums"]["trade_direction"]
@@ -751,6 +752,7 @@ export type Database = {
         Insert: {
           account_id?: string | null
           alignment?: string[] | null
+          balance_at_entry?: number | null
           commission?: number | null
           created_at?: string
           direction: Database["public"]["Enums"]["trade_direction"]
@@ -788,6 +790,7 @@ export type Database = {
         Update: {
           account_id?: string | null
           alignment?: string[] | null
+          balance_at_entry?: number | null
           commission?: number | null
           created_at?: string
           direction?: Database["public"]["Enums"]["trade_direction"]

@@ -303,14 +303,23 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
   const estTime = estHour + estMinutes / 60;
   
   let session = "off_hours";
-  // Tokyo: 20:00 - 00:00 EST
-  if (estTime >= 20 || estTime < 0) session = "tokyo";
-  // London: 02:00 - 05:00 EST
-  else if (estTime >= 2 && estTime < 5) session = "london";
-  // New York AM: 08:30 - 11:00 EST
-  else if (estTime >= 8.5 && estTime < 11) session = "new_york_am";
-  // New York PM: 13:00 - 16:00 EST
-  else if (estTime >= 13 && estTime < 16) session = "new_york_pm";
+  // Tokyo: 19:00 - 04:00 EST (overnight)
+  if (estTime >= 19 || estTime < 4) session = "tokyo";
+  // London: 03:00 - 08:00 EST
+  else if (estTime >= 3 && estTime < 8) session = "london";
+  // New York AM: 08:00 - 12:00 EST (main killzone 9:30-11:30)
+  else if (estTime >= 8 && estTime < 12) session = "new_york_am";
+  // New York PM: 12:00 - 17:00 EST
+  else if (estTime >= 12 && estTime < 17) session = "new_york_pm";
+
+  // Fetch account data for balance tracking
+  const { data: accountData } = await supabase
+    .from("accounts")
+    .select("balance_start, equity_current")
+    .eq("id", account_id)
+    .single();
+  
+  const currentBalance = accountData?.equity_current || accountData?.balance_start || 0;
 
   // Handle entry event (open) - including history_sync entries
   if (effectiveEventType === "entry" || event_type === "open") {
@@ -318,7 +327,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       // Trade already exists - might be adding to position
       console.log("Trade already exists for position:", ticket);
     } else {
-      // Create new trade - store original_lots to preserve initial position size
+      // Create new trade - store original_lots and balance_at_entry
       await supabase.from("trades").insert({
         user_id: userId,
         account_id: account_id,
@@ -327,7 +336,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         symbol: event.symbol,
         direction: event.direction,
         total_lots: event.lot_size,
-        original_lots: event.lot_size, // FIX: Preserve original position size
+        original_lots: event.lot_size,
         entry_price: event.price,
         entry_time: event.event_timestamp,
         sl_initial: event.sl,
@@ -336,8 +345,9 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         tp_final: event.tp,
         session: session,
         is_open: true,
+        balance_at_entry: currentBalance, // Track balance for R% calculation
       });
-      console.log("Created new trade for position:", ticket);
+      console.log("Created new trade for position:", ticket, "balance:", currentBalance);
     }
   } 
   // Handle exit event - determine if partial or full close (including history_sync exits)
@@ -398,17 +408,20 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       
       const netPnl = totalGrossPnl - totalCommission - Math.abs(totalSwap);
       
-      // Calculate R-multiple as net_pnl / balance_start (percentage of account risked)
+      // Calculate R% using balance_at_entry (balance when trade was opened)
       let rMultiple = null;
-      const { data: accountData } = await supabase
-        .from("accounts")
-        .select("balance_start")
-        .eq("id", account_id)
-        .single();
+      const balanceAtEntry = existingTrade.balance_at_entry;
       
-      if (accountData?.balance_start && accountData.balance_start > 0) {
-        rMultiple = Math.round((netPnl / accountData.balance_start) * 100) / 100;
+      if (balanceAtEntry && balanceAtEntry > 0) {
+        // R% = (net_pnl / balance_at_entry) * 100
+        rMultiple = Math.round((netPnl / balanceAtEntry) * 10000) / 100; // Store as percentage with 2 decimals
       }
+
+      // Update account equity_current after trade closes
+      const newBalance = (balanceAtEntry || currentBalance) + netPnl;
+      await supabase.from("accounts").update({
+        equity_current: newBalance
+      }).eq("id", account_id);
 
       await supabase.from("trades").update({
         exit_price: event.price,
@@ -425,7 +438,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         tp_final: event.tp || existingTrade.tp_final,
       }).eq("id", existingTrade.id);
       
-      console.log("Processed full close for position:", ticket, "total PnL:", totalGrossPnl, "R:", rMultiple);
+      console.log("Processed full close for position:", ticket, "PnL:", netPnl, "R%:", rMultiple, "new balance:", newBalance);
     }
   }
   // Handle legacy modify event
