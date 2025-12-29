@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Check } from "lucide-react";
 
+// Badge select component for dropdown selections with color badges
+
 interface BadgeOption {
   value: string;
   label: string;
