@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useTrades } from "@/hooks/useTrades";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { TradeTable } from "@/components/journal/TradeTable";
@@ -12,14 +13,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Badge } from "@/components/ui/badge";
 import { SessionType, Trade } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
-import { Search, Settings, Table, CalendarDays } from "lucide-react";
+import { Search, Settings, Table, CalendarDays, X } from "lucide-react";
 
 export default function Journal() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [symbolFilter, setSymbolFilter] = useState("");
   const [sessionFilter, setSessionFilter] = useState<SessionType | "all">("all");
   const [resultFilter, setResultFilter] = useState<"all" | "win" | "loss" | "open">("all");
+  const [modelFilter, setModelFilter] = useState<string | null>(null);
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState("sessions");
@@ -29,9 +33,28 @@ export default function Journal() {
   const { data: trades, isLoading } = useTrades();
   const { data: settings } = useUserSettings();
 
+  // Read model filter from URL params on mount
+  useEffect(() => {
+    const modelParam = searchParams.get('model');
+    if (modelParam) {
+      setModelFilter(modelParam);
+    }
+  }, [searchParams]);
+
+  const clearModelFilter = () => {
+    setModelFilter(null);
+    searchParams.delete('model');
+    setSearchParams(searchParams);
+  };
+
   // Apply all filters
   const filteredTrades = useMemo(() => {
     let result = trades || [];
+
+    // Model/Strategy filter (from URL)
+    if (modelFilter) {
+      result = result.filter(trade => trade.model === modelFilter);
+    }
 
     // Symbol filter
     if (symbolFilter) {
@@ -83,7 +106,7 @@ export default function Journal() {
     }
 
     return result;
-  }, [trades, symbolFilter, sessionFilter, resultFilter, activeFilters]);
+  }, [trades, symbolFilter, sessionFilter, resultFilter, modelFilter, activeFilters]);
 
   const getTradeValue = (trade: Trade, column: string): any => {
     switch (column) {
@@ -134,6 +157,19 @@ export default function Journal() {
           <ManualTradeForm />
         </div>
       </div>
+
+      {/* Active Strategy Filter Badge */}
+      {modelFilter && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+          <span className="text-sm text-muted-foreground">Showing trades for:</span>
+          <Badge variant="default" className="gap-1">
+            {modelFilter}
+            <button onClick={clearModelFilter} className="ml-1 hover:bg-primary-foreground/20 rounded">
+              <X className="w-3 h-3" />
+            </button>
+          </Badge>
+        </div>
+      )}
 
       {/* Filters - only show for table view */}
       {viewMode === "table" && (
