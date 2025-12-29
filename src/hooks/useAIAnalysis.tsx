@@ -127,7 +127,7 @@ export function useAIAnalysis() {
 
       toast({ title: "AI analysis saved" });
       setPendingTradeId(null);
-      setAnalysisResult(null); // Clear draft after successful save
+      // Keep analysisResult visible - don't clear it after save
       return true;
     } catch (error) {
       console.error("Save AI analysis error:", error);
