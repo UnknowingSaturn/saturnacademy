@@ -40,9 +40,11 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
 
   // Auto-save when manual answers change
   useEffect(() => {
+    // Skip if no answers or if a mutation is already in progress
+    if (Object.keys(manualAnswers).length === 0) return;
+    if (createReview.isPending || updateReview.isPending) return;
+    
     const saveAnswers = async () => {
-      if (Object.keys(manualAnswers).length === 0) return;
-      
       const reviewData = {
         trade_id: trade.id,
         playbook_id: playbook.id,
@@ -50,16 +52,20 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
         score: Object.values(manualAnswers).filter(Boolean).length,
       };
 
-      if (existingReview) {
-        await updateReview.mutateAsync({ id: existingReview.id, ...reviewData });
-      } else {
-        await createReview.mutateAsync(reviewData);
+      try {
+        if (existingReview) {
+          await updateReview.mutateAsync({ id: existingReview.id, ...reviewData });
+        } else {
+          await createReview.mutateAsync(reviewData);
+        }
+      } catch (error) {
+        // Error is already handled by the mutation's onError
       }
     };
 
     const debounce = setTimeout(saveAnswers, 500);
     return () => clearTimeout(debounce);
-  }, [manualAnswers]);
+  }, [manualAnswers, trade.id, playbook.id, existingReview?.id, createReview.isPending, updateReview.isPending]);
 
   const toggleAnswer = (ruleId: string) => {
     setManualAnswers(prev => ({

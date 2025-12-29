@@ -170,6 +170,7 @@ export function useUpdateTrade() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['trades'] });
       queryClient.invalidateQueries({ queryKey: ['trade', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
       toast({ title: 'Trade updated successfully' });
     },
     onError: (error) => {
@@ -231,6 +232,7 @@ export function useCreateTradeReview() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['trades'] });
       queryClient.invalidateQueries({ queryKey: ['trade', variables.trade_id] });
+      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
       toast({ title: 'Review saved successfully' });
     },
     onError: (error) => {
@@ -259,6 +261,7 @@ export function useUpdateTradeReview() {
       if (updates.emotional_state_after) updateData.emotional_state_after = updates.emotional_state_after;
       if (updates.psychology_notes) updateData.psychology_notes = updates.psychology_notes;
       if (updates.thoughts) updateData.thoughts = updates.thoughts;
+      if (updates.playbook_id !== undefined) updateData.playbook_id = updates.playbook_id;
 
       const { data, error } = await supabase
         .from('trade_reviews')
@@ -272,6 +275,7 @@ export function useUpdateTradeReview() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['trades'] });
+      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
       toast({ title: 'Review updated successfully' });
     },
     onError: (error) => {

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Trade, Playbook, SessionType } from "@/types/trading";
 import { useTrades } from "./useTrades";
-import { startOfDay, endOfDay, parseISO } from "date-fns";
+import { startOfDay, endOfDay, parseISO, format } from "date-fns";
 
 export interface ComplianceRule {
   id: string;
@@ -27,7 +27,11 @@ export function useTradeCompliance(
   playbook: Playbook | null,
   manualAnswers: Record<string, boolean> = {}
 ): ComplianceResult {
-  const { data: allTrades = [] } = useTrades();
+  // Only fetch trades for the specific day to optimize
+  const tradeDate = trade?.entry_time ? format(parseISO(trade.entry_time), 'yyyy-MM-dd') : undefined;
+  const { data: dayTrades = [] } = useTrades(
+    tradeDate ? { dateFrom: tradeDate, dateTo: tradeDate } : undefined
+  );
 
   return useMemo(() => {
     if (!trade || !playbook) {
@@ -99,16 +103,7 @@ export function useTradeCompliance(
 
     // Auto-verified: Trade count today
     if (playbook.max_trades_per_session) {
-      const tradeDate = parseISO(trade.entry_time);
-      const todayStart = startOfDay(tradeDate);
-      const todayEnd = endOfDay(tradeDate);
-      
-      const todayTrades = allTrades.filter(t => {
-        const entryDate = parseISO(t.entry_time);
-        return entryDate >= todayStart && entryDate <= todayEnd;
-      });
-      
-      const tradeCount = todayTrades.length;
+      const tradeCount = dayTrades.length;
       const withinLimit = tradeCount <= playbook.max_trades_per_session;
       
       autoVerified.push({
@@ -176,7 +171,7 @@ export function useTradeCompliance(
       overallStatus,
       violationCount: failedCount,
     };
-  }, [trade, playbook, manualAnswers, allTrades]);
+  }, [trade, playbook, manualAnswers, dayTrades]);
 }
 
 function formatSession(session: string | null): string {
