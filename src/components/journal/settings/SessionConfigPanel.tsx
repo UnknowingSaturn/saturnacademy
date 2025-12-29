@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, GripVertical, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SessionDefinition } from "@/types/settings";
@@ -14,6 +15,29 @@ const COLOR_OPTIONS = [
   '#06B6D4', '#0EA5E9', '#3B82F6', '#6366F1', '#8B5CF6',
   '#A855F7', '#D946EF', '#6B7280'
 ];
+
+const TIMEZONE_OPTIONS = [
+  { value: 'America/New_York', label: 'Eastern (ET)' },
+  { value: 'America/Chicago', label: 'Central (CT)' },
+  { value: 'America/Denver', label: 'Mountain (MT)' },
+  { value: 'America/Los_Angeles', label: 'Pacific (PT)' },
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'Europe/Berlin', label: 'Berlin (CET)' },
+  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
+  { value: 'Asia/Hong_Kong', label: 'Hong Kong (HKT)' },
+  { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
+  { value: 'Australia/Sydney', label: 'Sydney (AEST)' },
+  { value: 'UTC', label: 'UTC' },
+];
+
+const getTimezoneAbbr = (tz: string) => {
+  const option = TIMEZONE_OPTIONS.find(o => o.value === tz);
+  if (option) {
+    const match = option.label.match(/\(([^)]+)\)/);
+    return match ? match[1] : tz;
+  }
+  return tz;
+};
 
 export function SessionConfigPanel() {
   const { data: sessions = [], isLoading } = useSessionDefinitions();
@@ -60,14 +84,22 @@ export function SessionConfigPanel() {
 
   const handleUpdateSession = async (id: string, updates: Partial<SessionDefinition>) => {
     if (id.startsWith('default-')) {
-      // For default sessions, we need to create a new one
+      // For default sessions, we need to create a new custom one that preserves the key
       const session = sessions.find(s => s.id === id);
       if (session) {
         await createSession.mutateAsync({
-          ...session,
+          name: session.name,
+          key: session.key, // Preserve the original key
+          start_hour: session.start_hour,
+          start_minute: session.start_minute,
+          end_hour: session.end_hour,
+          end_minute: session.end_minute,
+          color: session.color,
+          timezone: session.timezone,
+          sort_order: session.sort_order,
+          is_active: session.is_active,
           ...updates,
-          id: undefined,
-        } as any);
+        });
       }
     } else {
       await updateSession.mutateAsync({ id, ...updates });
@@ -131,9 +163,26 @@ export function SessionConfigPanel() {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <Label>Timezone</Label>
+            <Select
+              value={newSession.timezone}
+              onValueChange={(value) => setNewSession({ ...newSession, timezone: value })}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TIMEZONE_OPTIONS.map((tz) => (
+                  <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Start Time (ET)</Label>
+              <Label>Start Time</Label>
               <div className="flex gap-2">
                 <Input
                   type="number"
@@ -155,7 +204,7 @@ export function SessionConfigPanel() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>End Time (ET)</Label>
+              <Label>End Time</Label>
               <div className="flex gap-2">
                 <Input
                   type="number"
@@ -218,9 +267,26 @@ export function SessionConfigPanel() {
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <Label>Timezone</Label>
+                <Select
+                  value={editingSession.timezone}
+                  onValueChange={(value) => setEditingSession({ ...editingSession, timezone: value })}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIMEZONE_OPTIONS.map((tz) => (
+                      <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Start Time (ET)</Label>
+                  <Label>Start Time</Label>
                   <div className="flex gap-2">
                     <Input
                       type="number"
@@ -242,7 +308,7 @@ export function SessionConfigPanel() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>End Time (ET)</Label>
+                  <Label>End Time</Label>
                   <div className="flex gap-2">
                     <Input
                       type="number"
@@ -272,6 +338,7 @@ export function SessionConfigPanel() {
                     await handleUpdateSession(editingSession.id, {
                       name: editingSession.name,
                       color: editingSession.color,
+                      timezone: editingSession.timezone,
                       start_hour: editingSession.start_hour,
                       start_minute: editingSession.start_minute,
                       end_hour: editingSession.end_hour,
@@ -306,7 +373,7 @@ export function SessionConfigPanel() {
                 <div className="font-medium truncate">{session.name}</div>
                 <div className="text-xs text-muted-foreground flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  {formatTime(session.start_hour, session.start_minute)} - {formatTime(session.end_hour, session.end_minute)} ET
+                  {formatTime(session.start_hour, session.start_minute)} - {formatTime(session.end_hour, session.end_minute)} {getTimezoneAbbr(session.timezone)}
                 </div>
               </div>
 

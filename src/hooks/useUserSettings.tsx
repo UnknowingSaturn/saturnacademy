@@ -142,18 +142,25 @@ export function useSessionDefinitions() {
 
       if (error) throw error;
 
-      // Return default sessions if none exist
-      if (!data || data.length === 0) {
-        return DEFAULT_SESSIONS.map((s, i) => ({
+      // Get custom sessions from database
+      const customSessions = (data || []).map(transformSession);
+      
+      // Get the keys of custom sessions to know which defaults have been overridden
+      const customKeys = new Set(customSessions.map(s => s.key));
+      
+      // Include default sessions that haven't been customized
+      const remainingDefaults = DEFAULT_SESSIONS
+        .filter(d => !customKeys.has(d.key))
+        .map((s, i) => ({
           ...s,
-          id: `default-${i}`,
+          id: `default-${s.key}`,
           user_id: user.id,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })) as SessionDefinition[];
-      }
 
-      return data.map(transformSession);
+      // Merge custom sessions with remaining defaults, sort by sort_order
+      return [...customSessions, ...remainingDefaults].sort((a, b) => a.sort_order - b.sort_order);
     },
     enabled: !!user?.id,
   });
