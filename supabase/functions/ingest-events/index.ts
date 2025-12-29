@@ -46,6 +46,9 @@ interface EventPayload {
   timezone_offset_seconds?: number;
   // NEW: Equity at entry for R% calculation
   equity_at_entry?: number;
+  // NEW: Entry details for orphan exit handling
+  entry_price?: number;
+  entry_time?: string;
   account_info?: AccountInfo;
   raw_payload?: Record<string, unknown>;
 }
@@ -240,16 +243,19 @@ serve(async (req) => {
         swap: payload.swap || 0,
         profit: payload.profit,
         event_timestamp: payload.timestamp,
-        raw_payload: {
-          ...payload.raw_payload,
-          // Store all IDs in raw_payload for reference
-          position_id: payload.position_id,
-          deal_id: payload.deal_id,
-          order_id: payload.order_id,
-          server_time: payload.server_time,
-          timezone_offset_seconds: payload.timezone_offset_seconds,
-          equity_at_entry: payload.equity_at_entry,
-        },
+      raw_payload: {
+        ...payload.raw_payload,
+        // Store all IDs in raw_payload for reference
+        position_id: payload.position_id,
+        deal_id: payload.deal_id,
+        order_id: payload.order_id,
+        server_time: payload.server_time,
+        timezone_offset_seconds: payload.timezone_offset_seconds,
+        equity_at_entry: payload.equity_at_entry,
+        // Store entry details for orphan exit handling
+        entry_price: payload.entry_price,
+        entry_time: payload.entry_time,
+      },
         processed: false,
       })
       .select()
@@ -381,8 +387,69 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
   // Handle exit event - determine if partial or full close (including history_sync exits)
   else if (effectiveEventType === "exit" || event_type === "close" || event_type === "partial_close") {
     if (!existingTrade) {
-      console.log("No existing trade found for exit event, position:", ticket);
-      // Mark event as processed anyway
+      // ORPHAN EXIT: Create a closed trade from exit event data
+      console.log("Orphan exit event - creating closed trade for position:", ticket);
+      
+      // Extract entry details from raw_payload if available
+      const rawPayload = event.raw_payload || {};
+      const entryPrice = rawPayload.entry_price || originalPayload.entry_price || event.price;
+      const entryTime = rawPayload.entry_time || originalPayload.entry_time || event.event_timestamp;
+      
+      // Calculate duration
+      const entryDate = new Date(entryTime);
+      const exitDate = new Date(event.event_timestamp);
+      const duration = Math.floor((exitDate.getTime() - entryDate.getTime()) / 1000);
+      
+      // Calculate net PnL
+      const grossPnl = event.profit || 0;
+      const commission = event.commission || 0;
+      const swap = event.swap || 0;
+      const netPnl = grossPnl - commission - Math.abs(swap);
+      
+      // R% calculation (if we have equity info)
+      let rMultiple = null;
+      const equityAtEntry = rawPayload.equity_at_entry || originalPayload.equity_at_entry || currentEquity;
+      if (equityAtEntry && equityAtEntry > 0) {
+        rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
+      }
+      
+      // Create closed trade
+      const { data: newTrade, error: tradeError } = await supabase.from("trades").insert({
+        user_id: userId,
+        account_id: account_id,
+        terminal_id: event.terminal_id,
+        ticket: ticket,
+        symbol: event.symbol,
+        direction: event.direction,
+        total_lots: 0, // Closed
+        original_lots: lot_size,
+        entry_price: entryPrice,
+        entry_time: entryTime,
+        exit_price: event.price,
+        exit_time: event.event_timestamp,
+        sl_initial: event.sl,
+        tp_initial: event.tp,
+        sl_final: event.sl,
+        tp_final: event.tp,
+        gross_pnl: grossPnl,
+        commission: commission,
+        swap: swap,
+        net_pnl: netPnl,
+        r_multiple_actual: rMultiple,
+        duration_seconds: duration > 0 ? duration : null,
+        session: session,
+        is_open: false,
+        balance_at_entry: currentEquity,
+        equity_at_entry: equityAtEntry,
+      }).select().single();
+      
+      if (tradeError) {
+        console.error("Failed to create orphan trade:", tradeError);
+      } else {
+        console.log("Created closed trade from orphan exit:", ticket, "PnL:", netPnl, "R%:", rMultiple);
+      }
+      
+      // Mark event as processed
       await supabase.from("events").update({ processed: true }).eq("id", event.id);
       return;
     }
