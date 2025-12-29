@@ -20,10 +20,15 @@ import {
   AlertTriangle,
   Target,
   Clock,
-  BarChart3
+  BarChart3,
+  ShieldCheck,
+  Flame,
+  Trophy,
+  AlertCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
 
 interface PlaybookDetailSheetProps {
   playbook: Playbook | null;
@@ -166,6 +171,237 @@ export function PlaybookDetailSheet({
               </div>
             )}
           </section>
+
+          {/* Mini Equity Curve */}
+          {stats && stats.equityCurve.length > 1 && (
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                Equity Curve
+              </h3>
+              <div className="h-[100px] bg-muted/30 rounded-lg p-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.equityCurve}>
+                    <defs>
+                      <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop 
+                          offset="5%" 
+                          stopColor={isProfit ? "hsl(var(--profit))" : "hsl(var(--destructive))"} 
+                          stopOpacity={0.3}
+                        />
+                        <stop 
+                          offset="95%" 
+                          stopColor={isProfit ? "hsl(var(--profit))" : "hsl(var(--destructive))"} 
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <Tooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-popover border rounded-lg p-2 shadow-lg text-xs">
+                              <div className="font-medium">Trade #{data.tradeIndex}</div>
+                              <div className={cn(
+                                data.balance >= 0 ? "text-profit" : "text-destructive"
+                              )}>
+                                {data.balance >= 0 ? "+" : ""}${data.balance.toFixed(2)}
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="balance" 
+                      stroke={isProfit ? "hsl(var(--profit))" : "hsl(var(--destructive))"} 
+                      strokeWidth={2}
+                      fill="url(#equityGradient)" 
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+          )}
+
+          {/* Today's Compliance */}
+          {(playbook.max_trades_per_session || playbook.max_daily_loss_r) && stats && (
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4" />
+                Today's Compliance
+              </h3>
+              <div className="space-y-3">
+                {/* Trade limit progress */}
+                {playbook.max_trades_per_session && (
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex justify-between text-sm mb-1.5">
+                      <span className="text-muted-foreground">Session Trades</span>
+                      <span className={cn(
+                        "font-medium",
+                        stats.todayTrades >= playbook.max_trades_per_session 
+                          ? "text-destructive" 
+                          : "text-foreground"
+                      )}>
+                        {stats.todayTrades} / {playbook.max_trades_per_session}
+                      </span>
+                    </div>
+                    <Progress 
+                      value={(stats.todayTrades / playbook.max_trades_per_session) * 100} 
+                      className={cn(
+                        "h-2",
+                        stats.todayTrades >= playbook.max_trades_per_session 
+                          ? "[&>div]:bg-destructive" 
+                          : stats.todayTrades >= playbook.max_trades_per_session * 0.8 
+                            ? "[&>div]:bg-yellow-500" 
+                            : "[&>div]:bg-profit"
+                      )}
+                    />
+                    {stats.todayTrades < playbook.max_trades_per_session && (
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        {playbook.max_trades_per_session - stats.todayTrades} trades remaining
+                      </p>
+                    )}
+                  </div>
+                )}
+                
+                {/* Daily R limit progress */}
+                {playbook.max_daily_loss_r && (
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex justify-between text-sm mb-1.5">
+                      <span className="text-muted-foreground">Daily R Used</span>
+                      <span className={cn(
+                        "font-medium",
+                        stats.todayRUsed >= playbook.max_daily_loss_r 
+                          ? "text-destructive" 
+                          : "text-foreground"
+                      )}>
+                        {stats.todayRUsed.toFixed(2)}R / {playbook.max_daily_loss_r}R
+                      </span>
+                    </div>
+                    <Progress 
+                      value={(stats.todayRUsed / playbook.max_daily_loss_r) * 100} 
+                      className={cn(
+                        "h-2",
+                        stats.todayRUsed >= playbook.max_daily_loss_r 
+                          ? "[&>div]:bg-destructive" 
+                          : stats.todayRUsed >= playbook.max_daily_loss_r * 0.8 
+                            ? "[&>div]:bg-yellow-500" 
+                            : "[&>div]:bg-profit"
+                      )}
+                    />
+                    {stats.todayRUsed < playbook.max_daily_loss_r && (
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        {(playbook.max_daily_loss_r - stats.todayRUsed).toFixed(2)}R remaining
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Compliance warnings */}
+                {stats.complianceStatus.warnings.length > 0 && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                    <AlertCircle className="w-4 h-4 text-destructive shrink-0" />
+                    <div className="text-sm text-destructive">
+                      {stats.complianceStatus.warnings.join(' • ')}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* R-Multiple Distribution */}
+          {stats && stats.rDistribution.some(b => b.count > 0) && (
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                R-Multiple Distribution
+              </h3>
+              <div className="h-[80px] bg-muted/30 rounded-lg p-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={stats.rDistribution} layout="horizontal">
+                    <XAxis 
+                      dataKey="range" 
+                      tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} 
+                      axisLine={false}
+                      tickLine={false}
+                      interval={0}
+                    />
+                    <YAxis hide />
+                    <Tooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-popover border rounded-lg p-2 shadow-lg text-xs">
+                              <div className="font-medium">{data.range}</div>
+                              <div>{data.count} trade{data.count !== 1 ? 's' : ''}</div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                      {stats.rDistribution.map((entry, index) => (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={entry.isPositive ? "hsl(var(--profit))" : "hsl(var(--destructive))"} 
+                          fillOpacity={entry.count > 0 ? 0.8 : 0.2}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+          )}
+
+          {/* Streak Analysis */}
+          {stats && stats.totalTrades > 0 && (
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                Streaks
+              </h3>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-3 rounded-lg bg-muted/30 text-center">
+                  <Flame className={cn(
+                    "w-4 h-4 mx-auto mb-1",
+                    stats.streakStats.currentStreakType === 'win' ? "text-profit" : 
+                    stats.streakStats.currentStreakType === 'loss' ? "text-destructive" : 
+                    "text-muted-foreground"
+                  )} />
+                  <div className={cn(
+                    "text-lg font-bold",
+                    stats.streakStats.currentStreakType === 'win' ? "text-profit" : 
+                    stats.streakStats.currentStreakType === 'loss' ? "text-destructive" : 
+                    "text-muted-foreground"
+                  )}>
+                    {stats.streakStats.currentStreak}
+                    {stats.streakStats.currentStreakType === 'win' && 'W'}
+                    {stats.streakStats.currentStreakType === 'loss' && 'L'}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Current</div>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/30 text-center">
+                  <Trophy className="w-4 h-4 mx-auto mb-1 text-profit" />
+                  <div className="text-lg font-bold text-profit">
+                    {stats.streakStats.longestWinStreak}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Best Win</div>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/30 text-center">
+                  <TrendingDown className="w-4 h-4 mx-auto mb-1 text-destructive" />
+                  <div className="text-lg font-bold text-destructive">
+                    {stats.streakStats.longestLossStreak}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Worst Loss</div>
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Filters Section */}
           {(playbook.session_filter?.length || playbook.symbol_filter?.length || playbook.valid_regimes?.length) && (
