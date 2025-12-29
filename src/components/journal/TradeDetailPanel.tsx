@@ -32,7 +32,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
   const { data: playbooks } = usePlaybooks();
   const createReview = useCreateTradeReview();
   const updateReview = useUpdateTradeReview();
-  const { analyzeTrade, isAnalyzing, analysisResult, submitFeedback } = useAIAnalysis();
+  const { analyzeTrade, isAnalyzing, analysisResult, setAnalysisResult, submitFeedback } = useAIAnalysis();
 
   const existingReview = trade?.review;
   // Use trade.playbook_id (set via Model property) for compliance checklist
@@ -78,6 +78,34 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
 
   // Reset state when trade changes
   useEffect(() => {
+    // Clear previous AI analysis when switching trades
+    setAnalysisResult(null);
+    
+    // Load saved AI review if exists
+    if (trade?.ai_review) {
+      setAnalysisResult({
+        analysis: {
+          technical_review: trade.ai_review.technical_review,
+          mistake_attribution: trade.ai_review.mistake_attribution,
+          psychology_analysis: trade.ai_review.psychology_analysis,
+          comparison_to_past: trade.ai_review.comparison_to_past,
+          actionable_guidance: trade.ai_review.actionable_guidance,
+          confidence: trade.ai_review.confidence,
+        },
+        compliance: {
+          setup_compliance_score: trade.ai_review.setup_compliance_score || 0,
+          context_alignment_score: trade.ai_review.context_alignment_score || 0,
+          rule_violations: trade.ai_review.rule_violations || [],
+          matched_rules: trade.ai_review.technical_review?.matched_rules || [],
+        },
+        similar_trades: {
+          similar_winners: [],
+          similar_losers: [],
+        },
+        raw_analysis: trade.ai_review.raw_analysis || "",
+      });
+    }
+    
     if (trade?.review) {
       setChecklistAnswers(trade.review.checklist_answers || {});
       setRegime(trade.review.regime || "");
@@ -106,7 +134,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
       setThoughts("");
       setScreenshots([]);
     }
-  }, [trade?.id, trade?.review]);
+  }, [trade?.id, trade?.review, trade?.ai_review, setAnalysisResult]);
 
   const score = Object.values(checklistAnswers).filter(Boolean).length;
 
