@@ -253,7 +253,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
               <div className="p-4 space-y-6">
                 {/* Replay Chart */}
                 <div className="rounded-lg border border-border bg-card/50 p-4">
-                  <TradeChart trade={trade} className="h-[450px]" />
+                  <TradeChart trade={trade} />
                 </div>
 
                 {/* Screenshots */}
