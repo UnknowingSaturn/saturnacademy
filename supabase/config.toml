@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.save-ai-review]
 verify_jwt = false
+
+[functions.fresh-start]
+verify_jwt = false

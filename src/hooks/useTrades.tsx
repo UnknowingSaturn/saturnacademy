@@ -202,6 +202,30 @@ export function useDeleteTrade() {
   });
 }
 
+export function useBulkDeleteTrades() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (tradeIds: string[]) => {
+      const { error } = await supabase
+        .from('trades')
+        .delete()
+        .in('id', tradeIds);
+      if (error) throw error;
+      return tradeIds.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
+      toast({ title: `${count} trade${count !== 1 ? 's' : ''} deleted successfully` });
+    },
+    onError: (error) => {
+      toast({ title: 'Failed to delete trades', description: error.message, variant: 'destructive' });
+    },
+  });
+}
+
 export function useCreateTradeReview() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
