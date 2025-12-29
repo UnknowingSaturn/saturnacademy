@@ -23,17 +23,21 @@ interface AnalysisResult {
 
 export function useAIAnalysis() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSavingAnalysis, setIsSavingAnalysis] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [pendingTradeId, setPendingTradeId] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Generate analysis WITHOUT saving to database
   const analyzeTrade = async (tradeId: string): Promise<AnalysisResult | null> => {
     setIsAnalyzing(true);
     setAnalysisResult(null);
+    setPendingTradeId(tradeId);
 
     try {
       const { data, error } = await supabase.functions.invoke("analyze-trade", {
-        body: { trade_id: tradeId },
+        body: { trade_id: tradeId, save: false },
       });
 
       if (error) throw error;
@@ -62,29 +66,7 @@ export function useAIAnalysis() {
       };
 
       setAnalysisResult(result);
-      
-      // Immediately update the trade cache with the saved_review from backend
-      if (data.saved_review) {
-        // Update single trade query cache
-        queryClient.setQueryData(['trade', tradeId], (oldData: any) => {
-          if (!oldData) return oldData;
-          return { ...oldData, ai_review: data.saved_review };
-        });
-        
-        // Update trades list cache
-        queryClient.setQueryData(['trades', undefined], (oldData: any) => {
-          if (!Array.isArray(oldData)) return oldData;
-          return oldData.map((t: any) => 
-            t.id === tradeId ? { ...t, ai_review: data.saved_review } : t
-          );
-        });
-      }
-      
-      // Also invalidate to ensure fresh data on next fetch
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
-      queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
-      
-      toast({ title: "Analysis Complete", description: "AI review has been saved." });
+      toast({ title: "Analysis Generated", description: "Review the analysis and click Save to keep it." });
       return result;
     } catch (error) {
       console.error("AI analysis error:", error);
@@ -97,6 +79,76 @@ export function useAIAnalysis() {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  // Save the pending analysis to database
+  const saveAIAnalysis = async (tradeId: string): Promise<boolean> => {
+    if (!analysisResult) {
+      console.warn("No analysis to save");
+      return false;
+    }
+
+    setIsSavingAnalysis(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("save-ai-review", {
+        body: {
+          trade_id: tradeId,
+          analysis: analysisResult.analysis,
+          compliance: analysisResult.compliance,
+          similar_trades: analysisResult.similar_trades,
+          raw_analysis: analysisResult.raw_analysis,
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      // Update cache with saved review
+      if (data.saved_review) {
+        queryClient.setQueryData(['trade', tradeId], (oldData: any) => {
+          if (!oldData) return oldData;
+          return { ...oldData, ai_review: data.saved_review };
+        });
+
+        queryClient.setQueryData(['trades', undefined], (oldData: any) => {
+          if (!Array.isArray(oldData)) return oldData;
+          return oldData.map((t: any) => 
+            t.id === tradeId ? { ...t, ai_review: data.saved_review } : t
+          );
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
+
+      setPendingTradeId(null);
+      return true;
+    } catch (error) {
+      console.error("Save AI analysis error:", error);
+      toast({ 
+        title: "Save Failed", 
+        description: error instanceof Error ? error.message : "Could not save AI analysis", 
+        variant: "destructive" 
+      });
+      return false;
+    } finally {
+      setIsSavingAnalysis(false);
+    }
+  };
+
+  // Check if there's unsaved analysis for this trade
+  const hasUnsavedAnalysis = (tradeId: string) => {
+    return pendingTradeId === tradeId && analysisResult !== null;
+  };
+
+  // Clear pending analysis (e.g., when closing panel without saving)
+  const clearPendingAnalysis = () => {
+    setPendingTradeId(null);
+    // Don't clear analysisResult so user can still see it until panel closes
   };
 
   const submitFeedback = async (aiReviewId: string, isAccurate: boolean, isUseful: boolean, notes?: string) => {
@@ -127,9 +179,14 @@ export function useAIAnalysis() {
 
   return { 
     analyzeTrade, 
+    saveAIAnalysis,
     isAnalyzing, 
+    isSavingAnalysis,
     analysisResult, 
     setAnalysisResult,
+    hasUnsavedAnalysis,
+    clearPendingAnalysis,
+    pendingTradeId,
     submitFeedback 
   };
 }

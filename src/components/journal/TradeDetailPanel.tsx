@@ -36,7 +36,17 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   const { data: playbooks } = usePlaybooks();
   const createReview = useCreateTradeReview();
   const updateReview = useUpdateTradeReview();
-  const { analyzeTrade, isAnalyzing, analysisResult, setAnalysisResult, submitFeedback } = useAIAnalysis();
+  const { 
+    analyzeTrade, 
+    saveAIAnalysis, 
+    isAnalyzing, 
+    isSavingAnalysis,
+    analysisResult, 
+    setAnalysisResult, 
+    hasUnsavedAnalysis,
+    clearPendingAnalysis,
+    submitFeedback 
+  } = useAIAnalysis();
 
   const existingReview = trade?.review;
   // Use trade.playbook_id (set via Model property) for compliance checklist
@@ -145,9 +155,10 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   const handleSave = async () => {
     if (!trade) return;
 
+    // Save manual review
     const reviewData = {
       trade_id: trade.id,
-      playbook_id: trade.playbook_id || null, // Use trade.playbook_id set via Model property
+      playbook_id: trade.playbook_id || null,
       checklist_answers: checklistAnswers,
       score,
       regime: regime || null,
@@ -168,6 +179,11 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       await updateReview.mutateAsync({ id: existingReview.id, ...reviewData });
     } else {
       await createReview.mutateAsync({ review: reviewData });
+    }
+
+    // Also save AI analysis if there's unsaved analysis
+    if (hasUnsavedAnalysis(trade.id)) {
+      await saveAIAnalysis(trade.id);
     }
   };
 
@@ -309,12 +325,19 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                   </TooltipTrigger>
                   <TooltipContent>
                     <p>Generate AI analysis</p>
-                    <p className="text-xs text-muted-foreground">Saves automatically</p>
                   </TooltipContent>
                 </Tooltip>
-                <Button size="sm" className="h-8" onClick={handleSave} disabled={createReview.isPending || updateReview.isPending}>
+                <Button 
+                  size="sm" 
+                  className="h-8 relative" 
+                  onClick={handleSave} 
+                  disabled={createReview.isPending || updateReview.isPending || isSavingAnalysis}
+                >
                   <Save className="h-4 w-4 mr-1" />
                   Save
+                  {trade && hasUnsavedAnalysis(trade.id) && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full" />
+                  )}
                 </Button>
               </div>
             </div>

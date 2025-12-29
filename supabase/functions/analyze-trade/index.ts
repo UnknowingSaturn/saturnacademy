@@ -343,8 +343,8 @@ serve(async (req) => {
       );
     }
 
-    const { trade_id } = await req.json();
-    console.log("AI Analysis request for trade:", trade_id);
+    const { trade_id, save = true } = await req.json();
+    console.log("AI Analysis request for trade:", trade_id, "save:", save);
 
     // 1. Fetch trade with review and playbook
     const { data: trade, error: tradeError } = await supabase
@@ -734,38 +734,45 @@ serve(async (req) => {
       console.warn("Tool call not used, falling back to raw content");
     }
 
-    // 6. Store the AI review
-    const aiReviewData = {
-      trade_id,
-      technical_review: analysisOutput?.technical_review || {},
-      mistake_attribution: analysisOutput?.mistake_attribution || {},
-      psychology_analysis: analysisOutput?.psychology_analysis || {},
-      comparison_to_past: analysisOutput?.comparison_to_past || {},
-      actionable_guidance: analysisOutput?.actionable_guidance || {},
-      confidence: analysisOutput?.confidence || "low",
-      setup_compliance_score: complianceResult.setup_compliance_score,
-      rule_violations: complianceResult.rule_violations,
-      context_alignment_score: complianceResult.context_alignment_score,
-      similar_winners: similarTrades.similar_winners?.map((t: any) => t.trade_id) || [],
-      similar_losers: similarTrades.similar_losers?.map((t: any) => t.trade_id) || [],
-      raw_analysis: rawAnalysis,
-    };
-
-    const { data: savedReview, error: saveError } = await supabase
-      .from("ai_reviews")
-      .upsert({ ...aiReviewData, updated_at: new Date().toISOString() }, { onConflict: "trade_id" })
-      .select()
-      .single();
-
-    if (saveError) {
-      console.error("Failed to save AI review:", saveError);
-      return new Response(
-        JSON.stringify({ error: "Analysis generated but failed to save. Please try again." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // 6. Optionally store the AI review (skip if save=false)
+    let savedReview = null;
     
-    console.log("AI review saved:", savedReview.id);
+    if (save) {
+      const aiReviewData = {
+        trade_id,
+        technical_review: analysisOutput?.technical_review || {},
+        mistake_attribution: analysisOutput?.mistake_attribution || {},
+        psychology_analysis: analysisOutput?.psychology_analysis || {},
+        comparison_to_past: analysisOutput?.comparison_to_past || {},
+        actionable_guidance: analysisOutput?.actionable_guidance || {},
+        confidence: analysisOutput?.confidence || "low",
+        setup_compliance_score: complianceResult.setup_compliance_score,
+        rule_violations: complianceResult.rule_violations,
+        context_alignment_score: complianceResult.context_alignment_score,
+        similar_winners: similarTrades.similar_winners?.map((t: any) => t.trade_id) || [],
+        similar_losers: similarTrades.similar_losers?.map((t: any) => t.trade_id) || [],
+        raw_analysis: rawAnalysis,
+      };
+
+      const { data: saved, error: saveError } = await supabase
+        .from("ai_reviews")
+        .upsert({ ...aiReviewData, updated_at: new Date().toISOString() }, { onConflict: "trade_id" })
+        .select()
+        .single();
+
+      if (saveError) {
+        console.error("Failed to save AI review:", saveError);
+        return new Response(
+          JSON.stringify({ error: "Analysis generated but failed to save. Please try again." }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      
+      savedReview = saved;
+      console.log("AI review saved:", savedReview.id);
+    } else {
+      console.log("Skipping save (save=false)");
+    }
 
     return new Response(
       JSON.stringify({
