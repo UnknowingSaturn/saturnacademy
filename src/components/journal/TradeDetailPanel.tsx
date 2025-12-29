@@ -154,7 +154,34 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
         setScreenshots([]);
       }
     }
-  }, [trade?.id, trade?.review, setAnalysisResult, lastTradeId]);
+  }, [trade?.id, trade?.review, lastTradeId]);
+
+  // Separate effect to load AI review when it becomes available (handles async loading)
+  useEffect(() => {
+    if (trade?.ai_review && trade.id === lastTradeId) {
+      setAnalysisResult({
+        analysis: {
+          technical_review: trade.ai_review.technical_review,
+          mistake_attribution: trade.ai_review.mistake_attribution,
+          psychology_analysis: trade.ai_review.psychology_analysis,
+          comparison_to_past: trade.ai_review.comparison_to_past,
+          actionable_guidance: trade.ai_review.actionable_guidance,
+          confidence: trade.ai_review.confidence,
+        },
+        compliance: {
+          setup_compliance_score: trade.ai_review.setup_compliance_score || 0,
+          context_alignment_score: trade.ai_review.context_alignment_score || 0,
+          rule_violations: trade.ai_review.rule_violations || [],
+          matched_rules: trade.ai_review.technical_review?.matched_rules || [],
+        },
+        similar_trades: {
+          similar_winners: [],
+          similar_losers: [],
+        },
+        raw_analysis: trade.ai_review.raw_analysis || "",
+      });
+    }
+  }, [trade?.ai_review, trade?.id, lastTradeId, setAnalysisResult]);
 
   const score = Object.values(checklistAnswers).filter(Boolean).length;
 
