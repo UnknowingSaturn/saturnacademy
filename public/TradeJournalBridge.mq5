@@ -16,6 +16,9 @@
 input group "=== Connection Settings ==="
 input string   InpApiKey         = "";                         // API Key (from journal app)
 
+input group "=== Broker Timezone ==="
+input int      InpBrokerUTCOffset = 2;                         // Broker Server UTC Offset (e.g., 2 for UTC+2)
+
 input group "=== Retry Settings ==="
 input int      InpMaxRetries     = 5;                          // Max retry attempts
 input int      InpRetryDelayMs   = 5000;                       // Retry delay (milliseconds)
@@ -114,6 +117,12 @@ int OnInit()
       Print("");
       Print("First run detected - syncing historical trades...");
       SyncHistoricalDeals();
+   }
+   
+   // Always sync currently open positions on startup
+   if(g_webRequestOk)
+   {
+      SyncOpenPositions();
    }
    
    return INIT_SUCCEEDED;
@@ -278,7 +287,8 @@ string DetermineEventType(ENUM_DEAL_ENTRY dealEntry)
 //+------------------------------------------------------------------+
 //| Build JSON Payload for Event                                      |
 //| FIX Issue #1: Send position_id, deal_id, order_id explicitly      |
-//| FIX Issue #6: Use TimeGMT() for UTC timestamps                    |
+//| FIX Issue #6: Use actual DEAL_TIME converted to UTC               |
+//| FIX: Add timezone_offset_seconds and equity_at_entry for entries  |
 //+------------------------------------------------------------------+
 string BuildEventPayload(ulong dealTicket, string eventType, string direction)
 {
@@ -300,9 +310,15 @@ string BuildEventPayload(ulong dealTicket, string eventType, string direction)
    // Build idempotency key using deal_id for uniqueness
    string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
    
-   // FIX Issue #6: Use TimeGMT() for proper UTC timestamp
-   string utcTimestamp = FormatTimestampUTC(TimeGMT());
+   // FIX: Convert deal time to UTC using the CONFIGURED broker offset
+   // dealTime is in broker server time (e.g., UTC+2), convert to UTC
+   // Using configured offset instead of runtime TimeGMT()-TimeCurrent() which is unreliable for historical trades
+   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
+   string utcTimestamp = FormatTimestampUTC(dealTimeUTC);
    string serverTimestamp = FormatTimestamp(dealTime);
+   
+   // Store the configured broker offset in seconds
+   long brokerOffsetSeconds = InpBrokerUTCOffset * 3600;
    
    // Get symbol digits for price formatting
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -352,9 +368,15 @@ string BuildEventPayload(ulong dealTicket, string eventType, string direction)
    json += "\"swap\":" + DoubleToString(swap, 2) + ",";
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
    
-   // FIX Issue #6: UTC timestamp and separate server time
+   // FIX: Use configured broker offset (stored as seconds)
    json += "\"timestamp\":\"" + utcTimestamp + "\",";
    json += "\"server_time\":\"" + serverTimestamp + "\",";
+   json += "\"broker_utc_offset\":" + IntegerToString(InpBrokerUTCOffset) + ",";
+   json += "\"timezone_offset_seconds\":" + IntegerToString(brokerOffsetSeconds) + ",";
+   
+   // FIX: For entry events, capture equity at entry for R% calculation
+   if(eventType == "entry")
+      json += "\"equity_at_entry\":" + DoubleToString(equity, 2) + ",";
    
    // Account info for auto-creation
    json += "\"account_info\":{";
@@ -935,6 +957,7 @@ void SyncHistoricalDeals()
 //+------------------------------------------------------------------+
 //| Build JSON Payload for History Sync Event                         |
 //| Similar to BuildEventPayload but with history_sync event type     |
+//| FIX: Convert deal time to UTC properly                            |
 //+------------------------------------------------------------------+
 string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direction)
 {
@@ -956,9 +979,14 @@ string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direct
    // Build idempotency key - use history_sync prefix to differentiate
    string idempotencyKey = g_terminalId + "_history_" + IntegerToString(dealTicket) + "_" + eventType;
    
-   // FIX: Use FormatTimestamp (no Z suffix) since dealTime is server time, not UTC
-   // Historical timestamps are approximate - we don't have reliable UTC conversion
-   string dealTimestamp = FormatTimestamp(dealTime);
+   // FIX: Convert deal time to UTC using the CONFIGURED broker offset
+   // dealTime is in broker server time (e.g., UTC+2), convert to UTC
+   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
+   string utcTimestamp = FormatTimestampUTC(dealTimeUTC);
+   string serverTimestamp = FormatTimestamp(dealTime);
+   
+   // Store the configured broker offset in seconds
+   long brokerOffsetSeconds = InpBrokerUTCOffset * 3600;
    
    // Get symbol digits for price formatting
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -1009,9 +1037,11 @@ string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direct
    json += "\"swap\":" + DoubleToString(swap, 2) + ",";
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
    
-   // Use deal time as timestamp (historical data)
-   json += "\"timestamp\":\"" + dealTimestamp + "\",";
-   json += "\"server_time\":\"" + FormatTimestamp(dealTime) + "\",";
+   // FIX: Use configured broker offset
+   json += "\"timestamp\":\"" + utcTimestamp + "\",";
+   json += "\"server_time\":\"" + serverTimestamp + "\",";
+   json += "\"broker_utc_offset\":" + IntegerToString(InpBrokerUTCOffset) + ",";
+   json += "\"timezone_offset_seconds\":" + IntegerToString(brokerOffsetSeconds) + ",";
    
    // Account info for auto-creation
    json += "\"account_info\":{";
@@ -1028,6 +1058,201 @@ string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direct
    json += "\"magic\":" + IntegerToString(magic) + ",";
    json += "\"comment\":\"" + EscapeJsonString(comment) + "\",";
    json += "\"is_history_sync\":true";
+   json += "}";
+   
+   json += "}";
+   
+   return json;
+}
+
+//+------------------------------------------------------------------+
+//| Sync Currently Open Positions on Startup                          |
+//| Scans all open positions and sends entry events for any that      |
+//| don't already exist in the database (idempotency handles dupes)   |
+//+------------------------------------------------------------------+
+void SyncOpenPositions()
+{
+   Print("");
+   Print("Scanning currently open positions...");
+   
+   int totalPositions = PositionsTotal();
+   int sentCount = 0;
+   int skippedCount = 0;
+   int errorCount = 0;
+   
+   if(totalPositions == 0)
+   {
+      Print("No open positions found.");
+      return;
+   }
+   
+   Print("Found ", totalPositions, " open position(s)");
+   
+   for(int i = 0; i < totalPositions; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+      
+      if(!PositionSelectByTicket(ticket))
+         continue;
+      
+      // Get position details
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      double lots = PositionGetDouble(POSITION_VOLUME);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double sl = PositionGetDouble(POSITION_SL);
+      double tp = PositionGetDouble(POSITION_TP);
+      datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+      double swap = PositionGetDouble(POSITION_SWAP);
+      double profit = PositionGetDouble(POSITION_PROFIT);
+      string comment = PositionGetString(POSITION_COMMENT);
+      
+      // Apply symbol filter
+      if(StringLen(InpSymbolFilter) > 0 && symbol != InpSymbolFilter)
+      {
+         skippedCount++;
+         continue;
+      }
+      
+      // Apply magic filter
+      if(InpMagicFilter != 0 && magic != InpMagicFilter)
+      {
+         skippedCount++;
+         continue;
+      }
+      
+      // Determine direction
+      string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
+      
+      // Build and send entry payload (uses history_sync for idempotency)
+      string payload = BuildOpenPositionPayload(ticket, symbol, direction, lots, openPrice, sl, tp, openTime, swap, profit, magic, comment);
+      
+      if(InpVerboseMode)
+         Print("Syncing open position: ", ticket, " | ", symbol, " | ", direction, " | ", lots, " lots");
+      
+      // Send event
+      if(SendEvent(payload, ticket))
+      {
+         sentCount++;
+      }
+      else
+      {
+         // Add to queue for later retry
+         AddToQueue(payload, ticket);
+         errorCount++;
+      }
+      
+      // Small delay between events
+      Sleep(50);
+   }
+   
+   Print("=================================================");
+   Print("Open position sync complete!");
+   Print("  Positions sent: ", sentCount);
+   Print("  Queued for retry: ", errorCount);
+   Print("  Skipped (filtered): ", skippedCount);
+   Print("=================================================");
+   
+   LogMessage("Open position sync - sent: " + IntegerToString(sentCount) + 
+              ", queued: " + IntegerToString(errorCount) + 
+              ", skipped: " + IntegerToString(skippedCount));
+}
+
+//+------------------------------------------------------------------+
+//| Build JSON Payload for Open Position Sync                         |
+//| Uses history_sync event type for idempotency handling             |
+//+------------------------------------------------------------------+
+string BuildOpenPositionPayload(ulong ticket, string symbol, string direction, 
+                                 double lots, double price, double sl, double tp,
+                                 datetime openTime, double swap, double profit,
+                                 long magic, string comment)
+{
+   // Build idempotency key using position ticket
+   string idempotencyKey = g_terminalId + "_openpos_" + IntegerToString(ticket) + "_entry";
+   
+   // Convert position open time to UTC using the CONFIGURED broker offset
+   datetime openTimeUTC = openTime - (InpBrokerUTCOffset * 3600);
+   string utcTimestamp = FormatTimestampUTC(openTimeUTC);
+   string serverTimestamp = FormatTimestamp(openTime);
+   
+   // Store the configured broker offset in seconds
+   long brokerOffsetSeconds = InpBrokerUTCOffset * 3600;
+   
+   // Get symbol digits for price formatting
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(digits <= 0) digits = 5;
+   
+   // Get account info for auto-account creation
+   long accountLogin = AccountInfoInteger(ACCOUNT_LOGIN);
+   string broker = AccountInfoString(ACCOUNT_COMPANY);
+   string server = AccountInfoString(ACCOUNT_SERVER);
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   
+   // Detect account type from server name
+   string accountType = "live";
+   string serverLower = server;
+   StringToLower(serverLower);
+   if(StringFind(serverLower, "demo") >= 0)
+      accountType = "demo";
+   else if(StringFind(serverLower, "ftmo") >= 0 || 
+           StringFind(serverLower, "fundednext") >= 0 ||
+           StringFind(serverLower, "prop") >= 0)
+      accountType = "prop";
+   
+   // Build JSON payload - use history_sync as the wrapper event type
+   string json = "{";
+   json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
+   json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"event_type\":\"history_sync\",";
+   json += "\"original_event_type\":\"entry\",";
+   
+   // Use position ticket as position_id (for open positions, these are the same)
+   json += "\"position_id\":" + IntegerToString(ticket) + ",";
+   json += "\"deal_id\":0,";  // No deal ID for open position sync
+   json += "\"order_id\":0,";  // No order ID for open position sync
+   
+   json += "\"symbol\":\"" + symbol + "\",";
+   json += "\"direction\":\"" + direction + "\",";
+   json += "\"lot_size\":" + DoubleToString(lots, 2) + ",";
+   json += "\"price\":" + DoubleToString(price, digits) + ",";
+   
+   // SL/TP - only include if set
+   if(sl > 0)
+      json += "\"sl\":" + DoubleToString(sl, digits) + ",";
+   if(tp > 0)
+      json += "\"tp\":" + DoubleToString(tp, digits) + ",";
+   
+   json += "\"commission\":0,";
+   json += "\"swap\":" + DoubleToString(swap, 2) + ",";
+   json += "\"profit\":" + DoubleToString(profit, 2) + ",";
+   
+   json += "\"timestamp\":\"" + utcTimestamp + "\",";
+   json += "\"server_time\":\"" + serverTimestamp + "\",";
+   json += "\"broker_utc_offset\":" + IntegerToString(InpBrokerUTCOffset) + ",";
+   json += "\"timezone_offset_seconds\":" + IntegerToString(brokerOffsetSeconds) + ",";
+   
+   // Capture equity at entry for R% calculation
+   json += "\"equity_at_entry\":" + DoubleToString(equity, 2) + ",";
+   
+   // Account info for auto-creation
+   json += "\"account_info\":{";
+   json += "\"login\":" + IntegerToString(accountLogin) + ",";
+   json += "\"broker\":\"" + EscapeJsonString(broker) + "\",";
+   json += "\"server\":\"" + server + "\",";
+   json += "\"balance\":" + DoubleToString(balance, 2) + ",";
+   json += "\"equity\":" + DoubleToString(equity, 2) + ",";
+   json += "\"account_type\":\"" + accountType + "\"";
+   json += "},";
+   
+   // Raw metadata
+   json += "\"raw_payload\":{";
+   json += "\"magic\":" + IntegerToString(magic) + ",";
+   json += "\"comment\":\"" + EscapeJsonString(comment) + "\",";
+   json += "\"is_open_position_sync\":true";
    json += "}";
    
    json += "}";
