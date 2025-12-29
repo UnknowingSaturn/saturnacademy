@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.playbook-assistant]
 verify_jwt = false
+
+[functions.reprocess-orphan-exits]
+verify_jwt = false
