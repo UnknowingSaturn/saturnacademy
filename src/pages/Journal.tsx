@@ -3,17 +3,20 @@ import { useTrades } from "@/hooks/useTrades";
 import { TradeTable } from "@/components/journal/TradeTable";
 import { TradeDetailPanel } from "@/components/journal/TradeDetailPanel";
 import { ManualTradeForm } from "@/components/journal/ManualTradeForm";
+import { JournalSettingsDialog } from "@/components/journal/JournalSettingsDialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SessionType, Trade } from "@/types/trading";
-import { Search } from "lucide-react";
+import { Search, Settings } from "lucide-react";
 
 export default function Journal() {
   const [symbolFilter, setSymbolFilter] = useState("");
   const [sessionFilter, setSessionFilter] = useState<SessionType | "all">("all");
   const [resultFilter, setResultFilter] = useState<"all" | "win" | "loss" | "open">("all");
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const { data: trades, isLoading } = useTrades();
 
@@ -37,7 +40,12 @@ export default function Journal() {
           <h1 className="text-2xl font-bold">Trade Journal</h1>
           <p className="text-muted-foreground">Review and analyze your trades</p>
         </div>
-        <ManualTradeForm />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={() => setSettingsOpen(true)}>
+            <Settings className="w-4 h-4" />
+          </Button>
+          <ManualTradeForm />
+        </div>
       </div>
 
       {/* Filters */}
@@ -99,6 +107,9 @@ export default function Journal() {
         isOpen={!!selectedTrade}
         onClose={() => setSelectedTrade(null)}
       />
+
+      {/* Settings Dialog */}
+      <JournalSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }

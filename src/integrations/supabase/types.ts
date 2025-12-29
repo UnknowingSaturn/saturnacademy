@@ -484,6 +484,112 @@ export type Database = {
         }
         Relationships: []
       }
+      property_options: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          property_name: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+          value: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label: string
+          property_name: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+          value: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          property_name?: string
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+          value?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "property_options_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      session_definitions: {
+        Row: {
+          color: string
+          created_at: string
+          end_hour: number
+          end_minute: number
+          id: string
+          is_active: boolean
+          key: string
+          name: string
+          sort_order: number
+          start_hour: number
+          start_minute: number
+          timezone: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          end_hour: number
+          end_minute?: number
+          id?: string
+          is_active?: boolean
+          key: string
+          name: string
+          sort_order?: number
+          start_hour: number
+          start_minute?: number
+          timezone?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          end_hour?: number
+          end_minute?: number
+          id?: string
+          is_active?: boolean
+          key?: string
+          name?: string
+          sort_order?: number
+          start_hour?: number
+          start_minute?: number
+          timezone?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_definitions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       setup_tokens: {
         Row: {
           created_at: string
@@ -843,6 +949,44 @@ export type Database = {
             foreignKeyName: "trades_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_settings: {
+        Row: {
+          column_order: Json
+          created_at: string
+          default_filters: Json
+          id: string
+          updated_at: string
+          user_id: string
+          visible_columns: Json
+        }
+        Insert: {
+          column_order?: Json
+          created_at?: string
+          default_filters?: Json
+          id?: string
+          updated_at?: string
+          user_id: string
+          visible_columns?: Json
+        }
+        Update: {
+          column_order?: Json
+          created_at?: string
+          default_filters?: Json
+          id?: string
+          updated_at?: string
+          user_id?: string
+          visible_columns?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_settings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
