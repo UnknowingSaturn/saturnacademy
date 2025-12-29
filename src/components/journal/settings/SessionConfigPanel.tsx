@@ -188,43 +188,150 @@ export function SessionConfigPanel() {
       {/* Session List */}
       <div className="space-y-2">
         {sessions.map((session) => (
-          <div
-            key={session.id}
-            className={cn(
-              "flex items-center gap-3 p-3 rounded-lg border border-border bg-card/50 transition-colors",
-              !session.is_active && "opacity-50"
-            )}
-          >
-            <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-            
-            <div
-              className="w-4 h-4 rounded-full flex-shrink-0"
-              style={{ backgroundColor: session.color }}
-            />
-            
-            <div className="flex-1 min-w-0">
-              <div className="font-medium truncate">{session.name}</div>
-              <div className="text-xs text-muted-foreground flex items-center gap-1">
-                <Clock className="w-3 h-3" />
-                {formatTime(session.start_hour, session.start_minute)} - {formatTime(session.end_hour, session.end_minute)} ET
+          editingSession?.id === session.id ? (
+            /* Inline Edit Form */
+            <div key={session.id} className="border border-primary/50 rounded-lg p-4 space-y-4 bg-card">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Session Name</Label>
+                  <Input
+                    value={editingSession.name}
+                    onChange={(e) => setEditingSession({ ...editingSession, name: e.target.value })}
+                    placeholder="e.g. London Open"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Color</Label>
+                  <div className="flex gap-1 flex-wrap">
+                    {COLOR_OPTIONS.map((color) => (
+                      <button
+                        key={color}
+                        className={cn(
+                          "w-6 h-6 rounded-full transition-all",
+                          editingSession.color === color && "ring-2 ring-offset-2 ring-offset-background ring-primary"
+                        )}
+                        style={{ backgroundColor: color }}
+                        onClick={() => setEditingSession({ ...editingSession, color })}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Start Time (ET)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={23}
+                      value={editingSession.start_hour}
+                      onChange={(e) => setEditingSession({ ...editingSession, start_hour: parseInt(e.target.value) || 0 })}
+                      className="w-20"
+                    />
+                    <span className="self-center">:</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={editingSession.start_minute}
+                      onChange={(e) => setEditingSession({ ...editingSession, start_minute: parseInt(e.target.value) || 0 })}
+                      className="w-20"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>End Time (ET)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={23}
+                      value={editingSession.end_hour}
+                      onChange={(e) => setEditingSession({ ...editingSession, end_hour: parseInt(e.target.value) || 0 })}
+                      className="w-20"
+                    />
+                    <span className="self-center">:</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={editingSession.end_minute}
+                      onChange={(e) => setEditingSession({ ...editingSession, end_minute: parseInt(e.target.value) || 0 })}
+                      className="w-20"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setEditingSession(null)}>Cancel</Button>
+                <Button 
+                  onClick={async () => {
+                    await handleUpdateSession(editingSession.id, {
+                      name: editingSession.name,
+                      color: editingSession.color,
+                      start_hour: editingSession.start_hour,
+                      start_minute: editingSession.start_minute,
+                      end_hour: editingSession.end_hour,
+                      end_minute: editingSession.end_minute,
+                    });
+                    setEditingSession(null);
+                  }} 
+                  disabled={!editingSession.name}
+                >
+                  Save Changes
+                </Button>
               </div>
             </div>
-
-            <Switch
-              checked={session.is_active}
-              onCheckedChange={(checked) => handleUpdateSession(session.id, { is_active: checked })}
-            />
-
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-destructive"
-              onClick={() => handleDeleteSession(session.id)}
-              disabled={session.id.startsWith('default-')}
+          ) : (
+            /* Read-only Session Row */
+            <div
+              key={session.id}
+              className={cn(
+                "flex items-center gap-3 p-3 rounded-lg border border-border bg-card/50 transition-colors cursor-pointer hover:border-primary/50 hover:bg-card",
+                !session.is_active && "opacity-50"
+              )}
+              onClick={() => setEditingSession({ ...session })}
             >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          </div>
+              <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
+              
+              <div
+                className="w-4 h-4 rounded-full flex-shrink-0"
+                style={{ backgroundColor: session.color }}
+              />
+              
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{session.name}</div>
+                <div className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {formatTime(session.start_hour, session.start_minute)} - {formatTime(session.end_hour, session.end_minute)} ET
+                </div>
+              </div>
+
+              <Switch
+                checked={session.is_active}
+                onCheckedChange={(checked) => {
+                  handleUpdateSession(session.id, { is_active: checked });
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteSession(session.id);
+                }}
+                disabled={session.id.startsWith('default-')}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          )
         ))}
       </div>
 
