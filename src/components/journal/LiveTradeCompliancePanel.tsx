@@ -4,10 +4,13 @@ import { useTradeCompliance, ComplianceRule } from "@/hooks/useTradeCompliance";
 import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { 
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { 
   CheckCircle2, 
   XCircle, 
@@ -18,9 +21,13 @@ import {
   Ban,
   ListChecks,
   Lightbulb,
-  TriangleAlert
+  TriangleAlert,
+  ChevronDown,
+  ChevronRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ComplianceScoreRing } from "@/components/live/ComplianceScoreRing";
+import { QuickNoteInput } from "@/components/live/QuickNoteInput";
 
 interface LiveTradeCompliancePanelProps {
   trade: Trade;
@@ -32,15 +39,28 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
   const [manualAnswers, setManualAnswers] = useState<Record<string, boolean>>(
     existingReview?.checklist_answers || {}
   );
+  const [autoVerifiedOpen, setAutoVerifiedOpen] = useState(false);
   
   const createReview = useCreateTradeReview();
   const updateReview = useUpdateTradeReview();
 
   const compliance = useTradeCompliance(trade, playbook, manualAnswers);
 
+  // Calculate score
+  const totalRules = compliance.confirmationRules.length + 
+    compliance.invalidationRules.length + 
+    compliance.checklistQuestions.length;
+  const completedRules = [...compliance.confirmationRules, ...compliance.invalidationRules, ...compliance.checklistQuestions]
+    .filter(r => r.status === 'passed').length;
+
+  // Auto-collapse auto-verified if all pass
+  useEffect(() => {
+    const allPassed = compliance.autoVerified.every(r => r.status === 'passed' || r.status === 'na');
+    setAutoVerifiedOpen(!allPassed);
+  }, [compliance.autoVerified]);
+
   // Auto-save when manual answers change (silently)
   useEffect(() => {
-    // Skip if no answers or if a mutation is already in progress
     if (Object.keys(manualAnswers).length === 0) return;
     if (createReview.isPending || updateReview.isPending) return;
     
@@ -54,13 +74,12 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
 
       try {
         if (existingReview) {
-          // Use silent: true to suppress toast on auto-save
           await updateReview.mutateAsync({ id: existingReview.id, silent: true, ...reviewData });
         } else {
           await createReview.mutateAsync({ review: reviewData, silent: true });
         }
       } catch (error) {
-        // Error is already handled by the mutation's onError
+        // Error handled by mutation
       }
     };
 
@@ -94,105 +113,142 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
         return (
           <Badge variant="outline" className="bg-profit/10 text-profit border-profit/30">
             <CheckCircle2 className="h-3 w-3 mr-1" />
-            All Rules Verified
+            Compliant
           </Badge>
         );
       case 'violations':
         return (
           <Badge variant="outline" className="bg-loss/10 text-loss border-loss/30">
             <XCircle className="h-3 w-3 mr-1" />
-            {compliance.violationCount} Violation{compliance.violationCount > 1 ? 's' : ''}
+            {compliance.violationCount} Issue{compliance.violationCount > 1 ? 's' : ''}
           </Badge>
         );
       case 'pending':
         return (
           <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
             <Clock className="h-3 w-3 mr-1" />
-            Compliance Check In Progress
+            In Progress
           </Badge>
         );
     }
   };
 
+  const renderChecklistItem = (rule: ComplianceRule) => (
+    <label
+      key={rule.id}
+      className={cn(
+        "flex items-start gap-3 p-2.5 rounded-lg cursor-pointer transition-all",
+        manualAnswers[rule.id] 
+          ? "bg-profit/5 border border-profit/20" 
+          : "hover:bg-muted/50 border border-transparent"
+      )}
+    >
+      <Checkbox
+        checked={manualAnswers[rule.id] || false}
+        onCheckedChange={() => toggleAnswer(rule.id)}
+        className="mt-0.5"
+      />
+      <span className={cn(
+        "text-sm transition-colors",
+        manualAnswers[rule.id] && "text-foreground"
+      )}>
+        {rule.label}
+      </span>
+    </label>
+  );
+
   return (
     <div className="space-y-4">
-      {/* Header with overall status */}
+      {/* Header with Score Ring */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div
-            className="w-3 h-3 rounded-full"
-            style={{ backgroundColor: playbook.color }}
+        <div className="flex items-center gap-3">
+          <ComplianceScoreRing
+            completed={completedRules}
+            total={totalRules}
+            violations={compliance.violationCount}
+            size="md"
           />
-          <span className="font-semibold">{playbook.name}</span>
+          <div>
+            <div className="flex items-center gap-2">
+              <div
+                className="w-2.5 h-2.5 rounded-full"
+                style={{ backgroundColor: playbook.color }}
+              />
+              <span className="font-semibold text-sm">{playbook.name}</span>
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {completedRules}/{totalRules} checks complete
+            </div>
+          </div>
         </div>
         {getOverallBadge()}
       </div>
 
-      <ScrollArea className="h-[calc(100vh-300px)]">
-        <div className="space-y-4 pr-4">
-          {/* Auto-Verified Section */}
+      <ScrollArea className="h-[calc(100vh-380px)]">
+        <div className="space-y-3 pr-4">
+          {/* Auto-Verified Section - Collapsible */}
           {compliance.autoVerified.length > 0 && (
-            <Card className="border-border/50">
-              <CardHeader className="py-3 px-4">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-primary" />
-                  Auto-Verified
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-3 pt-0">
-                <div className="space-y-2">
-                  {compliance.autoVerified.map((rule) => (
-                    <div
-                      key={rule.id}
-                      className={cn(
-                        "flex items-center justify-between p-2 rounded-md",
-                        rule.status === 'passed' && "bg-profit/5",
-                        rule.status === 'failed' && "bg-loss/5",
-                        rule.status === 'pending' && "bg-muted/50",
-                        rule.status === 'na' && "bg-muted/30"
-                      )}
-                    >
+            <Collapsible open={autoVerifiedOpen} onOpenChange={setAutoVerifiedOpen}>
+              <Card className="border-border/50">
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="py-2.5 px-4 cursor-pointer hover:bg-muted/30 transition-colors">
+                    <CardTitle className="text-sm flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        {getStatusIcon(rule.status)}
-                        <span className="text-sm font-medium">{rule.label}</span>
+                        <Shield className="h-4 w-4 text-primary" />
+                        Auto-Verified
+                        {compliance.autoVerified.every(r => r.status === 'passed' || r.status === 'na') && (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-profit" />
+                        )}
                       </div>
-                      {rule.detail && (
-                        <span className="text-xs text-muted-foreground">{rule.detail}</span>
+                      {autoVerifiedOpen ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       )}
+                    </CardTitle>
+                  </CardHeader>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent className="px-4 pb-3 pt-0">
+                    <div className="space-y-1.5">
+                      {compliance.autoVerified.map((rule) => (
+                        <div
+                          key={rule.id}
+                          className={cn(
+                            "flex items-center justify-between p-2 rounded-md text-sm",
+                            rule.status === 'passed' && "bg-profit/5",
+                            rule.status === 'failed' && "bg-loss/5",
+                            (rule.status === 'pending' || rule.status === 'na') && "bg-muted/30"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(rule.status)}
+                            <span className="font-medium">{rule.label}</span>
+                          </div>
+                          {rule.detail && (
+                            <span className="text-xs text-muted-foreground">{rule.detail}</span>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </CollapsibleContent>
+              </Card>
+            </Collapsible>
           )}
 
           {/* Confirmation Rules */}
           {compliance.confirmationRules.length > 0 && (
             <Card className="border-border/50">
-              <CardHeader className="py-3 px-4">
+              <CardHeader className="py-2.5 px-4">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Target className="h-4 w-4 text-profit" />
-                  Confirmation Rules
+                  Confirmations
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-3 pt-0">
-                <div className="space-y-2">
-                  {compliance.confirmationRules.map((rule) => (
-                    <label
-                      key={rule.id}
-                      className={cn(
-                        "flex items-start gap-3 p-2 rounded-md cursor-pointer transition-colors",
-                        manualAnswers[rule.id] ? "bg-profit/5" : "hover:bg-muted/50"
-                      )}
-                    >
-                      <Checkbox
-                        checked={manualAnswers[rule.id] || false}
-                        onCheckedChange={() => toggleAnswer(rule.id)}
-                        className="mt-0.5"
-                      />
-                      <span className="text-sm">{rule.label}</span>
-                    </label>
-                  ))}
+                <div className="space-y-1.5">
+                  {compliance.confirmationRules.map(renderChecklistItem)}
                 </div>
               </CardContent>
             </Card>
@@ -201,7 +257,7 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
           {/* Invalidation Rules */}
           {compliance.invalidationRules.length > 0 && (
             <Card className="border-border/50">
-              <CardHeader className="py-3 px-4">
+              <CardHeader className="py-2.5 px-4">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Ban className="h-4 w-4 text-loss" />
                   Invalidation Check
@@ -211,23 +267,8 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-3 pt-0">
-                <div className="space-y-2">
-                  {compliance.invalidationRules.map((rule) => (
-                    <label
-                      key={rule.id}
-                      className={cn(
-                        "flex items-start gap-3 p-2 rounded-md cursor-pointer transition-colors",
-                        manualAnswers[rule.id] ? "bg-profit/5" : "hover:bg-muted/50"
-                      )}
-                    >
-                      <Checkbox
-                        checked={manualAnswers[rule.id] || false}
-                        onCheckedChange={() => toggleAnswer(rule.id)}
-                        className="mt-0.5"
-                      />
-                      <span className="text-sm">{rule.label}</span>
-                    </label>
-                  ))}
+                <div className="space-y-1.5">
+                  {compliance.invalidationRules.map(renderChecklistItem)}
                 </div>
               </CardContent>
             </Card>
@@ -236,51 +277,34 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
           {/* Checklist Questions */}
           {compliance.checklistQuestions.length > 0 && (
             <Card className="border-border/50">
-              <CardHeader className="py-3 px-4">
+              <CardHeader className="py-2.5 px-4">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <ListChecks className="h-4 w-4 text-primary" />
                   Checklist
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-3 pt-0">
-                <div className="space-y-2">
-                  {compliance.checklistQuestions.map((rule) => (
-                    <label
-                      key={rule.id}
-                      className={cn(
-                        "flex items-start gap-3 p-2 rounded-md cursor-pointer transition-colors",
-                        manualAnswers[rule.id] ? "bg-profit/5" : "hover:bg-muted/50"
-                      )}
-                    >
-                      <Checkbox
-                        checked={manualAnswers[rule.id] || false}
-                        onCheckedChange={() => toggleAnswer(rule.id)}
-                        className="mt-0.5"
-                      />
-                      <span className="text-sm">{rule.label}</span>
-                    </label>
-                  ))}
+                <div className="space-y-1.5">
+                  {compliance.checklistQuestions.map(renderChecklistItem)}
                 </div>
               </CardContent>
             </Card>
           )}
 
-          <Separator />
-
-          {/* Management Reminders */}
+          {/* Management Tips - Compact */}
           {compliance.managementRules.length > 0 && (
             <Card className="border-primary/20 bg-primary/5">
-              <CardHeader className="py-3 px-4">
+              <CardHeader className="py-2.5 px-4">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Lightbulb className="h-4 w-4 text-primary" />
-                  Management Reminders
+                  Management Tips
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-3 pt-0">
-                <ul className="space-y-1.5">
+                <ul className="space-y-1">
                   {compliance.managementRules.map((rule, index) => (
                     <li key={index} className="text-sm flex items-start gap-2">
-                      <span className="text-primary">•</span>
+                      <span className="text-primary mt-1">•</span>
                       <span>{rule}</span>
                     </li>
                   ))}
@@ -292,17 +316,17 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
           {/* Failure Modes Warning */}
           {compliance.failureModes.length > 0 && (
             <Card className="border-warning/30 bg-warning/5">
-              <CardHeader className="py-3 px-4">
+              <CardHeader className="py-2.5 px-4">
                 <CardTitle className="text-sm flex items-center gap-2 text-warning">
                   <TriangleAlert className="h-4 w-4" />
-                  Watch Out For
+                  Watch Out
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-3 pt-0">
-                <ul className="space-y-1.5">
+                <ul className="space-y-1">
                   {compliance.failureModes.map((mode, index) => (
                     <li key={index} className="text-sm flex items-start gap-2">
-                      <span className="text-warning">•</span>
+                      <span className="text-warning mt-1">•</span>
                       <span>{mode}</span>
                     </li>
                   ))}
@@ -310,6 +334,11 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
               </CardContent>
             </Card>
           )}
+
+          {/* Quick Note Input */}
+          <div className="pt-2">
+            <QuickNoteInput tradeId={trade.id} />
+          </div>
         </div>
       </ScrollArea>
     </div>
