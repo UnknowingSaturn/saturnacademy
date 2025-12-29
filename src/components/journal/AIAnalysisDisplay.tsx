@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Brain, Target, ThumbsUp, ThumbsDown, Eye, Lightbulb, ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, forwardRef } from "react";
 
 interface AIAnalysisDisplayProps {
   analysis: AIAnalysisOutput | null;
@@ -23,7 +23,8 @@ interface AIAnalysisDisplayProps {
   onSubmitFeedback?: (isAccurate: boolean, isUseful: boolean, notes?: string) => void;
 }
 
-export function AIAnalysisDisplay({ analysis, compliance, similarTrades, onSubmitFeedback }: AIAnalysisDisplayProps) {
+export const AIAnalysisDisplay = forwardRef<HTMLDivElement, AIAnalysisDisplayProps>(
+  function AIAnalysisDisplay({ analysis, compliance, similarTrades, onSubmitFeedback }, ref) {
   const [feedbackGiven, setFeedbackGiven] = useState(false);
   const [feedbackNotes, setFeedbackNotes] = useState("");
   const [accuracyVote, setAccuracyVote] = useState<boolean | null>(null);
@@ -37,7 +38,7 @@ export function AIAnalysisDisplay({ analysis, compliance, similarTrades, onSubmi
   };
 
   return (
-    <div className="space-y-4">
+    <div ref={ref} className="space-y-4">
       {/* Compliance Scores */}
       <Card>
         <CardHeader className="pb-3">
@@ -480,4 +481,4 @@ export function AIAnalysisDisplay({ analysis, compliance, similarTrades, onSubmi
       )}
     </div>
   );
-}
+});

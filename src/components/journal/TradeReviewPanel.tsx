@@ -38,7 +38,7 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
   const { data: playbooks } = usePlaybooks();
   const createReview = useCreateTradeReview();
   const updateReview = useUpdateTradeReview();
-  const { analyzeTrade, isAnalyzing, analysisResult, submitFeedback } = useAIAnalysis();
+  const { analyzeTrade, isAnalyzing, analysisResult, saveAIAnalysis, isSavingAnalysis, hasUnsavedAnalysis, submitFeedback } = useAIAnalysis();
 
   const existingReview = trade.review;
 
@@ -108,6 +108,11 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
       await updateReview.mutateAsync({ id: existingReview.id, ...reviewData });
     } else {
       await createReview.mutateAsync({ review: reviewData });
+    }
+
+    // Save AI analysis if there's unsaved analysis for this trade
+    if (hasUnsavedAnalysis(trade.id)) {
+      await saveAIAnalysis(trade.id);
     }
   };
 
@@ -571,12 +576,16 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
         </Button>
         <Button 
           onClick={handleSave} 
-          disabled={createReview.isPending || updateReview.isPending}
+          disabled={createReview.isPending || updateReview.isPending || isSavingAnalysis}
+          className="gap-2"
         >
-          {(createReview.isPending || updateReview.isPending) && (
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          {(createReview.isPending || updateReview.isPending || isSavingAnalysis) && (
+            <Loader2 className="w-4 h-4 animate-spin" />
           )}
           Save Review
+          {hasUnsavedAnalysis(trade.id) && (
+            <Badge variant="secondary" className="ml-1 text-xs">+ AI</Badge>
+          )}
         </Button>
       </div>
     </div>
