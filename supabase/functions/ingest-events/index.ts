@@ -396,16 +396,19 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       totalCommission += existingTrade.commission || 0;
       totalSwap += existingTrade.swap || 0;
       
-      // FIX: R-multiple calculation requires pip value and contract size for accuracy
-      // Current approach is flawed as it doesn't account for:
-      // - Pip value differences between currency pairs
-      // - Contract size / lot size value
-      // - Account currency conversion
-      // Set to null for now - proper implementation needs symbol info from MT5
+      const netPnl = totalGrossPnl - totalCommission - Math.abs(totalSwap);
+      
+      // Calculate R-multiple as net_pnl / balance_start (percentage of account risked)
       let rMultiple = null;
-      // TODO: Implement proper R-multiple when we have pip value data
-      // Formula should be: R = PnL / (risk_in_account_currency)
-      // where risk_in_account_currency = |entry - SL| * lots * pip_value * contract_size
+      const { data: accountData } = await supabase
+        .from("accounts")
+        .select("balance_start")
+        .eq("id", account_id)
+        .single();
+      
+      if (accountData?.balance_start && accountData.balance_start > 0) {
+        rMultiple = Math.round((netPnl / accountData.balance_start) * 100) / 100;
+      }
 
       await supabase.from("trades").update({
         exit_price: event.price,
@@ -413,7 +416,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         gross_pnl: totalGrossPnl,
         commission: totalCommission,
         swap: totalSwap,
-        net_pnl: totalGrossPnl - totalCommission - Math.abs(totalSwap),
+        net_pnl: netPnl,
         r_multiple_actual: rMultiple,
         duration_seconds: duration,
         is_open: false,
@@ -422,7 +425,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         tp_final: event.tp || existingTrade.tp_final,
       }).eq("id", existingTrade.id);
       
-      console.log("Processed full close for position:", ticket, "total PnL:", totalGrossPnl);
+      console.log("Processed full close for position:", ticket, "total PnL:", totalGrossPnl, "R:", rMultiple);
     }
   }
   // Handle legacy modify event
