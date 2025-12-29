@@ -340,11 +340,15 @@ export interface AIReview {
   id: string;
   trade_id: string;
   technical_review: AIAnalysisOutput['technical_review'];
+  thesis_evaluation?: AIAnalysisOutput['thesis_evaluation'];
   mistake_attribution: AIAnalysisOutput['mistake_attribution'];
   psychology_analysis: AIAnalysisOutput['psychology_analysis'];
   comparison_to_past: AIAnalysisOutput['comparison_to_past'];
   actionable_guidance: AIAnalysisOutput['actionable_guidance'];
+  visual_analysis?: AIAnalysisOutput['visual_analysis'];
+  strategy_refinement?: AIAnalysisOutput['strategy_refinement'];
   confidence: AIAnalysisOutput['confidence'];
+  screenshots_analyzed?: boolean;
   setup_compliance_score: number;
   rule_violations: string[];
   context_alignment_score: number;

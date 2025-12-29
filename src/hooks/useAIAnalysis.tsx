@@ -2,38 +2,33 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { AIAnalysisOutput, SimilarTrade } from "@/types/trading";
 
-interface ComplianceResult {
-  setup_compliance_score: number;
-  context_alignment_score: number;
-  rule_violations: string[];
-  matched_rules: string[];
-}
-
-export interface AnalysisResult {
-  analysis: AIAnalysisOutput | null;
-  compliance: ComplianceResult;
-  similar_trades: {
-    similar_winners: SimilarTrade[];
-    similar_losers: SimilarTrade[];
-  };
-  raw_analysis: string;
-}
-
+/**
+ * Simplified AI Analysis hook - Database-First Architecture
+ * 
+ * This hook ONLY:
+ * 1. Triggers the edge function to generate and save analysis
+ * 2. Invalidates queries so UI reads fresh data from database
+ * 3. Returns loading state
+ * 
+ * The UI should read analysis from trade.ai_review (database) - not from local state.
+ */
 export function useAIAnalysis() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Generate AND save analysis in one step (auto-save)
-  const analyzeTrade = async (tradeId: string): Promise<AnalysisResult | null> => {
+  /**
+   * Generate AI analysis for a trade.
+   * The analysis is automatically saved to the database by the edge function.
+   * After completion, the UI should read from trade.ai_review.
+   * 
+   * @returns true if successful, false if failed
+   */
+  const analyzeTrade = async (tradeId: string): Promise<boolean> => {
     setIsAnalyzing(true);
-    setAnalysisResult(null);
 
     try {
-      // Call analyze-trade WITH save=true (auto-save to database)
       const { data, error } = await supabase.functions.invoke("analyze-trade", {
         body: { trade_id: tradeId, save: true },
       });
@@ -48,29 +43,16 @@ export function useAIAnalysis() {
         } else {
           throw new Error(data.error);
         }
-        return null;
+        return false;
       }
 
-      const result: AnalysisResult = {
-        analysis: data.analysis || null,
-        compliance: data.compliance || {
-          setup_compliance_score: 0,
-          context_alignment_score: 0,
-          rule_violations: [],
-          matched_rules: [],
-        },
-        similar_trades: data.similar_trades || { similar_winners: [], similar_losers: [] },
-        raw_analysis: data.raw_analysis || "",
-      };
-
-      setAnalysisResult(result);
-
-      // Invalidate trade queries to refresh with saved ai_review
+      // Invalidate queries to refresh trade data from database
+      // The trade object will now include the saved ai_review
       await queryClient.invalidateQueries({ queryKey: ['trades'] });
       await queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
 
       toast({ title: "Analysis Complete", description: "AI analysis has been saved." });
-      return result;
+      return true;
     } catch (error) {
       console.error("AI analysis error:", error);
       toast({ 
@@ -78,12 +60,15 @@ export function useAIAnalysis() {
         description: error instanceof Error ? error.message : "Could not analyze trade", 
         variant: "destructive" 
       });
-      return null;
+      return false;
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  /**
+   * Submit feedback on an AI analysis
+   */
   const submitFeedback = async (aiReviewId: string, isAccurate: boolean, isUseful: boolean, notes?: string) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -113,8 +98,6 @@ export function useAIAnalysis() {
   return { 
     analyzeTrade, 
     isAnalyzing, 
-    analysisResult, 
-    setAnalysisResult,
     submitFeedback 
   };
 }
