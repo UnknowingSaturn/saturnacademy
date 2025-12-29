@@ -169,19 +169,19 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
         {/* Calendar Grid */}
         <div className="p-4">
           {/* Week day headers */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="grid grid-cols-7 gap-2 mb-2">
             {weekDays.map(day => (
-              <div key={day} className="text-center text-xs font-medium text-muted-foreground py-2">
+              <div key={day} className="text-center text-sm font-medium text-muted-foreground py-2">
                 {day}
               </div>
             ))}
           </div>
 
           {/* Calendar days */}
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-2">
             {/* Empty cells for days before month starts */}
             {Array.from({ length: firstDayOfMonth }).map((_, i) => (
-              <div key={`empty-${i}`} className="aspect-square" />
+              <div key={`empty-${i}`} className="aspect-[4/3]" />
             ))}
             
             {daysArray.map(day => {
@@ -199,7 +199,7 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
                   onClick={() => handleDayClick(day)}
                   disabled={!hasTradesOnDay}
                   className={cn(
-                    "aspect-square rounded-lg p-1 transition-all duration-200 flex flex-col items-center justify-center gap-0.5 relative",
+                    "aspect-[4/3] rounded-lg p-2 transition-all duration-200 flex flex-col items-center justify-center gap-1 relative",
                     hasTradesOnDay && "cursor-pointer hover:scale-105",
                     !hasTradesOnDay && "opacity-50",
                     isGreen && "border border-profit/30",
@@ -221,7 +221,7 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
                   }}
                 >
                   <span className={cn(
-                    "text-xs font-medium",
+                    "text-sm font-medium",
                     hasTradesOnDay ? "text-foreground" : "text-muted-foreground"
                   )}>
                     {format(day.date, "d")}
@@ -229,12 +229,12 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
                   {hasTradesOnDay && (
                     <>
                       <span className={cn(
-                        "text-[10px] font-bold font-mono",
+                        "text-sm font-bold font-mono",
                         isGreen ? "text-profit" : "text-loss"
                       )}>
                         {isGreen ? "+" : ""}${Math.abs(day.pnl).toFixed(0)}
                       </span>
-                      <span className="text-[9px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {day.tradeCount}t
                       </span>
                     </>
@@ -255,10 +255,10 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
         >
           <div className="p-4 border-b border-border/50 flex items-center justify-between">
             <div>
-              <h4 className="font-semibold text-foreground">
+              <h4 className="text-lg font-semibold text-foreground">
                 {format(selectedDayData.date, "EEEE, MMMM d, yyyy")}
               </h4>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-base text-muted-foreground">
                 {selectedDayData.tradeCount} trade{selectedDayData.tradeCount > 1 ? 's' : ''} • 
                 <span className={cn("ml-1 font-mono", selectedDayData.pnl >= 0 ? "text-profit" : "text-loss")}>
                   {selectedDayData.pnl >= 0 ? "+" : ""}${selectedDayData.pnl.toFixed(2)}

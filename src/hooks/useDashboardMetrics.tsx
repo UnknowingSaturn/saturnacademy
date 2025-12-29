@@ -43,9 +43,9 @@ export function useDashboardMetrics(trades: Trade[]): DashboardMetrics {
       }
     }
 
-    // Calculate by session
-    const sessions: SessionType[] = ['new_york_am', 'london', 'tokyo', 'new_york_pm', 'off_hours'];
-    const bySession = sessions.reduce((acc, session) => {
+    // Calculate by session - dynamically from actual trades
+    const uniqueSessions = [...new Set(closedTrades.map(t => t.session).filter(Boolean))] as SessionType[];
+    const bySession = uniqueSessions.reduce((acc, session) => {
       const sessionTrades = closedTrades.filter(t => t.session === session);
       const sessionWins = sessionTrades.filter(t => (t.net_pnl || 0) > 0);
       const sessionRs = sessionTrades.filter(t => t.r_multiple_actual !== null).map(t => t.r_multiple_actual!);

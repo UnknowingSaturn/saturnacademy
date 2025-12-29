@@ -34,7 +34,12 @@ export function SessionBreakdown({ bySession }: SessionBreakdownProps) {
             <p className="text-sm text-muted-foreground py-4">No trades yet</p>
           ) : (
             sessions.map(([session, metrics]) => {
-              const config = sessionConfig[session as SessionType];
+              // Fallback for custom session keys not in sessionConfig
+              const config = sessionConfig[session as SessionType] || {
+                label: session.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+                className: "bg-muted/50 text-muted-foreground border border-border/50",
+                color: "hsl(200, 70%, 50%)"
+              };
               const winRatePercent = metrics.winRate;
               const isProfit = metrics.totalPnl >= 0;
               

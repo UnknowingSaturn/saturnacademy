@@ -67,8 +67,8 @@ export function ReportMetricsGrid({ metrics }: ReportMetricsGridProps) {
                 <card.icon className={`h-4 w-4 ${card.color}`} />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mb-1">{card.label}</p>
-            <p className={`text-xl font-bold ${card.color}`}>{card.value}</p>
+            <p className="text-sm text-muted-foreground mb-1">{card.label}</p>
+            <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
           </CardContent>
         </Card>
       ))}
