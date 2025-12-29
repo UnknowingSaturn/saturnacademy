@@ -245,7 +245,23 @@ serve(async (req) => {
       .maybeSingle();
 
     const review = trade.trade_reviews?.[0];
-    const playbook = review?.playbook;
+    let playbook = review?.playbook;
+
+    // Fallback: If no playbook from review, try to match by trade.model
+    if (!playbook && trade.model) {
+      console.log("No playbook from review, trying to match by model:", trade.model);
+      const { data: matchedPlaybook } = await supabase
+        .from("playbooks")
+        .select("*")
+        .eq("name", trade.model)
+        .eq("user_id", trade.user_id)
+        .maybeSingle();
+      
+      if (matchedPlaybook) {
+        console.log("Matched playbook by model name:", matchedPlaybook.name);
+        playbook = matchedPlaybook;
+      }
+    }
 
     const result = scoreCompliance(trade, review, playbook, features);
 
