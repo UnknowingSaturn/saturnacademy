@@ -42,6 +42,10 @@ interface EventPayload {
   // Accept both UTC timestamp and server_time
   timestamp: string;
   server_time?: string;
+  // NEW: Timezone offset from broker server
+  timezone_offset_seconds?: number;
+  // NEW: Equity at entry for R% calculation
+  equity_at_entry?: number;
   account_info?: AccountInfo;
   raw_payload?: Record<string, unknown>;
 }
@@ -243,6 +247,8 @@ serve(async (req) => {
           deal_id: payload.deal_id,
           order_id: payload.order_id,
           server_time: payload.server_time,
+          timezone_offset_seconds: payload.timezone_offset_seconds,
+          equity_at_entry: payload.equity_at_entry,
         },
         processed: false,
       })
@@ -330,14 +336,14 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
     session 
   });
 
-  // Fetch account data for balance tracking
+  // Fetch account data for balance/equity tracking
   const { data: accountData } = await supabase
     .from("accounts")
     .select("balance_start, equity_current")
     .eq("id", account_id)
     .single();
   
-  const currentBalance = accountData?.equity_current || accountData?.balance_start || 0;
+  const currentEquity = accountData?.equity_current || accountData?.balance_start || 0;
 
   // Handle entry event (open) - including history_sync entries
   if (effectiveEventType === "entry" || event_type === "open") {
@@ -345,7 +351,10 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       // Trade already exists - might be adding to position
       console.log("Trade already exists for position:", ticket);
     } else {
-      // Create new trade - store original_lots and balance_at_entry
+      // Use equity_at_entry from payload if provided, otherwise use current equity
+      const equityAtEntry = originalPayload.equity_at_entry || currentEquity;
+      
+      // Create new trade - store original_lots, balance_at_entry, and equity_at_entry
       await supabase.from("trades").insert({
         user_id: userId,
         account_id: account_id,
@@ -363,9 +372,10 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         tp_final: event.tp,
         session: session,
         is_open: true,
-        balance_at_entry: currentBalance, // Track balance for R% calculation
+        balance_at_entry: currentEquity, // Keep for backwards compatibility
+        equity_at_entry: equityAtEntry, // NEW: Actual equity snapshot for R% calculation
       });
-      console.log("Created new trade for position:", ticket, "balance:", currentBalance);
+      console.log("Created new trade for position:", ticket, "equity_at_entry:", equityAtEntry);
     }
   } 
   // Handle exit event - determine if partial or full close (including history_sync exits)
@@ -426,19 +436,20 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       
       const netPnl = totalGrossPnl - totalCommission - Math.abs(totalSwap);
       
-      // Calculate R% using balance_at_entry (balance when trade was opened)
+      // Calculate R% using equity_at_entry if available, otherwise fall back to balance_at_entry
+      // This gives a more accurate risk percentage based on true account value
       let rMultiple = null;
-      const balanceAtEntry = existingTrade.balance_at_entry;
+      const equityAtEntry = existingTrade.equity_at_entry || existingTrade.balance_at_entry;
       
-      if (balanceAtEntry && balanceAtEntry > 0) {
-        // R% = (net_pnl / balance_at_entry) * 100
-        rMultiple = Math.round((netPnl / balanceAtEntry) * 10000) / 100; // Store as percentage with 2 decimals
+      if (equityAtEntry && equityAtEntry > 0) {
+        // R% = (net_pnl / equity_at_entry) * 100
+        rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100; // Store as percentage with 2 decimals
       }
 
       // Update account equity_current after trade closes
-      const newBalance = (balanceAtEntry || currentBalance) + netPnl;
+      const newEquity = (equityAtEntry || currentEquity) + netPnl;
       await supabase.from("accounts").update({
-        equity_current: newBalance
+        equity_current: newEquity
       }).eq("id", account_id);
 
       await supabase.from("trades").update({
@@ -456,7 +467,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         tp_final: event.tp || existingTrade.tp_final,
       }).eq("id", existingTrade.id);
       
-      console.log("Processed full close for position:", ticket, "PnL:", netPnl, "R%:", rMultiple, "new balance:", newBalance);
+      console.log("Processed full close for position:", ticket, "PnL:", netPnl, "R%:", rMultiple, "equity used:", equityAtEntry, "new equity:", newEquity);
     }
   }
   // Handle legacy modify event
