@@ -1,4 +1,4 @@
-import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile } from "@/types/trading";
+import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, RegimeType } from "@/types/trading";
 import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,11 @@ const profileOptions = [
   { value: "continuation", label: "Continuation", color: "muted" },
 ];
 
+const regimeOptions = [
+  { value: "rotational", label: "Rotational", color: "primary" },
+  { value: "transitional", label: "Transitional", color: "profit" },
+];
+
 export function TradeProperties({ trade }: TradePropertiesProps) {
   const updateTrade = useUpdateTrade();
   const updateReview = useUpdateTradeReview();
@@ -78,8 +83,30 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
     await updateTrade.mutateAsync({ id: trade.id, session: session as SessionType });
   };
 
+  const handleRegimeChange = async (regime: string) => {
+    if (trade.review) {
+      await updateReview.mutateAsync({
+        id: trade.review.id,
+        regime: regime as RegimeType,
+      });
+    } else {
+      await createReview.mutateAsync({
+        review: {
+          trade_id: trade.id,
+          regime: regime as RegimeType,
+        }
+      });
+    }
+  };
+
   const handleModelChange = async (playbookId: string) => {
     await updateTrade.mutateAsync({ id: trade.id, playbook_id: playbookId || null });
+    
+    // Auto-set regime if playbook has exactly one valid regime
+    const selectedPlaybook = playbooks?.find(p => p.id === playbookId);
+    if (selectedPlaybook?.valid_regimes?.length === 1 && !trade.review?.regime) {
+      handleRegimeChange(selectedPlaybook.valid_regimes[0]);
+    }
   };
 
   const handleAlignmentChange = async (alignment: string[]) => {
@@ -231,6 +258,15 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             value={trade.profile || ""}
             onChange={(v) => handleProfileChange(v as string)}
             options={profileOptions}
+            placeholder="Select..."
+          />
+        </PropertyRow>
+
+        <PropertyRow label="Regime">
+          <BadgeSelect
+            value={trade.review?.regime || ""}
+            onChange={(v) => handleRegimeChange(v as string)}
+            options={regimeOptions}
             placeholder="Select..."
           />
         </PropertyRow>
