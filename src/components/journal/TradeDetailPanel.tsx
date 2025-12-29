@@ -97,39 +97,37 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   useEffect(() => {
     const isTradeSwitch = trade?.id !== lastTradeId;
     
-    // Only clear AI analysis when switching to a different trade
+    // Only reset when switching to a different trade
     if (isTradeSwitch) {
       setLastTradeId(trade?.id || null);
       setAnalysisResult(null);
-    }
-    
-    // Load saved AI review if exists (whether switching or refreshing after save)
-    if (trade?.ai_review) {
-      setAnalysisResult({
-        analysis: {
-          technical_review: trade.ai_review.technical_review,
-          mistake_attribution: trade.ai_review.mistake_attribution,
-          psychology_analysis: trade.ai_review.psychology_analysis,
-          comparison_to_past: trade.ai_review.comparison_to_past,
-          actionable_guidance: trade.ai_review.actionable_guidance,
-          confidence: trade.ai_review.confidence,
-        },
-        compliance: {
-          setup_compliance_score: trade.ai_review.setup_compliance_score || 0,
-          context_alignment_score: trade.ai_review.context_alignment_score || 0,
-          rule_violations: trade.ai_review.rule_violations || [],
-          matched_rules: trade.ai_review.technical_review?.matched_rules || [],
-        },
-        similar_trades: {
-          similar_winners: [],
-          similar_losers: [],
-        },
-        raw_analysis: trade.ai_review.raw_analysis || "",
-      });
-    }
-    
-    // Only reset manual review fields when switching trades
-    if (isTradeSwitch) {
+      
+      // Load saved AI review ONLY when switching trades and no pending draft
+      if (trade?.ai_review && !hasUnsavedAnalysis(trade.id)) {
+        setAnalysisResult({
+          analysis: {
+            technical_review: trade.ai_review.technical_review,
+            mistake_attribution: trade.ai_review.mistake_attribution,
+            psychology_analysis: trade.ai_review.psychology_analysis,
+            comparison_to_past: trade.ai_review.comparison_to_past,
+            actionable_guidance: trade.ai_review.actionable_guidance,
+            confidence: trade.ai_review.confidence,
+          },
+          compliance: {
+            setup_compliance_score: trade.ai_review.setup_compliance_score || 0,
+            context_alignment_score: trade.ai_review.context_alignment_score || 0,
+            rule_violations: trade.ai_review.rule_violations || [],
+            matched_rules: trade.ai_review.technical_review?.matched_rules || [],
+          },
+          similar_trades: {
+            similar_winners: [],
+            similar_losers: [],
+          },
+          raw_analysis: trade.ai_review.raw_analysis || "",
+        });
+      }
+      
+      // Reset manual review fields
       if (trade?.review) {
         setChecklistAnswers(trade.review.checklist_answers || {});
         setRegime(trade.review.regime || "");
@@ -159,7 +157,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
         setScreenshots([]);
       }
     }
-  }, [trade?.id, trade?.review, trade?.ai_review, setAnalysisResult, lastTradeId]);
+  }, [trade?.id, trade?.review, setAnalysisResult, lastTradeId, hasUnsavedAnalysis]);
 
   const score = Object.values(checklistAnswers).filter(Boolean).length;
 
@@ -342,7 +340,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                   size="sm" 
                   className="h-8 relative" 
                   onClick={handleSave} 
-                  disabled={createReview.isPending || updateReview.isPending || isSavingAnalysis}
+                  disabled={createReview.isPending || updateReview.isPending || isSavingAnalysis || isAnalyzing}
                 >
                   <Save className="h-4 w-4 mr-1" />
                   Save

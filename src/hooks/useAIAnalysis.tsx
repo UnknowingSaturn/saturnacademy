@@ -125,7 +125,9 @@ export function useAIAnalysis() {
       queryClient.invalidateQueries({ queryKey: ['trades'] });
       queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
 
+      toast({ title: "AI analysis saved" });
       setPendingTradeId(null);
+      setAnalysisResult(null); // Clear draft after successful save
       return true;
     } catch (error) {
       console.error("Save AI analysis error:", error);
