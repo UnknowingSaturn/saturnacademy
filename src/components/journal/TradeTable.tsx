@@ -117,7 +117,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   };
 
   const handleModelChange = async (trade: Trade, model: string) => {
-    await updateTrade.mutateAsync({ id: trade.id, model });
+    await updateTrade.mutateAsync({ id: trade.id, model: model || null });
   };
 
   const handleAlignmentChange = async (trade: Trade, alignment: string[]) => {
