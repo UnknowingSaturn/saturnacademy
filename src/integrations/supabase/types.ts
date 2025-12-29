@@ -722,6 +722,7 @@ export type Database = {
           entry_price: number
           entry_time: string
           entry_timeframes: string[] | null
+          equity_at_entry: number | null
           exit_price: number | null
           exit_time: string | null
           gross_pnl: number | null
@@ -760,6 +761,7 @@ export type Database = {
           entry_price: number
           entry_time: string
           entry_timeframes?: string[] | null
+          equity_at_entry?: number | null
           exit_price?: number | null
           exit_time?: string | null
           gross_pnl?: number | null
@@ -798,6 +800,7 @@ export type Database = {
           entry_price?: number
           entry_time?: string
           entry_timeframes?: string[] | null
+          equity_at_entry?: number | null
           exit_price?: number | null
           exit_time?: string | null
           gross_pnl?: number | null

@@ -11,7 +11,7 @@ const corsHeaders = {
  * Backfill/recalculate trade metrics for an account
  * This fixes:
  * - balance_at_entry (running balance when each trade opened)
- * - r_multiple_actual (R% = net_pnl / balance_at_entry * 100)
+ * - r_multiple_actual (R% = net_pnl / equity_at_entry * 100, with fallback to balance_at_entry)
  * - session (based on entry_time in America/New_York timezone)
  */
 serve(async (req) => {
@@ -52,7 +52,7 @@ serve(async (req) => {
     // Get all closed trades for this account, ordered by entry_time
     const { data: trades, error: tradesError } = await supabase
       .from("trades")
-      .select("id, entry_time, net_pnl, is_open")
+      .select("id, entry_time, net_pnl, is_open, equity_at_entry")
       .eq("account_id", account_id)
       .eq("is_open", false)
       .order("entry_time", { ascending: true });
@@ -83,15 +83,25 @@ serve(async (req) => {
 
     // Process each trade chronologically
     let runningBalance = derivedStartBalance;
-    const updates: { id: string; balance_at_entry: number; r_multiple_actual: number | null; session: string }[] = [];
+    const updates: { 
+      id: string; 
+      balance_at_entry: number; 
+      r_multiple_actual: number | null; 
+      session: string;
+      equity_at_entry_used: number; // For logging
+    }[] = [];
 
     for (const trade of trades || []) {
       const balanceAtEntry = runningBalance;
       
-      // Calculate R% = (net_pnl / balance_at_entry) * 100
+      // Use equity_at_entry if available (from real-time capture), otherwise use derived balance
+      // For historical trades without equity_at_entry, derived balance is the best approximation
+      const equityForRCalc = trade.equity_at_entry || balanceAtEntry;
+      
+      // Calculate R% = (net_pnl / equity_at_entry) * 100
       let rMultiple: number | null = null;
-      if (balanceAtEntry > 0 && trade.net_pnl !== null) {
-        rMultiple = Math.round((trade.net_pnl / balanceAtEntry) * 10000) / 100;
+      if (equityForRCalc > 0 && trade.net_pnl !== null) {
+        rMultiple = Math.round((trade.net_pnl / equityForRCalc) * 10000) / 100;
       }
 
       // Calculate session from entry_time in America/New_York
@@ -102,6 +112,7 @@ serve(async (req) => {
         balance_at_entry: balanceAtEntry,
         r_multiple_actual: rMultiple,
         session,
+        equity_at_entry_used: equityForRCalc,
       });
 
       // Update running balance
@@ -111,7 +122,7 @@ serve(async (req) => {
     // Also process open trades (just for balance_at_entry and session, not R%)
     const { data: openTrades } = await supabase
       .from("trades")
-      .select("id, entry_time")
+      .select("id, entry_time, equity_at_entry")
       .eq("account_id", account_id)
       .eq("is_open", true)
       .order("entry_time", { ascending: true });
@@ -121,8 +132,9 @@ serve(async (req) => {
       updates.push({
         id: trade.id,
         balance_at_entry: runningBalance,
-        r_multiple_actual: null,
+        r_multiple_actual: null, // Open trades don't have R% yet
         session,
+        equity_at_entry_used: trade.equity_at_entry || runningBalance,
       });
     }
 
@@ -163,6 +175,7 @@ serve(async (req) => {
         tradesUpdated: successCount,
         errors: errorCount,
         totalPnl,
+        note: "R% uses equity_at_entry when available, falls back to derived balance for historical trades",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

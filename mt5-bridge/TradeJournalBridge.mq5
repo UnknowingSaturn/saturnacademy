@@ -278,7 +278,8 @@ string DetermineEventType(ENUM_DEAL_ENTRY dealEntry)
 //+------------------------------------------------------------------+
 //| Build JSON Payload for Event                                      |
 //| FIX Issue #1: Send position_id, deal_id, order_id explicitly      |
-//| FIX Issue #6: Use TimeGMT() for UTC timestamps                    |
+//| FIX Issue #6: Use actual DEAL_TIME converted to UTC               |
+//| FIX: Add timezone_offset_seconds and equity_at_entry for entries  |
 //+------------------------------------------------------------------+
 string BuildEventPayload(ulong dealTicket, string eventType, string direction)
 {
@@ -300,9 +301,15 @@ string BuildEventPayload(ulong dealTicket, string eventType, string direction)
    // Build idempotency key using deal_id for uniqueness
    string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
    
-   // FIX Issue #6: Use TimeGMT() for proper UTC timestamp
-   string utcTimestamp = FormatTimestampUTC(TimeGMT());
+   // FIX: Convert deal time to UTC properly
+   // dealTime is in broker server time, convert to UTC using the GMT offset
+   // TimeGMT() - TimeCurrent() gives us the offset between GMT and server time
+   datetime dealTimeUTC = dealTime + (TimeGMT() - TimeCurrent());
+   string utcTimestamp = FormatTimestampUTC(dealTimeUTC);
    string serverTimestamp = FormatTimestamp(dealTime);
+   
+   // Calculate timezone offset in seconds (server time - GMT)
+   long timezoneOffsetSeconds = (long)(TimeCurrent() - TimeGMT());
    
    // Get symbol digits for price formatting
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -352,9 +359,16 @@ string BuildEventPayload(ulong dealTicket, string eventType, string direction)
    json += "\"swap\":" + DoubleToString(swap, 2) + ",";
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
    
-   // FIX Issue #6: UTC timestamp and separate server time
+   // FIX: Use actual deal time converted to UTC (not send time)
    json += "\"timestamp\":\"" + utcTimestamp + "\",";
    json += "\"server_time\":\"" + serverTimestamp + "\",";
+   
+   // FIX: Add timezone offset for reference
+   json += "\"timezone_offset_seconds\":" + IntegerToString(timezoneOffsetSeconds) + ",";
+   
+   // FIX: For entry events, capture equity at entry for R% calculation
+   if(eventType == "entry")
+      json += "\"equity_at_entry\":" + DoubleToString(equity, 2) + ",";
    
    // Account info for auto-creation
    json += "\"account_info\":{";
@@ -935,6 +949,7 @@ void SyncHistoricalDeals()
 //+------------------------------------------------------------------+
 //| Build JSON Payload for History Sync Event                         |
 //| Similar to BuildEventPayload but with history_sync event type     |
+//| FIX: Convert deal time to UTC properly                            |
 //+------------------------------------------------------------------+
 string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direction)
 {
@@ -956,9 +971,14 @@ string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direct
    // Build idempotency key - use history_sync prefix to differentiate
    string idempotencyKey = g_terminalId + "_history_" + IntegerToString(dealTicket) + "_" + eventType;
    
-   // FIX: Use FormatTimestamp (no Z suffix) since dealTime is server time, not UTC
-   // Historical timestamps are approximate - we don't have reliable UTC conversion
-   string dealTimestamp = FormatTimestamp(dealTime);
+   // FIX: Convert deal time to UTC properly for historical trades
+   // dealTime is in broker server time, convert to UTC using the GMT offset
+   datetime dealTimeUTC = dealTime + (TimeGMT() - TimeCurrent());
+   string utcTimestamp = FormatTimestampUTC(dealTimeUTC);
+   string serverTimestamp = FormatTimestamp(dealTime);
+   
+   // Calculate timezone offset in seconds (server time - GMT)
+   long timezoneOffsetSeconds = (long)(TimeCurrent() - TimeGMT());
    
    // Get symbol digits for price formatting
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -1009,9 +1029,12 @@ string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direct
    json += "\"swap\":" + DoubleToString(swap, 2) + ",";
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
    
-   // Use deal time as timestamp (historical data)
-   json += "\"timestamp\":\"" + dealTimestamp + "\",";
-   json += "\"server_time\":\"" + FormatTimestamp(dealTime) + "\",";
+   // FIX: Use deal time converted to UTC (not raw server time)
+   json += "\"timestamp\":\"" + utcTimestamp + "\",";
+   json += "\"server_time\":\"" + serverTimestamp + "\",";
+   
+   // FIX: Add timezone offset for reference
+   json += "\"timezone_offset_seconds\":" + IntegerToString(timezoneOffsetSeconds) + ",";
    
    // Account info for auto-creation
    json += "\"account_info\":{";
