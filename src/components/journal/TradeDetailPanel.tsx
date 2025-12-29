@@ -89,6 +89,13 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     });
   }
 
+  // Reset lastTradeId when panel closes so reopening triggers a fresh load
+  useEffect(() => {
+    if (!isOpen) {
+      setLastTradeId(null);
+    }
+  }, [isOpen]);
+
   // Reset state when trade changes
   useEffect(() => {
     const isTradeSwitch = trade?.id !== lastTradeId;
@@ -156,9 +163,9 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
   }, [trade?.id, trade?.review, lastTradeId]);
 
-  // Separate effect to load AI review when it becomes available (handles async loading)
+  // Load AI review when it becomes available (handles async loading after panel opens)
   useEffect(() => {
-    if (trade?.ai_review && trade.id === lastTradeId) {
+    if (trade?.ai_review && isOpen) {
       setAnalysisResult({
         analysis: {
           technical_review: trade.ai_review.technical_review,
@@ -181,7 +188,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
         raw_analysis: trade.ai_review.raw_analysis || "",
       });
     }
-  }, [trade?.ai_review, trade?.id, lastTradeId, setAnalysisResult]);
+  }, [trade?.ai_review, isOpen, setAnalysisResult]);
 
   const score = Object.values(checklistAnswers).filter(Boolean).length;
 
