@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import { AIAnalysisOutput, SimilarTrade } from "@/types/trading";
 
 interface ComplianceResult {
@@ -24,6 +25,7 @@ export function useAIAnalysis() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const analyzeTrade = async (tradeId: string): Promise<AnalysisResult | null> => {
     setIsAnalyzing(true);
@@ -60,6 +62,11 @@ export function useAIAnalysis() {
       };
 
       setAnalysisResult(result);
+      
+      // Invalidate trades queries to refresh cache with new ai_review
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
+      
       toast({ title: "Analysis Complete", description: "AI review has been generated." });
       return result;
     } catch (error) {

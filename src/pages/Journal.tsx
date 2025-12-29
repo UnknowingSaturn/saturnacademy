@@ -81,6 +81,16 @@ export default function Journal() {
     }
   }, [searchParams]);
 
+  // Keep selectedTrade in sync with fresh trades data (e.g., after AI analysis saves)
+  useEffect(() => {
+    if (selectedTrade && trades) {
+      const freshTrade = trades.find(t => t.id === selectedTrade.id);
+      if (freshTrade && freshTrade.ai_review !== selectedTrade.ai_review) {
+        setSelectedTrade(freshTrade);
+      }
+    }
+  }, [trades, selectedTrade?.id, selectedTrade?.ai_review]);
+
   const clearModelFilter = () => {
     setModelFilter(null);
     searchParams.delete('model');
