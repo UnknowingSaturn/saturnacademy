@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useMemo } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Trade } from "@/types/trading";
@@ -9,7 +10,8 @@ interface EquityCurveProps {
   currentEquity?: number;
 }
 
-export function EquityCurve({ trades, startingBalance = 10000, currentEquity }: EquityCurveProps) {
+export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
+  function EquityCurve({ trades, startingBalance = 10000, currentEquity }, _ref) {
   const data = useMemo(() => {
     const closedTrades = trades
       .filter(t => !t.is_open && t.exit_time)
@@ -133,7 +135,8 @@ export function EquityCurve({ trades, startingBalance = 10000, currentEquity }: 
             </AreaChart>
           </ResponsiveContainer>
         </div>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
+);

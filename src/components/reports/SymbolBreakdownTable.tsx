@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { ReportMetrics } from '@/hooks/useReports';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -8,7 +9,8 @@ interface SymbolBreakdownTableProps {
   metrics: ReportMetrics;
 }
 
-export function SymbolBreakdownTable({ metrics }: SymbolBreakdownTableProps) {
+export const SymbolBreakdownTable = React.forwardRef<HTMLDivElement, SymbolBreakdownTableProps>(
+  function SymbolBreakdownTable({ metrics }, _ref) {
   const symbolData = Object.entries(metrics.tradesBySymbol)
     .sort((a, b) => b[1].pnl - a[1].pnl);
 
@@ -106,7 +108,8 @@ export function SymbolBreakdownTable({ metrics }: SymbolBreakdownTableProps) {
             <p className="text-muted-foreground text-sm text-center py-4">No data available</p>
           )}
         </CardContent>
-      </Card>
-    </div>
-  );
-}
+        </Card>
+      </div>
+    );
+  }
+);

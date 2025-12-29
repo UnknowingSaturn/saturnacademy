@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useState } from 'react';
 import { useTrades } from '@/hooks/useTrades';
 import { useAccounts } from '@/hooks/useAccounts';
@@ -16,7 +17,8 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Loader2 } from 'lucide-react';
 import { addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 
-export default function Dashboard() {
+const Dashboard = React.forwardRef<HTMLDivElement, object>(
+  function Dashboard(_props, _ref) {
   const { data: trades = [], isLoading } = useTrades();
   const { data: accounts = [] } = useAccounts();
   const [periodType, setPeriodType] = useState<'week' | 'month'>('week');
@@ -164,7 +166,10 @@ export default function Dashboard() {
             Try selecting a different date range or period type.
           </p>
         </div>
-      )}
-    </div>
-  );
-}
+        )}
+      </div>
+    );
+  }
+);
+
+export default Dashboard;

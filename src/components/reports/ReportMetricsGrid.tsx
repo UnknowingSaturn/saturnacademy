@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { ReportMetrics } from '@/hooks/useReports';
 import { Card, CardContent } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, Target, Activity, Calendar, BarChart3 } from 'lucide-react';
@@ -6,7 +7,8 @@ interface ReportMetricsGridProps {
   metrics: ReportMetrics;
 }
 
-export function ReportMetricsGrid({ metrics }: ReportMetricsGridProps) {
+export const ReportMetricsGrid = React.forwardRef<HTMLDivElement, ReportMetricsGridProps>(
+  function ReportMetricsGrid({ metrics }, _ref) {
   const formatCurrency = (value: number) => {
     const formatted = Math.abs(value).toFixed(2);
     return value >= 0 ? `$${formatted}` : `-$${formatted}`;
@@ -71,7 +73,8 @@ export function ReportMetricsGrid({ metrics }: ReportMetricsGridProps) {
             <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
           </CardContent>
         </Card>
-      ))}
-    </div>
-  );
-}
+        ))}
+      </div>
+    );
+  }
+);

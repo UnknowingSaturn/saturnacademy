@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,7 +19,8 @@ interface ExportControlsProps {
   filteredTrades: Trade[];
 }
 
-export function ExportControls({ trades, metrics, period, filteredTrades }: ExportControlsProps) {
+export const ExportControls = React.forwardRef<HTMLDivElement, ExportControlsProps>(
+  function ExportControls({ trades, metrics, period, filteredTrades }, _ref) {
   const [exportingPDF, setExportingPDF] = useState(false);
   const [exportingCSV, setExportingCSV] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
@@ -155,7 +157,8 @@ export function ExportControls({ trades, metrics, period, filteredTrades }: Expo
             </Button>
           )}
         </div>
-      </CardContent>
-    </Card>
-  );
-}
+        </CardContent>
+      </Card>
+    );
+  }
+);
