@@ -350,7 +350,29 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
                           )}
                         >
                           {trade.r_multiple_actual !== null
-                            ? `${trade.r_multiple_actual >= 0 ? "+" : ""}${trade.r_multiple_actual.toFixed(1)}%`
+                            ? `${trade.r_multiple_actual >= 0 ? "+" : ""}${trade.r_multiple_actual.toFixed(1)}R`
+                            : "—"}
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  if (key === 'account_pct') {
+                    // Calculate account percentage: (net_pnl / balance_at_entry) * 100
+                    const accountPct = trade.balance_at_entry && trade.net_pnl !== null
+                      ? (trade.net_pnl / trade.balance_at_entry) * 100
+                      : null;
+                    return (
+                      <div key={key} className="text-right">
+                        <span
+                          className={cn(
+                            "font-mono-numbers font-bold text-sm",
+                            accountPct !== null && accountPct >= 0 && "text-profit",
+                            accountPct !== null && accountPct < 0 && "text-loss"
+                          )}
+                        >
+                          {accountPct !== null
+                            ? `${accountPct >= 0 ? "+" : ""}${accountPct.toFixed(2)}%`
                             : "—"}
                         </span>
                       </div>

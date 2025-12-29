@@ -41,6 +41,8 @@ function transformTrade(row: any): Trade {
     is_open: row.is_open ?? true,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    balance_at_entry: row.balance_at_entry ? Number(row.balance_at_entry) : null,
+    equity_at_entry: row.equity_at_entry ? Number(row.equity_at_entry) : null,
     playbook_id: row.playbook_id,
     alignment: row.alignment,
     entry_timeframes: row.entry_timeframes,

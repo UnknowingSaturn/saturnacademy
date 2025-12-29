@@ -105,6 +105,9 @@ export interface Trade {
   is_open: boolean;
   created_at: string;
   updated_at: string;
+  // Balance tracking
+  balance_at_entry: number | null;
+  equity_at_entry: number | null;
   // New Notion-style fields
   playbook_id: string | null; // UUID reference to playbooks table
   alignment: TimeframeAlignment[] | null;

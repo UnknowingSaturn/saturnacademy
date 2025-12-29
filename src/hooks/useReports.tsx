@@ -163,3 +163,15 @@ export function getMonthPeriod(date: Date): ReportPeriod {
     label: format(start, 'MMMM yyyy'),
   };
 }
+
+export function getPreviousPeriod(period: ReportPeriod): ReportPeriod {
+  if (period.type === 'week') {
+    const prevDate = new Date(period.start);
+    prevDate.setDate(prevDate.getDate() - 7);
+    return getWeekPeriod(prevDate);
+  } else {
+    const prevDate = new Date(period.start);
+    prevDate.setMonth(prevDate.getMonth() - 1);
+    return getMonthPeriod(prevDate);
+  }
+}

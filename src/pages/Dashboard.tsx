@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useState } from 'react';
 import { useTrades } from '@/hooks/useTrades';
 import { useAccounts } from '@/hooks/useAccounts';
-import { useReports, getWeekPeriod, getMonthPeriod, ReportPeriod } from '@/hooks/useReports';
+import { useReports, getWeekPeriod, getMonthPeriod, getPreviousPeriod, ReportPeriod } from '@/hooks/useReports';
 import { ReportMetricsGrid } from '@/components/reports/ReportMetricsGrid';
 import { TradeHighlights } from '@/components/reports/TradeHighlights';
 import { SymbolBreakdownTable } from '@/components/reports/SymbolBreakdownTable';
@@ -31,8 +31,12 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
   const period: ReportPeriod = periodType === 'week' 
     ? getWeekPeriod(currentDate) 
     : getMonthPeriod(currentDate);
+  
+  // Calculate previous period for comparison
+  const previousPeriod = getPreviousPeriod(period);
 
   const { filteredTrades, metrics } = useReports(trades, period);
+  const { filteredTrades: previousTrades, metrics: previousMetrics } = useReports(trades, previousPeriod);
   const dashboardMetrics = useDashboardMetrics(filteredTrades);
 
   const navigatePrev = () => {
@@ -129,7 +133,12 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
 
       {/* Charts Row */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <EquityCurve trades={filteredTrades} startingBalance={startingBalance} currentEquity={currentEquity} />
+        <EquityCurve 
+          trades={filteredTrades} 
+          startingBalance={startingBalance} 
+          previousPeriodPnl={previousMetrics.totalPnl}
+          periodLabel={periodType === 'week' ? 'week' : 'month'}
+        />
         <SessionBreakdown bySession={dashboardMetrics.bySession} />
       </div>
 
