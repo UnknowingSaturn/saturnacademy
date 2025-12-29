@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { ReportMetrics } from '@/hooks/useReports';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +9,8 @@ interface TradeHighlightsProps {
   metrics: ReportMetrics;
 }
 
-export function TradeHighlights({ metrics }: TradeHighlightsProps) {
+export const TradeHighlights = React.forwardRef<HTMLDivElement, TradeHighlightsProps>(
+  function TradeHighlights({ metrics }, _ref) {
   return (
     <div className="grid md:grid-cols-2 gap-4">
       {/* Best Trade */}
@@ -149,7 +151,8 @@ export function TradeHighlights({ metrics }: TradeHighlightsProps) {
             <span className="text-red-400 font-medium">{metrics.consecutiveLosses}</span>
           </div>
         </CardContent>
-      </Card>
-    </div>
-  );
-}
+        </Card>
+      </div>
+    );
+  }
+);

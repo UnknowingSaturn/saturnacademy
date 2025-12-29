@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { usePlaybooks } from '@/hooks/usePlaybooks';
 import { usePlaybookStats } from '@/hooks/usePlaybookStats';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +21,8 @@ interface PlaybookComplianceStatus {
   rLimit?: number;
 }
 
-export function PlaybookCompliance() {
+export const PlaybookCompliance = React.forwardRef<HTMLDivElement, object>(
+  function PlaybookCompliance(_props, _ref) {
   const { data: playbooks } = usePlaybooks();
   const { data: allStats, isLoading } = usePlaybookStats();
 
@@ -143,7 +145,8 @@ export function PlaybookCompliance() {
             )}
           </div>
         ))}
-      </CardContent>
-    </Card>
-  );
-}
+        </CardContent>
+      </Card>
+    );
+  }
+);

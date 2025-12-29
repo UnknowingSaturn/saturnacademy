@@ -1,3 +1,4 @@
+import * as React from "react";
 import { SessionMetrics, SessionType } from "@/types/trading";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +16,8 @@ const sessionConfig: Record<SessionType, { label: string; className: string; col
   off_hours: { label: "Off Hours", className: "bg-muted/50 text-muted-foreground border border-border/50", color: "hsl(0, 0%, 55%)" },
 };
 
-export function SessionBreakdown({ bySession }: SessionBreakdownProps) {
+export const SessionBreakdown = React.forwardRef<HTMLDivElement, SessionBreakdownProps>(
+  function SessionBreakdown({ bySession }, _ref) {
   const sessions = Object.entries(bySession)
     .filter(([_, metrics]) => metrics.trades > 0)
     .sort((a, b) => b[1].trades - a[1].trades);
@@ -100,8 +102,9 @@ export function SessionBreakdown({ bySession }: SessionBreakdownProps) {
               );
             })
           )}
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
+);
