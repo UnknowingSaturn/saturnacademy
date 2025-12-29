@@ -1,10 +1,12 @@
+import * as React from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { QueryClientProvider as QCP } from "@tanstack/react-query";
+import { BrowserRouter as BR, Routes as R, Route, Navigate as Nav } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { withForwardRef } from "@/lib/withForwardRef";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Journal from "./pages/Journal";
@@ -14,56 +16,70 @@ import Accounts from "./pages/Accounts";
 import LiveTrades from "./pages/LiveTrades";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new (await import("@tanstack/react-query")).QueryClient();
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>;
+// Wrap external components to handle refs safely
+const QueryClientProvider = withForwardRef(QCP, "QueryClientProvider");
+const BrowserRouter = withForwardRef(BR, "BrowserRouter");
+const Routes = withForwardRef(R, "Routes");
+const Navigate = withForwardRef(Nav, "Navigate");
+
+const ProtectedRoute = React.forwardRef<HTMLDivElement, { children: React.ReactNode }>(
+  function ProtectedRoute({ children }, _ref) {
+    const { user, loading } = useAuth();
+    
+    if (loading) {
+      return <div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>;
+    }
+    
+    if (!user) {
+      return <Navigate to="/auth" replace />;
+    }
+    
+    return <AppLayout>{children}</AppLayout>;
   }
-  
-  if (!user) {
-    return <Navigate to="/auth" replace />;
+);
+
+const AppRoutes = React.forwardRef<HTMLDivElement, object>(
+  function AppRoutes(_props, _ref) {
+    const { user, loading } = useAuth();
+
+    if (loading) {
+      return <div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>;
+    }
+
+    return (
+      <Routes>
+        <Route path="/auth" element={user ? <Navigate to="/dashboard" replace /> : <Auth />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
+        <Route path="/live-trades" element={<ProtectedRoute><LiveTrades /></ProtectedRoute>} />
+        <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
+        <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
+        <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    );
   }
-  
-  return <AppLayout>{children}</AppLayout>;
-}
+);
 
-function AppRoutes() {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>;
+const App = React.forwardRef<HTMLDivElement, object>(
+  function App(_props, _ref) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <AppRoutes />
+            </BrowserRouter>
+          </TooltipProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    );
   }
-
-  return (
-    <Routes>
-      <Route path="/auth" element={user ? <Navigate to="/dashboard" replace /> : <Auth />} />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
-      <Route path="/live-trades" element={<ProtectedRoute><LiveTrades /></ProtectedRoute>} />
-      <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
-      <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
-      <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
-      <Route path="*" element={<NotFound />} />
-    </Routes>
-  );
-}
-
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
-  </QueryClientProvider>
 );
 
 export default App;
