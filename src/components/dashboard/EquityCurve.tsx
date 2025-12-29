@@ -6,9 +6,10 @@ import { format } from "date-fns";
 interface EquityCurveProps {
   trades: Trade[];
   startingBalance?: number;
+  currentEquity?: number;
 }
 
-export function EquityCurve({ trades, startingBalance = 10000 }: EquityCurveProps) {
+export function EquityCurve({ trades, startingBalance = 10000, currentEquity }: EquityCurveProps) {
   const data = useMemo(() => {
     const closedTrades = trades
       .filter(t => !t.is_open && t.exit_time)
@@ -29,10 +30,12 @@ export function EquityCurve({ trades, startingBalance = 10000 }: EquityCurveProp
     return points;
   }, [trades, startingBalance]);
 
-  const isProfit = data.length > 1 && data[data.length - 1].balance > startingBalance;
-  const currentBalance = data.length > 0 ? data[data.length - 1].balance : startingBalance;
-  const totalPnl = currentBalance - startingBalance;
-  const pnlPercent = ((totalPnl / startingBalance) * 100).toFixed(2);
+  // Use actual current equity if provided, otherwise calculate from chart data
+  const displayEquity = currentEquity ?? (data.length > 0 ? data[data.length - 1].balance : startingBalance);
+  const isProfit = displayEquity > startingBalance;
+  const periodPnl = data.length > 1 ? data[data.length - 1].balance - startingBalance : 0;
+  const totalPnl = displayEquity - startingBalance;
+  const pnlPercent = startingBalance > 0 ? ((totalPnl / startingBalance) * 100).toFixed(2) : "0.00";
 
   return (
     <div className="col-span-2 rounded-xl border border-border/50 bg-card/80 backdrop-blur-xl overflow-hidden"
@@ -50,11 +53,16 @@ export function EquityCurve({ trades, startingBalance = 10000 }: EquityCurveProp
             <p className={`text-2xl font-bold font-mono ${isProfit ? 'text-profit' : 'text-loss'}`}
               style={{ textShadow: isProfit ? "0 0 20px hsl(var(--profit) / 0.4)" : "0 0 20px hsl(var(--loss) / 0.4)" }}
             >
-              ${currentBalance.toLocaleString()}
+              ${displayEquity.toLocaleString()}
             </p>
             <p className={`text-sm font-medium ${isProfit ? 'text-profit' : 'text-loss'}`}>
-              {totalPnl >= 0 ? '+' : ''}{pnlPercent}%
+              {totalPnl >= 0 ? '+' : ''}{pnlPercent}% total
             </p>
+            {periodPnl !== 0 && (
+              <p className={`text-xs ${periodPnl >= 0 ? 'text-profit/70' : 'text-loss/70'}`}>
+                {periodPnl >= 0 ? '+' : ''}${periodPnl.toFixed(2)} this period
+              </p>
+            )}
           </div>
         </div>
       </div>

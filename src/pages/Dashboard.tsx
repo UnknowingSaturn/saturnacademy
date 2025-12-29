@@ -22,8 +22,9 @@ export default function Dashboard() {
   const [periodType, setPeriodType] = useState<'week' | 'month'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // Calculate starting balance from all active accounts
+  // Calculate starting balance and current equity from all active accounts
   const startingBalance = accounts.reduce((sum, acc) => sum + Number(acc.balance_start || 0), 0);
+  const currentEquity = accounts.reduce((sum, acc) => sum + Number(acc.equity_current || 0), 0);
 
   const period: ReportPeriod = periodType === 'week' 
     ? getWeekPeriod(currentDate) 
@@ -126,7 +127,7 @@ export default function Dashboard() {
 
       {/* Charts Row */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <EquityCurve trades={filteredTrades} startingBalance={startingBalance} />
+        <EquityCurve trades={filteredTrades} startingBalance={startingBalance} currentEquity={currentEquity} />
         <SessionBreakdown bySession={dashboardMetrics.bySession} />
       </div>
 

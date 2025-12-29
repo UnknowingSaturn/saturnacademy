@@ -51,7 +51,7 @@ export function PlaybookDetailSheet({
   onDelete,
 }: PlaybookDetailSheetProps) {
   const navigate = useNavigate();
-  const { data: recentTrades, isLoading: tradesLoading } = usePlaybookRecentTrades(playbook?.name);
+  const { data: recentTrades, isLoading: tradesLoading } = usePlaybookRecentTrades(playbook?.id);
 
   if (!playbook) return null;
 
