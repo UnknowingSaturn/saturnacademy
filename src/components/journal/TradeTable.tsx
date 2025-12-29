@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile } from "@/types/trading";
 import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview } from "@/hooks/useTrades";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
+import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { cn } from "@/lib/utils";
 import { formatDateET, formatTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
@@ -28,10 +29,23 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
 
   // Fetch property options
   const { data: sessionOptions = [] } = usePropertyOptions('session');
-  const { data: modelOptions = [] } = usePropertyOptions('model');
   const { data: timeframeOptions = [] } = usePropertyOptions('timeframe');
   const { data: profileOptions = [] } = usePropertyOptions('profile');
   const { data: emotionOptions = [] } = usePropertyOptions('emotion');
+  
+  // Fetch playbooks for model options
+  const { data: playbooks } = usePlaybooks();
+  
+  // Generate dynamic model options from playbooks
+  const playbookModelOptions = useMemo(() => {
+    if (!playbooks || playbooks.length === 0) return [];
+    const colors = ["primary", "profit", "breakeven", "london", "tokyo", "newyork"];
+    return playbooks.map((pb, index) => ({
+      value: pb.name,
+      label: pb.name,
+      color: colors[index % colors.length],
+    }));
+  }, [playbooks]);
 
   // Convert property options to BadgeSelect format
   const formatOptions = (options: any[]) => options.map(o => ({
@@ -255,12 +269,10 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
                         <BadgeSelect
                           value={trade.model || ""}
                           onChange={(v) => handleModelChange(trade, v as string)}
-                          options={formatOptions(modelOptions).length > 0 ? formatOptions(modelOptions) : [
-                            { value: "type_a", label: "Type A", color: "primary" },
-                            { value: "type_b", label: "Type B", color: "profit" },
-                            { value: "type_c", label: "Type C", color: "breakeven" },
+                          options={playbookModelOptions.length > 0 ? playbookModelOptions : [
+                            { value: "", label: "No playbooks", color: "muted" },
                           ]}
-                          placeholder="Model"
+                          placeholder="Strategy"
                         />
                       </div>
                     );
