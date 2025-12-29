@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTrades } from '@/hooks/useTrades';
+import { useAccounts } from '@/hooks/useAccounts';
 import { useReports, getWeekPeriod, getMonthPeriod, ReportPeriod } from '@/hooks/useReports';
 import { ReportMetricsGrid } from '@/components/reports/ReportMetricsGrid';
 import { TradeHighlights } from '@/components/reports/TradeHighlights';
@@ -15,8 +16,12 @@ import { addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 
 export default function Dashboard() {
   const { data: trades = [], isLoading } = useTrades();
+  const { data: accounts = [] } = useAccounts();
   const [periodType, setPeriodType] = useState<'week' | 'month'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
+
+  // Calculate starting balance from all active accounts
+  const startingBalance = accounts.reduce((sum, acc) => sum + Number(acc.balance_start || 0), 0);
 
   const period: ReportPeriod = periodType === 'week' 
     ? getWeekPeriod(currentDate) 
@@ -119,7 +124,7 @@ export default function Dashboard() {
 
       {/* Charts Row */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <EquityCurve trades={filteredTrades} />
+        <EquityCurve trades={filteredTrades} startingBalance={startingBalance} />
         <SessionBreakdown bySession={dashboardMetrics.bySession} />
       </div>
 
