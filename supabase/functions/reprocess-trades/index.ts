@@ -9,7 +9,6 @@ const corsHeaders = {
 
 interface ReprocessRequest {
   account_id: string;
-  broker_utc_offset?: number;
   use_custom_sessions?: boolean;
 }
 
@@ -43,7 +42,7 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { account_id, broker_utc_offset, use_custom_sessions = true }: ReprocessRequest = await req.json();
+    const { account_id, use_custom_sessions = true }: ReprocessRequest = await req.json();
 
     if (!account_id) {
       return new Response(
@@ -65,10 +64,8 @@ serve(async (req) => {
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    const effectiveOffset = broker_utc_offset ?? account.broker_utc_offset ?? 2;
     
-    console.log(`Reprocessing trades for account ${account_id} with UTC offset ${effectiveOffset}`);
+    console.log(`Recalculating trade data for account ${account_id}`);
 
     // Fetch user's custom session definitions if enabled
     let sessions: SessionDefinition[] = DEFAULT_SESSIONS;
@@ -106,14 +103,12 @@ serve(async (req) => {
 
     if (!trades || trades.length === 0) {
       return new Response(
-        JSON.stringify({ message: "No trades to reprocess", trades_updated: 0 }),
+        JSON.stringify({ message: "No trades to recalculate", trades_updated: 0 }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Found ${trades.length} trades to reprocess`);
-
-    const offsetCorrection = effectiveOffset * 60 * 60 * 1000; // Convert hours to milliseconds
+    console.log(`Found ${trades.length} trades to recalculate`);
 
     let updatedCount = 0;
     let runningBalance = account.balance_start || 0;
@@ -127,19 +122,11 @@ serve(async (req) => {
     // Process closed trades first to build equity history
     for (const trade of closedTrades) {
       try {
-        // Correct entry_time
-        const originalEntryTime = new Date(trade.entry_time);
-        const correctedEntryTime = new Date(originalEntryTime.getTime() - offsetCorrection);
-        
-        // Correct exit_time if exists
-        let correctedExitTime = null;
-        if (trade.exit_time) {
-          const originalExitTime = new Date(trade.exit_time);
-          correctedExitTime = new Date(originalExitTime.getTime() - offsetCorrection);
-        }
+        // Use entry_time directly - it's already in UTC from ingestion
+        const entryTime = new Date(trade.entry_time);
 
-        // Calculate session from corrected entry time using custom or default sessions
-        const session = getSessionFromTime(correctedEntryTime, sessions);
+        // Calculate session from entry time using custom or default sessions
+        const session = getSessionFromTime(entryTime, sessions);
 
         // Calculate R% using equity_at_entry if available, otherwise use running balance
         const equityAtEntry = trade.equity_at_entry || runningBalance;
@@ -148,12 +135,10 @@ serve(async (req) => {
           rMultiple = Math.round((trade.net_pnl / equityAtEntry) * 10000) / 100;
         }
 
-        // Update the trade
+        // Update the trade - only session, balance, and R%
         const { error: updateError } = await supabase
           .from("trades")
           .update({
-            entry_time: correctedEntryTime.toISOString(),
-            exit_time: correctedExitTime?.toISOString() || null,
             session: session,
             balance_at_entry: runningBalance,
             r_multiple_actual: rMultiple,
@@ -177,14 +162,12 @@ serve(async (req) => {
     // Process open trades
     for (const trade of openTrades) {
       try {
-        const originalEntryTime = new Date(trade.entry_time);
-        const correctedEntryTime = new Date(originalEntryTime.getTime() - offsetCorrection);
-        const session = getSessionFromTime(correctedEntryTime, sessions);
+        const entryTime = new Date(trade.entry_time);
+        const session = getSessionFromTime(entryTime, sessions);
 
         const { error: updateError } = await supabase
           .from("trades")
           .update({
-            entry_time: correctedEntryTime.toISOString(),
             session: session,
             balance_at_entry: runningBalance,
           })
@@ -200,19 +183,12 @@ serve(async (req) => {
       }
     }
 
-    // Update account's broker_utc_offset
-    await supabase
-      .from("accounts")
-      .update({ broker_utc_offset: effectiveOffset })
-      .eq("id", account_id);
-
-    console.log(`Reprocessing complete. Updated ${updatedCount} trades.`);
+    console.log(`Recalculation complete. Updated ${updatedCount} trades.`);
 
     return new Response(
       JSON.stringify({
-        message: "Trades reprocessed successfully",
+        message: "Trade data recalculated successfully",
         trades_updated: updatedCount,
-        broker_utc_offset: effectiveOffset,
         sessions_used: sessions.length,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
