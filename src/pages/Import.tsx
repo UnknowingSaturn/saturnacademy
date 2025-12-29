@@ -33,7 +33,7 @@ const dbFields = [
   { value: "sl_initial", label: "Stop Loss" },
   { value: "tp_initial", label: "Take Profit" },
   { value: "net_pnl", label: "P&L" },
-  { value: "r_multiple_actual", label: "R-Multiple" },
+  { value: "r_multiple_actual", label: "RR (Risk-Reward)" },
   { value: "session", label: "Session" },
 ];
 
