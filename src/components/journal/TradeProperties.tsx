@@ -1,11 +1,13 @@
-import { Trade, SessionType, EmotionalState, TradeModel, TimeframeAlignment, TradeProfile } from "@/types/trading";
+import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile } from "@/types/trading";
 import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview } from "@/hooks/useTrades";
+import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { cn } from "@/lib/utils";
 import { formatFullDateTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Calendar, Clock, TrendingUp, TrendingDown, DollarSign, Target, Hash } from "lucide-react";
+import { useMemo } from "react";
 
 interface TradePropertiesProps {
   trade: Trade;
@@ -19,11 +21,7 @@ const sessionOptions = [
   { value: "off_hours", label: "Off Hours", color: "muted" },
 ];
 
-const modelOptions = [
-  { value: "type_a", label: "Type A", color: "primary" },
-  { value: "type_b", label: "Type B", color: "profit" },
-  { value: "type_c", label: "Type C", color: "breakeven" },
-];
+// Model options are now dynamic from playbooks - see useModelOptions hook below
 
 const emotionOptions = [
   { value: "great", label: "Great", color: "profit" },
@@ -62,13 +60,26 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   const updateTrade = useUpdateTrade();
   const updateReview = useUpdateTradeReview();
   const createReview = useCreateTradeReview();
+  const { data: playbooks } = usePlaybooks();
+
+  // Generate model options from active playbooks
+  const modelOptions = useMemo(() => {
+    if (!playbooks) return [];
+    const colors = ["primary", "profit", "breakeven", "london", "tokyo", "newyork"];
+    return playbooks.map((pb, index) => ({
+      value: pb.name,
+      label: pb.name,
+      color: colors[index % colors.length],
+      description: pb.description || undefined,
+    }));
+  }, [playbooks]);
 
   const handleSessionChange = async (session: string) => {
     await updateTrade.mutateAsync({ id: trade.id, session: session as SessionType });
   };
 
   const handleModelChange = async (model: string) => {
-    await updateTrade.mutateAsync({ id: trade.id, model: model as TradeModel });
+    await updateTrade.mutateAsync({ id: trade.id, model });
   };
 
   const handleAlignmentChange = async (alignment: string[]) => {
