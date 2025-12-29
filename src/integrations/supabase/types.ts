@@ -849,11 +849,11 @@ export type Database = {
           gross_pnl: number | null
           id: string
           is_open: boolean | null
-          model: string | null
           net_pnl: number | null
           original_lots: number | null
           partial_closes: Json | null
           place: string | null
+          playbook_id: string | null
           profile: string | null
           r_multiple_actual: number | null
           r_multiple_planned: number | null
@@ -888,11 +888,11 @@ export type Database = {
           gross_pnl?: number | null
           id?: string
           is_open?: boolean | null
-          model?: string | null
           net_pnl?: number | null
           original_lots?: number | null
           partial_closes?: Json | null
           place?: string | null
+          playbook_id?: string | null
           profile?: string | null
           r_multiple_actual?: number | null
           r_multiple_planned?: number | null
@@ -927,11 +927,11 @@ export type Database = {
           gross_pnl?: number | null
           id?: string
           is_open?: boolean | null
-          model?: string | null
           net_pnl?: number | null
           original_lots?: number | null
           partial_closes?: Json | null
           place?: string | null
+          playbook_id?: string | null
           profile?: string | null
           r_multiple_actual?: number | null
           r_multiple_planned?: number | null
@@ -955,6 +955,13 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trades_playbook_id_fkey"
+            columns: ["playbook_id"]
+            isOneToOne: false
+            referencedRelation: "playbooks"
             referencedColumns: ["id"]
           },
           {

@@ -38,7 +38,7 @@ function transformTrade(row: any): Trade {
     is_open: row.is_open ?? true,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    model: row.model,
+    playbook_id: row.playbook_id,
     alignment: row.alignment,
     entry_timeframes: row.entry_timeframes,
     profile: row.profile,
@@ -83,6 +83,7 @@ export function useOpenTrades() {
         .from("trades")
         .select(`
           *,
+          playbook:playbooks (*),
           trade_reviews(*),
           accounts(*)
         `)
@@ -95,10 +96,9 @@ export function useOpenTrades() {
       
       // Enrich with playbook matching
       return trades.map((trade): OpenTradeWithCompliance => {
-        // Find matched playbook by model name
-        const matchedPlaybook = trade.model 
-          ? playbooks.find(p => p.name === trade.model)
-          : undefined;
+        // Find matched playbook by playbook_id (or from joined data)
+        const matchedPlaybook = trade.playbook 
+          || (trade.playbook_id ? playbooks.find(p => p.id === trade.playbook_id) : undefined);
 
         // Determine compliance status
         let complianceStatus: 'pending' | 'compliant' | 'violations' = 'pending';

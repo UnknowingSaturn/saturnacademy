@@ -243,6 +243,7 @@ serve(async (req) => {
       .from("trades")
       .select(`
         *,
+        playbook:playbooks (*),
         trade_reviews (
           *,
           playbook:playbooks (*)
@@ -324,20 +325,19 @@ serve(async (req) => {
     }
 
     const review = trade.trade_reviews?.[0];
-    let playbook = review?.playbook;
+    let playbook = trade.playbook || review?.playbook;
 
-    // Fallback: If no playbook from review, try to match by trade.model
-    if (!playbook && trade.model) {
-      console.log("No playbook from review, trying to match by model:", trade.model);
+    // Fallback: If no playbook from joined data, try to match by trade.playbook_id
+    if (!playbook && trade.playbook_id) {
+      console.log("No playbook from joins, trying to fetch by playbook_id:", trade.playbook_id);
       const { data: matchedPlaybook } = await supabase
         .from("playbooks")
         .select("*")
-        .eq("name", trade.model)
-        .eq("user_id", trade.user_id)
+        .eq("id", trade.playbook_id)
         .maybeSingle();
       
       if (matchedPlaybook) {
-        console.log("Matched playbook by model name:", matchedPlaybook.name);
+        console.log("Matched playbook by ID:", matchedPlaybook.name);
         playbook = matchedPlaybook;
       }
     }

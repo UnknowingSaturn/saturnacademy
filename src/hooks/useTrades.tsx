@@ -10,6 +10,7 @@ function transformTrade(row: any): Trade {
     ...row,
     partial_closes: (row.partial_closes as PartialClose[]) || [],
     review: row.trade_reviews?.[0] ? transformReview(row.trade_reviews[0]) : undefined,
+    playbook: row.playbook || undefined,
   };
 }
 
@@ -40,6 +41,7 @@ export function useTrades(filters?: {
         .from('trades')
         .select(`
           *,
+          playbook:playbooks (*),
           trade_reviews (
             *,
             playbook:playbooks (*)
@@ -69,7 +71,7 @@ export function useTrade(tradeId: string | undefined) {
       if (!tradeId) return null;
       const { data, error } = await supabase
         .from('trades')
-        .select(`*, trade_reviews (*, playbook:playbooks (*)), account:accounts (*)`)
+        .select(`*, playbook:playbooks (*), trade_reviews (*, playbook:playbooks (*)), account:accounts (*)`)
         .eq('id', tradeId)
         .maybeSingle();
       if (error) throw error;
@@ -148,7 +150,7 @@ export function useUpdateTrade() {
         'exit_price', 'exit_time', 'sl_initial', 'tp_initial', 'sl_final',
         'tp_final', 'net_pnl', 'gross_pnl', 'commission', 'swap',
         'r_multiple_actual', 'r_multiple_planned', 'session', 'is_open',
-        'model', 'profile', 'place', 'trade_number'
+        'playbook_id', 'profile', 'place', 'trade_number'
       ] as const;
       
       for (const field of scalarFields) {

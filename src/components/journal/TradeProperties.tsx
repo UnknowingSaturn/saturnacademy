@@ -62,12 +62,12 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   const createReview = useCreateTradeReview();
   const { data: playbooks } = usePlaybooks();
 
-  // Generate model options from active playbooks
+  // Generate model options from active playbooks using ID as value
   const modelOptions = useMemo(() => {
     if (!playbooks) return [];
     const colors = ["primary", "profit", "breakeven", "london", "tokyo", "newyork"];
     return playbooks.map((pb, index) => ({
-      value: pb.name,
+      value: pb.id,
       label: pb.name,
       color: colors[index % colors.length],
       description: pb.description || undefined,
@@ -78,8 +78,8 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
     await updateTrade.mutateAsync({ id: trade.id, session: session as SessionType });
   };
 
-  const handleModelChange = async (model: string) => {
-    await updateTrade.mutateAsync({ id: trade.id, model });
+  const handleModelChange = async (playbookId: string) => {
+    await updateTrade.mutateAsync({ id: trade.id, playbook_id: playbookId || null });
   };
 
   const handleAlignmentChange = async (alignment: string[]) => {
@@ -197,7 +197,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
 
         <PropertyRow label="Model">
           <BadgeSelect
-            value={trade.model || ""}
+            value={trade.playbook_id || ""}
             onChange={(v) => handleModelChange(v as string)}
             options={modelOptions}
             placeholder="Select..."

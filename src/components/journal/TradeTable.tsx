@@ -36,11 +36,11 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   // Fetch playbooks for model options
   const { data: playbooks } = usePlaybooks();
   
-  // Generate dynamic model options from playbooks - use actual playbook colors
+  // Generate dynamic model options from playbooks - use playbook ID as value
   const playbookModelOptions = useMemo(() => {
     if (!playbooks || playbooks.length === 0) return [];
     return playbooks.map((pb) => ({
-      value: pb.name,
+      value: pb.id,
       label: pb.name,
       customColor: pb.color || undefined, // Use actual playbook hex color
     }));
@@ -116,8 +116,8 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
     await updateTrade.mutateAsync({ id: trade.id, session: session as SessionType });
   };
 
-  const handleModelChange = async (trade: Trade, model: string) => {
-    await updateTrade.mutateAsync({ id: trade.id, model: model || null });
+  const handleModelChange = async (trade: Trade, playbookId: string) => {
+    await updateTrade.mutateAsync({ id: trade.id, playbook_id: playbookId || null });
   };
 
   const handleAlignmentChange = async (trade: Trade, alignment: string[]) => {
@@ -266,7 +266,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
                     return (
                       <div key={key} onClick={(e) => e.stopPropagation()}>
                         <BadgeSelect
-                          value={trade.model || ""}
+                          value={trade.playbook_id || ""}
                           onChange={(v) => handleModelChange(trade, v as string)}
                           options={playbookModelOptions.length > 0 ? playbookModelOptions : [
                             { value: "", label: "No playbooks", color: "muted" },

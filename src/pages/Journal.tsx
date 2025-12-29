@@ -51,9 +51,9 @@ export default function Journal() {
   const filteredTrades = useMemo(() => {
     let result = trades || [];
 
-    // Model/Strategy filter (from URL)
+    // Model/Strategy filter (from URL) - now matches by playbook_id
     if (modelFilter) {
-      result = result.filter(trade => trade.model === modelFilter);
+      result = result.filter(trade => trade.playbook_id === modelFilter || trade.playbook?.name === modelFilter);
     }
 
     // Symbol filter
@@ -113,7 +113,7 @@ export default function Journal() {
       case 'trade_number': return trade.trade_number;
       case 'symbol': return trade.symbol;
       case 'session': return trade.session;
-      case 'model': return trade.model;
+      case 'model': return trade.playbook?.name || trade.playbook_id;
       case 'profile': return trade.profile;
       case 'r_multiple_actual': return trade.r_multiple_actual;
       case 'net_pnl': return trade.net_pnl;
