@@ -16,6 +16,16 @@ interface SimilarTrade {
   entry_percentile: number | null;
 }
 
+// Normalize symbol to handle broker-specific suffixes like EURUSD+, EURUSD., EURUSDm
+function normalizeSymbol(symbol: string): string {
+  if (!symbol) return '';
+  return symbol
+    .replace(/[\+\.]+$/, '')           // Remove trailing + or .
+    .replace(/\d+$/, '')               // Remove trailing numbers
+    .replace(/^(micro|mini|m\d?)/i, '') // Remove micro/mini prefixes
+    .toUpperCase();
+}
+
 function calculateSimilarity(
   currentTrade: any,
   currentFeatures: any,
@@ -27,14 +37,17 @@ function calculateSimilarity(
   let score = 0;
   let maxScore = 0;
 
-  // 1. Same symbol (high weight)
+  // 1. Same symbol with normalization (high weight)
   maxScore += 30;
-  if (candidateTrade.symbol === currentTrade.symbol) {
+  const normalizedCurrent = normalizeSymbol(currentTrade.symbol);
+  const normalizedCandidate = normalizeSymbol(candidateTrade.symbol);
+  
+  if (normalizedCandidate === normalizedCurrent) {
     score += 30;
   } else {
-    // Partial credit for same asset class
-    const currentBase = currentTrade.symbol.slice(0, 3);
-    const candidateBase = candidateTrade.symbol.slice(0, 3);
+    // Partial credit for same asset class (first 3 chars of normalized symbol)
+    const currentBase = normalizedCurrent.slice(0, 3);
+    const candidateBase = normalizedCandidate.slice(0, 3);
     if (currentBase === candidateBase) {
       score += 15;
     }

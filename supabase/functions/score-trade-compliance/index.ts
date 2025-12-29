@@ -28,6 +28,16 @@ interface ComplianceResult {
   matched_rules: string[];
 }
 
+// Normalize symbol to handle broker-specific suffixes like EURUSD+, EURUSD., EURUSDm
+function normalizeSymbol(symbol: string): string {
+  if (!symbol) return '';
+  return symbol
+    .replace(/[\+\.]+$/, '')           // Remove trailing + or .
+    .replace(/\d+$/, '')               // Remove trailing numbers
+    .replace(/^(micro|mini|m\d?)/i, '') // Remove micro/mini prefixes
+    .toUpperCase();
+}
+
 function scoreCompliance(
   trade: any,
   review: any,
@@ -59,14 +69,19 @@ function scoreCompliance(
     }
   }
 
-  // 2. Check symbol filter
+  // 2. Check symbol filter with normalization
   if (playbook.symbol_filter && playbook.symbol_filter.length > 0) {
     maxPoints += 10;
-    if (playbook.symbol_filter.includes(trade.symbol)) {
+    const normalizedTradeSymbol = normalizeSymbol(trade.symbol);
+    const symbolMatch = playbook.symbol_filter.some(
+      (s: string) => normalizeSymbol(s) === normalizedTradeSymbol
+    );
+    
+    if (symbolMatch) {
       compliancePoints += 10;
-      matched.push(`Symbol ${trade.symbol} in allowed list`);
+      matched.push(`Symbol ${trade.symbol} matches allowed list`);
     } else {
-      violations.push(`Symbol ${trade.symbol} not in allowed symbols`);
+      violations.push(`Symbol ${trade.symbol} not in allowed symbols: ${playbook.symbol_filter.join(', ')}`);
     }
   }
 
