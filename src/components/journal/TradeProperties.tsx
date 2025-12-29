@@ -149,7 +149,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           </span>
         </PropertyRow>
 
-        <PropertyRow icon={<Target className="w-3.5 h-3.5" />} label="R:R">
+        <PropertyRow icon={<Target className="w-3.5 h-3.5" />} label="R%">
           <span
             className={cn(
               "font-mono-numbers font-bold",
@@ -158,7 +158,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             )}
           >
             {trade.r_multiple_actual !== null
-              ? `${trade.r_multiple_actual >= 0 ? "+" : ""}${trade.r_multiple_actual.toFixed(2)}`
+              ? `${trade.r_multiple_actual >= 0 ? "+" : ""}${trade.r_multiple_actual.toFixed(1)}%`
               : "—"}
           </span>
         </PropertyRow>

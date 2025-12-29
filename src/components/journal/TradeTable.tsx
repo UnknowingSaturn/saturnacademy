@@ -129,7 +129,7 @@ export function TradeTable({ trades, onTradeClick }: TradeTableProps) {
           <div>Alignment</div>
           <div>Entry</div>
           <div>Profile</div>
-          <div className="text-right">R:R</div>
+          <div className="text-right">R%</div>
           <div className="text-center">Result</div>
           <div>Emotion</div>
           <div>Place</div>
@@ -222,7 +222,7 @@ export function TradeTable({ trades, onTradeClick }: TradeTableProps) {
                 />
               </div>
 
-              {/* R:R */}
+              {/* R% */}
               <div className="text-right">
                 <span
                   className={cn(
@@ -232,7 +232,7 @@ export function TradeTable({ trades, onTradeClick }: TradeTableProps) {
                   )}
                 >
                   {trade.r_multiple_actual !== null
-                    ? `${trade.r_multiple_actual >= 0 ? "+" : ""}${trade.r_multiple_actual.toFixed(1)}`
+                    ? `${trade.r_multiple_actual >= 0 ? "+" : ""}${trade.r_multiple_actual.toFixed(1)}%`
                     : "—"}
                 </span>
               </div>
