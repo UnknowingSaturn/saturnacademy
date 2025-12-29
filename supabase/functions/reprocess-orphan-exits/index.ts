@@ -68,12 +68,12 @@ Deno.serve(async (req) => {
     const accountIds = accounts.map(a => a.id);
     const accountEquityMap = new Map(accounts.map(a => [a.id, a.equity_current || a.balance_start || 0]));
 
-    // Find all processed exit/close events for user's accounts
+    // Find all processed close events for user's accounts (exit events are stored as "close" in the db)
     const { data: exitEvents, error: eventsError } = await supabase
       .from("events")
       .select("*")
       .in("account_id", accountIds)
-      .in("event_type", ["close", "exit"])
+      .eq("event_type", "close")
       .eq("processed", true)
       .order("event_timestamp", { ascending: true });
 
