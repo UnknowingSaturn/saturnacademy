@@ -1,4 +1,4 @@
-import { Copy, ExternalLink } from 'lucide-react';
+import { Copy, ExternalLink, CheckCircle2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -15,6 +15,8 @@ interface MT5SetupDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+const CLOUD_URL = 'https://soosdjmnpcyuqppdjsse.supabase.co';
+
 export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
   const { toast } = useToast();
 
@@ -25,16 +27,13 @@ export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
     toast({ title: `${label} copied to clipboard` });
   };
 
-  const relayServerUrl = 'http://127.0.0.1:8080';
-  const terminalId = account.terminal_id || account.id.slice(0, 8);
-
   return (
     <Dialog open={!!account} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>MT5 Setup Instructions</DialogTitle>
           <DialogDescription>
-            Follow these steps to connect MetaTrader 5 to your Trade Journal
+            Connect MetaTrader 5 directly to your Trade Journal — no relay server needed!
           </DialogDescription>
         </DialogHeader>
 
@@ -46,11 +45,19 @@ export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
               Install the Expert Advisor
             </h3>
             <div className="pl-8 space-y-2 text-sm text-muted-foreground">
-              <p>Copy <code className="bg-muted px-1 rounded">TradeJournalBridge.mq5</code> from the <code className="bg-muted px-1 rounded">mt5-bridge</code> folder to:</p>
+              <p>Download and copy <code className="bg-muted px-1 rounded">TradeJournalBridge.mq5</code> to:</p>
               <code className="block bg-muted p-2 rounded text-xs">
                 %APPDATA%\MetaQuotes\Terminal\[YOUR_TERMINAL]\MQL5\Experts\
               </code>
               <p>Then compile it in MetaEditor (press F7).</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open('/TradeJournalBridge.mq5', '_blank')}
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Download EA File
+              </Button>
             </div>
           </div>
 
@@ -64,8 +71,14 @@ export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
               <p>Go to <strong>Tools → Options → Expert Advisors</strong></p>
               <ul className="list-disc list-inside space-y-1">
                 <li>Enable "Allow WebRequest for listed URL"</li>
-                <li>Add: <code className="bg-muted px-1 rounded">http://127.0.0.1</code></li>
+                <li>Add this URL:</li>
               </ul>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 bg-muted p-2 rounded text-xs">{CLOUD_URL}</code>
+                <Button variant="ghost" size="icon" onClick={() => copyToClipboard(CLOUD_URL, 'Cloud URL')}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -73,44 +86,16 @@ export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
           <div className="space-y-2">
             <h3 className="font-semibold flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm">3</span>
-              Start the Relay Server
-            </h3>
-            <div className="pl-8 space-y-2 text-sm text-muted-foreground">
-              <p>Open a terminal in the <code className="bg-muted px-1 rounded">mt5-bridge</code> folder and run:</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 bg-muted p-2 rounded text-xs">cd mt5-bridge && npm install && npm start</code>
-                <Button variant="ghost" size="icon" onClick={() => copyToClipboard('cd mt5-bridge && npm install && npm start', 'Command')}>
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-              <p className="text-xs">The server will listen on port 8080 and forward events to the journal.</p>
-            </div>
-          </div>
-
-          {/* Step 4 */}
-          <div className="space-y-2">
-            <h3 className="font-semibold flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm">4</span>
               Attach the EA to a Chart
             </h3>
             <div className="pl-8 space-y-2 text-sm text-muted-foreground">
-              <p>Drag the <strong>TradeJournalBridge</strong> EA onto any chart and configure these parameters:</p>
+              <p>Drag the <strong>TradeJournalBridge</strong> EA onto any chart and enter your API Key:</p>
               
               <div className="bg-muted rounded-lg p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">Terminal ID</span>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs bg-background px-2 py-1 rounded">{terminalId}</code>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyToClipboard(terminalId, 'Terminal ID')}>
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
                   <span className="font-medium">API Key</span>
                   <div className="flex items-center gap-2">
-                    <code className="text-xs bg-background px-2 py-1 rounded max-w-[200px] truncate">
+                    <code className="text-xs bg-background px-2 py-1 rounded max-w-[250px] truncate">
                       {account.api_key || 'Not generated'}
                     </code>
                     <Button 
@@ -126,27 +111,46 @@ export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">Server URL</span>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs bg-background px-2 py-1 rounded">{relayServerUrl}</code>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyToClipboard(relayServerUrl, 'Server URL')}>
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </div>
+                  <span className="font-medium">Broker UTC Offset</span>
+                  <span className="text-xs text-muted-foreground">
+                    Check your broker's server time (usually UTC+2 or UTC+3)
+                  </span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Step 5 */}
+          {/* Step 4 */}
           <div className="space-y-2">
             <h3 className="font-semibold flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm">5</span>
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm">4</span>
               Verify Connection
             </h3>
             <div className="pl-8 space-y-2 text-sm text-muted-foreground">
-              <p>Once attached, the EA will log connection status in the Experts tab. Open or close a trade to verify events are being recorded in your journal.</p>
+              <p>Check the MT5 <strong>Experts</strong> tab for these logs:</p>
+              <ul className="list-disc list-inside space-y-1 text-xs">
+                <li>"Trade Journal Bridge v2.10 - Direct Cloud Connection"</li>
+                <li>"Scanning currently open positions..." (syncs existing trades)</li>
+              </ul>
+              <p>Any existing open positions will be synced automatically on startup!</p>
             </div>
+          </div>
+
+          {/* Important Notes */}
+          <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+            <h4 className="font-medium flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+              What gets synced
+            </h4>
+            <ul className="text-sm text-muted-foreground space-y-1">
+              <li>✓ All currently open positions (on EA startup)</li>
+              <li>✓ Historical trades from the last 30 days (first run only)</li>
+              <li>✓ New trades as they happen (entries, exits, partials)</li>
+            </ul>
+            <p className="text-xs text-muted-foreground mt-2">
+              <strong>Note:</strong> Pending orders won't appear until executed. 
+              Netting accounts show one position per symbol.
+            </p>
           </div>
 
           <div className="flex justify-between items-center pt-4 border-t">
