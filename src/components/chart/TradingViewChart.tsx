@@ -122,7 +122,7 @@ function TradingViewChartComponent({ trade, className }: TradingViewChartProps) 
       <div
         id={`tradingview-widget-${trade.id}`}
         ref={containerRef}
-        className="w-full h-[500px] rounded-lg overflow-hidden"
+        className={cn("w-full h-[500px] rounded-lg overflow-hidden", className)}
       />
       
       {/* Trade info overlay */}

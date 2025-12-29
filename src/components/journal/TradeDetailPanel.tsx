@@ -20,7 +20,8 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, Plus, X, Sparkles, Loader2, Save, LineChart, Play } from "lucide-react";
+import { ArrowLeft, Plus, X, Sparkles, Loader2, Save, LineChart, Play, Maximize2, Minimize2, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TradeDetailPanelProps {
   trade: Trade | null;
@@ -49,6 +50,19 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
   const [actionableSteps, setActionableSteps] = useState<ActionableStep[]>(existingReview?.actionable_steps || []);
   const [thoughts, setThoughts] = useState(existingReview?.thoughts || "");
   const [newItem, setNewItem] = useState({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showProperties, setShowProperties] = useState(true);
+
+  // Keyboard shortcut: ESC to exit fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFullscreen]);
 
   // Reset state when trade changes
   useEffect(() => {
@@ -151,7 +165,13 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
 
   return (
     <Sheet open={isOpen} onOpenChange={() => onClose()}>
-      <SheetContent side="right" className="w-full sm:max-w-4xl p-0 overflow-hidden">
+      <SheetContent 
+        side="right" 
+        className={cn(
+          "w-full p-0 overflow-hidden transition-all duration-300",
+          isFullscreen ? "sm:max-w-[100vw]" : "sm:max-w-6xl"
+        )}
+      >
         <div className="flex flex-col h-full">
           {/* Header */}
           <SheetHeader className="px-6 py-4 border-b border-border flex-shrink-0">
@@ -175,6 +195,42 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => setShowProperties(!showProperties)}
+                    >
+                      {showProperties ? (
+                        <PanelRightClose className="h-4 w-4" />
+                      ) : (
+                        <PanelRightOpen className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {showProperties ? "Hide properties" : "Show properties"}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => setIsFullscreen(!isFullscreen)}
+                    >
+                      {isFullscreen ? (
+                        <Minimize2 className="h-4 w-4" />
+                      ) : (
+                        <Maximize2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isFullscreen ? "Exit fullscreen (ESC)" : "Fullscreen"}
+                  </TooltipContent>
+                </Tooltip>
                 <Button
                   variant="outline"
                   size="sm"
@@ -215,7 +271,10 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                         </TabsTrigger>
                       </TabsList>
                       <TabsContent value="tradingview">
-                        <TradingViewChart trade={trade} />
+                        <TradingViewChart 
+                          trade={trade} 
+                          className={isFullscreen ? "h-[calc(100vh-280px)]" : "h-[500px]"}
+                        />
                       </TabsContent>
                       <TabsContent value="replay">
                         <TradeChart trade={trade} />
@@ -414,9 +473,11 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
               </div>
 
               {/* Right Sidebar - Properties */}
-              <div className="w-72 border-l border-border p-4 bg-muted/20 flex-shrink-0">
-                <TradeProperties trade={trade} />
-              </div>
+              {showProperties && (
+                <div className="w-72 border-l border-border p-4 bg-muted/20 flex-shrink-0">
+                  <TradeProperties trade={trade} />
+                </div>
+              )}
             </div>
           </ScrollArea>
         </div>
