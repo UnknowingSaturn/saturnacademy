@@ -30,7 +30,7 @@ export function useTradeCompliance(
   // Only fetch trades for the specific day to optimize
   const tradeDate = trade?.entry_time ? format(parseISO(trade.entry_time), 'yyyy-MM-dd') : undefined;
   const { data: dayTrades = [] } = useTrades(
-    tradeDate ? { dateFrom: tradeDate, dateTo: tradeDate } : undefined
+    tradeDate ? { dateFrom: tradeDate, dateTo: tradeDate, isArchived: false } : { isArchived: false }
   );
 
   return useMemo(() => {
