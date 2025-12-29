@@ -24,7 +24,8 @@ import {
   ShieldCheck,
   Flame,
   Trophy,
-  AlertCircle
+  AlertCircle,
+  Copy
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -36,6 +37,7 @@ interface PlaybookDetailSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onEdit: (playbook: Playbook) => void;
+  onDuplicate: (playbook: Playbook) => void;
   onDelete: (id: string) => void;
 }
 
@@ -45,6 +47,7 @@ export function PlaybookDetailSheet({
   open,
   onOpenChange,
   onEdit,
+  onDuplicate,
   onDelete,
 }: PlaybookDetailSheetProps) {
   const navigate = useNavigate();
@@ -59,6 +62,11 @@ export function PlaybookDetailSheet({
 
   const handleEdit = () => {
     onEdit(playbook);
+    onOpenChange(false);
+  };
+
+  const handleDuplicate = () => {
+    onDuplicate(playbook);
     onOpenChange(false);
   };
 
@@ -563,11 +571,15 @@ export function PlaybookDetailSheet({
             <div className="flex gap-2">
               <Button onClick={handleEdit} className="flex-1 gap-2">
                 <Edit className="w-4 h-4" />
-                Edit Playbook
+                Edit
+              </Button>
+              <Button variant="outline" onClick={handleDuplicate} className="flex-1 gap-2">
+                <Copy className="w-4 h-4" />
+                Duplicate
               </Button>
               <Button variant="outline" onClick={handleViewTrades} className="flex-1 gap-2">
                 <ExternalLink className="w-4 h-4" />
-                View All Trades
+                Trades
               </Button>
             </div>
             <Button 

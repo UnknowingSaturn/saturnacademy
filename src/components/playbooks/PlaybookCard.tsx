@@ -4,7 +4,7 @@ import { PlaybookStats } from "@/hooks/usePlaybookStats";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Edit, Trash2, ExternalLink, TrendingUp, TrendingDown, Target, BarChart3 } from "lucide-react";
+import { Edit, Trash2, ExternalLink, TrendingUp, TrendingDown, Target, BarChart3, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface PlaybookCardProps {
@@ -12,10 +12,11 @@ interface PlaybookCardProps {
   stats?: PlaybookStats;
   onViewDetails: (playbook: Playbook) => void;
   onEdit: (playbook: Playbook) => void;
+  onDuplicate: (playbook: Playbook) => void;
   onDelete: (id: string) => void;
 }
 
-export function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDelete }: PlaybookCardProps) {
+export function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDuplicate, onDelete }: PlaybookCardProps) {
   const navigate = useNavigate();
   
   const handleViewTrades = () => {
@@ -78,6 +79,7 @@ export function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDelete 
               variant="ghost"
               size="icon"
               className="h-8 w-8"
+              title="Edit playbook"
               onClick={(e) => { e.stopPropagation(); onEdit(playbook); }}
             >
               <Edit className="w-4 h-4" />
@@ -85,7 +87,17 @@ export function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDelete 
             <Button
               variant="ghost"
               size="icon"
+              className="h-8 w-8"
+              title="Duplicate playbook"
+              onClick={(e) => { e.stopPropagation(); onDuplicate(playbook); }}
+            >
+              <Copy className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               className="h-8 w-8 text-destructive hover:text-destructive"
+              title="Delete playbook"
               onClick={(e) => { e.stopPropagation(); onDelete(playbook.id); }}
             >
               <Trash2 className="w-4 h-4" />
