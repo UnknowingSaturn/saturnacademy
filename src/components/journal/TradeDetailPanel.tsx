@@ -38,14 +38,9 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   const updateReview = useUpdateTradeReview();
   const { 
     analyzeTrade, 
-    saveAIAnalysis, 
     isAnalyzing, 
-    isSavingAnalysis,
     analysisResult, 
     setAnalysisResult, 
-    hasUnsavedAnalysis,
-    clearPendingAnalysis,
-    isJustSaved,
     submitFeedback 
   } = useAIAnalysis();
 
@@ -101,10 +96,9 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     // Only reset when switching to a different trade
     if (isTradeSwitch) {
       setLastTradeId(trade?.id || null);
-      setAnalysisResult(null);
       
-      // Load saved AI review ONLY when switching trades, no pending draft, and not just saved
-      if (trade?.ai_review && !hasUnsavedAnalysis(trade.id) && !isJustSaved(trade.id)) {
+      // Load saved AI review when switching trades
+      if (trade?.ai_review) {
         setAnalysisResult({
           analysis: {
             technical_review: trade.ai_review.technical_review,
@@ -126,6 +120,8 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
           },
           raw_analysis: trade.ai_review.raw_analysis || "",
         });
+      } else {
+        setAnalysisResult(null);
       }
       
       // Reset manual review fields
@@ -165,7 +161,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   const handleSave = async () => {
     if (!trade) return;
 
-    // Save manual review
+    // Save manual review only - AI analysis is auto-saved when generated
     const reviewData = {
       trade_id: trade.id,
       playbook_id: trade.playbook_id || null,
@@ -189,11 +185,6 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       await updateReview.mutateAsync({ id: existingReview.id, ...reviewData });
     } else {
       await createReview.mutateAsync({ review: reviewData });
-    }
-
-    // Also save AI analysis if there's unsaved analysis
-    if (hasUnsavedAnalysis(trade.id)) {
-      await saveAIAnalysis(trade.id);
     }
   };
 
@@ -339,15 +330,12 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                 </Tooltip>
                 <Button 
                   size="sm" 
-                  className="h-8 relative" 
+                  className="h-8" 
                   onClick={handleSave} 
-                  disabled={createReview.isPending || updateReview.isPending || isSavingAnalysis || isAnalyzing}
+                  disabled={createReview.isPending || updateReview.isPending || isAnalyzing}
                 >
                   <Save className="h-4 w-4 mr-1" />
                   Save
-                  {trade && hasUnsavedAnalysis(trade.id) && (
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full" />
-                  )}
                 </Button>
               </div>
             </div>

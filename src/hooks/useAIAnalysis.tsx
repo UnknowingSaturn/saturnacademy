@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,7 +11,7 @@ interface ComplianceResult {
   matched_rules: string[];
 }
 
-interface AnalysisResult {
+export interface AnalysisResult {
   analysis: AIAnalysisOutput | null;
   compliance: ComplianceResult;
   similar_trades: {
@@ -23,22 +23,19 @@ interface AnalysisResult {
 
 export function useAIAnalysis() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isSavingAnalysis, setIsSavingAnalysis] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [pendingTradeId, setPendingTradeId] = useState<string | null>(null);
-  const justSavedRef = useRef<string | null>(null); // Track which trade was just saved
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Generate analysis WITHOUT saving to database
+  // Generate AND save analysis in one step (auto-save)
   const analyzeTrade = async (tradeId: string): Promise<AnalysisResult | null> => {
     setIsAnalyzing(true);
     setAnalysisResult(null);
-    setPendingTradeId(tradeId);
 
     try {
+      // Call analyze-trade WITH save=true (auto-save to database)
       const { data, error } = await supabase.functions.invoke("analyze-trade", {
-        body: { trade_id: tradeId, save: false },
+        body: { trade_id: tradeId, save: true },
       });
 
       if (error) throw error;
@@ -67,7 +64,12 @@ export function useAIAnalysis() {
       };
 
       setAnalysisResult(result);
-      toast({ title: "Analysis Generated", description: "Review the analysis and click Save to keep it." });
+
+      // Invalidate trade queries to refresh with saved ai_review
+      await queryClient.invalidateQueries({ queryKey: ['trades'] });
+      await queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
+
+      toast({ title: "Analysis Complete", description: "AI analysis has been saved." });
       return result;
     } catch (error) {
       console.error("AI analysis error:", error);
@@ -80,89 +82,6 @@ export function useAIAnalysis() {
     } finally {
       setIsAnalyzing(false);
     }
-  };
-
-  // Save the pending analysis to database
-  const saveAIAnalysis = async (tradeId: string): Promise<boolean> => {
-    if (!analysisResult) {
-      console.warn("No analysis to save");
-      return false;
-    }
-
-    setIsSavingAnalysis(true);
-
-    try {
-      const { data, error } = await supabase.functions.invoke("save-ai-review", {
-        body: {
-          trade_id: tradeId,
-          analysis: analysisResult.analysis,
-          compliance: analysisResult.compliance,
-          similar_trades: analysisResult.similar_trades,
-          raw_analysis: analysisResult.raw_analysis,
-        },
-      });
-
-      if (error) throw error;
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      // Mark as just saved to prevent useEffect from overwriting
-      justSavedRef.current = tradeId;
-      
-      // Update cache with saved review
-      if (data.saved_review) {
-        queryClient.setQueryData(['trade', tradeId], (oldData: any) => {
-          if (!oldData) return oldData;
-          return { ...oldData, ai_review: data.saved_review };
-        });
-
-        queryClient.setQueryData(['trades', undefined], (oldData: any) => {
-          if (!Array.isArray(oldData)) return oldData;
-          return oldData.map((t: any) => 
-            t.id === tradeId ? { ...t, ai_review: data.saved_review } : t
-          );
-        });
-      }
-
-      await queryClient.invalidateQueries({ queryKey: ['trades'] });
-      await queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
-
-      toast({ title: "AI analysis saved", description: "Analysis has been saved to the database." });
-      setPendingTradeId(null);
-      
-      // Clear just-saved flag after a short delay
-      setTimeout(() => {
-        if (justSavedRef.current === tradeId) {
-          justSavedRef.current = null;
-        }
-      }, 2000);
-      
-      // Keep analysisResult visible - don't clear it after save
-      return true;
-    } catch (error) {
-      console.error("Save AI analysis error:", error);
-      toast({ 
-        title: "Save Failed", 
-        description: error instanceof Error ? error.message : "Could not save AI analysis", 
-        variant: "destructive" 
-      });
-      return false;
-    } finally {
-      setIsSavingAnalysis(false);
-    }
-  };
-
-  // Check if there's unsaved analysis for this trade
-  const hasUnsavedAnalysis = (tradeId: string) => {
-    return pendingTradeId === tradeId && analysisResult !== null;
-  };
-
-  // Clear pending analysis (e.g., when closing panel without saving)
-  const clearPendingAnalysis = () => {
-    setPendingTradeId(null);
-    // Don't clear analysisResult so user can still see it until panel closes
   };
 
   const submitFeedback = async (aiReviewId: string, isAccurate: boolean, isUseful: boolean, notes?: string) => {
@@ -191,20 +110,11 @@ export function useAIAnalysis() {
     }
   };
 
-  // Check if trade was just saved (prevents useEffect from overwriting fresh data)
-  const isJustSaved = (tradeId: string) => justSavedRef.current === tradeId;
-
   return { 
     analyzeTrade, 
-    saveAIAnalysis,
     isAnalyzing, 
-    isSavingAnalysis,
     analysisResult, 
     setAnalysisResult,
-    hasUnsavedAnalysis,
-    clearPendingAnalysis,
-    pendingTradeId,
-    isJustSaved,
     submitFeedback 
   };
 }
