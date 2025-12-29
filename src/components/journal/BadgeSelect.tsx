@@ -6,6 +6,7 @@ interface BadgeOption {
   value: string;
   label: string;
   color?: string;
+  customColor?: string; // Hex color for custom styling
 }
 
 interface BadgeSelectProps {
@@ -69,8 +70,22 @@ export function BadgeSelect({
     }
   };
 
-  const getOptionColor = (option: BadgeOption) => {
-    return option.color ? colorClasses[option.color] || colorClasses.muted : colorClasses.muted;
+  const getOptionStyle = (option: BadgeOption): { className: string; style?: React.CSSProperties } => {
+    // If customColor (hex) is provided, use inline styles
+    if (option.customColor) {
+      return {
+        className: "border",
+        style: {
+          backgroundColor: `${option.customColor}26`, // 15% opacity
+          color: option.customColor,
+          borderColor: `${option.customColor}4D`, // 30% opacity
+        },
+      };
+    }
+    // Otherwise use theme color classes
+    return {
+      className: option.color ? colorClasses[option.color] || colorClasses.muted : colorClasses.muted,
+    };
   };
 
   const selectedOptions = options.filter((opt) => selectedValues.includes(opt.value));
@@ -88,17 +103,21 @@ export function BadgeSelect({
       >
         {selectedOptions.length > 0 ? (
           <div className="flex flex-wrap gap-1">
-            {selectedOptions.map((opt) => (
-              <span
-                key={opt.value}
-                className={cn(
-                  "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border",
-                  getOptionColor(opt)
-                )}
-              >
-                {opt.label}
-              </span>
-            ))}
+            {selectedOptions.map((opt) => {
+              const optStyle = getOptionStyle(opt);
+              return (
+                <span
+                  key={opt.value}
+                  className={cn(
+                    "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
+                    optStyle.className
+                  )}
+                  style={optStyle.style}
+                >
+                  {opt.label}
+                </span>
+              );
+            })}
           </div>
         ) : (
           <span className="text-muted-foreground">{placeholder}</span>
@@ -122,14 +141,20 @@ export function BadgeSelect({
                     isSelected && "bg-accent/50"
                   )}
                 >
-                  <span
-                    className={cn(
-                      "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border",
-                      getOptionColor(option)
-                    )}
-                  >
-                    {option.label}
-                  </span>
+                  {(() => {
+                    const optStyle = getOptionStyle(option);
+                    return (
+                      <span
+                        className={cn(
+                          "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
+                          optStyle.className
+                        )}
+                        style={optStyle.style}
+                      >
+                        {option.label}
+                      </span>
+                    );
+                  })()}
                   {isSelected && <Check className="w-3 h-3 ml-auto text-primary" />}
                 </button>
               );
