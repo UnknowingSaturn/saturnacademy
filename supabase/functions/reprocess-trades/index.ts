@@ -33,6 +33,24 @@ const DEFAULT_SESSIONS: SessionDefinition[] = [
   { name: 'Tokyo', key: 'tokyo', start_hour: 19, start_minute: 0, end_hour: 3, end_minute: 0, timezone: 'America/New_York', is_active: true },
 ];
 
+// Helper: Get pip size for a symbol (5-digit vs 3-digit pricing)
+function getPipSize(symbol: string): number {
+  const normalized = symbol.toUpperCase().replace(/[^A-Z]/g, '');
+  if (normalized.includes('JPY')) return 0.01;
+  if (normalized.includes('XAU') || normalized.includes('GOLD')) return 0.1;
+  if (normalized.includes('XAG') || normalized.includes('SILVER')) return 0.01;
+  return 0.0001;
+}
+
+// Helper: Get approximate pip value in USD for a given lot size
+function getPipValue(symbol: string, lots: number): number {
+  const normalized = symbol.toUpperCase().replace(/[^A-Z]/g, '');
+  if (normalized.includes('JPY')) return lots * 7.5;
+  if (normalized.includes('XAU') || normalized.includes('GOLD')) return lots * 10;
+  if (normalized.includes('XAG') || normalized.includes('SILVER')) return lots * 50;
+  return lots * 10;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -129,11 +147,27 @@ serve(async (req) => {
         // Calculate session from entry time using custom or default sessions
         const session = getSessionFromTime(entryTime, sessions);
 
-        // Calculate R% using equity_at_entry if available, otherwise use running balance
-        const equityAtEntry = trade.equity_at_entry || runningBalance;
+        // Calculate R-multiple using actual risk (|entry - SL| × lots × pip value)
         let rMultiple = null;
-        if (equityAtEntry > 0 && trade.net_pnl !== null) {
-          rMultiple = Math.round((trade.net_pnl / equityAtEntry) * 10000) / 100;
+        const slPrice = trade.sl_initial || trade.sl_final;
+        const entryPrice = trade.entry_price;
+        const originalLots = trade.original_lots || trade.total_lots;
+        
+        if (slPrice && entryPrice && slPrice !== entryPrice && trade.net_pnl !== null) {
+          const pipSize = getPipSize(trade.symbol);
+          const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
+          const pipValue = getPipValue(trade.symbol, originalLots);
+          const riskAmount = stopDistancePips * pipValue;
+          
+          if (riskAmount > 0) {
+            rMultiple = Math.round((trade.net_pnl / riskAmount) * 100) / 100;
+          }
+        } else if (trade.net_pnl !== null) {
+          // Fallback to equity-based if no SL
+          const equityAtEntry = trade.equity_at_entry || runningBalance;
+          if (equityAtEntry > 0) {
+            rMultiple = Math.round((trade.net_pnl / equityAtEntry) * 10000) / 100;
+          }
         }
 
         // Update the trade - only session, balance, and R%

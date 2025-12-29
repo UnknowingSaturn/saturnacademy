@@ -17,7 +17,6 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, Plus, X, Sparkles, Loader2, Save, PanelRightClose, PanelRightOpen } from "lucide-react";
@@ -36,9 +35,10 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
   const { analyzeTrade, isAnalyzing, analysisResult, submitFeedback } = useAIAnalysis();
 
   const existingReview = trade?.review;
-  const selectedPlaybook = playbooks?.find(p => p.id === existingReview?.playbook_id);
+  // Use trade.playbook_id (set via Model property) for compliance checklist
+  const selectedPlaybook = playbooks?.find(p => p.id === trade?.playbook_id);
 
-  const [playbookId, setPlaybookId] = useState(existingReview?.playbook_id || "");
+  // Remove playbookId state - Model in TradeProperties handles playbook selection
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, boolean>>(existingReview?.checklist_answers || {});
   const [regime, setRegime] = useState<RegimeType | "">(existingReview?.regime || "");
   const [newsRisk, setNewsRisk] = useState<NewsRisk>(existingReview?.news_risk || "none");
@@ -79,7 +79,6 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
   // Reset state when trade changes
   useEffect(() => {
     if (trade?.review) {
-      setPlaybookId(trade.review.playbook_id || "");
       setChecklistAnswers(trade.review.checklist_answers || {});
       setRegime(trade.review.regime || "");
       setNewsRisk(trade.review.news_risk || "none");
@@ -94,7 +93,6 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
       setScreenshots(parseScreenshots(trade.review.screenshots));
     } else {
       // Reset to defaults when no review
-      setPlaybookId("");
       setChecklistAnswers({});
       setRegime("");
       setNewsRisk("none");
@@ -117,7 +115,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
 
     const reviewData = {
       trade_id: trade.id,
-      playbook_id: playbookId || null,
+      playbook_id: trade.playbook_id || null, // Use trade.playbook_id set via Model property
       checklist_answers: checklistAnswers,
       score,
       regime: regime || null,
@@ -282,32 +280,16 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
 
                 <Separator />
 
-                {/* Playbook Selection & Compliance */}
-                <div className="space-y-4">
-                  <div>
-                    <Label className="text-sm font-semibold mb-2 block">Playbook</Label>
-                    <Select value={playbookId} onValueChange={setPlaybookId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a playbook" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {playbooks?.map(pb => (
-                          <SelectItem key={pb.id} value={pb.id}>
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-2.5 h-2.5 rounded-full" 
-                                style={{ backgroundColor: pb.color }} 
-                              />
-                              {pb.name}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Full Playbook Compliance Checklist */}
-                  {selectedPlaybook && (
+                {/* Compliance Checklist - shows when Model is selected via TradeProperties */}
+                {selectedPlaybook && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-2.5 h-2.5 rounded-full" 
+                        style={{ backgroundColor: selectedPlaybook.color }} 
+                      />
+                      <Label className="text-sm font-semibold">{selectedPlaybook.name} Checklist</Label>
+                    </div>
                     <PlaybookComplianceChecklist
                       playbook={selectedPlaybook}
                       checklistAnswers={checklistAnswers}
@@ -315,8 +297,8 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                         setChecklistAnswers(prev => ({ ...prev, [ruleId]: checked }))
                       }
                     />
-                  )}
-                </div>
+                  </div>
+                )}
 
                 <Separator />
 

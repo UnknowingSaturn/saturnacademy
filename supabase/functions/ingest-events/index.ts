@@ -53,6 +53,49 @@ interface EventPayload {
   raw_payload?: Record<string, unknown>;
 }
 
+// Helper: Get pip size for a symbol (5-digit vs 3-digit pricing)
+function getPipSize(symbol: string): number {
+  const normalized = symbol.toUpperCase().replace(/[^A-Z]/g, '');
+  // JPY pairs use 0.01 (3-digit pricing shows as 0.001)
+  if (normalized.includes('JPY')) {
+    return 0.01;
+  }
+  // Gold/Silver
+  if (normalized.includes('XAU') || normalized.includes('GOLD')) {
+    return 0.1;
+  }
+  if (normalized.includes('XAG') || normalized.includes('SILVER')) {
+    return 0.01;
+  }
+  // Most forex pairs use 0.0001
+  return 0.0001;
+}
+
+// Helper: Get approximate pip value in USD for a given lot size
+function getPipValue(symbol: string, lots: number): number {
+  const normalized = symbol.toUpperCase().replace(/[^A-Z]/g, '');
+  // Standard lot = 100,000 units
+  // For pairs ending in USD, pip value is straightforward
+  // For JPY pairs: 1 pip = 0.01 yen per unit, so 100,000 units = 1000 yen ≈ $6.67
+  // For simplicity, we use approximate values
+  
+  if (normalized.includes('JPY')) {
+    // JPY pairs: ~$7-8 per pip per standard lot
+    return lots * 7.5;
+  }
+  if (normalized.includes('XAU') || normalized.includes('GOLD')) {
+    // Gold: 1 pip (0.1) = $10 per standard lot
+    return lots * 10;
+  }
+  if (normalized.includes('XAG') || normalized.includes('SILVER')) {
+    // Silver: 1 pip (0.01) = $50 per standard lot
+    return lots * 50;
+  }
+  // Most forex pairs ending in USD: $10 per pip per standard lot
+  // Other pairs vary but $10 is a reasonable approximation
+  return lots * 10;
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -413,10 +456,26 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       const swap = event.swap || 0;
       const netPnl = grossPnl - commission - Math.abs(swap);
       
-      // R% calculation (if we have equity info)
+      // R% calculation using actual risk (|entry - SL| × lots × pip value)
       let rMultiple = null;
       const equityAtEntry = rawPayload.equity_at_entry || originalPayload.equity_at_entry || currentEquity;
-      if (equityAtEntry && equityAtEntry > 0) {
+      const slPrice = event.sl;
+      
+      if (slPrice && entryPrice && slPrice !== entryPrice) {
+        // Calculate risk in pips
+        const pipSize = getPipSize(event.symbol);
+        const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
+        // Calculate pip value (approximate - for Forex pairs ending in USD, 1 standard lot = $10/pip)
+        const pipValue = getPipValue(event.symbol, lot_size);
+        const riskAmount = stopDistancePips * pipValue;
+        
+        if (riskAmount > 0) {
+          // R = Net PnL / Risk Amount (as a ratio, stored as percentage)
+          rMultiple = Math.round((netPnl / riskAmount) * 100) / 100;
+          console.log("R calc (orphan):", { stopDistancePips, pipValue, riskAmount, netPnl, rMultiple });
+        }
+      } else if (equityAtEntry && equityAtEntry > 0) {
+        // Fallback to equity-based if no SL
         rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
       }
       
@@ -510,18 +569,36 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       
       const netPnl = totalGrossPnl - totalCommission - Math.abs(totalSwap);
       
-      // Calculate R% using equity_at_entry if available, otherwise fall back to balance_at_entry
-      // This gives a more accurate risk percentage based on true account value
+      // Calculate R-multiple using actual risk (|entry - SL| × lots × pip value)
       let rMultiple = null;
-      const equityAtEntry = existingTrade.equity_at_entry || existingTrade.balance_at_entry;
+      const slPrice = existingTrade.sl_initial || existingTrade.sl_final;
+      const entryPrice = existingTrade.entry_price;
+      const originalLots = existingTrade.original_lots || existingTrade.total_lots;
       
-      if (equityAtEntry && equityAtEntry > 0) {
-        // R% = (net_pnl / equity_at_entry) * 100
-        rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100; // Store as percentage with 2 decimals
+      if (slPrice && entryPrice && slPrice !== entryPrice) {
+        // Calculate risk in pips
+        const pipSize = getPipSize(existingTrade.symbol);
+        const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
+        // Calculate pip value based on lots
+        const pipValue = getPipValue(existingTrade.symbol, originalLots);
+        const riskAmount = stopDistancePips * pipValue;
+        
+        if (riskAmount > 0) {
+          // R = Net PnL / Risk Amount (as a ratio, e.g., 1.5R, -0.5R)
+          rMultiple = Math.round((netPnl / riskAmount) * 100) / 100;
+          console.log("R calc:", { symbol: existingTrade.symbol, entry: entryPrice, sl: slPrice, stopDistancePips, pipValue, lots: originalLots, riskAmount, netPnl, rMultiple });
+        }
+      } else {
+        // Fallback to equity-based if no SL (stored as percentage)
+        const equityAtEntry = existingTrade.equity_at_entry || existingTrade.balance_at_entry;
+        if (equityAtEntry && equityAtEntry > 0) {
+          rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
+        }
       }
 
       // Update account equity_current after trade closes
-      const newEquity = (equityAtEntry || currentEquity) + netPnl;
+      const equityForUpdate = existingTrade.equity_at_entry || existingTrade.balance_at_entry || currentEquity;
+      const newEquity = equityForUpdate + netPnl;
       await supabase.from("accounts").update({
         equity_current: newEquity
       }).eq("id", account_id);
@@ -541,7 +618,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         tp_final: event.tp || existingTrade.tp_final,
       }).eq("id", existingTrade.id);
       
-      console.log("Processed full close for position:", ticket, "PnL:", netPnl, "R%:", rMultiple, "equity used:", equityAtEntry, "new equity:", newEquity);
+      console.log("Processed full close for position:", ticket, "PnL:", netPnl, "R:", rMultiple, "equity:", equityForUpdate, "new equity:", newEquity);
     }
   }
   // Handle legacy modify event
