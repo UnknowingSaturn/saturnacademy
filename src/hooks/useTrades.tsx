@@ -205,7 +205,8 @@ export function useCreateTradeReview() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (review: Partial<TradeReview> & { trade_id: string }) => {
+    mutationFn: async (params: { review: Partial<TradeReview> & { trade_id: string }; silent?: boolean }) => {
+      const { review, silent } = params;
       const { data, error } = await supabase
         .from('trade_reviews')
         .insert({
@@ -229,13 +230,15 @@ export function useCreateTradeReview() {
         .single();
 
       if (error) throw error;
-      return data;
+      return { data, silent };
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['trades'] });
-      queryClient.invalidateQueries({ queryKey: ['trade', variables.trade_id] });
+      queryClient.invalidateQueries({ queryKey: ['trade', variables.review.trade_id] });
       queryClient.invalidateQueries({ queryKey: ['open-trades'] });
-      toast({ title: 'Review saved successfully' });
+      if (!result.silent) {
+        toast({ title: 'Review saved successfully' });
+      }
     },
     onError: (error) => {
       toast({ title: 'Failed to save review', description: error.message, variant: 'destructive' });
@@ -248,7 +251,7 @@ export function useUpdateTradeReview() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async ({ id, ...updates }: Partial<TradeReview> & { id: string }) => {
+    mutationFn: async ({ id, silent, ...updates }: Partial<TradeReview> & { id: string; silent?: boolean }) => {
       const updateData: Record<string, unknown> = {};
       if (updates.checklist_answers) updateData.checklist_answers = updates.checklist_answers as unknown as Json;
       if (updates.mistakes) updateData.mistakes = updates.mistakes as unknown as Json;
@@ -273,12 +276,14 @@ export function useUpdateTradeReview() {
         .single();
 
       if (error) throw error;
-      return data;
+      return { data, silent };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['trades'] });
       queryClient.invalidateQueries({ queryKey: ['open-trades'] });
-      toast({ title: 'Review updated successfully' });
+      if (!result.silent) {
+        toast({ title: 'Review updated successfully' });
+      }
     },
     onError: (error) => {
       toast({ title: 'Failed to update review', description: error.message, variant: 'destructive' });

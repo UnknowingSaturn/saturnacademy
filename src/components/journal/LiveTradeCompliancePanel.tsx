@@ -38,7 +38,7 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
 
   const compliance = useTradeCompliance(trade, playbook, manualAnswers);
 
-  // Auto-save when manual answers change
+  // Auto-save when manual answers change (silently)
   useEffect(() => {
     // Skip if no answers or if a mutation is already in progress
     if (Object.keys(manualAnswers).length === 0) return;
@@ -54,9 +54,10 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
 
       try {
         if (existingReview) {
-          await updateReview.mutateAsync({ id: existingReview.id, ...reviewData });
+          // Use silent: true to suppress toast on auto-save
+          await updateReview.mutateAsync({ id: existingReview.id, silent: true, ...reviewData });
         } else {
-          await createReview.mutateAsync(reviewData);
+          await createReview.mutateAsync({ review: reviewData, silent: true });
         }
       } catch (error) {
         // Error is already handled by the mutation's onError

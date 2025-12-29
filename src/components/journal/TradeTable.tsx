@@ -145,8 +145,10 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
       });
     } else {
       await createReview.mutateAsync({
-        trade_id: trade.id,
-        emotional_state_before: emotion as EmotionalState,
+        review: {
+          trade_id: trade.id,
+          emotional_state_before: emotion as EmotionalState,
+        }
       });
     }
   };

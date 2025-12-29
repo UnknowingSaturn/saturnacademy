@@ -107,7 +107,7 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
     if (existingReview) {
       await updateReview.mutateAsync({ id: existingReview.id, ...reviewData });
     } else {
-      await createReview.mutateAsync(reviewData);
+      await createReview.mutateAsync({ review: reviewData });
     }
   };
 
