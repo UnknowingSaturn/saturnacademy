@@ -3,12 +3,12 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 
 import { cn } from "@/lib/utils";
 
-// Ref-shield wrapper: Popover Root is a context provider with no DOM node,
-// but external tooling may try to attach refs. We accept and ignore the ref.
+// Ref-shield wrapper using React.createElement to bypass JSX instrumentation
+// that injects refs into non-forwardRef components (Radix Root/Portal).
 const Popover = React.forwardRef<
   HTMLDivElement,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Root>
->((props, _ref) => <PopoverPrimitive.Root {...props} />);
+>((props, _ref) => React.createElement(PopoverPrimitive.Root, props));
 Popover.displayName = "Popover";
 
 const PopoverTrigger = PopoverPrimitive.Trigger;
@@ -17,7 +17,7 @@ const PopoverTrigger = PopoverPrimitive.Trigger;
 const PopoverPortal = React.forwardRef<
   HTMLDivElement,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Portal>
->((props, _ref) => <PopoverPrimitive.Portal {...props} />);
+>((props, _ref) => React.createElement(PopoverPrimitive.Portal, props));
 PopoverPortal.displayName = "PopoverPortal";
 
 const PopoverContent = React.forwardRef<
