@@ -4,9 +4,11 @@ import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
 import { TradeChart } from "@/components/chart/TradeChart";
+import { TradingViewChart } from "@/components/chart/TradingViewChart";
 import { TradeProperties } from "./TradeProperties";
 import { TradeComments } from "./TradeComments";
 import { AIAnalysisDisplay } from "./AIAnalysisDisplay";
+import { isTradingViewSupported } from "@/lib/symbolMapping";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -15,9 +17,10 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, Plus, X, Sparkles, Loader2, Save } from "lucide-react";
+import { ArrowLeft, Plus, X, Sparkles, Loader2, Save, LineChart, Play } from "lucide-react";
 
 interface TradeDetailPanelProps {
   trade: Trade | null;
@@ -199,7 +202,28 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
               <div className="flex-1 p-6 space-y-6">
                 {/* Chart Section */}
                 <div className="rounded-lg border border-border bg-card/50 p-4">
-                  <TradeChart trade={trade} />
+                  {isTradingViewSupported(trade.symbol) ? (
+                    <Tabs defaultValue="tradingview" className="w-full">
+                      <TabsList className="mb-3">
+                        <TabsTrigger value="tradingview" className="gap-2">
+                          <LineChart className="h-3.5 w-3.5" />
+                          TradingView
+                        </TabsTrigger>
+                        <TabsTrigger value="replay" className="gap-2">
+                          <Play className="h-3.5 w-3.5" />
+                          Replay
+                        </TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="tradingview">
+                        <TradingViewChart trade={trade} />
+                      </TabsContent>
+                      <TabsContent value="replay">
+                        <TradeChart trade={trade} />
+                      </TabsContent>
+                    </Tabs>
+                  ) : (
+                    <TradeChart trade={trade} />
+                  )}
                 </div>
 
                 {/* Comments Section */}
