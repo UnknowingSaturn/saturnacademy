@@ -21,6 +21,13 @@ You must ONLY:
 - Explain WHY based on rules and data, not opinion
 - Be direct, analytical, and blunt
 
+ABOUT CONFIRMATION RULES:
+- Confirmation rules are textual descriptions the trader must manually verify during entry (e.g. "Wait for BOS", "HTF alignment required")
+- These rules require chart data or manual trader input to verify
+- If no checklist answers exist confirming these rules, state them as "unable to verify from available data" - NOT "not met" or "violated"
+- Only mark confirmation rules as deviations if the trader explicitly marked them as failed in their checklist answers
+- Do NOT assume rules were violated just because you cannot see chart data
+
 Your tone is that of a research analyst: precise, data-driven, and constructive but not soft.`;
 
 interface AIAnalysisOutput {
@@ -109,6 +116,16 @@ Invalidation Conditions: ${playbook.invalidation_rules?.join(', ') || 'None defi
 Management Rules: ${playbook.management_rules?.join(', ') || 'None defined'}
 Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
 `;
+
+    // Add checklist context for confirmation rules
+    if (playbook.checklist_questions && Array.isArray(playbook.checklist_questions) && playbook.checklist_questions.length > 0) {
+      prompt += `\nPlaybook Checklist Questions: ${JSON.stringify(playbook.checklist_questions)}`;
+      if (review?.checklist_answers && Object.keys(review.checklist_answers).length > 0) {
+        prompt += `\nTrader's Checklist Answers: ${JSON.stringify(review.checklist_answers)}`;
+      } else {
+        prompt += `\nNote: No checklist answers recorded for this trade - confirmation rules cannot be verified from data alone.`;
+      }
+    }
   } else {
     prompt += `No playbook assigned to this trade.\n`;
   }
