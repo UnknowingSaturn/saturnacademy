@@ -30,6 +30,24 @@ function detectSession(utcTimestamp: string): string {
   return "off_hours";
 }
 
+// Helper: Get pip size for a symbol
+function getPipSize(symbol: string): number {
+  const normalized = symbol.toUpperCase().replace(/[^A-Z]/g, '');
+  if (normalized.includes('JPY')) return 0.01;
+  if (normalized.includes('XAU') || normalized.includes('GOLD')) return 0.1;
+  if (normalized.includes('XAG') || normalized.includes('SILVER')) return 0.01;
+  return 0.0001;
+}
+
+// Helper: Get approximate pip value in USD
+function getPipValue(symbol: string, lots: number): number {
+  const normalized = symbol.toUpperCase().replace(/[^A-Z]/g, '');
+  if (normalized.includes('JPY')) return lots * 7.5;
+  if (normalized.includes('XAU') || normalized.includes('GOLD')) return lots * 10;
+  if (normalized.includes('XAG') || normalized.includes('SILVER')) return lots * 50;
+  return lots * 10;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -134,11 +152,23 @@ Deno.serve(async (req) => {
       // Get session
       const session = detectSession(entryTime);
       
-      // R% calculation
+      // R-multiple calculation using actual risk
       const currentEquity = accountEquityMap.get(event.account_id) || 0;
       const equityAtEntry = rawPayload.equity_at_entry || currentEquity;
+      const slPrice = event.sl;
       let rMultiple = null;
-      if (equityAtEntry && equityAtEntry > 0) {
+      
+      if (slPrice && entryPrice && slPrice !== entryPrice) {
+        const pipSize = getPipSize(event.symbol);
+        const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
+        const pipValue = getPipValue(event.symbol, event.lot_size);
+        const riskAmount = stopDistancePips * pipValue;
+        
+        if (riskAmount > 0) {
+          rMultiple = Math.round((netPnl / riskAmount) * 100) / 100;
+        }
+      } else if (equityAtEntry && equityAtEntry > 0) {
+        // Fallback to equity-based
         rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
       }
 
