@@ -2,7 +2,7 @@ import * as React from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClientProvider as QCP } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider as QCP } from "@tanstack/react-query";
 import { BrowserRouter as BR, Routes as R, Route, Navigate as Nav } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -16,7 +16,7 @@ import Accounts from "./pages/Accounts";
 import LiveTrades from "./pages/LiveTrades";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new (await import("@tanstack/react-query")).QueryClient();
+const queryClient = new QueryClient();
 
 // Wrap external components to handle refs safely
 const QueryClientProvider = withForwardRef(QCP, "QueryClientProvider");
