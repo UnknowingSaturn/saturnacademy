@@ -66,6 +66,17 @@ export type TradeModel = 'type_a' | 'type_b' | 'type_c';
 export type TimeframeAlignment = '1min' | '5min' | '15min' | '1hr' | '4hr' | 'daily';
 export type TradeProfile = 'consolidation' | 'expansion' | 'reversal' | 'continuation';
 
+// Chart timeframes for screenshot gallery
+export type ChartTimeframe = '1m' | '5m' | '15m' | '30m' | '1H' | '4H' | 'D' | 'W' | 'M';
+
+export interface TradeScreenshot {
+  id: string;
+  timeframe: ChartTimeframe;
+  url: string;
+  description: string;
+  created_at: string;
+}
+
 export interface Trade {
   id: string;
   user_id: string;
@@ -162,7 +173,7 @@ export interface TradeReview {
   to_improve: string[];
   actionable_steps: ActionableStep[];
   thoughts: string | null;
-  screenshots: string[];
+  screenshots: TradeScreenshot[] | string[]; // Supports both new and legacy formats
   reviewed_at: string | null;
   created_at: string;
   updated_at: string;
