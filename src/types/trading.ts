@@ -61,8 +61,7 @@ export interface TradeEvent {
   processed: boolean;
 }
 
-// Model types for trade categorization
-export type TradeModel = 'type_a' | 'type_b' | 'type_c';
+// Model types for trade categorization (now dynamic from playbooks)
 export type TimeframeAlignment = '1min' | '5min' | '15min' | '1hr' | '4hr' | 'daily';
 export type TradeProfile = 'consolidation' | 'expansion' | 'reversal' | 'continuation';
 
@@ -107,7 +106,7 @@ export interface Trade {
   created_at: string;
   updated_at: string;
   // New Notion-style fields
-  model: TradeModel | null;
+  model: string | null; // Stores playbook name for strategy categorization
   alignment: TimeframeAlignment[] | null;
   entry_timeframes: TimeframeAlignment[] | null;
   profile: TradeProfile | null;

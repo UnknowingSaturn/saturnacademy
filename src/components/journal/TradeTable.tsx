@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Trade, SessionType, EmotionalState, TradeModel, TimeframeAlignment, TradeProfile } from "@/types/trading";
+import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile } from "@/types/trading";
 import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview } from "@/hooks/useTrades";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { cn } from "@/lib/utils";
@@ -104,7 +104,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   };
 
   const handleModelChange = async (trade: Trade, model: string) => {
-    await updateTrade.mutateAsync({ id: trade.id, model: model as TradeModel });
+    await updateTrade.mutateAsync({ id: trade.id, model });
   };
 
   const handleAlignmentChange = async (trade: Trade, alignment: string[]) => {

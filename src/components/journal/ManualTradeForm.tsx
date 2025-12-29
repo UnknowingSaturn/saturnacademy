@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useCreateTrade } from "@/hooks/useTrades";
+import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { SessionType } from "@/types/trading";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ import { Plus } from "lucide-react";
 export function ManualTradeForm() {
   const [open, setOpen] = useState(false);
   const createTrade = useCreateTrade();
+  const { data: playbooks } = usePlaybooks();
 
   const [symbol, setSymbol] = useState("");
   const [direction, setDirection] = useState<"buy" | "sell">("buy");
@@ -23,6 +25,7 @@ export function ManualTradeForm() {
   const [tp, setTp] = useState("");
   const [session, setSession] = useState<SessionType | "">("");
   const [pnl, setPnl] = useState("");
+  const [strategy, setStrategy] = useState("");
 
   const resetForm = () => {
     setSymbol("");
@@ -36,6 +39,7 @@ export function ManualTradeForm() {
     setTp("");
     setSession("");
     setPnl("");
+    setStrategy("");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,6 +62,7 @@ export function ManualTradeForm() {
       session: session || undefined,
       net_pnl: pnl ? parseFloat(pnl) : undefined,
       is_open: isOpen,
+      model: strategy || undefined,
     });
 
     resetForm();
@@ -204,16 +209,32 @@ export function ManualTradeForm() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pnl">P&L (Net)</Label>
-              <Input
-                id="pnl"
-                type="number"
-                step="0.01"
-                value={pnl}
-                onChange={(e) => setPnl(e.target.value)}
-                placeholder="125.50"
-              />
+              <Label htmlFor="strategy">Strategy</Label>
+              <Select value={strategy} onValueChange={setStrategy}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select strategy" />
+                </SelectTrigger>
+                <SelectContent>
+                  {playbooks?.map((pb) => (
+                    <SelectItem key={pb.id} value={pb.name}>
+                      {pb.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="pnl">P&L (Net)</Label>
+            <Input
+              id="pnl"
+              type="number"
+              step="0.01"
+              value={pnl}
+              onChange={(e) => setPnl(e.target.value)}
+              placeholder="125.50"
+            />
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
