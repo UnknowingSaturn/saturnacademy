@@ -314,10 +314,10 @@ export default function Playbooks() {
             </DialogHeader>
             
             <div className={cn(
-              "flex-1 overflow-hidden",
+              "flex-1 min-h-0 overflow-hidden",
               showAIChat ? "grid grid-cols-2 gap-4" : ""
             )}>
-              <div className="overflow-y-auto pr-2">
+              <div className="overflow-y-auto pr-2 min-h-0">
                 <Tabs defaultValue="basic" className="w-full">
                   <TabsList className="grid w-full grid-cols-5">
                     <TabsTrigger value="basic" className="text-xs">
@@ -681,10 +681,12 @@ export default function Playbooks() {
               </div>
 
               {showAIChat && (
-                <PlaybookAIChat 
-                  onApplySuggestions={handleApplyAISuggestions}
-                  currentPlaybook={currentPlaybook}
-                />
+                <div className="h-full min-h-0 overflow-hidden">
+                  <PlaybookAIChat 
+                    onApplySuggestions={handleApplyAISuggestions}
+                    currentPlaybook={currentPlaybook}
+                  />
+                </div>
               )}
             </div>
           </DialogContent>
