@@ -16,6 +16,9 @@ function transformPlaybook(row: any): Playbook {
     invalidation_rules: (row.invalidation_rules as string[]) || [],
     management_rules: (row.management_rules as string[]) || [],
     failure_modes: (row.failure_modes as string[]) || [],
+    max_r_per_trade: row.max_r_per_trade ?? null,
+    max_daily_loss_r: row.max_daily_loss_r ?? null,
+    max_trades_per_session: row.max_trades_per_session ?? null,
   };
 }
 
@@ -72,6 +75,9 @@ export function useCreatePlaybook() {
           invalidation_rules: playbook.invalidation_rules || [],
           management_rules: playbook.management_rules || [],
           failure_modes: playbook.failure_modes || [],
+          max_r_per_trade: playbook.max_r_per_trade ?? null,
+          max_daily_loss_r: playbook.max_daily_loss_r ?? null,
+          max_trades_per_session: playbook.max_trades_per_session ?? null,
         })
         .select()
         .single();
@@ -114,6 +120,9 @@ export function useUpdatePlaybook() {
       if (updates.invalidation_rules !== undefined) updateData.invalidation_rules = updates.invalidation_rules;
       if (updates.management_rules !== undefined) updateData.management_rules = updates.management_rules;
       if (updates.failure_modes !== undefined) updateData.failure_modes = updates.failure_modes;
+      if (updates.max_r_per_trade !== undefined) updateData.max_r_per_trade = updates.max_r_per_trade;
+      if (updates.max_daily_loss_r !== undefined) updateData.max_daily_loss_r = updates.max_daily_loss_r;
+      if (updates.max_trades_per_session !== undefined) updateData.max_trades_per_session = updates.max_trades_per_session;
       
       const { data, error } = await supabase.from('playbooks').update(updateData).eq('id', id).select().single();
       if (error) throw error;

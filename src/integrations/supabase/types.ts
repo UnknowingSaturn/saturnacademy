@@ -374,6 +374,9 @@ export type Database = {
           invalidation_rules: string[] | null
           is_active: boolean | null
           management_rules: string[] | null
+          max_daily_loss_r: number | null
+          max_r_per_trade: number | null
+          max_trades_per_session: number | null
           name: string
           session_filter: Database["public"]["Enums"]["session_type"][] | null
           symbol_filter: string[] | null
@@ -392,6 +395,9 @@ export type Database = {
           invalidation_rules?: string[] | null
           is_active?: boolean | null
           management_rules?: string[] | null
+          max_daily_loss_r?: number | null
+          max_r_per_trade?: number | null
+          max_trades_per_session?: number | null
           name: string
           session_filter?: Database["public"]["Enums"]["session_type"][] | null
           symbol_filter?: string[] | null
@@ -410,6 +416,9 @@ export type Database = {
           invalidation_rules?: string[] | null
           is_active?: boolean | null
           management_rules?: string[] | null
+          max_daily_loss_r?: number | null
+          max_r_per_trade?: number | null
+          max_trades_per_session?: number | null
           name?: string
           session_filter?: Database["public"]["Enums"]["session_type"][] | null
           symbol_filter?: string[] | null
