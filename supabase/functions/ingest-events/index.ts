@@ -296,21 +296,39 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
     .eq("account_id", account_id)
     .single();
 
-  // Determine session from timestamp - convert UTC to EST (UTC-5)
+  // Determine session from timestamp - use America/New_York (DST-aware)
   const eventDate = new Date(event.event_timestamp);
-  const estHour = (eventDate.getUTCHours() - 5 + 24) % 24;
-  const estMinutes = eventDate.getUTCMinutes();
-  const estTime = estHour + estMinutes / 60;
+  
+  // Use Intl.DateTimeFormat to get the hour in America/New_York timezone (handles DST)
+  const etFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  });
+  
+  const parts = etFormatter.formatToParts(eventDate);
+  const etHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+  const etMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+  const etTime = etHour + etMinute / 60;
   
   let session = "off_hours";
-  // Tokyo: 19:00 - 04:00 EST (overnight)
-  if (estTime >= 19 || estTime < 4) session = "tokyo";
-  // London: 03:00 - 08:00 EST
-  else if (estTime >= 3 && estTime < 8) session = "london";
-  // New York AM: 08:00 - 12:00 EST (main killzone 9:30-11:30)
-  else if (estTime >= 8 && estTime < 12) session = "new_york_am";
-  // New York PM: 12:00 - 17:00 EST
-  else if (estTime >= 12 && estTime < 17) session = "new_york_pm";
+  // Tokyo: 19:00 - 04:00 ET (overnight)
+  if (etTime >= 19 || etTime < 4) session = "tokyo";
+  // London: 03:00 - 08:00 ET
+  else if (etTime >= 3 && etTime < 8) session = "london";
+  // New York AM: 08:00 - 12:00 ET (main killzone 9:30-11:30)
+  else if (etTime >= 8 && etTime < 12) session = "new_york_am";
+  // New York PM: 12:00 - 17:00 ET
+  else if (etTime >= 12 && etTime < 17) session = "new_york_pm";
+  
+  console.log("Session detection:", { 
+    utcTime: eventDate.toISOString(), 
+    etHour, 
+    etMinute, 
+    etTime: etTime.toFixed(2), 
+    session 
+  });
 
   // Fetch account data for balance tracking
   const { data: accountData } = await supabase

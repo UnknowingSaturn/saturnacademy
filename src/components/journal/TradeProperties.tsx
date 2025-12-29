@@ -1,7 +1,7 @@
 import { Trade, SessionType, EmotionalState, TradeModel, TimeframeAlignment, TradeProfile } from "@/types/trading";
 import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview } from "@/hooks/useTrades";
-import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatFullDateTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -58,8 +58,6 @@ const profileOptions = [
   { value: "continuation", label: "Continuation", color: "muted" },
 ];
 
-const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
 export function TradeProperties({ trade }: TradePropertiesProps) {
   const updateTrade = useUpdateTrade();
   const updateReview = useUpdateTradeReview();
@@ -102,7 +100,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   const pnl = trade.net_pnl || 0;
   const isWin = pnl > 0;
   const isLoss = pnl < 0;
-  const day = dayNames[new Date(trade.entry_time).getDay()];
+  const day = getDayNameET(trade.entry_time);
 
   return (
     <div className="space-y-4">
@@ -130,8 +128,8 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           <span>{day}</span>
         </PropertyRow>
 
-        <PropertyRow icon={<Clock className="w-3.5 h-3.5" />} label="Date">
-          <span>{format(new Date(trade.entry_time), "MMM d, yyyy h:mm a")}</span>
+        <PropertyRow icon={<Clock className="w-3.5 h-3.5" />} label="Date (ET)">
+          <span>{formatFullDateTimeET(trade.entry_time)}</span>
         </PropertyRow>
 
         <PropertyRow
