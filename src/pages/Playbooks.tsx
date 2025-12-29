@@ -17,11 +17,11 @@ import { Slider } from "@/components/ui/slider";
 import { Plus, Edit, Trash2, GripVertical, Loader2, X, BookOpen, Target, AlertTriangle, Cog, Sparkles, ShieldCheck, Pencil, Check, LayoutTemplate } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PlaybookAIChat } from "@/components/playbooks/PlaybookAIChat";
-import { PlaybookStatsCard } from "@/components/playbooks/PlaybookStatsCard";
 import { PlaybookTemplates, PlaybookTemplate } from "@/components/playbooks/PlaybookTemplates";
 import { PlaybookProgress } from "@/components/playbooks/PlaybookProgress";
 import { CollapsibleRuleSection } from "@/components/playbooks/CollapsibleRuleSection";
 import { EditableRuleItem } from "@/components/playbooks/EditableRuleItem";
+import { PlaybookCard } from "@/components/playbooks/PlaybookCard";
 
 const SESSIONS: { value: SessionType; label: string }[] = [
   { value: "new_york_am", label: "New York AM" },
@@ -765,91 +765,13 @@ export default function Playbooks() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {playbooks?.map((playbook) => (
-            <Card key={playbook.id} className="group">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-lg">{playbook.name}</CardTitle>
-                    {playbook.description && (
-                      <CardDescription className="mt-1">{playbook.description}</CardDescription>
-                    )}
-                  </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8"
-                      onClick={() => openEditDialog(playbook)}
-                    >
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8 text-destructive"
-                      onClick={() => handleDelete(playbook.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {/* Real-time stats */}
-                <PlaybookStatsCard 
-                  stats={allStats?.[playbook.id]} 
-                  isLoading={statsLoading} 
-                />
-
-                <div className="flex flex-wrap gap-1">
-                  <Badge variant="secondary">
-                    {playbook.checklist_questions.length} questions
-                  </Badge>
-                  {playbook.confirmation_rules?.length > 0 && (
-                    <Badge variant="outline" className="text-profit border-profit/30">
-                      {playbook.confirmation_rules.length} confirmations
-                    </Badge>
-                  )}
-                  {playbook.failure_modes?.length > 0 && (
-                    <Badge variant="outline" className="text-loss border-loss/30">
-                      {playbook.failure_modes.length} failure modes
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Risk limits badges */}
-                {(playbook.max_r_per_trade || playbook.max_daily_loss_r || playbook.max_trades_per_session) && (
-                  <div className="flex flex-wrap gap-1">
-                    {playbook.max_r_per_trade && (
-                      <Badge variant="outline" className="text-xs">
-                        Max {playbook.max_r_per_trade}R/trade
-                      </Badge>
-                    )}
-                    {playbook.max_daily_loss_r && (
-                      <Badge variant="outline" className="text-xs">
-                        Max {playbook.max_daily_loss_r}R/day
-                      </Badge>
-                    )}
-                    {playbook.max_trades_per_session && (
-                      <Badge variant="outline" className="text-xs">
-                        Max {playbook.max_trades_per_session} trades
-                      </Badge>
-                    )}
-                  </div>
-                )}
-
-                {/* Session filters */}
-                {playbook.session_filter && playbook.session_filter.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {playbook.session_filter.map((s) => (
-                      <Badge key={s} variant="outline" className="text-xs">
-                        {SESSIONS.find(sess => sess.value === s)?.label || s}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <PlaybookCard
+              key={playbook.id}
+              playbook={playbook}
+              stats={allStats?.[playbook.id]}
+              onEdit={openEditDialog}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
       )}

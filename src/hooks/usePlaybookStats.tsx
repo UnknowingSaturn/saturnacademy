@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Trade } from '@/types/trading';
+import { usePlaybooks } from './usePlaybooks';
 
 export interface PlaybookStats {
   playbookId: string;
+  playbookName: string;
   totalTrades: number;
   wins: number;
   losses: number;
@@ -13,25 +14,21 @@ export interface PlaybookStats {
   profitFactor: number;
   todayTrades: number;
   todayPnl: number;
+  tradeIds: string[];
 }
 
 export function usePlaybookStats() {
+  const { data: playbooks } = usePlaybooks();
+  
   return useQuery({
-    queryKey: ['playbook-stats'],
+    queryKey: ['playbook-stats', playbooks?.map(p => p.id).join(',')],
     queryFn: async (): Promise<Record<string, PlaybookStats>> => {
-      // Get all trades with their reviews (which contain playbook_id)
+      if (!playbooks || playbooks.length === 0) return {};
+      
+      // Get all closed trades with their model field (playbook name)
       const { data: trades, error: tradesError } = await supabase
         .from('trades')
-        .select(`
-          id,
-          net_pnl,
-          r_multiple_actual,
-          entry_time,
-          is_open,
-          trade_reviews (
-            playbook_id
-          )
-        `)
+        .select('id, net_pnl, r_multiple_actual, entry_time, model')
         .eq('is_open', false);
 
       if (tradesError) throw tradesError;
@@ -41,35 +38,40 @@ export function usePlaybookStats() {
 
       const statsByPlaybook: Record<string, PlaybookStats> = {};
 
+      // Initialize stats for each playbook
+      for (const playbook of playbooks) {
+        statsByPlaybook[playbook.id] = {
+          playbookId: playbook.id,
+          playbookName: playbook.name,
+          totalTrades: 0,
+          wins: 0,
+          losses: 0,
+          winRate: 0,
+          avgR: 0,
+          totalPnl: 0,
+          profitFactor: 0,
+          todayTrades: 0,
+          todayPnl: 0,
+          tradeIds: [],
+        };
+      }
+
+      // Match trades to playbooks by model name
       for (const trade of trades || []) {
-        const reviews = trade.trade_reviews as { playbook_id: string | null }[] | null;
-        const playbookId = reviews?.[0]?.playbook_id;
+        if (!trade.model) continue;
         
-        if (!playbookId) continue;
+        // Find playbook by name match
+        const matchedPlaybook = playbooks.find(pb => pb.name === trade.model);
+        if (!matchedPlaybook) continue;
 
-        if (!statsByPlaybook[playbookId]) {
-          statsByPlaybook[playbookId] = {
-            playbookId,
-            totalTrades: 0,
-            wins: 0,
-            losses: 0,
-            winRate: 0,
-            avgR: 0,
-            totalPnl: 0,
-            profitFactor: 0,
-            todayTrades: 0,
-            todayPnl: 0,
-          };
-        }
-
-        const stats = statsByPlaybook[playbookId];
+        const stats = statsByPlaybook[matchedPlaybook.id];
         const pnl = Number(trade.net_pnl) || 0;
-        const rMultiple = Number(trade.r_multiple_actual) || 0;
         const tradeDate = new Date(trade.entry_time);
         const isToday = tradeDate >= today;
 
         stats.totalTrades++;
         stats.totalPnl += pnl;
+        stats.tradeIds.push(trade.id);
 
         if (pnl > 0) {
           stats.wins++;
@@ -91,20 +93,20 @@ export function usePlaybookStats() {
           ? (stats.wins / stats.totalTrades) * 100 
           : 0;
         
-        // Calculate avgR from trades
-        const playbookTrades = (trades || []).filter(t => {
-          const reviews = t.trade_reviews as { playbook_id: string | null }[] | null;
-          return reviews?.[0]?.playbook_id === playbookId;
+        // Calculate avgR from matched trades
+        const playbookTradeData = (trades || []).filter(t => {
+          const matchedPlaybook = playbooks.find(pb => pb.name === t.model);
+          return matchedPlaybook?.id === playbookId;
         });
         
-        const totalR = playbookTrades.reduce((sum, t) => sum + (Number(t.r_multiple_actual) || 0), 0);
-        stats.avgR = playbookTrades.length > 0 ? totalR / playbookTrades.length : 0;
+        const totalR = playbookTradeData.reduce((sum, t) => sum + (Number(t.r_multiple_actual) || 0), 0);
+        stats.avgR = playbookTradeData.length > 0 ? totalR / playbookTradeData.length : 0;
         
         // Profit factor
-        const grossProfit = playbookTrades
+        const grossProfit = playbookTradeData
           .filter(t => (Number(t.net_pnl) || 0) > 0)
           .reduce((sum, t) => sum + (Number(t.net_pnl) || 0), 0);
-        const grossLoss = Math.abs(playbookTrades
+        const grossLoss = Math.abs(playbookTradeData
           .filter(t => (Number(t.net_pnl) || 0) < 0)
           .reduce((sum, t) => sum + (Number(t.net_pnl) || 0), 0));
         
@@ -113,7 +115,8 @@ export function usePlaybookStats() {
 
       return statsByPlaybook;
     },
-    refetchInterval: 30000, // Refresh every 30 seconds
+    enabled: !!playbooks && playbooks.length > 0,
+    refetchInterval: 30000,
   });
 }
 

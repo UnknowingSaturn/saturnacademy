@@ -6,6 +6,7 @@ import { SymbolBreakdown } from "@/components/analytics/SymbolBreakdown";
 import { DrawdownChart } from "@/components/analytics/DrawdownChart";
 import { RMultipleDistribution } from "@/components/analytics/RMultipleDistribution";
 import { StreakAnalysis } from "@/components/analytics/StreakAnalysis";
+import { StrategyBreakdown } from "@/components/analytics/StrategyBreakdown";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Analytics() {
@@ -36,6 +37,9 @@ export default function Analytics() {
 
       {/* P&L Calendar - Full Width */}
       <PnLCalendar trades={trades || []} />
+
+      {/* Strategy Breakdown - Full Width */}
+      <StrategyBreakdown />
 
       {/* Charts Grid */}
       <div className="grid gap-6 lg:grid-cols-2">
