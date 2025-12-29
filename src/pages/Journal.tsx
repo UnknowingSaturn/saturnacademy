@@ -5,14 +5,16 @@ import { TradeTable } from "@/components/journal/TradeTable";
 import { TradeDetailPanel } from "@/components/journal/TradeDetailPanel";
 import { ManualTradeForm } from "@/components/journal/ManualTradeForm";
 import { JournalSettingsDialog } from "@/components/journal/JournalSettingsDialog";
+import { JournalCalendarView } from "@/components/journal/JournalCalendarView";
 import { FilterBar } from "@/components/journal/FilterBar";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { SessionType, Trade } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
-import { Search, Settings } from "lucide-react";
+import { Search, Settings, Table, CalendarDays } from "lucide-react";
 
 export default function Journal() {
   const [symbolFilter, setSymbolFilter] = useState("");
@@ -22,6 +24,7 @@ export default function Journal() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState("sessions");
   const [activeFilters, setActiveFilters] = useState<FilterCondition[]>([]);
+  const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
 
   const { data: trades, isLoading } = useTrades();
   const { data: settings } = useUserSettings();
@@ -116,6 +119,15 @@ export default function Journal() {
           <p className="text-muted-foreground">Review and analyze your trades</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* View Toggle */}
+          <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "table" | "calendar")}>
+            <ToggleGroupItem value="table" aria-label="Table view" className="px-3">
+              <Table className="w-4 h-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="calendar" aria-label="Calendar view" className="px-3">
+              <CalendarDays className="w-4 h-4" />
+            </ToggleGroupItem>
+          </ToggleGroup>
           <Button variant="outline" size="icon" onClick={() => setSettingsOpen(true)}>
             <Settings className="w-4 h-4" />
           </Button>
@@ -123,64 +135,73 @@ export default function Journal() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-[200px] max-w-[300px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            value={symbolFilter}
-            onChange={(e) => setSymbolFilter(e.target.value)}
-            placeholder="Search symbol..."
-            className="pl-9"
-          />
+      {/* Filters - only show for table view */}
+      {viewMode === "table" && (
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="relative flex-1 min-w-[200px] max-w-[300px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={symbolFilter}
+              onChange={(e) => setSymbolFilter(e.target.value)}
+              placeholder="Search symbol..."
+              className="pl-9"
+            />
+          </div>
+          <Select value={sessionFilter} onValueChange={(v) => setSessionFilter(v as SessionType | "all")}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Session" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Sessions</SelectItem>
+              <SelectItem value="new_york_am">New York AM</SelectItem>
+              <SelectItem value="london">London</SelectItem>
+              <SelectItem value="tokyo">Tokyo</SelectItem>
+              <SelectItem value="new_york_pm">New York PM</SelectItem>
+              <SelectItem value="off_hours">Off Hours</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={resultFilter} onValueChange={(v) => setResultFilter(v as typeof resultFilter)}>
+            <SelectTrigger className="w-[120px]">
+              <SelectValue placeholder="Result" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="win">Wins</SelectItem>
+              <SelectItem value="loss">Losses</SelectItem>
+              <SelectItem value="open">Open</SelectItem>
+            </SelectContent>
+          </Select>
+          
+          {/* Advanced Filter Bar */}
+          <FilterBar filters={activeFilters} onFiltersChange={setActiveFilters} />
         </div>
-        <Select value={sessionFilter} onValueChange={(v) => setSessionFilter(v as SessionType | "all")}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue placeholder="Session" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Sessions</SelectItem>
-            <SelectItem value="new_york_am">New York AM</SelectItem>
-            <SelectItem value="london">London</SelectItem>
-            <SelectItem value="tokyo">Tokyo</SelectItem>
-            <SelectItem value="new_york_pm">New York PM</SelectItem>
-            <SelectItem value="off_hours">Off Hours</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={resultFilter} onValueChange={(v) => setResultFilter(v as typeof resultFilter)}>
-          <SelectTrigger className="w-[120px]">
-            <SelectValue placeholder="Result" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="win">Wins</SelectItem>
-            <SelectItem value="loss">Losses</SelectItem>
-            <SelectItem value="open">Open</SelectItem>
-          </SelectContent>
-        </Select>
-        
-        {/* Advanced Filter Bar */}
-        <FilterBar filters={activeFilters} onFiltersChange={setActiveFilters} />
-      </div>
+      )}
 
-      {/* Trade Table */}
+      {/* Content based on view mode */}
       {isLoading ? (
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => (
             <Skeleton key={i} className="h-16 rounded-lg" />
           ))}
         </div>
-      ) : filteredTrades.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <p>No trades found</p>
-          <p className="text-sm">Import trades or add them manually to get started</p>
-        </div>
+      ) : viewMode === "table" ? (
+        filteredTrades.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>No trades found</p>
+            <p className="text-sm">Import trades or add them manually to get started</p>
+          </div>
+        ) : (
+          <TradeTable 
+            trades={filteredTrades} 
+            onTradeClick={setSelectedTrade}
+            visibleColumns={settings?.visible_columns}
+            onEditProperty={handleEditProperty}
+          />
+        )
       ) : (
-        <TradeTable 
-          trades={filteredTrades} 
+        <JournalCalendarView 
+          trades={trades || []} 
           onTradeClick={setSelectedTrade}
-          visibleColumns={settings?.visible_columns}
-          onEditProperty={handleEditProperty}
         />
       )}
 
