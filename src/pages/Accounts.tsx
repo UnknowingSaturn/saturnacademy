@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Plus, Link, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Plus, Link, RefreshCw, AlertTriangle, Archive, Flame } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccounts } from '@/hooks/useAccounts';
+import { useArchiveAllTrades } from '@/hooks/useTrades';
 import { AccountCard } from '@/components/accounts/AccountCard';
 import { CreateAccountDialog } from '@/components/accounts/CreateAccountDialog';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
@@ -30,12 +31,14 @@ import {
 
 export default function Accounts() {
   const { data: accounts, isLoading, refetch } = useAccounts();
+  const archiveAllMutation = useArchiveAllTrades();
   const [createOpen, setCreateOpen] = useState(false);
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
   const [isFreshStarting, setIsFreshStarting] = useState(false);
   const [freshStartAccountId, setFreshStartAccountId] = useState<string>('');
+  const [archiveAllAccountId, setArchiveAllAccountId] = useState<string>('');
 
   const handleRecoverTrades = async () => {
     setIsRecovering(true);
@@ -169,59 +172,128 @@ export default function Accounts() {
           </div>
 
           {/* Danger Zone */}
-          <div className="mt-8 border border-destructive/30 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-3">
+          <div className="mt-8 border border-destructive/30 rounded-lg overflow-hidden">
+            <div className="flex items-center gap-2 p-4 bg-destructive/5 border-b border-destructive/20">
               <AlertTriangle className="h-5 w-5 text-destructive" />
               <h3 className="font-semibold text-destructive">Danger Zone</h3>
             </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              Fresh Start will delete all trades AND events for an account, allowing your EA to re-import everything from scratch.
-            </p>
             
-            <div className="flex items-center gap-3">
-              <Select value={freshStartAccountId} onValueChange={setFreshStartAccountId}>
-                <SelectTrigger className="w-[250px]">
-                  <SelectValue placeholder="Select account..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts?.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* Archive All Section */}
+            <div className="p-4 border-b border-destructive/20">
+              <div className="flex items-center gap-2 mb-2">
+                <Archive className="h-4 w-4 text-amber-500" />
+                <h4 className="font-medium">Archive All Trades (Reversible)</h4>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                Hide all trades from the journal. You can restore them later from the Archived tab.
+              </p>
+              
+              <div className="flex items-center gap-3">
+                <Select value={archiveAllAccountId} onValueChange={setArchiveAllAccountId}>
+                  <SelectTrigger className="w-[250px]">
+                    <SelectValue placeholder="Select account..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts?.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button 
-                    variant="destructive" 
-                    disabled={!freshStartAccountId || isFreshStarting}
-                  >
-                    {isFreshStarting ? 'Processing...' : 'Fresh Start'}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete <strong>all trades and events</strong> for the selected account. 
-                      This action cannot be undone.
-                      <br /><br />
-                      After this, restart your EA to re-import all historical trades from scratch.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction 
-                      onClick={handleFreshStart}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                      disabled={!archiveAllAccountId || archiveAllMutation.isPending}
                     >
-                      Yes, Delete Everything
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                      {archiveAllMutation.isPending ? 'Archiving...' : 'Archive All'}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Archive all trades?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will archive all trades for the selected account. They will be hidden from the journal, dashboard, and reports.
+                        <br /><br />
+                        <strong>You can restore them anytime</strong> from Journal → Archived tab.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction 
+                        onClick={() => {
+                          archiveAllMutation.mutate(archiveAllAccountId, {
+                            onSuccess: () => setArchiveAllAccountId('')
+                          });
+                        }}
+                        className="bg-amber-500 text-white hover:bg-amber-600"
+                      >
+                        Archive All Trades
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </div>
+
+            {/* Fresh Start Section */}
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Flame className="h-4 w-4 text-destructive" />
+                <h4 className="font-medium">Fresh Start (Permanent)</h4>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                Delete all trades AND events for EA re-import. This cannot be undone.
+              </p>
+              
+              <div className="flex items-center gap-3">
+                <Select value={freshStartAccountId} onValueChange={setFreshStartAccountId}>
+                  <SelectTrigger className="w-[250px]">
+                    <SelectValue placeholder="Select account..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts?.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button 
+                      variant="destructive" 
+                      disabled={!freshStartAccountId || isFreshStarting}
+                    >
+                      {isFreshStarting ? 'Processing...' : 'Fresh Start'}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete <strong>all trades and events</strong> for the selected account. 
+                        This action cannot be undone.
+                        <br /><br />
+                        After this, restart your EA to re-import all historical trades from scratch.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction 
+                        onClick={handleFreshStart}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Yes, Delete Everything
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
             </div>
           </div>
         </>

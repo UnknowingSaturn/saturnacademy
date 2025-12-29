@@ -260,6 +260,34 @@ export function useRestoreTrades() {
   });
 }
 
+export function useArchiveAllTrades() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (accountId: string) => {
+      const { data, error } = await supabase
+        .from('trades')
+        .update({ is_archived: true, archived_at: new Date().toISOString() })
+        .eq('account_id', accountId)
+        .eq('is_archived', false)
+        .select('id');
+
+      if (error) throw error;
+      return data?.length || 0;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
+      queryClient.invalidateQueries({ queryKey: ['archived-trades'] });
+      toast({ title: `${count} trade${count !== 1 ? 's' : ''} archived` });
+    },
+    onError: (error) => {
+      toast({ title: 'Failed to archive trades', description: error.message, variant: 'destructive' });
+    },
+  });
+}
+
 export function useArchivedTrades() {
   return useQuery({
     queryKey: ['archived-trades'],
