@@ -144,6 +144,39 @@ export default function Playbooks() {
     setIsDialogOpen(true);
   };
 
+  const handleDuplicatePlaybook = (playbook: Playbook) => {
+    resetForm();
+    setName(`${playbook.name} (Copy)`);
+    setDescription(playbook.description || "");
+    setColor(playbook.color || "#6366f1");
+    setQuestions(playbook.checklist_questions.map(q => ({
+      ...q,
+      id: crypto.randomUUID()
+    })));
+    setSessionFilter(playbook.session_filter || []);
+    setSymbolFilter(playbook.symbol_filter || []);
+    setValidRegimes(playbook.valid_regimes || []);
+    
+    const ezr = playbook.entry_zone_rules || {};
+    setEntryZoneEnabled(ezr.min_percentile != null || ezr.max_percentile != null);
+    setMinPercentile(ezr.min_percentile ?? 25);
+    setMaxPercentile(ezr.max_percentile ?? 75);
+    setRequireHtfAlignment(ezr.require_htf_alignment ?? false);
+    
+    setConfirmationRules(playbook.confirmation_rules || []);
+    setInvalidationRules(playbook.invalidation_rules || []);
+    setManagementRules(playbook.management_rules || []);
+    setFailureModes(playbook.failure_modes || []);
+    
+    setMaxRPerTrade(playbook.max_r_per_trade);
+    setMaxDailyLossR(playbook.max_daily_loss_r);
+    setMaxTradesPerSession(playbook.max_trades_per_session);
+    
+    // Don't set editingPlaybook so it creates a NEW playbook
+    setDialogView('form');
+    setIsDialogOpen(true);
+  };
+
   const openNewDialog = () => {
     resetForm();
     setDialogView('templates');
@@ -802,6 +835,7 @@ export default function Playbooks() {
               stats={allStats?.[playbook.id]}
               onViewDetails={setSelectedPlaybook}
               onEdit={openEditDialog}
+              onDuplicate={handleDuplicatePlaybook}
               onDelete={handleDelete}
             />
           ))}
@@ -815,6 +849,7 @@ export default function Playbooks() {
         open={!!selectedPlaybook}
         onOpenChange={(open) => !open && setSelectedPlaybook(null)}
         onEdit={openEditDialog}
+        onDuplicate={handleDuplicatePlaybook}
         onDelete={handleDelete}
       />
     </div>
