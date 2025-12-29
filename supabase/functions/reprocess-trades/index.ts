@@ -10,7 +10,28 @@ const corsHeaders = {
 interface ReprocessRequest {
   account_id: string;
   broker_utc_offset?: number;
+  use_custom_sessions?: boolean;
 }
+
+interface SessionDefinition {
+  name: string;
+  key: string;
+  start_hour: number;
+  start_minute: number;
+  end_hour: number;
+  end_minute: number;
+  timezone: string;
+  is_active: boolean;
+}
+
+// Default sessions if user hasn't defined any
+const DEFAULT_SESSIONS: SessionDefinition[] = [
+  { name: 'Tokyo', key: 'tokyo', start_hour: 19, start_minute: 0, end_hour: 4, end_minute: 0, timezone: 'America/New_York', is_active: true },
+  { name: 'London', key: 'london', start_hour: 3, start_minute: 0, end_hour: 8, end_minute: 0, timezone: 'America/New_York', is_active: true },
+  { name: 'NY AM', key: 'new_york_am', start_hour: 8, start_minute: 0, end_hour: 12, end_minute: 0, timezone: 'America/New_York', is_active: true },
+  { name: 'NY PM', key: 'new_york_pm', start_hour: 12, start_minute: 0, end_hour: 17, end_minute: 0, timezone: 'America/New_York', is_active: true },
+  { name: 'Off Hours', key: 'off_hours', start_hour: 17, start_minute: 0, end_hour: 19, end_minute: 0, timezone: 'America/New_York', is_active: true },
+];
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -22,7 +43,7 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { account_id, broker_utc_offset }: ReprocessRequest = await req.json();
+    const { account_id, broker_utc_offset, use_custom_sessions = true }: ReprocessRequest = await req.json();
 
     if (!account_id) {
       return new Response(
@@ -30,8 +51,6 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    console.log(`Reprocessing trades for account ${account_id} with UTC offset ${broker_utc_offset}`);
 
     // Get account data
     const { data: account, error: accountError } = await supabase
@@ -47,46 +66,28 @@ serve(async (req) => {
       );
     }
 
-    // Use provided offset or fall back to account's stored offset, default to 2
     const effectiveOffset = broker_utc_offset ?? account.broker_utc_offset ?? 2;
     
-    // The current stored times assume offset was calculated at runtime using TimeGMT() - TimeCurrent()
-    // But this was computed at SEND TIME, not DEAL TIME, which is incorrect for historical trades
-    // 
-    // The broker server time is UTC+2 (or whatever effectiveOffset is)
-    // So if the EA sent deal_time + (TimeGMT() - TimeCurrent()) at sync time,
-    // and sync was done when market was closed (different offset), the times are wrong.
-    //
-    // The correct approach:
-    // stored_utc = deal_time + (TimeGMT() - TimeCurrent()) -- this was computed at sync time
-    // If broker is UTC+2, then: correct_utc = deal_time - (2 * 3600) = deal_time - 7200
-    // But we stored: stored_utc = deal_time + runtime_offset
-    // So correction needed: correct_utc = stored_utc - runtime_offset - (broker_offset * 3600)
-    //
-    // Since we don't know the runtime offset at sync time, we'll use a different approach:
-    // We assume the CURRENT stored times are broker_offset hours AHEAD of actual UTC
-    // So we subtract (broker_offset * 3600) seconds from all times
+    console.log(`Reprocessing trades for account ${account_id} with UTC offset ${effectiveOffset}`);
+
+    // Fetch user's custom session definitions if enabled
+    let sessions: SessionDefinition[] = DEFAULT_SESSIONS;
     
-    // Actually, let's think about this more carefully:
-    // - The EA stores times using: dealTime + (TimeGMT() - TimeCurrent())
-    // - If broker is UTC+2, then TimeCurrent() is 2 hours ahead of TimeGMT()
-    // - So (TimeGMT() - TimeCurrent()) = -2 hours
-    // - Therefore stored_utc = dealTime - 2 hours
-    // - But dealTime is already in broker time (UTC+2)
-    // - So correct_utc = dealTime - 2 hours = broker_time - 2 hours = UTC time ✓
-    //
-    // BUT the problem is that for historical trades synced later, the offset was computed
-    // at the TIME OF SYNC, not at the DEAL TIME. During off-market hours or DST transitions,
-    // this could be wrong.
-    //
-    // The user reported that 10:40 AM EST shows as 12:40 PM EST - a 2-hour difference.
-    // This suggests the times are being displayed 2 hours later than they should be.
-    // 
-    // The fix: adjust all times by subtracting the difference between what was used
-    // and what should have been used. Since most brokers are UTC+2, and the error is 2 hours,
-    // we need to subtract 2 hours from all stored times.
-    //
-    // For flexibility, we'll allow the user to specify the offset and adjust accordingly.
+    if (use_custom_sessions) {
+      const { data: customSessions, error: sessionsError } = await supabase
+        .from("session_definitions")
+        .select("*")
+        .eq("user_id", account.user_id)
+        .eq("is_active", true)
+        .order("sort_order");
+
+      if (!sessionsError && customSessions && customSessions.length > 0) {
+        sessions = customSessions as SessionDefinition[];
+        console.log(`Using ${sessions.length} custom session definitions`);
+      } else {
+        console.log("Using default session definitions");
+      }
+    }
 
     // Fetch all trades for this account
     const { data: trades, error: tradesError } = await supabase
@@ -112,12 +113,6 @@ serve(async (req) => {
 
     console.log(`Found ${trades.length} trades to reprocess`);
 
-    // Calculate the correction needed
-    // The times are currently stored assuming some offset was applied
-    // We need to correct them to use the broker's actual offset
-    // 
-    // Based on user feedback: if times show 2 hours later than expected,
-    // we need to SUBTRACT the broker offset in hours
     const offsetCorrection = effectiveOffset * 60 * 60 * 1000; // Convert hours to milliseconds
 
     let updatedCount = 0;
@@ -143,8 +138,8 @@ serve(async (req) => {
           correctedExitTime = new Date(originalExitTime.getTime() - offsetCorrection);
         }
 
-        // Calculate session from corrected entry time
-        const session = getSessionFromTime(correctedEntryTime);
+        // Calculate session from corrected entry time using custom or default sessions
+        const session = getSessionFromTime(correctedEntryTime, sessions);
 
         // Calculate R% using equity_at_entry if available, otherwise use running balance
         const equityAtEntry = trade.equity_at_entry || runningBalance;
@@ -184,7 +179,7 @@ serve(async (req) => {
       try {
         const originalEntryTime = new Date(trade.entry_time);
         const correctedEntryTime = new Date(originalEntryTime.getTime() - offsetCorrection);
-        const session = getSessionFromTime(correctedEntryTime);
+        const session = getSessionFromTime(correctedEntryTime, sessions);
 
         const { error: updateError } = await supabase
           .from("trades")
@@ -218,6 +213,7 @@ serve(async (req) => {
         message: "Trades reprocessed successfully",
         trades_updated: updatedCount,
         broker_utc_offset: effectiveOffset,
+        sessions_used: sessions.length,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -230,8 +226,8 @@ serve(async (req) => {
   }
 });
 
-// Helper function to determine session from timestamp
-function getSessionFromTime(date: Date): string {
+// Helper function to determine session from timestamp using custom or default definitions
+function getSessionFromTime(date: Date, sessions: SessionDefinition[]): string {
   // Use Intl.DateTimeFormat to get the hour in America/New_York timezone (handles DST)
   const etFormatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
@@ -243,16 +239,28 @@ function getSessionFromTime(date: Date): string {
   const parts = etFormatter.formatToParts(date);
   const etHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
   const etMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
-  const etTime = etHour + etMinute / 60;
-  
-  // Tokyo: 19:00 - 04:00 ET (overnight)
-  if (etTime >= 19 || etTime < 4) return "tokyo";
-  // London: 03:00 - 08:00 ET
-  if (etTime >= 3 && etTime < 8) return "london";
-  // New York AM: 08:00 - 12:00 ET (main killzone 9:30-11:30)
-  if (etTime >= 8 && etTime < 12) return "new_york_am";
-  // New York PM: 12:00 - 17:00 ET
-  if (etTime >= 12 && etTime < 17) return "new_york_pm";
+  const etTimeInMinutes = etHour * 60 + etMinute;
+
+  // Check each session definition
+  for (const session of sessions) {
+    if (!session.is_active) continue;
+
+    const startMinutes = session.start_hour * 60 + session.start_minute;
+    const endMinutes = session.end_hour * 60 + session.end_minute;
+
+    // Handle overnight sessions (e.g., Tokyo: 19:00 - 04:00)
+    if (startMinutes > endMinutes) {
+      // Session spans midnight
+      if (etTimeInMinutes >= startMinutes || etTimeInMinutes < endMinutes) {
+        return session.key;
+      }
+    } else {
+      // Normal session within same day
+      if (etTimeInMinutes >= startMinutes && etTimeInMinutes < endMinutes) {
+        return session.key;
+      }
+    }
+  }
   
   return "off_hours";
 }
