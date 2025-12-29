@@ -121,18 +121,3 @@ export function useDeleteAccount() {
     },
   });
 }
-
-export function usePropFirmRules(firm?: PropFirm) {
-  return useQuery({
-    queryKey: ['prop-firm-rules', firm],
-    queryFn: async () => {
-      let query = supabase.from('prop_firm_rules').select('*');
-      if (firm) {
-        query = query.eq('firm', firm);
-      }
-      const { data, error } = await query;
-      if (error) throw error;
-      return data || [];
-    },
-  });
-}

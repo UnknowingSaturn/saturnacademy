@@ -2,7 +2,6 @@ import {
   LayoutDashboard, 
   BookOpen, 
   FileText, 
-  Shield, 
   Upload,
   TrendingUp,
   LogOut,
@@ -28,12 +27,10 @@ const mainItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Trade Journal", url: "/journal", icon: BookOpen },
   { title: "Playbooks", url: "/playbooks", icon: FileText },
-  { title: "Compliance", url: "/compliance", icon: Shield },
 ];
 
 const toolItems = [
   { title: "Import Trades", url: "/import", icon: Upload },
-  { title: "Analytics", url: "/analytics", icon: TrendingUp },
   { title: "Accounts", url: "/accounts", icon: Wallet },
 ];
 

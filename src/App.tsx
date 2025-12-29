@@ -9,9 +9,7 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Journal from "./pages/Journal";
 import Playbooks from "./pages/Playbooks";
-import Compliance from "./pages/Compliance";
 import Import from "./pages/Import";
-import Analytics from "./pages/Analytics";
 import Accounts from "./pages/Accounts";
 import NotFound from "./pages/NotFound";
 
@@ -45,9 +43,7 @@ function AppRoutes() {
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
       <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
-      <Route path="/compliance" element={<ProtectedRoute><Compliance /></ProtectedRoute>} />
       <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
-      <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
       <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
