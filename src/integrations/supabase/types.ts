@@ -182,12 +182,16 @@ export type Database = {
           psychology_analysis: Json | null
           raw_analysis: string | null
           rule_violations: string[] | null
+          screenshots_analyzed: boolean | null
           setup_compliance_score: number | null
           similar_losers: string[] | null
           similar_winners: string[] | null
+          strategy_refinement: Json | null
           technical_review: Json | null
+          thesis_evaluation: Json | null
           trade_id: string
           updated_at: string | null
+          visual_analysis: Json | null
         }
         Insert: {
           actionable_guidance?: Json | null
@@ -200,12 +204,16 @@ export type Database = {
           psychology_analysis?: Json | null
           raw_analysis?: string | null
           rule_violations?: string[] | null
+          screenshots_analyzed?: boolean | null
           setup_compliance_score?: number | null
           similar_losers?: string[] | null
           similar_winners?: string[] | null
+          strategy_refinement?: Json | null
           technical_review?: Json | null
+          thesis_evaluation?: Json | null
           trade_id: string
           updated_at?: string | null
+          visual_analysis?: Json | null
         }
         Update: {
           actionable_guidance?: Json | null
@@ -218,12 +226,16 @@ export type Database = {
           psychology_analysis?: Json | null
           raw_analysis?: string | null
           rule_violations?: string[] | null
+          screenshots_analyzed?: boolean | null
           setup_compliance_score?: number | null
           similar_losers?: string[] | null
           similar_winners?: string[] | null
+          strategy_refinement?: Json | null
           technical_review?: Json | null
+          thesis_evaluation?: Json | null
           trade_id?: string
           updated_at?: string | null
+          visual_analysis?: Json | null
         }
         Relationships: [
           {

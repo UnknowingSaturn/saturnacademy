@@ -3,6 +3,7 @@ import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableSte
 import { usePlaybooks, usePlaybook } from "@/hooks/usePlaybooks";
 import { useCreateTradeReview, useUpdateTradeReview, useTrade } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
+import { aiReviewToDisplayFormat, hasAIAnalysis } from "@/lib/aiAnalysisUtils";
 
 import { TradeProperties } from "./TradeProperties";
 import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
@@ -36,13 +37,11 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   const { data: playbooks } = usePlaybooks();
   const createReview = useCreateTradeReview();
   const updateReview = useUpdateTradeReview();
-  const { 
-    analyzeTrade, 
-    isAnalyzing, 
-    analysisResult, 
-    setAnalysisResult, 
-    submitFeedback 
-  } = useAIAnalysis();
+  const { analyzeTrade, isAnalyzing, submitFeedback } = useAIAnalysis();
+  
+  // Database-first: read AI analysis directly from trade object
+  const aiReview = trade?.ai_review;
+  const analysisData = aiReview ? aiReviewToDisplayFormat(aiReview) : null;
 
   const existingReview = trade?.review;
   // Use trade.playbook_id (set via Model property) for compliance checklist
@@ -96,7 +95,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
   }, [isOpen]);
 
-  // Reset state when trade changes
+  // Reset manual review state when trade changes
   useEffect(() => {
     const isTradeSwitch = trade?.id !== lastTradeId;
     
@@ -104,34 +103,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     if (isTradeSwitch) {
       setLastTradeId(trade?.id || null);
       
-      // Load saved AI review when switching trades
-      if (trade?.ai_review) {
-        setAnalysisResult({
-          analysis: {
-            technical_review: trade.ai_review.technical_review,
-            mistake_attribution: trade.ai_review.mistake_attribution,
-            psychology_analysis: trade.ai_review.psychology_analysis,
-            comparison_to_past: trade.ai_review.comparison_to_past,
-            actionable_guidance: trade.ai_review.actionable_guidance,
-            confidence: trade.ai_review.confidence,
-          },
-          compliance: {
-            setup_compliance_score: trade.ai_review.setup_compliance_score || 0,
-            context_alignment_score: trade.ai_review.context_alignment_score || 0,
-            rule_violations: trade.ai_review.rule_violations || [],
-            matched_rules: trade.ai_review.technical_review?.matched_rules || [],
-          },
-          similar_trades: {
-            similar_winners: [],
-            similar_losers: [],
-          },
-          raw_analysis: trade.ai_review.raw_analysis || "",
-        });
-      } else {
-        setAnalysisResult(null);
-      }
-      
-      // Reset manual review fields
+      // Reset manual review fields from database
       if (trade?.review) {
         setChecklistAnswers(trade.review.checklist_answers || {});
         setRegime(trade.review.regime || "");
@@ -163,32 +135,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
   }, [trade?.id, trade?.review, lastTradeId]);
 
-  // Load AI review when it becomes available (handles async loading after panel opens)
-  useEffect(() => {
-    if (trade?.ai_review && isOpen) {
-      setAnalysisResult({
-        analysis: {
-          technical_review: trade.ai_review.technical_review,
-          mistake_attribution: trade.ai_review.mistake_attribution,
-          psychology_analysis: trade.ai_review.psychology_analysis,
-          comparison_to_past: trade.ai_review.comparison_to_past,
-          actionable_guidance: trade.ai_review.actionable_guidance,
-          confidence: trade.ai_review.confidence,
-        },
-        compliance: {
-          setup_compliance_score: trade.ai_review.setup_compliance_score || 0,
-          context_alignment_score: trade.ai_review.context_alignment_score || 0,
-          rule_violations: trade.ai_review.rule_violations || [],
-          matched_rules: trade.ai_review.technical_review?.matched_rules || [],
-        },
-        similar_trades: {
-          similar_winners: [],
-          similar_losers: [],
-        },
-        raw_analysis: trade.ai_review.raw_analysis || "",
-      });
-    }
-  }, [trade?.ai_review, isOpen, setAnalysisResult]);
+  // No need for AI review sync effect - we read directly from trade.ai_review
 
   const score = Object.values(checklistAnswers).filter(Boolean).length;
 
@@ -439,18 +386,21 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
 
                 </div>
 
-                {/* AI Analysis */}
-                {analysisResult && (
+                {/* AI Analysis - reads directly from database via trade.ai_review */}
+                {analysisData && (
                   <div>
                     <Label className="text-sm font-semibold mb-3 flex items-center gap-2">
                       <Sparkles className="w-4 h-4" />
                       AI Analysis
                     </Label>
                     <AIAnalysisDisplay
-                      analysis={analysisResult.analysis}
-                      compliance={analysisResult.compliance}
-                      similarTrades={analysisResult.similar_trades}
-                      onSubmitFeedback={(isAccurate, isUseful, notes) => {}}
+                      analysis={analysisData.analysis}
+                      compliance={analysisData.compliance}
+                      similarTrades={analysisData.similarTrades}
+                      onSubmitFeedback={aiReview ? 
+                        (isAccurate, isUseful, notes) => submitFeedback(aiReview.id, isAccurate, isUseful, notes) 
+                        : undefined
+                      }
                     />
                   </div>
                 )}
