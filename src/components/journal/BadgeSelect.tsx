@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, forwardRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Check } from "lucide-react";
 
@@ -31,7 +31,7 @@ const colorClasses: Record<string, string> = {
   overlap: "bg-[hsl(var(--session-overlap)/0.15)] text-[hsl(var(--session-overlap))] border-[hsl(var(--session-overlap)/0.3)]",
 };
 
-export const BadgeSelect = forwardRef<HTMLDivElement, BadgeSelectProps>(function BadgeSelect({
+export function BadgeSelect({
   value,
   onChange,
   options,
@@ -39,7 +39,7 @@ export const BadgeSelect = forwardRef<HTMLDivElement, BadgeSelectProps>(function
   multiple = false,
   allowClear = true,
   className,
-}, forwardedRef) {
+}: BadgeSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -193,4 +193,4 @@ export const BadgeSelect = forwardRef<HTMLDivElement, BadgeSelectProps>(function
       )}
     </div>
   );
-});
+}
