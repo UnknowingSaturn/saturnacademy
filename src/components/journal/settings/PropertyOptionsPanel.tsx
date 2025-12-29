@@ -8,8 +8,8 @@ import { Plus, Trash2, GripVertical, Palette } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PropertyOption } from "@/types/settings";
 
+// Note: 'model' was removed - playbooks are now selected directly via playbook_id
 const PROPERTY_TYPES = [
-  { value: 'model', label: 'Model' },
   { value: 'profile', label: 'Profile' },
   { value: 'timeframe', label: 'Timeframe' },
   { value: 'emotion', label: 'Emotion' },
@@ -23,7 +23,7 @@ const COLOR_OPTIONS = [
 ];
 
 export function PropertyOptionsPanel() {
-  const [selectedProperty, setSelectedProperty] = useState('model');
+  const [selectedProperty, setSelectedProperty] = useState('profile');
   const { data: options = [], isLoading } = usePropertyOptions(selectedProperty);
   const createOption = useCreatePropertyOption();
   const updateOption = useUpdatePropertyOption();
