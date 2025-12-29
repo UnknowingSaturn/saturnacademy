@@ -135,7 +135,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
     if (existingReview) {
       await updateReview.mutateAsync({ id: existingReview.id, ...reviewData });
     } else {
-      await createReview.mutateAsync(reviewData);
+      await createReview.mutateAsync({ review: reviewData });
     }
   };
 

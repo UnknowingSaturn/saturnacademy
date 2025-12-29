@@ -2,10 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Trade, TradeReview, Playbook } from "@/types/trading";
 import { usePlaybooks } from "./usePlaybooks";
+import { detectSessionFromBrokerTime } from "@/lib/time";
 
 interface OpenTradeWithCompliance extends Trade {
   matchedPlaybook?: Playbook;
   complianceStatus: 'pending' | 'compliant' | 'violations';
+  detectedSession?: string;
 }
 
 function transformTrade(row: any): Trade {
@@ -94,11 +96,15 @@ export function useOpenTrades() {
 
       const trades = (data || []).map(transformTrade);
       
-      // Enrich with playbook matching
+      // Enrich with playbook matching and session detection
       return trades.map((trade): OpenTradeWithCompliance => {
         // Find matched playbook by playbook_id (or from joined data)
         const matchedPlaybook = trade.playbook 
           || (trade.playbook_id ? playbooks.find(p => p.id === trade.playbook_id) : undefined);
+
+        // Detect session using broker time offset
+        const brokerOffset = trade.account?.broker_utc_offset ?? 0;
+        const detectedSession = detectSessionFromBrokerTime(trade.entry_time, brokerOffset);
 
         // Determine compliance status
         let complianceStatus: 'pending' | 'compliant' | 'violations' = 'pending';
@@ -109,9 +115,9 @@ export function useOpenTrades() {
           // Check auto-verified rules
           const violations: string[] = [];
           
-          // Session filter check
-          if (matchedPlaybook.session_filter && matchedPlaybook.session_filter.length > 0 && trade.session) {
-            if (!matchedPlaybook.session_filter.includes(trade.session)) {
+          // Session filter check - use detected session from broker time
+          if (matchedPlaybook.session_filter && matchedPlaybook.session_filter.length > 0) {
+            if (!matchedPlaybook.session_filter.includes(detectedSession)) {
               violations.push('session');
             }
           }
@@ -134,6 +140,7 @@ export function useOpenTrades() {
           ...trade,
           matchedPlaybook,
           complianceStatus,
+          detectedSession,
         };
       });
     },

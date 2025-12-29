@@ -8,7 +8,6 @@ import { LiveTradeCompliancePanel } from "@/components/journal/LiveTradeComplian
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { 
   Activity, 
@@ -22,7 +21,7 @@ import {
   Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
+import { formatBrokerDateTimeET } from "@/lib/time";
 
 export default function LiveTrades() {
   const location = useLocation();
@@ -166,7 +165,7 @@ export default function LiveTrades() {
                       <div>
                         <div className="font-medium text-sm">{trade.symbol}</div>
                         <div className="text-xs text-muted-foreground">
-                          {format(new Date(trade.entry_time), "MMM d, HH:mm")}
+                          {formatBrokerDateTimeET(trade.entry_time, trade.account?.broker_utc_offset ?? 0)}
                         </div>
                       </div>
                     </div>
