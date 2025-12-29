@@ -54,6 +54,7 @@ export default function Playbooks() {
   // Basic info state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [color, setColor] = useState("#6366f1");
   
   // Checklist state
   const [questions, setQuestions] = useState<ChecklistQuestion[]>([]);
@@ -87,6 +88,7 @@ export default function Playbooks() {
   const resetForm = () => {
     setName("");
     setDescription("");
+    setColor("#6366f1");
     setQuestions([]);
     setNewQuestion("");
     setEditingQuestionId(null);
@@ -115,6 +117,7 @@ export default function Playbooks() {
     setEditingPlaybook(playbook);
     setName(playbook.name);
     setDescription(playbook.description || "");
+    setColor(playbook.color || "#6366f1");
     setQuestions(playbook.checklist_questions);
     setSessionFilter(playbook.session_filter || []);
     setSymbolFilter(playbook.symbol_filter || []);
@@ -262,6 +265,7 @@ export default function Playbooks() {
     const playbookData = {
       name: name.trim(),
       description: description.trim() || null,
+      color,
       checklist_questions: questions,
       is_active: true,
       session_filter: sessionFilter.length > 0 ? sessionFilter : null,
@@ -434,6 +438,31 @@ export default function Playbooks() {
                             placeholder="Describe when to use this playbook..."
                             rows={2}
                           />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Card Color</Label>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="color"
+                              value={color}
+                              onChange={(e) => setColor(e.target.value)}
+                              className="w-10 h-10 rounded-md border border-border cursor-pointer"
+                            />
+                            <div className="flex flex-wrap gap-2">
+                              {['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6'].map((c) => (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  onClick={() => setColor(c)}
+                                  className={cn(
+                                    "w-6 h-6 rounded-full border-2 transition-all",
+                                    color === c ? "border-foreground scale-110" : "border-transparent hover:scale-105"
+                                  )}
+                                  style={{ backgroundColor: c }}
+                                />
+                              ))}
+                            </div>
+                          </div>
                         </div>
                         <div className="space-y-2">
                           <Label>Checklist Questions (max 5)</Label>

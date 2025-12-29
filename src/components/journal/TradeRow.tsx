@@ -41,9 +41,11 @@ export function TradeRow({ trade }: TradeRowProps) {
   const hasScreenshots = trade.review?.screenshots && trade.review.screenshots.length > 0;
   const hasReview = !!trade.review;
   
-  // Get playbook name if trade has one assigned
+  // Get playbook info - first check if trade has a model (playbook name) or a playbook_id in review
   const playbookId = trade.review?.playbook_id;
-  const playbook = playbookId ? playbooks?.find(p => p.id === playbookId) : null;
+  const playbookFromId = playbookId ? playbooks?.find(p => p.id === playbookId) : null;
+  const playbookFromModel = trade.model ? playbooks?.find(p => p.name === trade.model) : null;
+  const playbook = playbookFromModel || playbookFromId;
 
   return (
     <div className={cn(
@@ -167,11 +169,20 @@ export function TradeRow({ trade }: TradeRowProps) {
 
         {/* Indicators */}
         <div className="flex-1 min-w-0 flex items-center gap-2">
-          {/* Playbook badge */}
+          {/* Playbook badge with custom color */}
           {playbook && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full border border-primary/20 cursor-default">
+                <span 
+                  className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full cursor-default"
+                  style={{ 
+                    backgroundColor: `${playbook.color}20`,
+                    color: playbook.color,
+                    borderWidth: 1,
+                    borderStyle: 'solid',
+                    borderColor: `${playbook.color}40`
+                  }}
+                >
                   <BookOpen className="w-3 h-3" />
                   <span className="max-w-[80px] truncate">{playbook.name}</span>
                 </span>

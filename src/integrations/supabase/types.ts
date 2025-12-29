@@ -365,6 +365,7 @@ export type Database = {
       playbooks: {
         Row: {
           checklist_questions: Json
+          color: string | null
           confirmation_rules: string[] | null
           created_at: string
           description: string | null
@@ -386,6 +387,7 @@ export type Database = {
         }
         Insert: {
           checklist_questions?: Json
+          color?: string | null
           confirmation_rules?: string[] | null
           created_at?: string
           description?: string | null
@@ -407,6 +409,7 @@ export type Database = {
         }
         Update: {
           checklist_questions?: Json
+          color?: string | null
           confirmation_rules?: string[] | null
           created_at?: string
           description?: string | null
