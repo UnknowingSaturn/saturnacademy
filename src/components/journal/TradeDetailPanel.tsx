@@ -8,6 +8,7 @@ import { TradeProperties } from "./TradeProperties";
 import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
 import { AIAnalysisDisplay } from "./AIAnalysisDisplay";
 import { RuleComplianceAlert } from "@/components/playbooks/RuleComplianceAlert";
+import { PlaybookComplianceChecklist } from "./PlaybookComplianceChecklist";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, Plus, X, Sparkles, Loader2, Save, PanelRightClose, PanelRightOpen } from "lucide-react";
@@ -276,6 +278,44 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                     screenshots={screenshots}
                     onScreenshotsChange={setScreenshots}
                   />
+                </div>
+
+                <Separator />
+
+                {/* Playbook Selection & Compliance */}
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-sm font-semibold mb-2 block">Playbook</Label>
+                    <Select value={playbookId} onValueChange={setPlaybookId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a playbook" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {playbooks?.map(pb => (
+                          <SelectItem key={pb.id} value={pb.id}>
+                            <div className="flex items-center gap-2">
+                              <div 
+                                className="w-2.5 h-2.5 rounded-full" 
+                                style={{ backgroundColor: pb.color }} 
+                              />
+                              {pb.name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Full Playbook Compliance Checklist */}
+                  {selectedPlaybook && (
+                    <PlaybookComplianceChecklist
+                      playbook={selectedPlaybook}
+                      checklistAnswers={checklistAnswers}
+                      onAnswerChange={(ruleId, checked) => 
+                        setChecklistAnswers(prev => ({ ...prev, [ruleId]: checked }))
+                      }
+                    />
+                  )}
                 </div>
 
                 <Separator />
