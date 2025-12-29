@@ -231,7 +231,7 @@ export function TradeChart({ trade, className }: TradeChartProps) {
   }, [allCandles]);
 
   return (
-    <div className={cn("flex flex-col", className)}>
+    <div className={cn("flex flex-col h-full", className)}>
       <div className="flex items-center justify-between mb-2 px-2">
         <div className="flex items-center gap-2">
           <span className="font-semibold">{trade.symbol}</span>
@@ -258,7 +258,7 @@ export function TradeChart({ trade, className }: TradeChartProps) {
           onSpeedChange={setSpeed}
         />
       </div>
-      <div ref={containerRef} className="w-full h-[400px] rounded-lg overflow-hidden bg-background/50" />
+      <div ref={containerRef} className="w-full flex-1 min-h-[300px] rounded-lg overflow-hidden bg-background/50" />
       
       {/* Trade info overlay */}
       <div className="flex items-center justify-between mt-3 px-2 text-sm">

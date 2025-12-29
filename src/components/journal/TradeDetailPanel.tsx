@@ -4,11 +4,9 @@ import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
 import { TradeChart } from "@/components/chart/TradeChart";
-import { TradingViewChart } from "@/components/chart/TradingViewChart";
 import { TradeProperties } from "./TradeProperties";
 import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
 import { AIAnalysisDisplay } from "./AIAnalysisDisplay";
-import { isTradingViewSupported } from "@/lib/symbolMapping";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -17,11 +15,9 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, Plus, X, Sparkles, Loader2, Save, LineChart, Play, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, ChevronDown, Camera, MessageSquare, Target } from "lucide-react";
+import { ArrowLeft, Plus, X, Sparkles, Loader2, Save, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TradeDetailPanelProps {
@@ -54,9 +50,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
     parseScreenshots(existingReview?.screenshots)
   );
   const [newItem, setNewItem] = useState({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showProperties, setShowProperties] = useState(false); // Collapsed by default
-  const [activeTab, setActiveTab] = useState("screenshots");
+  const [showProperties, setShowProperties] = useState(true); // Visible by default
 
   // Helper to parse screenshots from existing review (supports both old string[] and new TradeScreenshot[] formats)
   function parseScreenshots(data: unknown): TradeScreenshot[] {
@@ -77,17 +71,6 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
       return item as TradeScreenshot;
     });
   }
-
-  // Keyboard shortcut: ESC to exit fullscreen
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isFullscreen) {
-        setIsFullscreen(false);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isFullscreen]);
 
   // Reset state when trade changes
   useEffect(() => {
@@ -190,22 +173,14 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
 
   const pnl = trade.net_pnl || 0;
 
-  // Chart height calculations - chart-dominant layout
-  const chartHeight = isFullscreen 
-    ? "h-[calc(100vh-120px)]" 
-    : "h-[calc(100vh-380px)] min-h-[400px]";
-
   return (
     <Sheet open={isOpen} onOpenChange={() => onClose()}>
       <SheetContent 
         side="right" 
-        className={cn(
-          "w-full p-0 overflow-hidden transition-all duration-300",
-          isFullscreen ? "sm:max-w-[100vw]" : "sm:max-w-6xl"
-        )}
+        className="w-full sm:max-w-5xl p-0 overflow-hidden"
       >
         <div className="flex flex-col h-full">
-          {/* Compact Header */}
+          {/* Header */}
           <SheetHeader className="px-4 py-3 border-b border-border flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -230,44 +205,23 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                 </span>
               </div>
               <div className="flex items-center gap-1">
-                {!isFullscreen && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setShowProperties(!showProperties)}
-                      >
-                        {showProperties ? (
-                          <PanelRightClose className="h-4 w-4" />
-                        ) : (
-                          <PanelRightOpen className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {showProperties ? "Hide properties" : "Show properties"}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button 
                       variant="ghost" 
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => setIsFullscreen(!isFullscreen)}
+                      onClick={() => setShowProperties(!showProperties)}
                     >
-                      {isFullscreen ? (
-                        <Minimize2 className="h-4 w-4" />
+                      {showProperties ? (
+                        <PanelRightClose className="h-4 w-4" />
                       ) : (
-                        <Maximize2 className="h-4 w-4" />
+                        <PanelRightOpen className="h-4 w-4" />
                       )}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {isFullscreen ? "Exit fullscreen (ESC)" : "Fullscreen"}
+                    {showProperties ? "Hide properties" : "Show properties"}
                   </TooltipContent>
                 </Tooltip>
                 <Button
@@ -292,247 +246,195 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
             </div>
           </SheetHeader>
 
-          {/* Main Content Area */}
+          {/* Main Content */}
           <div className="flex flex-1 min-h-0">
-            {/* Chart + Tabs Section */}
-            <div className="flex-1 flex flex-col min-w-0">
-              {/* Chart Section - Dominant */}
-              <div className={cn("flex-shrink-0 p-4 pb-2", chartHeight)}>
-                <div className="h-full rounded-lg border border-border bg-card/50">
-                  {isTradingViewSupported(trade.symbol) ? (
-                    <Tabs defaultValue="tradingview" className="h-full flex flex-col">
-                      <TabsList className="mx-4 mt-3 mb-2 w-fit">
-                        <TabsTrigger value="tradingview" className="gap-1.5 text-xs">
-                          <LineChart className="h-3 w-3" />
-                          TradingView
-                        </TabsTrigger>
-                        <TabsTrigger value="replay" className="gap-1.5 text-xs">
-                          <Play className="h-3 w-3" />
-                          Replay
-                        </TabsTrigger>
-                      </TabsList>
-                      <TabsContent value="tradingview" className="flex-1 min-h-0 px-4 pb-4 mt-0">
-                        <TradingViewChart 
-                          trade={trade} 
-                          className="h-full"
-                        />
-                      </TabsContent>
-                      <TabsContent value="replay" className="flex-1 min-h-0 px-4 pb-4 mt-0">
-                        <TradeChart trade={trade} />
-                      </TabsContent>
-                    </Tabs>
-                  ) : (
-                    <div className="h-full p-4">
-                      <TradeChart trade={trade} />
+            {/* Left Side - Scrollable Content */}
+            <ScrollArea className="flex-1">
+              <div className="p-4 space-y-6">
+                {/* Replay Chart */}
+                <div className="rounded-lg border border-border bg-card/50 p-4">
+                  <TradeChart trade={trade} className="h-[450px]" />
+                </div>
+
+                {/* Screenshots */}
+                <div>
+                  <Label className="text-sm font-semibold mb-3 block">Screenshots</Label>
+                  <TradeScreenshotGallery
+                    tradeId={trade.id}
+                    screenshots={screenshots}
+                    onScreenshotsChange={setScreenshots}
+                  />
+                </div>
+
+                <Separator />
+
+                {/* Notes Section */}
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-sm font-semibold mb-2 block">Psychology Notes</Label>
+                    <Textarea
+                      value={psychNotes}
+                      onChange={(e) => setPsychNotes(e.target.value)}
+                      placeholder="How were you feeling? What was your mental state?"
+                      rows={3}
+                      className="text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-sm font-semibold mb-2 block">General Thoughts</Label>
+                    <Textarea
+                      value={thoughts}
+                      onChange={(e) => setThoughts(e.target.value)}
+                      placeholder="General thoughts and reflections..."
+                      rows={3}
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* AI Analysis */}
+                {analysisResult && (
+                  <div>
+                    <Label className="text-sm font-semibold mb-3 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" />
+                      AI Analysis
+                    </Label>
+                    <AIAnalysisDisplay
+                      analysis={analysisResult.analysis}
+                      compliance={analysisResult.compliance}
+                      similarTrades={analysisResult.similar_trades}
+                      onSubmitFeedback={(isAccurate, isUseful, notes) => {}}
+                    />
+                  </div>
+                )}
+
+                <Separator />
+
+                {/* Review Section */}
+                <div className="space-y-4">
+                  {/* Mistakes */}
+                  <div>
+                    <Label className="text-loss text-sm font-semibold mb-2 block">Mistakes</Label>
+                    <div className="space-y-1">
+                      {mistakes.map((item, i) => (
+                        <div key={i} className="flex items-center gap-2 text-sm bg-loss/5 px-3 py-1.5 rounded border border-loss/20">
+                          <span className="flex-1">{item}</span>
+                          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("mistakes", i)}>
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
                     </div>
-                  )}
+                    <div className="flex gap-2 mt-2">
+                      <Input
+                        value={newItem.mistakes}
+                        onChange={(e) => setNewItem({ ...newItem, mistakes: e.target.value })}
+                        placeholder="Add a mistake..."
+                        onKeyDown={(e) => e.key === "Enter" && addItem("mistakes")}
+                        className="h-8 text-sm"
+                      />
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("mistakes")}>
+                        <Plus className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* What I Did Well */}
+                  <div>
+                    <Label className="text-profit text-sm font-semibold mb-2 block">What I Did Well</Label>
+                    <div className="space-y-1">
+                      {didWell.map((item, i) => (
+                        <div key={i} className="flex items-center gap-2 text-sm bg-profit/5 px-3 py-1.5 rounded border border-profit/20">
+                          <span className="flex-1">{item}</span>
+                          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("didWell", i)}>
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Input
+                        value={newItem.didWell}
+                        onChange={(e) => setNewItem({ ...newItem, didWell: e.target.value })}
+                        placeholder="Add something you did well..."
+                        onKeyDown={(e) => e.key === "Enter" && addItem("didWell")}
+                        className="h-8 text-sm"
+                      />
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("didWell")}>
+                        <Plus className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* To Improve */}
+                  <div>
+                    <Label className="text-breakeven text-sm font-semibold mb-2 block">To Improve</Label>
+                    <div className="space-y-1">
+                      {toImprove.map((item, i) => (
+                        <div key={i} className="flex items-center gap-2 text-sm bg-breakeven/5 px-3 py-1.5 rounded border border-breakeven/20">
+                          <span className="flex-1">{item}</span>
+                          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("toImprove", i)}>
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Input
+                        value={newItem.toImprove}
+                        onChange={(e) => setNewItem({ ...newItem, toImprove: e.target.value })}
+                        placeholder="Add something to improve..."
+                        onKeyDown={(e) => e.key === "Enter" && addItem("toImprove")}
+                        className="h-8 text-sm"
+                      />
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("toImprove")}>
+                        <Plus className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Actionable Steps */}
+                  <div>
+                    <Label className="text-sm font-semibold mb-2 block">Actionable Steps</Label>
+                    <div className="space-y-2">
+                      {actionableSteps.map((step, i) => (
+                        <div key={i} className="flex items-center gap-3">
+                          <Checkbox
+                            checked={step.completed}
+                            onCheckedChange={() => toggleActionable(i)}
+                          />
+                          <span className={cn("flex-1 text-sm", step.completed && "line-through text-muted-foreground")}>
+                            {step.text}
+                          </span>
+                          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeActionable(i)}>
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Input
+                        value={newItem.actionable}
+                        onChange={(e) => setNewItem({ ...newItem, actionable: e.target.value })}
+                        placeholder="Add an actionable step..."
+                        onKeyDown={(e) => e.key === "Enter" && addItem("actionable")}
+                        className="h-8 text-sm"
+                      />
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("actionable")}>
+                        <Plus className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
+            </ScrollArea>
 
-              {/* Tabbed Sections Below Chart - Compact */}
-              {!isFullscreen && (
-                <div className="flex-1 min-h-0 px-4 pb-4">
-                  <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-                    <TabsList className="w-fit mb-2">
-                      <TabsTrigger value="screenshots" className="gap-1.5 text-xs">
-                        <Camera className="h-3 w-3" />
-                        Screenshots
-                        {screenshots.length > 0 && (
-                          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/20 text-[10px]">
-                            {screenshots.length}
-                          </span>
-                        )}
-                      </TabsTrigger>
-                      <TabsTrigger value="notes" className="gap-1.5 text-xs">
-                        <MessageSquare className="h-3 w-3" />
-                        Notes
-                      </TabsTrigger>
-                      <TabsTrigger value="review" className="gap-1.5 text-xs">
-                        <Target className="h-3 w-3" />
-                        Review
-                      </TabsTrigger>
-                    </TabsList>
-
-                    <ScrollArea className="flex-1">
-                      {/* Screenshots Tab */}
-                      <TabsContent value="screenshots" className="mt-0">
-                        <TradeScreenshotGallery
-                          tradeId={trade.id}
-                          screenshots={screenshots}
-                          onScreenshotsChange={setScreenshots}
-                        />
-                      </TabsContent>
-
-                      {/* Notes Tab */}
-                      <TabsContent value="notes" className="mt-0 space-y-4">
-                        {/* Psychology Section */}
-                        <div>
-                          <Label className="text-xs font-semibold mb-2 block">Psychology Notes</Label>
-                          <Textarea
-                            value={psychNotes}
-                            onChange={(e) => setPsychNotes(e.target.value)}
-                            placeholder="How were you feeling? What was your mental state?"
-                            rows={3}
-                            className="text-sm"
-                          />
-                        </div>
-
-                        {/* Thoughts */}
-                        <div>
-                          <Label className="text-xs font-semibold mb-2 block">General Thoughts</Label>
-                          <Textarea
-                            value={thoughts}
-                            onChange={(e) => setThoughts(e.target.value)}
-                            placeholder="General thoughts and reflections..."
-                            rows={3}
-                            className="text-sm"
-                          />
-                        </div>
-
-                        {/* AI Analysis Section */}
-                        {analysisResult && (
-                          <div>
-                            <Label className="text-xs font-semibold mb-2 flex items-center gap-2">
-                              <Sparkles className="w-3 h-3" />
-                              AI Analysis
-                            </Label>
-                            <AIAnalysisDisplay
-                              analysis={analysisResult.analysis}
-                              compliance={analysisResult.compliance}
-                              similarTrades={analysisResult.similar_trades}
-                              onSubmitFeedback={(isAccurate, isUseful, notes) => {}}
-                            />
-                          </div>
-                        )}
-                      </TabsContent>
-
-                      {/* Review Tab (ASR + Actionable) */}
-                      <TabsContent value="review" className="mt-0 space-y-4">
-                        {/* Mistakes */}
-                        <div>
-                          <Label className="text-loss text-xs font-semibold mb-2 block">Mistakes</Label>
-                          <div className="space-y-1">
-                            {mistakes.map((item, i) => (
-                              <div key={i} className="flex items-center gap-2 text-sm bg-loss/5 px-3 py-1.5 rounded border border-loss/20">
-                                <span className="flex-1">{item}</span>
-                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("mistakes", i)}>
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="flex gap-2 mt-2">
-                            <Input
-                              value={newItem.mistakes}
-                              onChange={(e) => setNewItem({ ...newItem, mistakes: e.target.value })}
-                              placeholder="Add a mistake..."
-                              onKeyDown={(e) => e.key === "Enter" && addItem("mistakes")}
-                              className="h-8 text-sm"
-                            />
-                            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("mistakes")}>
-                              <Plus className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* What I Did Well */}
-                        <div>
-                          <Label className="text-profit text-xs font-semibold mb-2 block">What I Did Well</Label>
-                          <div className="space-y-1">
-                            {didWell.map((item, i) => (
-                              <div key={i} className="flex items-center gap-2 text-sm bg-profit/5 px-3 py-1.5 rounded border border-profit/20">
-                                <span className="flex-1">{item}</span>
-                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("didWell", i)}>
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="flex gap-2 mt-2">
-                            <Input
-                              value={newItem.didWell}
-                              onChange={(e) => setNewItem({ ...newItem, didWell: e.target.value })}
-                              placeholder="Add something you did well..."
-                              onKeyDown={(e) => e.key === "Enter" && addItem("didWell")}
-                              className="h-8 text-sm"
-                            />
-                            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("didWell")}>
-                              <Plus className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* To Improve */}
-                        <div>
-                          <Label className="text-breakeven text-xs font-semibold mb-2 block">To Improve</Label>
-                          <div className="space-y-1">
-                            {toImprove.map((item, i) => (
-                              <div key={i} className="flex items-center gap-2 text-sm bg-breakeven/5 px-3 py-1.5 rounded border border-breakeven/20">
-                                <span className="flex-1">{item}</span>
-                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("toImprove", i)}>
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="flex gap-2 mt-2">
-                            <Input
-                              value={newItem.toImprove}
-                              onChange={(e) => setNewItem({ ...newItem, toImprove: e.target.value })}
-                              placeholder="Add something to improve..."
-                              onKeyDown={(e) => e.key === "Enter" && addItem("toImprove")}
-                              className="h-8 text-sm"
-                            />
-                            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("toImprove")}>
-                              <Plus className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        <Separator />
-
-                        {/* Actionable Steps */}
-                        <div>
-                          <Label className="text-xs font-semibold mb-2 block">Actionable Steps</Label>
-                          <div className="space-y-2">
-                            {actionableSteps.map((step, i) => (
-                              <div key={i} className="flex items-center gap-3">
-                                <Checkbox
-                                  checked={step.completed}
-                                  onCheckedChange={() => toggleActionable(i)}
-                                />
-                                <span className={cn("flex-1 text-sm", step.completed && "line-through text-muted-foreground")}>
-                                  {step.text}
-                                </span>
-                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeActionable(i)}>
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="flex gap-2 mt-2">
-                            <Input
-                              value={newItem.actionable}
-                              onChange={(e) => setNewItem({ ...newItem, actionable: e.target.value })}
-                              placeholder="Add an actionable step..."
-                              onKeyDown={(e) => e.key === "Enter" && addItem("actionable")}
-                              className="h-8 text-sm"
-                            />
-                            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("actionable")}>
-                              <Plus className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      </TabsContent>
-                    </ScrollArea>
-                  </Tabs>
-                </div>
-              )}
-            </div>
-
-            {/* Right Sidebar - Properties (Collapsible, hidden in fullscreen) */}
-            {!isFullscreen && showProperties && (
-              <div className="w-60 border-l border-border bg-muted/20 flex-shrink-0 overflow-auto">
+            {/* Right Sidebar - Properties */}
+            {showProperties && (
+              <div className="w-64 border-l border-border bg-muted/20 flex-shrink-0 overflow-auto">
                 <div className="p-4">
                   <TradeProperties trade={trade} />
                 </div>
