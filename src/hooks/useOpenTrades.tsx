@@ -122,6 +122,7 @@ export function useOpenTrades() {
           accounts(*)
         `)
         .eq("is_open", true)
+        .eq("is_archived", false)
         .order("entry_time", { ascending: false });
 
       if (error) throw error;

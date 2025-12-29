@@ -163,11 +163,12 @@ export function usePlaybookStats() {
     queryFn: async (): Promise<Record<string, PlaybookStats>> => {
       if (!playbooks || playbooks.length === 0) return {};
       
-      // Get all closed trades with their playbook_id field
+      // Get all closed, non-archived trades with their playbook_id field
       const { data: trades, error: tradesError } = await supabase
         .from('trades')
         .select('id, net_pnl, r_multiple_actual, entry_time, playbook_id')
-        .eq('is_open', false);
+        .eq('is_open', false)
+        .eq('is_archived', false);
 
       if (tradesError) throw tradesError;
 
@@ -321,6 +322,7 @@ export function usePlaybookRecentTrades(playbookId: string | undefined, limit: n
         .select('id, symbol, entry_time, net_pnl, r_multiple_actual, direction')
         .eq('playbook_id', playbookId)
         .eq('is_open', false)
+        .eq('is_archived', false)
         .order('entry_time', { ascending: false })
         .limit(limit);
       

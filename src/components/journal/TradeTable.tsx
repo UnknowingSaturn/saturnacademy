@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile } from "@/types/trading";
-import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview, useBulkDeleteTrades } from "@/hooks/useTrades";
+import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview, useBulkArchiveTrades } from "@/hooks/useTrades";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { cn } from "@/lib/utils";
@@ -24,7 +24,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   const updateTrade = useUpdateTrade();
   const updateReview = useUpdateTradeReview();
   const createReview = useCreateTradeReview();
-  const bulkDelete = useBulkDeleteTrades();
+  const bulkArchive = useBulkArchiveTrades();
   const [editingPlace, setEditingPlace] = useState<string | null>(null);
   const [placeValue, setPlaceValue] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
@@ -137,8 +137,8 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
     setSelectedIds(newSelected);
   };
 
-  const handleBulkDelete = async () => {
-    await bulkDelete.mutateAsync(Array.from(selectedIds));
+  const handleBulkArchive = async () => {
+    await bulkArchive.mutateAsync(Array.from(selectedIds));
     setSelectedIds(new Set());
   };
 
@@ -510,9 +510,10 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
       {/* Bulk action bar */}
       <BulkActionBar
         selectedCount={selectedIds.size}
-        onDelete={handleBulkDelete}
+        onAction={handleBulkArchive}
         onClear={() => setSelectedIds(new Set())}
-        isDeleting={bulkDelete.isPending}
+        isLoading={bulkArchive.isPending}
+        mode="archive"
       />
     </div>
   );
