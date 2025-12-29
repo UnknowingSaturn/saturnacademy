@@ -333,16 +333,6 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                     />
                   </div>
 
-                  <div>
-                    <Label className="text-sm font-semibold mb-2 block">General Thoughts</Label>
-                    <Textarea
-                      value={thoughts}
-                      onChange={(e) => setThoughts(e.target.value)}
-                      placeholder="General thoughts and reflections..."
-                      rows={3}
-                      className="text-sm"
-                    />
-                  </div>
                 </div>
 
                 {/* AI Analysis */}
