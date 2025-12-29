@@ -1,10 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Trade, TradeReview, Playbook } from "@/types/trading";
 import { usePlaybooks } from "./usePlaybooks";
 import { detectSessionFromBrokerTime } from "@/lib/time";
 
-interface OpenTradeWithCompliance extends Trade {
+export interface OpenTradeWithCompliance extends Trade {
   matchedPlaybook?: Playbook;
   complianceStatus: 'pending' | 'compliant' | 'violations';
   detectedSession?: string;
@@ -77,6 +78,35 @@ function transformReview(row: any): TradeReview {
 
 export function useOpenTrades() {
   const { data: playbooks = [] } = usePlaybooks();
+  const queryClient = useQueryClient();
+
+  // Subscribe to realtime updates for open trades
+  useEffect(() => {
+    const channel = supabase
+      .channel('open-trades-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trades',
+        },
+        (payload) => {
+          // Only invalidate if the trade is open or just became closed
+          const newRecord = payload.new as { is_open?: boolean } | undefined;
+          const oldRecord = payload.old as { is_open?: boolean } | undefined;
+          
+          if (newRecord?.is_open || oldRecord?.is_open) {
+            queryClient.invalidateQueries({ queryKey: ['open-trades'] });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   return useQuery<OpenTradeWithCompliance[]>({
     queryKey: ["open-trades"],
@@ -144,7 +174,7 @@ export function useOpenTrades() {
         };
       });
     },
-    refetchInterval: 30000, // Refresh every 30 seconds for live trades
+    refetchInterval: 60000, // Reduced to 60s since we have realtime now
   });
 }
 
