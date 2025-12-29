@@ -215,9 +215,9 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
   const formState = getFormStateSummary();
 
   return (
-    <div className="flex flex-col h-full border-l">
-      {/* Header */}
-      <div className="p-3 border-b bg-muted/30">
+    <div className="flex flex-col h-full min-h-0 border-l bg-background">
+      {/* Header - fixed height, never shrinks */}
+      <div className="flex-shrink-0 p-3 border-b bg-muted/30">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary" />
@@ -250,73 +250,75 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
         )}
       </div>
 
-      {/* Messages */}
-      <ScrollArea className="flex-1 p-3" ref={scrollRef}>
-        <div className="space-y-3">
-          {messages.map((msg, i) => (
-            <div key={i} className={cn(
-              "flex flex-col gap-2",
-              msg.role === 'user' ? "items-end" : "items-start"
-            )}>
-              <div className={cn(
-                "max-w-[90%] rounded-lg px-3 py-2 text-sm",
-                msg.role === 'user' 
-                  ? "bg-primary text-primary-foreground" 
-                  : "bg-muted"
+      {/* Messages - scrollable, takes remaining space */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <ScrollArea className="h-full">
+          <div className="p-3 space-y-3" ref={scrollRef}>
+            {messages.map((msg, i) => (
+              <div key={i} className={cn(
+                "flex flex-col gap-2",
+                msg.role === 'user' ? "items-end" : "items-start"
               )}>
-                {msg.content}
-              </div>
-              
-              {/* Suggestions preview */}
-              {msg.suggestions && Object.keys(msg.suggestions).length > 0 && (
-                <div className="max-w-[90%] bg-primary/5 border border-primary/20 rounded-lg p-3 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-medium text-primary">
-                    <CheckCircle2 className="w-3 h-3" />
-                    Extracted from your description:
+                <div className={cn(
+                  "max-w-[90%] rounded-lg px-3 py-2 text-sm",
+                  msg.role === 'user' 
+                    ? "bg-primary text-primary-foreground" 
+                    : "bg-muted"
+                )}>
+                  {msg.content}
+                </div>
+                
+                {/* Suggestions preview */}
+                {msg.suggestions && Object.keys(msg.suggestions).length > 0 && (
+                  <div className="max-w-[90%] bg-primary/5 border border-primary/20 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-primary">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Extracted from your description:
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {renderSuggestionPreview(msg.suggestions).map((item, j) => (
+                        <Badge key={j} variant="secondary" className="text-xs">
+                          {item}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    {renderSuggestionPreview(msg.suggestions).map((item, j) => (
-                      <Badge key={j} variant="secondary" className="text-xs">
-                        {item}
-                      </Badge>
+                )}
+
+                {/* Follow-up prompts */}
+                {msg.role === 'assistant' && msg.followUpPrompts && msg.followUpPrompts.length > 0 && (
+                  <div className="flex flex-wrap gap-1 max-w-[90%]">
+                    {msg.followUpPrompts.map((prompt, j) => (
+                      <Button
+                        key={j}
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs px-2"
+                        onClick={() => handleFollowUp(prompt)}
+                        disabled={isLoading}
+                      >
+                        <Lightbulb className="w-3 h-3 mr-1" />
+                        {prompt}
+                      </Button>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+            ))}
+            
+            {isLoading && (
+              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Thinking...
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      </div>
 
-              {/* Follow-up prompts */}
-              {msg.role === 'assistant' && msg.followUpPrompts && msg.followUpPrompts.length > 0 && (
-                <div className="flex flex-wrap gap-1 max-w-[90%]">
-                  {msg.followUpPrompts.map((prompt, j) => (
-                    <Button
-                      key={j}
-                      variant="outline"
-                      size="sm"
-                      className="h-6 text-xs px-2"
-                      onClick={() => handleFollowUp(prompt)}
-                      disabled={isLoading}
-                    >
-                      <Lightbulb className="w-3 h-3 mr-1" />
-                      {prompt}
-                    </Button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-          
-          {isLoading && (
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Thinking...
-            </div>
-          )}
-        </div>
-      </ScrollArea>
-
-      {/* Quick Start Templates */}
+      {/* Quick Start Templates - fixed height when shown */}
       {showQuickPrompts && messages.length === 1 && (
-        <div className="p-3 border-t bg-muted/20">
+        <div className="flex-shrink-0 p-3 border-t bg-muted/20">
           <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
             <Lightbulb className="w-3 h-3" />
             Quick Start Templates
@@ -337,9 +339,9 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
         </div>
       )}
 
-      {/* Apply Suggestions Button */}
+      {/* Apply Suggestions Button - fixed height when shown */}
       {pendingSuggestions && Object.keys(pendingSuggestions).length > 0 && (
-        <div className="p-3 border-t bg-primary/5">
+        <div className="flex-shrink-0 p-3 border-t bg-primary/5">
           <Button 
             onClick={applySuggestions}
             className="w-full gap-2"
@@ -351,13 +353,13 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
         </div>
       )}
 
-      {/* Input */}
-      <div className="p-3 border-t">
+      {/* Input - always pinned at bottom */}
+      <div className="flex-shrink-0 p-3 border-t bg-background">
         <div className="flex gap-2">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
             placeholder="Describe your trading setup..."
             disabled={isLoading}
             className="text-sm"
