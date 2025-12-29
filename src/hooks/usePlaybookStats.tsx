@@ -128,3 +128,24 @@ export function usePlaybookStat(playbookId: string | undefined) {
     data: playbookId && allStats ? allStats[playbookId] : undefined,
   };
 }
+
+export function usePlaybookRecentTrades(playbookName: string | undefined, limit: number = 5) {
+  return useQuery({
+    queryKey: ['playbook-recent-trades', playbookName, limit],
+    queryFn: async () => {
+      if (!playbookName) return [];
+      
+      const { data, error } = await supabase
+        .from('trades')
+        .select('id, symbol, entry_time, net_pnl, r_multiple_actual, direction')
+        .eq('model', playbookName)
+        .eq('is_open', false)
+        .order('entry_time', { ascending: false })
+        .limit(limit);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!playbookName,
+  });
+}
