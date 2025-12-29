@@ -3,15 +3,17 @@ import { useMemo } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Trade } from "@/types/trading";
 import { format } from "date-fns";
+import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 interface EquityCurveProps {
   trades: Trade[];
   startingBalance?: number;
-  currentEquity?: number;
+  previousPeriodPnl?: number;
+  periodLabel?: string;
 }
 
 export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
-  function EquityCurve({ trades, startingBalance = 10000, currentEquity }, _ref) {
+  function EquityCurve({ trades, startingBalance = 10000, previousPeriodPnl = 0, periodLabel = 'period' }, _ref) {
   const data = useMemo(() => {
     const closedTrades = trades
       .filter(t => !t.is_open && t.exit_time)
@@ -32,12 +34,25 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
     return points;
   }, [trades, startingBalance]);
 
-  // Use actual current equity if provided, otherwise calculate from chart data
-  const displayEquity = currentEquity ?? (data.length > 0 ? data[data.length - 1].balance : startingBalance);
-  const isProfit = displayEquity > startingBalance;
+  // Calculate period P&L (not overall equity)
   const periodPnl = data.length > 1 ? data[data.length - 1].balance - startingBalance : 0;
-  const totalPnl = displayEquity - startingBalance;
-  const pnlPercent = startingBalance > 0 ? ((totalPnl / startingBalance) * 100).toFixed(2) : "0.00";
+  const isProfit = periodPnl >= 0;
+  const periodPnlPercent = startingBalance > 0 ? ((periodPnl / startingBalance) * 100).toFixed(2) : "0.00";
+  
+  // Previous period comparison
+  const prevIsProfit = previousPeriodPnl >= 0;
+  const prevPnlPercent = startingBalance > 0 ? ((previousPeriodPnl / startingBalance) * 100).toFixed(2) : "0.00";
+  
+  // Calculate delta
+  const delta = periodPnl - previousPeriodPnl;
+  const deltaPercent = previousPeriodPnl !== 0 
+    ? ((delta / Math.abs(previousPeriodPnl)) * 100).toFixed(0)
+    : periodPnl !== 0 ? '100' : '0';
+  
+  // Determine comparison status
+  const isBetter = delta > 0;
+  const isWorse = delta < 0;
+  const isSame = delta === 0;
 
   return (
     <div className="col-span-2 rounded-xl border border-border/50 bg-card/80 backdrop-blur-xl overflow-hidden"
@@ -48,23 +63,46 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
       <div className="p-6 pb-2">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-foreground">Equity Curve</h3>
-            <p className="text-sm text-muted-foreground">Account balance over time</p>
+            <h3 className="text-lg font-semibold text-foreground">
+              {periodLabel === 'week' ? 'Weekly' : 'Monthly'} Performance
+            </h3>
+            <p className="text-sm text-muted-foreground">Period balance change</p>
           </div>
-          <div className="text-right">
-            <p className={`text-2xl font-bold font-mono ${isProfit ? 'text-profit' : 'text-loss'}`}
-              style={{ textShadow: isProfit ? "0 0 20px hsl(var(--profit) / 0.4)" : "0 0 20px hsl(var(--loss) / 0.4)" }}
-            >
-              ${displayEquity.toLocaleString()}
-            </p>
-            <p className={`text-sm font-medium ${isProfit ? 'text-profit' : 'text-loss'}`}>
-              {totalPnl >= 0 ? '+' : ''}{pnlPercent}% total
-            </p>
-            {periodPnl !== 0 && (
-              <p className={`text-xs ${periodPnl >= 0 ? 'text-profit/70' : 'text-loss/70'}`}>
-                {periodPnl >= 0 ? '+' : ''}${periodPnl.toFixed(2)} this period
+          <div className="text-right space-y-1">
+            {/* Current Period P&L */}
+            <div>
+              <p className={`text-2xl font-bold font-mono ${isProfit ? 'text-profit' : 'text-loss'}`}
+                style={{ textShadow: isProfit ? "0 0 20px hsl(var(--profit) / 0.4)" : "0 0 20px hsl(var(--loss) / 0.4)" }}
+              >
+                {periodPnl >= 0 ? '+' : ''}${periodPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-            )}
+              <p className={`text-sm font-medium ${isProfit ? 'text-profit' : 'text-loss'}`}>
+                {periodPnl >= 0 ? '+' : ''}{periodPnlPercent}% this {periodLabel}
+              </p>
+            </div>
+            
+            {/* Previous Period Comparison */}
+            <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/50">
+              <span className="text-xs text-muted-foreground">
+                Last {periodLabel}: <span className={prevIsProfit ? 'text-profit/80' : 'text-loss/80'}>
+                  {previousPeriodPnl >= 0 ? '+' : ''}${previousPeriodPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </span>
+              {!isSame && (
+                <span className={`inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded ${
+                  isBetter ? 'bg-profit/15 text-profit' : 'bg-loss/15 text-loss'
+                }`}>
+                  {isBetter ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                  {isBetter ? '+' : ''}{deltaPercent}%
+                </span>
+              )}
+              {isSame && (
+                <span className="inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                  <Minus className="w-3 h-3" />
+                  Same
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>

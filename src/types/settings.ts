@@ -78,6 +78,7 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'day', label: 'Day', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(50px, 0.5fr)', category: 'calculated' },
   { key: 'symbol', label: 'Pair', type: 'text', sortable: true, filterable: true, hideable: false, width: 'minmax(70px, 1fr)', category: 'calculated' },
   { key: 'r_multiple_actual', label: 'RR', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(60px, 0.8fr)', category: 'calculated' },
+  { key: 'account_pct', label: 'Acct %', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.9fr)', category: 'calculated' },
   { key: 'result', label: 'Result', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.8fr)', category: 'calculated' },
   // User-editable fields (right side)
   { key: 'session', label: 'Session', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'session', category: 'editable' },
@@ -91,7 +92,7 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
 
 export const DEFAULT_VISIBLE_COLUMNS = [
   // Calculated first
-  'trade_number', 'entry_time', 'day', 'symbol', 'r_multiple_actual', 'result',
+  'trade_number', 'entry_time', 'day', 'symbol', 'r_multiple_actual', 'account_pct', 'result',
   // Editable after
   'session', 'model', 'alignment', 'entry_timeframes', 'profile', 'emotional_state_before', 'place'
 ];
