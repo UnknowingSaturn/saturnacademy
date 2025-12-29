@@ -95,7 +95,7 @@ function TradingViewChartComponent({ trade, className }: TradingViewChartProps) 
 
   if (!tradingViewSymbol) {
     return (
-      <div className={cn("flex items-center justify-center h-[400px] bg-muted/20 rounded-lg", className)}>
+      <div className={cn("flex items-center justify-center h-[500px] bg-muted/20 rounded-lg", className)}>
         <p className="text-muted-foreground text-sm">
           Symbol "{trade.symbol}" is not supported by TradingView
         </p>
@@ -122,7 +122,7 @@ function TradingViewChartComponent({ trade, className }: TradingViewChartProps) 
       <div
         id={`tradingview-widget-${trade.id}`}
         ref={containerRef}
-        className="w-full h-[400px] rounded-lg overflow-hidden"
+        className="w-full h-[500px] rounded-lg overflow-hidden"
       />
       
       {/* Trade info overlay */}
