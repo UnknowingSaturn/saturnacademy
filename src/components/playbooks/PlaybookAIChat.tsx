@@ -362,7 +362,7 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
               setInput(e.target.value);
               // Auto-resize
               e.target.style.height = 'auto';
-              e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`;
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -372,8 +372,8 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
             }}
             placeholder="Describe your trading setup..."
             disabled={isLoading}
-            className="text-sm min-h-[60px] max-h-[150px] resize-none"
-            rows={2}
+            className="text-sm min-h-[80px] max-h-[180px] resize-none"
+            rows={3}
           />
           <Button 
             size="icon" 
