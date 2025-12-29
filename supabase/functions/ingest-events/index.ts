@@ -324,15 +324,22 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
   const etMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
   const etTime = etHour + etMinute / 60;
   
+  // Session detection priority (London takes precedence in the 03:00-04:00 overlap):
+  // - London: 03:00 - 08:00 ET (checked first to capture 03:00-04:00)
+  // - Tokyo: 19:00 - 03:00 ET (after London close)
+  // - New York AM: 08:00 - 12:00 ET
+  // - New York PM: 12:00 - 17:00 ET
+  // - Off Hours: 17:00 - 19:00 ET
   let session = "off_hours";
-  // Tokyo: 19:00 - 04:00 ET (overnight)
-  if (etTime >= 19 || etTime < 4) session = "tokyo";
-  // London: 03:00 - 08:00 ET
-  else if (etTime >= 3 && etTime < 8) session = "london";
-  // New York AM: 08:00 - 12:00 ET (main killzone 9:30-11:30)
-  else if (etTime >= 8 && etTime < 12) session = "new_york_am";
-  // New York PM: 12:00 - 17:00 ET
-  else if (etTime >= 12 && etTime < 17) session = "new_york_pm";
+  if (etTime >= 3 && etTime < 8) {
+    session = "london";
+  } else if (etTime >= 8 && etTime < 12) {
+    session = "new_york_am";
+  } else if (etTime >= 12 && etTime < 17) {
+    session = "new_york_pm";
+  } else if (etTime >= 19 || etTime < 3) {
+    session = "tokyo";
+  }
   
   console.log("Session detection:", { 
     utcTime: eventDate.toISOString(), 
