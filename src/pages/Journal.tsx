@@ -1,14 +1,17 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTrades } from "@/hooks/useTrades";
+import { useUserSettings } from "@/hooks/useUserSettings";
 import { TradeTable } from "@/components/journal/TradeTable";
 import { TradeDetailPanel } from "@/components/journal/TradeDetailPanel";
 import { ManualTradeForm } from "@/components/journal/ManualTradeForm";
 import { JournalSettingsDialog } from "@/components/journal/JournalSettingsDialog";
+import { FilterBar } from "@/components/journal/FilterBar";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SessionType, Trade } from "@/types/trading";
+import { FilterCondition } from "@/types/settings";
 import { Search, Settings } from "lucide-react";
 
 export default function Journal() {
@@ -17,21 +20,93 @@ export default function Journal() {
   const [resultFilter, setResultFilter] = useState<"all" | "win" | "loss" | "open">("all");
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("sessions");
+  const [activeFilters, setActiveFilters] = useState<FilterCondition[]>([]);
 
   const { data: trades, isLoading } = useTrades();
+  const { data: settings } = useUserSettings();
 
-  const filteredTrades = trades?.filter(trade => {
-    if (symbolFilter && !trade.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) {
-      return false;
+  // Apply all filters
+  const filteredTrades = useMemo(() => {
+    let result = trades || [];
+
+    // Symbol filter
+    if (symbolFilter) {
+      result = result.filter(trade => 
+        trade.symbol.toLowerCase().includes(symbolFilter.toLowerCase())
+      );
     }
-    if (sessionFilter !== "all" && trade.session !== sessionFilter) {
-      return false;
+
+    // Session filter
+    if (sessionFilter !== "all") {
+      result = result.filter(trade => trade.session === sessionFilter);
     }
-    if (resultFilter === "win" && (trade.net_pnl || 0) <= 0) return false;
-    if (resultFilter === "loss" && (trade.net_pnl || 0) >= 0) return false;
-    if (resultFilter === "open" && !trade.is_open) return false;
-    return true;
-  }) || [];
+
+    // Result filter
+    if (resultFilter === "win") {
+      result = result.filter(trade => (trade.net_pnl || 0) > 0);
+    } else if (resultFilter === "loss") {
+      result = result.filter(trade => (trade.net_pnl || 0) < 0);
+    } else if (resultFilter === "open") {
+      result = result.filter(trade => trade.is_open);
+    }
+
+    // Apply advanced filters from FilterBar
+    for (const filter of activeFilters) {
+      result = result.filter(trade => {
+        const value = getTradeValue(trade, filter.column);
+        
+        switch (filter.operator) {
+          case 'equals':
+            return String(value).toLowerCase() === String(filter.value).toLowerCase();
+          case 'not_equals':
+            return String(value).toLowerCase() !== String(filter.value).toLowerCase();
+          case 'contains':
+            return String(value).toLowerCase().includes(String(filter.value).toLowerCase());
+          case 'not_contains':
+            return !String(value).toLowerCase().includes(String(filter.value).toLowerCase());
+          case 'greater_than':
+            return Number(value) > Number(filter.value);
+          case 'less_than':
+            return Number(value) < Number(filter.value);
+          case 'is_empty':
+            return value === null || value === undefined || value === '';
+          case 'is_not_empty':
+            return value !== null && value !== undefined && value !== '';
+          default:
+            return true;
+        }
+      });
+    }
+
+    return result;
+  }, [trades, symbolFilter, sessionFilter, resultFilter, activeFilters]);
+
+  const getTradeValue = (trade: Trade, column: string): any => {
+    switch (column) {
+      case 'trade_number': return trade.trade_number;
+      case 'symbol': return trade.symbol;
+      case 'session': return trade.session;
+      case 'model': return trade.model;
+      case 'profile': return trade.profile;
+      case 'r_multiple_actual': return trade.r_multiple_actual;
+      case 'net_pnl': return trade.net_pnl;
+      case 'place': return trade.place;
+      case 'emotional_state_before': return trade.review?.emotional_state_before;
+      case 'result':
+        if (trade.is_open) return 'open';
+        if ((trade.net_pnl || 0) > 0) return 'win';
+        if ((trade.net_pnl || 0) < 0) return 'loss';
+        return 'be';
+      default:
+        return (trade as any)[column];
+    }
+  };
+
+  const handleEditProperty = (propertyName: string) => {
+    setSettingsTab("properties");
+    setSettingsOpen(true);
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -49,7 +124,7 @@ export default function Journal() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px] max-w-[300px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -83,6 +158,9 @@ export default function Journal() {
             <SelectItem value="open">Open</SelectItem>
           </SelectContent>
         </Select>
+        
+        {/* Advanced Filter Bar */}
+        <FilterBar filters={activeFilters} onFiltersChange={setActiveFilters} />
       </div>
 
       {/* Trade Table */}
@@ -98,7 +176,12 @@ export default function Journal() {
           <p className="text-sm">Import trades or add them manually to get started</p>
         </div>
       ) : (
-        <TradeTable trades={filteredTrades} onTradeClick={setSelectedTrade} />
+        <TradeTable 
+          trades={filteredTrades} 
+          onTradeClick={setSelectedTrade}
+          visibleColumns={settings?.visible_columns}
+          onEditProperty={handleEditProperty}
+        />
       )}
 
       {/* Trade Detail Panel */}
