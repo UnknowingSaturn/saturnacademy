@@ -7,6 +7,7 @@ import { Json } from '@/integrations/supabase/types';
 function transformPlaybook(row: any): Playbook {
   return {
     ...row,
+    color: row.color || '#6366f1',
     checklist_questions: (row.checklist_questions as ChecklistQuestion[]) || [],
     session_filter: row.session_filter as SessionType[] | null,
     symbol_filter: row.symbol_filter as string[] | null,
@@ -65,6 +66,7 @@ export function useCreatePlaybook() {
           user_id: user.id,
           name: playbook.name,
           description: playbook.description,
+          color: playbook.color || '#6366f1',
           is_active: playbook.is_active ?? true,
           checklist_questions: (playbook.checklist_questions || []) as unknown as Json,
           session_filter: playbook.session_filter || null,
@@ -106,6 +108,7 @@ export function useUpdatePlaybook() {
       // Map all fields explicitly
       if (updates.name !== undefined) updateData.name = updates.name;
       if (updates.description !== undefined) updateData.description = updates.description;
+      if (updates.color !== undefined) updateData.color = updates.color;
       if (updates.is_active !== undefined) updateData.is_active = updates.is_active;
       if (updates.checklist_questions !== undefined) {
         updateData.checklist_questions = updates.checklist_questions as unknown as Json;

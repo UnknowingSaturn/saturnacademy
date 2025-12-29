@@ -129,6 +129,7 @@ export interface Playbook {
   user_id: string;
   name: string;
   description: string | null;
+  color: string; // Customizable color for card and model column
   session_filter: SessionType[] | null;
   symbol_filter: string[] | null;
   checklist_questions: ChecklistQuestion[];

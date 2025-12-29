@@ -39,7 +39,13 @@ export function PlaybookCard({ playbook, stats, onEdit, onDelete }: PlaybookCard
       )}
       onClick={handleCardClick}
     >
-      {/* Win rate indicator bar at top */}
+      {/* Color indicator bar at top */}
+      <div 
+        className="absolute top-0 left-0 right-0 h-1"
+        style={{ backgroundColor: playbook.color }}
+      />
+      
+      {/* Win rate overlay on color bar */}
       {stats && stats.totalTrades > 0 && (
         <div className="absolute top-0 left-0 right-0 h-1">
           <div 
@@ -56,6 +62,10 @@ export function PlaybookCard({ playbook, stats, onEdit, onDelete }: PlaybookCard
         <div className="flex items-start justify-between">
           <div className="space-y-1 flex-1 min-w-0">
             <CardTitle className="flex items-center gap-2 text-lg">
+              <div 
+                className="w-3 h-3 rounded-full shrink-0" 
+                style={{ backgroundColor: playbook.color }}
+              />
               <span className="truncate">{playbook.name}</span>
             </CardTitle>
             {playbook.description && (
