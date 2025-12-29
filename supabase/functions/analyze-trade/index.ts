@@ -52,6 +52,12 @@ STRATEGY REFINEMENT:
 - Identify patterns that could become systematic filters
 - Observe potential edges that could be added to the playbook
 
+TIME WINDOW VERIFICATION (CRITICAL):
+- All entry times in TRADE DATA are shown in ET (Eastern Time)
+- When checking time windows (e.g., "03:00-04:00 EST"), verify the ET hour is within range before flagging as a violation
+- For example, if entry is at 03:19 ET and rule says "within 03:00-04:00", this is COMPLIANT (not a deviation)
+- Only flag time-based violations when the time is clearly OUTSIDE the specified window
+
 Your tone is that of a research analyst: precise, data-driven, and constructive but not soft.`;
 
 interface AIAnalysisOutput {
@@ -99,6 +105,36 @@ interface AIAnalysisOutput {
   screenshots_analyzed: boolean;
 }
 
+function formatTimeInET(utcTimestamp: string): string {
+  try {
+    const date = new Date(utcTimestamp);
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+  } catch {
+    return utcTimestamp;
+  }
+}
+
+function formatDateTimeInET(utcTimestamp: string): string {
+  try {
+    const date = new Date(utcTimestamp);
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+  } catch {
+    return utcTimestamp;
+  }
+}
+
 function buildUserPrompt(
   trade: any,
   review: any,
@@ -119,8 +155,8 @@ function buildUserPrompt(
 ## TRADE DATA
 - Symbol: ${trade.symbol}
 - Direction: ${trade.direction.toUpperCase()}
-- Entry: ${trade.entry_price} @ ${trade.entry_time}
-- Exit: ${trade.exit_price || "Still open"} @ ${trade.exit_time || "N/A"}
+- Entry: ${trade.entry_price} @ ${formatTimeInET(trade.entry_time)} ET (${formatDateTimeInET(trade.entry_time)})
+- Exit: ${trade.exit_price || "Still open"} @ ${trade.exit_time ? formatTimeInET(trade.exit_time) + " ET" : "N/A"}
 - Result: ${tradeResult} (${pnl}, ${rMultiple})
 - Duration: ${duration}
 - Session: ${trade.session || "Unknown"}
