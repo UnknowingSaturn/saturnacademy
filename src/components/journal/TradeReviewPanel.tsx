@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ChecklistQuestion, ActionableStep } from "@/types/trading";
+import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ChecklistQuestion, ActionableStep, TradeScreenshot } from "@/types/trading";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Plus, X, Sparkles, Loader2 } from "lucide-react";
-import { ScreenshotUpload } from "./ScreenshotUpload";
+import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
 
 interface TradeReviewPanelProps {
   trade: Trade;
@@ -54,8 +54,30 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
   const [toImprove, setToImprove] = useState<string[]>(existingReview?.to_improve || []);
   const [actionableSteps, setActionableSteps] = useState<ActionableStep[]>(existingReview?.actionable_steps || []);
   const [thoughts, setThoughts] = useState(existingReview?.thoughts || "");
-  const [screenshots, setScreenshots] = useState<string[]>(existingReview?.screenshots || []);
+  const [screenshots, setScreenshots] = useState<TradeScreenshot[]>(
+    parseScreenshots(existingReview?.screenshots)
+  );
   const [newItem, setNewItem] = useState({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
+
+  // Helper to parse screenshots from existing review (supports both old string[] and new TradeScreenshot[] formats)
+  function parseScreenshots(data: unknown): TradeScreenshot[] {
+    if (!data || !Array.isArray(data)) return [];
+    
+    return data.map((item) => {
+      if (typeof item === 'string') {
+        // Legacy format: plain URL string
+        return {
+          id: crypto.randomUUID(),
+          timeframe: '15m' as const,
+          url: item,
+          description: '',
+          created_at: new Date().toISOString(),
+        };
+      }
+      // New format: TradeScreenshot object
+      return item as TradeScreenshot;
+    });
+  }
 
   const selectedPlaybook = playbooks?.find(p => p.id === playbookId);
 
@@ -474,7 +496,7 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
               <CardTitle className="text-base">Chart Screenshots</CardTitle>
             </CardHeader>
             <CardContent>
-              <ScreenshotUpload
+              <TradeScreenshotGallery
                 tradeId={trade.id}
                 screenshots={screenshots}
                 onScreenshotsChange={setScreenshots}

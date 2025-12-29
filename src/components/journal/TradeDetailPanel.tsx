@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
-import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep } from "@/types/trading";
+import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep, TradeScreenshot } from "@/types/trading";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
 import { TradeChart } from "@/components/chart/TradeChart";
 import { TradingViewChart } from "@/components/chart/TradingViewChart";
 import { TradeProperties } from "./TradeProperties";
-import { TradeComments } from "./TradeComments";
+import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
 import { AIAnalysisDisplay } from "./AIAnalysisDisplay";
 import { isTradingViewSupported } from "@/lib/symbolMapping";
 import { Button } from "@/components/ui/button";
@@ -49,9 +49,32 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
   const [toImprove, setToImprove] = useState<string[]>(existingReview?.to_improve || []);
   const [actionableSteps, setActionableSteps] = useState<ActionableStep[]>(existingReview?.actionable_steps || []);
   const [thoughts, setThoughts] = useState(existingReview?.thoughts || "");
+  const [screenshots, setScreenshots] = useState<TradeScreenshot[]>(
+    parseScreenshots(existingReview?.screenshots)
+  );
   const [newItem, setNewItem] = useState({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showProperties, setShowProperties] = useState(true);
+
+  // Helper to parse screenshots from existing review (supports both old string[] and new TradeScreenshot[] formats)
+  function parseScreenshots(data: unknown): TradeScreenshot[] {
+    if (!data || !Array.isArray(data)) return [];
+    
+    return data.map((item, index) => {
+      if (typeof item === 'string') {
+        // Legacy format: plain URL string
+        return {
+          id: crypto.randomUUID(),
+          timeframe: '15m' as const,
+          url: item,
+          description: '',
+          created_at: new Date().toISOString(),
+        };
+      }
+      // New format: TradeScreenshot object
+      return item as TradeScreenshot;
+    });
+  }
 
   // Keyboard shortcut: ESC to exit fullscreen
   useEffect(() => {
@@ -79,6 +102,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
       setToImprove(trade.review.to_improve || []);
       setActionableSteps(trade.review.actionable_steps || []);
       setThoughts(trade.review.thoughts || "");
+      setScreenshots(parseScreenshots(trade.review.screenshots));
     } else {
       // Reset to defaults when no review
       setPlaybookId("");
@@ -93,6 +117,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
       setToImprove([]);
       setActionableSteps([]);
       setThoughts("");
+      setScreenshots([]);
     }
   }, [trade?.id, trade?.review]);
 
@@ -116,7 +141,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
       to_improve: toImprove,
       actionable_steps: actionableSteps,
       thoughts: thoughts || null,
-      screenshots: existingReview?.screenshots || [],
+      screenshots: screenshots,
       reviewed_at: new Date().toISOString(),
     };
 
@@ -273,7 +298,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                       <TabsContent value="tradingview">
                         <TradingViewChart 
                           trade={trade} 
-                          className={isFullscreen ? "h-[calc(100vh-280px)]" : "h-[500px]"}
+                          className={isFullscreen ? "h-[calc(100vh-200px)]" : "h-[600px]"}
                         />
                       </TabsContent>
                       <TabsContent value="replay">
@@ -285,11 +310,12 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                   )}
                 </div>
 
-                {/* Comments Section */}
-                <div>
-                  <h3 className="text-sm font-semibold mb-3">Comments</h3>
-                  <TradeComments tradeId={trade.id} />
-                </div>
+                {/* Screenshot Gallery Section */}
+                <TradeScreenshotGallery
+                  tradeId={trade.id}
+                  screenshots={screenshots}
+                  onScreenshotsChange={setScreenshots}
+                />
 
                 <Separator />
 
