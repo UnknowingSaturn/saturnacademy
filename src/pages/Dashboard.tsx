@@ -24,8 +24,8 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
   const [periodType, setPeriodType] = useState<'week' | 'month'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // Calculate starting balance and current equity from all active accounts
-  const startingBalance = accounts.reduce((sum, acc) => sum + Number(acc.balance_start || 0), 0);
+  // Calculate starting balance from previous period trades or first trade of current period
+  const accountStartingBalance = accounts.reduce((sum, acc) => sum + Number(acc.balance_start || 0), 0);
   const currentEquity = accounts.reduce((sum, acc) => sum + Number(acc.equity_current || 0), 0);
 
   const period: ReportPeriod = periodType === 'week' 
@@ -38,6 +38,38 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
   const { filteredTrades, metrics } = useReports(trades, period);
   const { filteredTrades: previousTrades, metrics: previousMetrics } = useReports(trades, previousPeriod);
   const dashboardMetrics = useDashboardMetrics(filteredTrades);
+
+  // Calculate the starting balance for the equity curve
+  // Priority: 1. First trade's balance_at_entry in current period
+  //           2. Previous period's ending balance (start + pnl)
+  //           3. Account's starting balance (fallback)
+  const periodStartingBalance = React.useMemo(() => {
+    // Sort current period trades by entry time to find the earliest
+    const sortedCurrentTrades = [...filteredTrades]
+      .filter(t => t.balance_at_entry !== null)
+      .sort((a, b) => new Date(a.entry_time).getTime() - new Date(b.entry_time).getTime());
+    
+    // If we have trades in the current period with balance_at_entry, use the first one
+    if (sortedCurrentTrades.length > 0 && sortedCurrentTrades[0].balance_at_entry) {
+      return sortedCurrentTrades[0].balance_at_entry;
+    }
+
+    // Otherwise, calculate from previous period trades
+    // Sort previous period trades by entry time to find the earliest one's balance
+    const sortedPrevTrades = [...previousTrades]
+      .filter(t => t.balance_at_entry !== null)
+      .sort((a, b) => new Date(a.entry_time).getTime() - new Date(b.entry_time).getTime());
+    
+    if (sortedPrevTrades.length > 0 && sortedPrevTrades[0].balance_at_entry) {
+      // Previous period starting balance + all previous period P&L = this period's starting balance
+      const prevStartBalance = sortedPrevTrades[0].balance_at_entry;
+      const prevTotalPnl = previousTrades.reduce((sum, t) => sum + (t.net_pnl || 0), 0);
+      return prevStartBalance + prevTotalPnl;
+    }
+
+    // Fallback to account's static starting balance
+    return accountStartingBalance;
+  }, [filteredTrades, previousTrades, accountStartingBalance]);
 
   const navigatePrev = () => {
     setCurrentDate(prev => 
@@ -133,9 +165,9 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
 
       {/* Charts Row */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <EquityCurve 
+      <EquityCurve 
           trades={filteredTrades} 
-          startingBalance={startingBalance} 
+          startingBalance={periodStartingBalance} 
           previousPeriodPnl={previousMetrics.totalPnl}
           periodLabel={periodType === 'week' ? 'week' : 'month'}
         />
