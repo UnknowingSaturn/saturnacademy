@@ -9,14 +9,23 @@ interface TradeChartProps {
   className?: string;
 }
 
+const TIMEFRAMES = [
+  { label: "1m", interval: 60 * 1000 },
+  { label: "5m", interval: 5 * 60 * 1000 },
+  { label: "15m", interval: 15 * 60 * 1000 },
+  { label: "30m", interval: 30 * 60 * 1000 },
+  { label: "1H", interval: 60 * 60 * 1000 },
+  { label: "4H", interval: 4 * 60 * 60 * 1000 },
+  { label: "D", interval: 24 * 60 * 60 * 1000 },
+];
+
 // Generate mock OHLC data around trade entry/exit times
-function generateMockOHLC(trade: Trade): CandlestickData[] {
+function generateMockOHLC(trade: Trade, candleInterval: number): CandlestickData[] {
   const entryTime = new Date(trade.entry_time).getTime();
   const exitTime = trade.exit_time ? new Date(trade.exit_time).getTime() : entryTime + 3600000;
   const entryPrice = trade.entry_price;
   
   // Generate 50 candles before entry and 50 after
-  const candleInterval = 15 * 60 * 1000; // 15 minute candles
   const candles: CandlestickData[] = [];
   
   const startTime = entryTime - 50 * candleInterval;
@@ -65,7 +74,7 @@ export function TradeChart({ trade, className }: TradeChartProps) {
   const [currentCandle, setCurrentCandle] = useState(0);
   const [allCandles, setAllCandles] = useState<CandlestickData[]>([]);
   const [speed, setSpeed] = useState(1);
-
+  const [activeTimeframe, setActiveTimeframe] = useState("15m");
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -102,8 +111,9 @@ export function TradeChart({ trade, className }: TradeChartProps) {
       wickDownColor: "hsl(0 85% 58%)",
     });
 
-    // Generate and set mock data
-    const candles = generateMockOHLC(trade);
+    // Generate and set mock data based on selected timeframe
+    const selectedTf = TIMEFRAMES.find(tf => tf.label === activeTimeframe) || TIMEFRAMES[2];
+    const candles = generateMockOHLC(trade, selectedTf.interval);
     setAllCandles(candles);
     setCurrentCandle(candles.length);
     candlestickSeries.setData(candles);
@@ -172,7 +182,7 @@ export function TradeChart({ trade, className }: TradeChartProps) {
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [trade]);
+  }, [trade, activeTimeframe]);
 
   // Replay functionality
   useEffect(() => {
@@ -233,9 +243,24 @@ export function TradeChart({ trade, className }: TradeChartProps) {
   return (
     <div className={cn("flex flex-col h-full", className)}>
       <div className="flex items-center justify-between mb-2 px-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span className="font-semibold">{trade.symbol}</span>
-          <span className="text-xs text-muted-foreground">• M15</span>
+          <div className="flex items-center gap-0.5 bg-muted/50 rounded-md p-0.5">
+            {TIMEFRAMES.map((tf) => (
+              <button
+                key={tf.label}
+                onClick={() => setActiveTimeframe(tf.label)}
+                className={cn(
+                  "px-2 py-1 text-xs rounded transition-colors",
+                  activeTimeframe === tf.label 
+                    ? "bg-primary text-primary-foreground" 
+                    : "hover:bg-muted text-muted-foreground"
+                )}
+              >
+                {tf.label}
+              </button>
+            ))}
+          </div>
           <span
             className={cn(
               "text-xs font-bold uppercase px-1.5 py-0.5 rounded",
