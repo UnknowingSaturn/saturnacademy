@@ -70,22 +70,23 @@ export interface ColumnDefinition {
 }
 
 // Columns ordered: calculated/auto fields first, then editable fields
+// Using minmax() with fr units for proportional scaling that fills available space
 export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   // Calculated/Auto fields (left side)
-  { key: 'trade_number', label: '#', type: 'number', sortable: true, filterable: true, hideable: false, width: '50px', category: 'calculated' },
-  { key: 'entry_time', label: 'Date (EST)', type: 'date', sortable: true, filterable: true, hideable: true, width: '120px', category: 'calculated' },
-  { key: 'day', label: 'Day', type: 'text', sortable: true, filterable: true, hideable: true, width: '60px', category: 'calculated' },
-  { key: 'symbol', label: 'Pair', type: 'text', sortable: true, filterable: true, hideable: false, width: '80px', category: 'calculated' },
-  { key: 'r_multiple_actual', label: 'R%', type: 'number', sortable: true, filterable: true, hideable: true, width: '80px', category: 'calculated' },
-  { key: 'result', label: 'Result', type: 'badge', sortable: true, filterable: true, hideable: true, width: '80px', category: 'calculated' },
+  { key: 'trade_number', label: '#', type: 'number', sortable: true, filterable: true, hideable: false, width: 'minmax(40px, 0.4fr)', category: 'calculated' },
+  { key: 'entry_time', label: 'Date (EST)', type: 'date', sortable: true, filterable: true, hideable: true, width: 'minmax(110px, 1.5fr)', category: 'calculated' },
+  { key: 'day', label: 'Day', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(50px, 0.5fr)', category: 'calculated' },
+  { key: 'symbol', label: 'Pair', type: 'text', sortable: true, filterable: true, hideable: false, width: 'minmax(70px, 1fr)', category: 'calculated' },
+  { key: 'r_multiple_actual', label: 'R%', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(60px, 0.8fr)', category: 'calculated' },
+  { key: 'result', label: 'Result', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.8fr)', category: 'calculated' },
   // User-editable fields (right side)
-  { key: 'session', label: 'Session', type: 'select', sortable: true, filterable: true, hideable: true, width: '100px', propertyName: 'session', category: 'editable' },
-  { key: 'model', label: 'Model', type: 'select', sortable: true, filterable: true, hideable: true, width: '90px', propertyName: 'model', category: 'editable' },
-  { key: 'alignment', label: 'Alignment', type: 'multi-select', sortable: false, filterable: true, hideable: true, width: '100px', propertyName: 'timeframe', category: 'editable' },
-  { key: 'entry_timeframes', label: 'Entry', type: 'multi-select', sortable: false, filterable: true, hideable: true, width: '100px', propertyName: 'timeframe', category: 'editable' },
-  { key: 'profile', label: 'Profile', type: 'select', sortable: true, filterable: true, hideable: true, width: '100px', propertyName: 'profile', category: 'editable' },
-  { key: 'emotional_state_before', label: 'Emotion', type: 'select', sortable: true, filterable: true, hideable: true, width: '100px', propertyName: 'emotion', category: 'editable' },
-  { key: 'place', label: 'Place', type: 'text', sortable: true, filterable: true, hideable: true, width: '100px', category: 'editable' },
+  { key: 'session', label: 'Session', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'session', category: 'editable' },
+  { key: 'model', label: 'Model', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.5fr)', propertyName: 'model', category: 'editable' },
+  { key: 'alignment', label: 'Alignment', type: 'multi-select', sortable: false, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'timeframe', category: 'editable' },
+  { key: 'entry_timeframes', label: 'Entry', type: 'multi-select', sortable: false, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'timeframe', category: 'editable' },
+  { key: 'profile', label: 'Profile', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'profile', category: 'editable' },
+  { key: 'emotional_state_before', label: 'Emotion', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'emotion', category: 'editable' },
+  { key: 'place', label: 'Place', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'editable' },
 ];
 
 export const DEFAULT_VISIBLE_COLUMNS = [
