@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.reprocess-orphan-exits]
 verify_jwt = false
+
+[functions.save-ai-review]
+verify_jwt = false
