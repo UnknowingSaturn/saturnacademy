@@ -576,7 +576,7 @@ export function TradeReviewPanel({ trade }: TradeReviewPanelProps) {
         </Button>
         <Button 
           onClick={handleSave} 
-          disabled={createReview.isPending || updateReview.isPending || isSavingAnalysis}
+          disabled={createReview.isPending || updateReview.isPending || isSavingAnalysis || isAnalyzing}
           className="gap-2"
         >
           {(createReview.isPending || updateReview.isPending || isSavingAnalysis) && (
