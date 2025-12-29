@@ -10,11 +10,12 @@ import { cn } from "@/lib/utils";
 interface PlaybookCardProps {
   playbook: Playbook;
   stats?: PlaybookStats;
+  onViewDetails: (playbook: Playbook) => void;
   onEdit: (playbook: Playbook) => void;
   onDelete: (id: string) => void;
 }
 
-export function PlaybookCard({ playbook, stats, onEdit, onDelete }: PlaybookCardProps) {
+export function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDelete }: PlaybookCardProps) {
   const navigate = useNavigate();
   
   const handleViewTrades = () => {
@@ -22,9 +23,9 @@ export function PlaybookCard({ playbook, stats, onEdit, onDelete }: PlaybookCard
   };
 
   const handleCardClick = (e: React.MouseEvent) => {
-    // Only open edit if not clicking on buttons
+    // Don't trigger if clicking on buttons
     if ((e.target as HTMLElement).closest('button')) return;
-    onEdit(playbook);
+    onViewDetails(playbook);
   };
 
   const winRate = stats?.winRate ?? 0;

@@ -22,6 +22,7 @@ import { PlaybookProgress } from "@/components/playbooks/PlaybookProgress";
 import { CollapsibleRuleSection } from "@/components/playbooks/CollapsibleRuleSection";
 import { EditableRuleItem } from "@/components/playbooks/EditableRuleItem";
 import { PlaybookCard } from "@/components/playbooks/PlaybookCard";
+import { PlaybookDetailSheet } from "@/components/playbooks/PlaybookDetailSheet";
 
 const SESSIONS: { value: SessionType; label: string }[] = [
   { value: "new_york_am", label: "New York AM" },
@@ -47,6 +48,7 @@ export default function Playbooks() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPlaybook, setEditingPlaybook] = useState<Playbook | null>(null);
+  const [selectedPlaybook, setSelectedPlaybook] = useState<Playbook | null>(null);
   const [showAIChat, setShowAIChat] = useState(false);
   const [dialogView, setDialogView] = useState<DialogView>('templates');
   const [activeTab, setActiveTab] = useState('basic');
@@ -798,12 +800,23 @@ export default function Playbooks() {
               key={playbook.id}
               playbook={playbook}
               stats={allStats?.[playbook.id]}
+              onViewDetails={setSelectedPlaybook}
               onEdit={openEditDialog}
               onDelete={handleDelete}
             />
           ))}
         </div>
       )}
+
+      {/* Playbook Detail Sheet */}
+      <PlaybookDetailSheet
+        playbook={selectedPlaybook}
+        stats={selectedPlaybook ? allStats?.[selectedPlaybook.id] : undefined}
+        open={!!selectedPlaybook}
+        onOpenChange={(open) => !open && setSelectedPlaybook(null)}
+        onEdit={openEditDialog}
+        onDelete={handleDelete}
+      />
     </div>
   );
 }
