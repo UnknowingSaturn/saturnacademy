@@ -45,9 +45,11 @@ export default function LiveTrades() {
 
   // When trade is selected, find matching playbook
   useEffect(() => {
-    if (selectedTrade?.model) {
-      const pb = playbooks.find(p => p.name === selectedTrade.model);
+    if (selectedTrade?.playbook_id) {
+      const pb = playbooks.find(p => p.id === selectedTrade.playbook_id);
       setSelectedPlaybook(pb || null);
+    } else if (selectedTrade?.playbook) {
+      setSelectedPlaybook(selectedTrade.playbook);
     } else {
       setSelectedPlaybook(null);
     }
@@ -175,7 +177,7 @@ export default function LiveTrades() {
                           style={{ backgroundColor: trade.matchedPlaybook.color }}
                         />
                       )}
-                      {getStatusBadge(trade.complianceStatus, !!trade.model)}
+                      {getStatusBadge(trade.complianceStatus, !!trade.playbook_id)}
                     </div>
                   </button>
                 ))}
@@ -219,7 +221,7 @@ export default function LiveTrades() {
                   </div>
                 </CardHeader>
                 <CardContent className="flex-1 p-4 overflow-auto">
-                  {!selectedTrade.model || !selectedPlaybook ? (
+                  {!selectedTrade.playbook_id || !selectedPlaybook ? (
                     <ModelSelectionPrompt 
                       trade={selectedTrade} 
                       onModelSelected={handleModelSelected}

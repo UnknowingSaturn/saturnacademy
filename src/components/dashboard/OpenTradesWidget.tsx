@@ -144,7 +144,7 @@ export function OpenTradesWidget() {
                   </span>
                 </div>
               ) : null}
-              {getStatusBadge(trade.complianceStatus, !!trade.model)}
+              {getStatusBadge(trade.complianceStatus, !!trade.playbook_id)}
             </div>
           </button>
         ))}

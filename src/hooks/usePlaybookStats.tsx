@@ -163,10 +163,10 @@ export function usePlaybookStats() {
     queryFn: async (): Promise<Record<string, PlaybookStats>> => {
       if (!playbooks || playbooks.length === 0) return {};
       
-      // Get all closed trades with their model field (playbook name)
+      // Get all closed trades with their playbook_id field
       const { data: trades, error: tradesError } = await supabase
         .from('trades')
-        .select('id, net_pnl, r_multiple_actual, entry_time, model')
+        .select('id, net_pnl, r_multiple_actual, entry_time, playbook_id')
         .eq('is_open', false);
 
       if (tradesError) throw tradesError;
@@ -199,14 +199,14 @@ export function usePlaybookStats() {
         };
       }
 
-      // Match trades to playbooks by model name
+      // Match trades to playbooks by playbook_id
       const tradesByPlaybook: Record<string, typeof trades> = {};
       
       for (const trade of trades || []) {
-        if (!trade.model) continue;
+        if (!trade.playbook_id) continue;
         
-        // Find playbook by name match
-        const matchedPlaybook = playbooks.find(pb => pb.name === trade.model);
+        // Find playbook by ID match
+        const matchedPlaybook = playbooks.find(pb => pb.id === trade.playbook_id);
         if (!matchedPlaybook) continue;
 
         if (!tradesByPlaybook[matchedPlaybook.id]) {
@@ -310,16 +310,16 @@ export function usePlaybookStat(playbookId: string | undefined) {
   };
 }
 
-export function usePlaybookRecentTrades(playbookName: string | undefined, limit: number = 5) {
+export function usePlaybookRecentTrades(playbookId: string | undefined, limit: number = 5) {
   return useQuery({
-    queryKey: ['playbook-recent-trades', playbookName, limit],
+    queryKey: ['playbook-recent-trades', playbookId, limit],
     queryFn: async () => {
-      if (!playbookName) return [];
+      if (!playbookId) return [];
       
       const { data, error } = await supabase
         .from('trades')
         .select('id, symbol, entry_time, net_pnl, r_multiple_actual, direction')
-        .eq('model', playbookName)
+        .eq('playbook_id', playbookId)
         .eq('is_open', false)
         .order('entry_time', { ascending: false })
         .limit(limit);
@@ -327,6 +327,6 @@ export function usePlaybookRecentTrades(playbookName: string | undefined, limit:
       if (error) throw error;
       return data || [];
     },
-    enabled: !!playbookName,
+    enabled: !!playbookId,
   });
 }

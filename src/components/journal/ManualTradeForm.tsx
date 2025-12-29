@@ -62,7 +62,7 @@ export function ManualTradeForm() {
       session: session || undefined,
       net_pnl: pnl ? parseFloat(pnl) : undefined,
       is_open: isOpen,
-      model: strategy || undefined,
+      playbook_id: strategy || undefined,
     });
 
     resetForm();
@@ -216,7 +216,7 @@ export function ManualTradeForm() {
                 </SelectTrigger>
                 <SelectContent>
                   {playbooks?.map((pb) => (
-                    <SelectItem key={pb.id} value={pb.name}>
+                    <SelectItem key={pb.id} value={pb.id}>
                       {pb.name}
                     </SelectItem>
                   ))}

@@ -41,11 +41,11 @@ export function TradeRow({ trade }: TradeRowProps) {
   const hasScreenshots = trade.review?.screenshots && trade.review.screenshots.length > 0;
   const hasReview = !!trade.review;
   
-  // Get playbook info - first check if trade has a model (playbook name) or a playbook_id in review
-  const playbookId = trade.review?.playbook_id;
+  // Get playbook info - use playbook_id directly or from joined data
+  const playbookId = trade.playbook_id || trade.review?.playbook_id;
+  const playbookFromJoin = trade.playbook;
   const playbookFromId = playbookId ? playbooks?.find(p => p.id === playbookId) : null;
-  const playbookFromModel = trade.model ? playbooks?.find(p => p.name === trade.model) : null;
-  const playbook = playbookFromModel || playbookFromId;
+  const playbook = playbookFromJoin || playbookFromId;
 
   return (
     <div className={cn(

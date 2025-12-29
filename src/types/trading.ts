@@ -106,7 +106,7 @@ export interface Trade {
   created_at: string;
   updated_at: string;
   // New Notion-style fields
-  model: string | null; // Stores playbook name for strategy categorization
+  playbook_id: string | null; // UUID reference to playbooks table
   alignment: TimeframeAlignment[] | null;
   entry_timeframes: TimeframeAlignment[] | null;
   profile: TradeProfile | null;
@@ -115,6 +115,7 @@ export interface Trade {
   // Joined data
   review?: TradeReview;
   account?: Account;
+  playbook?: Playbook;
 }
 
 export interface PartialClose {

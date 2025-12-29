@@ -305,10 +305,10 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
                       {trade.session && (
                         <span className="capitalize">{trade.session.replace(/_/g, ' ')}</span>
                       )}
-                      {trade.model && (
+                      {trade.playbook?.name && (
                         <>
                           <span>•</span>
-                          <span>{trade.model}</span>
+                          <span>{trade.playbook.name}</span>
                         </>
                       )}
                     </div>

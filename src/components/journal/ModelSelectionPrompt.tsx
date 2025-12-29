@@ -29,7 +29,7 @@ export function ModelSelectionPrompt({ trade, onModelSelected }: ModelSelectionP
     try {
       await updateTrade.mutateAsync({
         id: trade.id,
-        model: selectedPlaybook.name,
+        playbook_id: selectedPlaybook.id,
       });
       onModelSelected(selectedPlaybook);
     } finally {
