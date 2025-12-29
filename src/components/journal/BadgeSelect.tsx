@@ -15,6 +15,7 @@ interface BadgeSelectProps {
   options: BadgeOption[];
   placeholder?: string;
   multiple?: boolean;
+  allowClear?: boolean;
   className?: string;
 }
 
@@ -36,6 +37,7 @@ export function BadgeSelect({
   options,
   placeholder = "Select...",
   multiple = false,
+  allowClear = true,
   className,
 }: BadgeSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -65,9 +67,23 @@ export function BadgeSelect({
         : [...current, optionValue];
       onChange(newValue);
     } else {
-      onChange(optionValue);
+      // Toggle behavior: if already selected, clear it
+      if (allowClear && value === optionValue) {
+        onChange("");
+      } else {
+        onChange(optionValue);
+      }
       setIsOpen(false);
     }
+  };
+
+  const handleClear = () => {
+    if (multiple) {
+      onChange([]);
+    } else {
+      onChange("");
+    }
+    setIsOpen(false);
   };
 
   const getOptionStyle = (option: BadgeOption): { className: string; style?: React.CSSProperties } => {
@@ -128,6 +144,19 @@ export function BadgeSelect({
       {isOpen && (
         <div className="absolute z-50 mt-1 w-48 rounded-md border border-border bg-popover shadow-lg">
           <div className="p-1 max-h-60 overflow-auto">
+            {/* Clear option when value is selected */}
+            {allowClear && selectedValues.length > 0 && (
+              <button
+                type="button"
+                onClick={handleClear}
+                className={cn(
+                  "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm",
+                  "hover:bg-accent transition-colors text-left text-muted-foreground"
+                )}
+              >
+                <span className="text-xs">Clear selection</span>
+              </button>
+            )}
             {options.map((option) => {
               const isSelected = selectedValues.includes(option.value);
               return (
