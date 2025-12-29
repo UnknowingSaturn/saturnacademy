@@ -1,11 +1,11 @@
 import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-
 import { cn } from "@/lib/utils";
+import { withForwardRef } from "@/lib/withForwardRef";
 
-const TooltipProvider = TooltipPrimitive.Provider;
-
-const Tooltip = TooltipPrimitive.Root;
+// Wrap Provider and Root to handle refs safely
+const TooltipProvider = withForwardRef(TooltipPrimitive.Provider, "TooltipProvider");
+const Tooltip = withForwardRef(TooltipPrimitive.Root, "Tooltip");
 
 const TooltipTrigger = TooltipPrimitive.Trigger;
 
