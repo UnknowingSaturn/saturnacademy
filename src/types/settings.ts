@@ -77,7 +77,7 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'entry_time', label: 'Date (EST)', type: 'date', sortable: true, filterable: true, hideable: true, width: 'minmax(110px, 1.5fr)', category: 'calculated' },
   { key: 'day', label: 'Day', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(50px, 0.5fr)', category: 'calculated' },
   { key: 'symbol', label: 'Pair', type: 'text', sortable: true, filterable: true, hideable: false, width: 'minmax(70px, 1fr)', category: 'calculated' },
-  { key: 'r_multiple_actual', label: 'R%', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(60px, 0.8fr)', category: 'calculated' },
+  { key: 'r_multiple_actual', label: 'RR', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(60px, 0.8fr)', category: 'calculated' },
   { key: 'result', label: 'Result', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.8fr)', category: 'calculated' },
   // User-editable fields (right side)
   { key: 'session', label: 'Session', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'session', category: 'editable' },

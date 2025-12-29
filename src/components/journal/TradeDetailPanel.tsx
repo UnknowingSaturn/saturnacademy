@@ -3,7 +3,7 @@ import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableSte
 import { usePlaybooks, usePlaybook } from "@/hooks/usePlaybooks";
 import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
-import { TradeChart } from "@/components/chart/TradeChart";
+
 import { TradeProperties } from "./TradeProperties";
 import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
 import { AIAnalysisDisplay } from "./AIAnalysisDisplay";
@@ -263,10 +263,6 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                   />
                 )}
 
-                {/* Replay Chart */}
-                <div className="rounded-lg border border-border bg-card/50 p-4">
-                  <TradeChart trade={trade} />
-                </div>
 
                 {/* Screenshots */}
                 <div>

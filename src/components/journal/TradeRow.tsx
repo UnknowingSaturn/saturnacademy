@@ -123,14 +123,14 @@ export function TradeRow({ trade }: TradeRowProps) {
           )}
         </div>
 
-        {/* R% */}
+        {/* RR (Risk-Reward) */}
         <div className="w-20 shrink-0 text-center">
           {trade.r_multiple_actual !== null ? (
             <span className={cn(
               "font-mono-numbers font-bold text-sm",
               trade.r_multiple_actual >= 0 ? "text-profit text-glow-profit" : "text-loss"
             )}>
-              {trade.r_multiple_actual >= 0 ? "+" : ""}{trade.r_multiple_actual.toFixed(1)}%
+              {trade.r_multiple_actual >= 0 ? "+" : ""}{trade.r_multiple_actual.toFixed(2)}R
             </span>
           ) : (
             <span className="text-muted-foreground text-sm">—</span>
