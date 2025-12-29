@@ -753,15 +753,19 @@ serve(async (req) => {
 
     const { data: savedReview, error: saveError } = await supabase
       .from("ai_reviews")
-      .upsert(aiReviewData, { onConflict: "trade_id" })
+      .upsert({ ...aiReviewData, updated_at: new Date().toISOString() }, { onConflict: "trade_id" })
       .select()
       .single();
 
     if (saveError) {
       console.error("Failed to save AI review:", saveError);
-    } else {
-      console.log("AI review saved:", savedReview.id);
+      return new Response(
+        JSON.stringify({ error: "Analysis generated but failed to save. Please try again." }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
+    
+    console.log("AI review saved:", savedReview.id);
 
     return new Response(
       JSON.stringify({
@@ -769,6 +773,7 @@ serve(async (req) => {
         compliance: complianceResult,
         similar_trades: similarTrades,
         raw_analysis: rawAnalysis,
+        saved_review: savedReview,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
