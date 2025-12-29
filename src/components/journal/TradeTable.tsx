@@ -1,13 +1,15 @@
 import { useState, useMemo } from "react";
 import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile } from "@/types/trading";
-import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview } from "@/hooks/useTrades";
+import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview, useBulkDeleteTrades } from "@/hooks/useTrades";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { cn } from "@/lib/utils";
 import { formatDateET, formatTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
 import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
+import { BulkActionBar } from "./BulkActionBar";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ChevronRight } from "lucide-react";
 import { DEFAULT_COLUMNS, ColumnDefinition } from "@/types/settings";
 
@@ -22,10 +24,12 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   const updateTrade = useUpdateTrade();
   const updateReview = useUpdateTradeReview();
   const createReview = useCreateTradeReview();
+  const bulkDelete = useBulkDeleteTrades();
   const [editingPlace, setEditingPlace] = useState<string | null>(null);
   const [placeValue, setPlaceValue] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Fetch property options
   const { data: sessionOptions = [] } = usePropertyOptions('session');
@@ -42,7 +46,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
     return playbooks.map((pb) => ({
       value: pb.id,
       label: pb.name,
-      customColor: pb.color || undefined, // Use actual playbook hex color
+      customColor: pb.color || undefined,
     }));
   }, [playbooks]);
 
@@ -104,12 +108,38 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
 
   const handleSort = (column: string, direction: 'asc' | 'desc') => {
     if (sortColumn === column && sortDirection === direction) {
-      // Clear sort
       setSortColumn(null);
     } else {
       setSortColumn(column);
       setSortDirection(direction);
     }
+  };
+
+  // Selection handlers
+  const allSelected = trades.length > 0 && selectedIds.size === trades.length;
+  const someSelected = selectedIds.size > 0 && selectedIds.size < trades.length;
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(trades.map(t => t.id)));
+    }
+  };
+
+  const toggleSelect = (tradeId: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(tradeId)) {
+      newSelected.delete(tradeId);
+    } else {
+      newSelected.add(tradeId);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    await bulkDelete.mutateAsync(Array.from(selectedIds));
+    setSelectedIds(new Set());
   };
 
   const handleSessionChange = async (trade: Trade, session: string) => {
@@ -164,11 +194,11 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   const getColumn = (key: string): ColumnDefinition | undefined => 
     DEFAULT_COLUMNS.find(c => c.key === key);
 
-  // Build grid template columns based on visible columns using minmax() for proportional scaling
-  const gridCols = activeColumns.map(key => {
+  // Build grid template columns: checkbox + visible columns + expand arrow
+  const gridCols = '40px ' + activeColumns.map(key => {
     const col = getColumn(key);
     return col?.width || 'minmax(80px, 1fr)';
-  }).join(' ') + ' 40px'; // Fixed width for expand arrow
+  }).join(' ') + ' 40px';
 
   return (
     <div className="border border-border rounded-lg overflow-x-auto">
@@ -178,6 +208,16 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
           className="grid gap-2 px-4 py-3 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground uppercase tracking-wider"
           style={{ gridTemplateColumns: gridCols }}
         >
+          {/* Checkbox column header */}
+          <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={toggleSelectAll}
+              className={cn(someSelected && "data-[state=checked]:bg-primary/50")}
+              aria-label="Select all trades"
+            />
+          </div>
+
           {activeColumns.map(key => {
             const column = getColumn(key);
             if (!column) return null;
@@ -206,6 +246,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
           {sortedTrades.map((trade) => {
             const result = getResultBadge(trade);
             const day = getDayNameET(trade.entry_time);
+            const isSelected = selectedIds.has(trade.id);
 
             return (
               <div
@@ -214,11 +255,21 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
                   "grid gap-2 px-4 py-2 items-center",
                   "hover:bg-accent/30 transition-colors group cursor-pointer",
                   trade.net_pnl && trade.net_pnl > 0 && "border-l-2 border-l-profit",
-                  trade.net_pnl && trade.net_pnl < 0 && "border-l-2 border-l-loss"
+                  trade.net_pnl && trade.net_pnl < 0 && "border-l-2 border-l-loss",
+                  isSelected && "bg-accent/50"
                 )}
                 style={{ gridTemplateColumns: gridCols }}
                 onClick={() => onTradeClick(trade)}
               >
+                {/* Checkbox cell */}
+                <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={isSelected}
+                    onCheckedChange={() => toggleSelect(trade.id)}
+                    aria-label={`Select trade ${trade.trade_number || trade.id}`}
+                  />
+                </div>
+
                 {activeColumns.map(key => {
                   if (key === 'trade_number') {
                     return (
@@ -358,7 +409,6 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
                   }
 
                   if (key === 'account_pct') {
-                    // Calculate account percentage: (net_pnl / balance_at_entry) * 100
                     const accountPct = trade.balance_at_entry && trade.net_pnl !== null
                       ? (trade.net_pnl / trade.balance_at_entry) * 100
                       : null;
@@ -456,6 +506,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
           })}
         </div>
       </div>
+
+      {/* Bulk action bar */}
+      <BulkActionBar
+        selectedCount={selectedIds.size}
+        onDelete={handleBulkDelete}
+        onClear={() => setSelectedIds(new Set())}
+        isDeleting={bulkDelete.isPending}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Link, RefreshCw } from 'lucide-react';
+import { Plus, Link, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccounts } from '@/hooks/useAccounts';
 import { AccountCard } from '@/components/accounts/AccountCard';
@@ -9,13 +9,33 @@ import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
 import { Account } from '@/types/trading';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export default function Accounts() {
-  const { data: accounts, isLoading } = useAccounts();
+  const { data: accounts, isLoading, refetch } = useAccounts();
   const [createOpen, setCreateOpen] = useState(false);
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
+  const [isFreshStarting, setIsFreshStarting] = useState(false);
+  const [freshStartAccountId, setFreshStartAccountId] = useState<string>('');
 
   const handleRecoverTrades = async () => {
     setIsRecovering(true);
@@ -46,6 +66,44 @@ export default function Accounts() {
       toast.error("Failed to recover trades");
     } finally {
       setIsRecovering(false);
+    }
+  };
+
+  const handleFreshStart = async () => {
+    if (!freshStartAccountId) {
+      toast.error("Please select an account");
+      return;
+    }
+
+    setIsFreshStarting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Please sign in");
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('fresh-start', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: { account_id: freshStartAccountId },
+      });
+
+      if (error) throw error;
+
+      toast.success(data.message, {
+        description: "Restart your EA to re-import all trades.",
+      });
+
+      // Refetch accounts to update trade counts
+      refetch();
+    } catch (err) {
+      console.error("Fresh start error:", err);
+      toast.error("Failed to perform fresh start");
+    } finally {
+      setIsFreshStarting(false);
+      setFreshStartAccountId('');
     }
   };
 
@@ -99,15 +157,74 @@ export default function Accounts() {
           </div>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {accounts?.map((account) => (
-            <AccountCard
-              key={account.id}
-              account={account}
-              onSetupMT5={() => setSetupAccount(account)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid gap-4 md:grid-cols-2">
+            {accounts?.map((account) => (
+              <AccountCard
+                key={account.id}
+                account={account}
+                onSetupMT5={() => setSetupAccount(account)}
+              />
+            ))}
+          </div>
+
+          {/* Danger Zone */}
+          <div className="mt-8 border border-destructive/30 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              <h3 className="font-semibold text-destructive">Danger Zone</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Fresh Start will delete all trades AND events for an account, allowing your EA to re-import everything from scratch.
+            </p>
+            
+            <div className="flex items-center gap-3">
+              <Select value={freshStartAccountId} onValueChange={setFreshStartAccountId}>
+                <SelectTrigger className="w-[250px]">
+                  <SelectValue placeholder="Select account..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts?.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button 
+                    variant="destructive" 
+                    disabled={!freshStartAccountId || isFreshStarting}
+                  >
+                    {isFreshStarting ? 'Processing...' : 'Fresh Start'}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete <strong>all trades and events</strong> for the selected account. 
+                      This action cannot be undone.
+                      <br /><br />
+                      After this, restart your EA to re-import all historical trades from scratch.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={handleFreshStart}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Yes, Delete Everything
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
+        </>
       )}
 
       <CreateAccountDialog open={createOpen} onOpenChange={setCreateOpen} />
