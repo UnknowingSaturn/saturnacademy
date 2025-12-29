@@ -180,6 +180,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
       <SheetContent 
         side="right" 
         className="w-full sm:max-w-5xl p-0 overflow-hidden"
+        aria-describedby={undefined}
       >
         <div className="flex flex-col h-full">
           {/* Header */}
