@@ -12,6 +12,9 @@ verify_jwt = false
 [functions.reprocess-trades]
 verify_jwt = false
 
+[functions.restore-trade-times]
+verify_jwt = false
+
 [functions.analyze-trade]
 verify_jwt = true
 

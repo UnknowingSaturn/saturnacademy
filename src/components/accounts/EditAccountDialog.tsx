@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, RotateCcw } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -55,6 +55,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
   const updateAccount = useUpdateAccount();
   const { toast } = useToast();
   const [isReprocessing, setIsReprocessing] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -123,6 +124,39 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       });
     } finally {
       setIsReprocessing(false);
+    }
+  };
+
+  const handleRestoreTimes = async () => {
+    setIsRestoring(true);
+    try {
+      // First restore original times from events
+      const { data: restoreData, error: restoreError } = await supabase.functions.invoke('restore-trade-times', {
+        body: { account_id: account.id },
+      });
+
+      if (restoreError) throw restoreError;
+
+      // Then recalculate sessions and R%
+      const { data: reprocessData, error: reprocessError } = await supabase.functions.invoke('reprocess-trades', {
+        body: { account_id: account.id },
+      });
+
+      if (reprocessError) throw reprocessError;
+
+      toast({
+        title: 'Trade times restored',
+        description: `Restored ${restoreData.trades_updated || 0} trades and recalculated sessions.`,
+      });
+    } catch (error) {
+      console.error('Restore error:', error);
+      toast({
+        title: 'Failed to restore trade times',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRestoring(false);
     }
   };
 
@@ -279,6 +313,20 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
               </Button>
               <p className="text-xs text-muted-foreground">
                 Recalculates sessions based on your session definitions and R% using running balance.
+              </p>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleRestoreTimes}
+                disabled={isRestoring || isReprocessing}
+              >
+                <RotateCcw className={`h-4 w-4 mr-2 ${isRestoring ? 'animate-spin' : ''}`} />
+                {isRestoring ? 'Restoring...' : 'Restore Original Times'}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Restores trade times from original MT5 events and recalculates sessions.
               </p>
             </div>
 
