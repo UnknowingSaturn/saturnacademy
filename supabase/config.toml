@@ -28,4 +28,4 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.playbook-assistant]
-verify_jwt = true
+verify_jwt = false
