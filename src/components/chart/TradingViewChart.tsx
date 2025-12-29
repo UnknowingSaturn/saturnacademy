@@ -1,7 +1,8 @@
-import { useEffect, useRef, memo } from "react";
+import { useEffect, useRef, memo, useState } from "react";
 import { Trade } from "@/types/trading";
 import { mapToTradingViewSymbol } from "@/lib/symbolMapping";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface TradingViewChartProps {
   trade: Trade;
@@ -14,9 +15,21 @@ declare global {
   }
 }
 
+const TIMEFRAMES = [
+  { label: "1m", value: "1" },
+  { label: "5m", value: "5" },
+  { label: "15m", value: "15" },
+  { label: "30m", value: "30" },
+  { label: "1H", value: "60" },
+  { label: "4H", value: "240" },
+  { label: "D", value: "D" },
+  { label: "W", value: "W" },
+] as const;
+
 function TradingViewChartComponent({ trade, className }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<any>(null);
+  const [activeInterval, setActiveInterval] = useState("15");
 
   const tradingViewSymbol = mapToTradingViewSymbol(trade.symbol);
 
@@ -35,7 +48,7 @@ function TradingViewChartComponent({ trade, className }: TradingViewChartProps) 
 
       widgetRef.current = new window.TradingView.widget({
         symbol: tradingViewSymbol,
-        interval: "15",
+        interval: activeInterval,
         timezone: "Etc/UTC",
         theme: "dark",
         style: "1", // Candlestick
@@ -91,11 +104,11 @@ function TradingViewChartComponent({ trade, className }: TradingViewChartProps) 
         widgetRef.current = null;
       }
     };
-  }, [tradingViewSymbol, trade.id]);
+  }, [tradingViewSymbol, trade.id, activeInterval]);
 
   if (!tradingViewSymbol) {
     return (
-      <div className={cn("flex items-center justify-center h-[500px] bg-muted/20 rounded-lg", className)}>
+      <div className={cn("flex items-center justify-center bg-muted/20 rounded-lg", className)}>
         <p className="text-muted-foreground text-sm">
           Symbol "{trade.symbol}" is not supported by TradingView
         </p>
@@ -104,7 +117,8 @@ function TradingViewChartComponent({ trade, className }: TradingViewChartProps) 
   }
 
   return (
-    <div className={cn("flex flex-col", className)}>
+    <div className={cn("flex flex-col h-full", className)}>
+      {/* Header with timeframe switcher */}
       <div className="flex items-center justify-between mb-2 px-2">
         <div className="flex items-center gap-2">
           <span className="font-semibold">{trade.symbol}</span>
@@ -118,11 +132,33 @@ function TradingViewChartComponent({ trade, className }: TradingViewChartProps) 
             {trade.direction}
           </span>
         </div>
+        
+        {/* Timeframe Switcher */}
+        <div className="flex items-center gap-1">
+          {TIMEFRAMES.map((tf) => (
+            <Button
+              key={tf.value}
+              variant={activeInterval === tf.value ? "default" : "ghost"}
+              size="sm"
+              className={cn(
+                "h-7 px-2 text-xs font-medium",
+                activeInterval === tf.value 
+                  ? "bg-primary text-primary-foreground" 
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => setActiveInterval(tf.value)}
+            >
+              {tf.label}
+            </Button>
+          ))}
+        </div>
       </div>
+      
+      {/* Chart Container - flex-1 to fill available space */}
       <div
         id={`tradingview-widget-${trade.id}`}
         ref={containerRef}
-        className={cn("w-full h-[500px] rounded-lg overflow-hidden", className)}
+        className="w-full flex-1 min-h-0 rounded-lg overflow-hidden"
       />
       
       {/* Trade info overlay */}
