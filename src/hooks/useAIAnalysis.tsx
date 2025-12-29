@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,6 +26,7 @@ export function useAIAnalysis() {
   const [isSavingAnalysis, setIsSavingAnalysis] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [pendingTradeId, setPendingTradeId] = useState<string | null>(null);
+  const justSavedRef = useRef<string | null>(null); // Track which trade was just saved
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -107,6 +108,9 @@ export function useAIAnalysis() {
         throw new Error(data.error);
       }
 
+      // Mark as just saved to prevent useEffect from overwriting
+      justSavedRef.current = tradeId;
+      
       // Update cache with saved review
       if (data.saved_review) {
         queryClient.setQueryData(['trade', tradeId], (oldData: any) => {
@@ -122,11 +126,19 @@ export function useAIAnalysis() {
         });
       }
 
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
-      queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
+      await queryClient.invalidateQueries({ queryKey: ['trades'] });
+      await queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
 
-      toast({ title: "AI analysis saved" });
+      toast({ title: "AI analysis saved", description: "Analysis has been saved to the database." });
       setPendingTradeId(null);
+      
+      // Clear just-saved flag after a short delay
+      setTimeout(() => {
+        if (justSavedRef.current === tradeId) {
+          justSavedRef.current = null;
+        }
+      }, 2000);
+      
       // Keep analysisResult visible - don't clear it after save
       return true;
     } catch (error) {
@@ -179,6 +191,9 @@ export function useAIAnalysis() {
     }
   };
 
+  // Check if trade was just saved (prevents useEffect from overwriting fresh data)
+  const isJustSaved = (tradeId: string) => justSavedRef.current === tradeId;
+
   return { 
     analyzeTrade, 
     saveAIAnalysis,
@@ -189,6 +204,7 @@ export function useAIAnalysis() {
     hasUnsavedAnalysis,
     clearPendingAnalysis,
     pendingTradeId,
+    isJustSaved,
     submitFeedback 
   };
 }
