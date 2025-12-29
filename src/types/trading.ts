@@ -307,7 +307,20 @@ export interface AIAnalysisOutput {
     rule_to_reinforce: string;
     avoid_condition: string;
   };
+  visual_analysis?: {
+    entry_quality: string;
+    exit_quality: string;
+    stop_placement: string;
+    confirmations_visible: string[];
+    chart_observations: string[];
+  };
+  strategy_refinement?: {
+    rule_suggestion: string | null;
+    filter_recommendation: string | null;
+    edge_observation: string | null;
+  };
   confidence: 'low' | 'medium' | 'high';
+  screenshots_analyzed?: boolean;
 }
 
 // AI Review (stored in database)

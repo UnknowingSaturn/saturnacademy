@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Brain, Target, ThumbsUp, ThumbsDown } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Brain, Target, ThumbsUp, ThumbsDown, Eye, Lightbulb, ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
@@ -222,7 +222,102 @@ export function AIAnalysisDisplay({ analysis, compliance, similarTrades, onSubmi
             </Card>
           )}
 
-          {/* Actionable Guidance */}
+          {/* Visual Chart Analysis */}
+          {analysis.visual_analysis && (
+            <Card className="border-primary/30">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Eye className="w-4 h-4" />
+                  Visual Chart Analysis
+                  <Badge variant="outline" className="ml-auto text-xs">
+                    From Screenshots
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm space-y-3">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Entry Quality:</p>
+                  <p>{analysis.visual_analysis.entry_quality}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Exit Quality:</p>
+                  <p>{analysis.visual_analysis.exit_quality}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Stop Placement:</p>
+                  <p>{analysis.visual_analysis.stop_placement}</p>
+                </div>
+                {analysis.visual_analysis.confirmations_visible?.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Confirmations Verified:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {analysis.visual_analysis.confirmations_visible.map((conf, i) => (
+                        <Badge key={i} variant="outline" className="text-xs bg-profit/10 text-profit border-profit/20">
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          {conf}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {analysis.visual_analysis.chart_observations?.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Chart Observations:</p>
+                    <ul className="space-y-1 text-muted-foreground">
+                      {analysis.visual_analysis.chart_observations.map((obs, i) => (
+                        <li key={i}>• {obs}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* No Screenshots Warning */}
+          {analysis.screenshots_analyzed === false && (
+            <Card className="border-dashed border-muted-foreground/30 bg-muted/20">
+              <CardContent className="py-4 flex items-center gap-3 text-muted-foreground">
+                <ImageOff className="w-5 h-5" />
+                <div className="text-sm">
+                  <p className="font-medium">No chart screenshots analyzed</p>
+                  <p className="text-xs">Add screenshots for deeper visual analysis of entry/exit quality</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Strategy Refinement Suggestions */}
+          {analysis.strategy_refinement && (
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Lightbulb className="w-4 h-4 text-amber-500" />
+                  Strategy Refinement Suggestions
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm space-y-3">
+                {analysis.strategy_refinement.rule_suggestion && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Suggested Rule:</p>
+                    <p className="font-medium">{analysis.strategy_refinement.rule_suggestion}</p>
+                  </div>
+                )}
+                {analysis.strategy_refinement.filter_recommendation && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Filter Recommendation:</p>
+                    <p className="text-loss">{analysis.strategy_refinement.filter_recommendation}</p>
+                  </div>
+                )}
+                {analysis.strategy_refinement.edge_observation && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Observed Edge:</p>
+                    <p className="text-profit">{analysis.strategy_refinement.edge_observation}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
           <Card className="border-primary/30 bg-primary/5">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
