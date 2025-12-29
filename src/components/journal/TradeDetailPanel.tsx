@@ -45,6 +45,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     setAnalysisResult, 
     hasUnsavedAnalysis,
     clearPendingAnalysis,
+    isJustSaved,
     submitFeedback 
   } = useAIAnalysis();
 
@@ -102,8 +103,8 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       setLastTradeId(trade?.id || null);
       setAnalysisResult(null);
       
-      // Load saved AI review ONLY when switching trades and no pending draft
-      if (trade?.ai_review && !hasUnsavedAnalysis(trade.id)) {
+      // Load saved AI review ONLY when switching trades, no pending draft, and not just saved
+      if (trade?.ai_review && !hasUnsavedAnalysis(trade.id) && !isJustSaved(trade.id)) {
         setAnalysisResult({
           analysis: {
             technical_review: trade.ai_review.technical_review,
