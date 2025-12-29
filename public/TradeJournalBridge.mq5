@@ -342,6 +342,31 @@ string BuildEventPayload(ulong dealTicket, string eventType, string direction)
            StringFind(serverLower, "prop") >= 0)
       accountType = "prop";
    
+   // For exit events, try to get original entry price/time from position history
+   double entryPrice = 0;
+   datetime entryTime = 0;
+   if(eventType == "exit" && positionId > 0)
+   {
+      // Search for the entry deal of this position to get original entry info
+      if(HistorySelectByPosition(positionId))
+      {
+         int totalDeals = HistoryDealsTotal();
+         for(int i = 0; i < totalDeals; i++)
+         {
+            ulong histDeal = HistoryDealGetTicket(i);
+            if(histDeal == 0) continue;
+            
+            ENUM_DEAL_ENTRY histEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(histDeal, DEAL_ENTRY);
+            if(histEntry == DEAL_ENTRY_IN)
+            {
+               entryPrice = HistoryDealGetDouble(histDeal, DEAL_PRICE);
+               entryTime = (datetime)HistoryDealGetInteger(histDeal, DEAL_TIME);
+               break;
+            }
+         }
+      }
+   }
+   
    // Build JSON payload
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
@@ -377,6 +402,14 @@ string BuildEventPayload(ulong dealTicket, string eventType, string direction)
    // FIX: For entry events, capture equity at entry for R% calculation
    if(eventType == "entry")
       json += "\"equity_at_entry\":" + DoubleToString(equity, 2) + ",";
+   
+   // For exit events, include original entry price/time if found
+   if(eventType == "exit" && entryPrice > 0)
+   {
+      datetime entryTimeUTC = entryTime - (InpBrokerUTCOffset * 3600);
+      json += "\"entry_price\":" + DoubleToString(entryPrice, digits) + ",";
+      json += "\"entry_time\":\"" + FormatTimestampUTC(entryTimeUTC) + "\",";
+   }
    
    // Account info for auto-creation
    json += "\"account_info\":{";
