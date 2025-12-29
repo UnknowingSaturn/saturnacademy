@@ -11,7 +11,10 @@ export function ColumnConfigPanel() {
   const visibleColumns = settings?.visible_columns || DEFAULT_VISIBLE_COLUMNS;
   const columnOrder = settings?.column_order || DEFAULT_VISIBLE_COLUMNS;
 
-  const handleToggleColumn = async (columnKey: string) => {
+  const handleToggleColumn = async (columnKey: string, isRequired: boolean) => {
+    // Don't toggle required columns
+    if (isRequired) return;
+    
     const newVisibleColumns = visibleColumns.includes(columnKey)
       ? visibleColumns.filter(c => c !== columnKey)
       : [...visibleColumns, columnKey];
@@ -89,8 +92,8 @@ export function ColumnConfigPanel() {
                 )}
                 <Switch
                   checked={isVisible}
-                  onCheckedChange={() => handleToggleColumn(column.key)}
-                  disabled={isRequired}
+                  onCheckedChange={() => handleToggleColumn(column.key, isRequired)}
+                  disabled={isRequired || updateSettings.isPending}
                 />
               </div>
             </div>

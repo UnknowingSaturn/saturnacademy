@@ -36,14 +36,13 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   // Fetch playbooks for model options
   const { data: playbooks } = usePlaybooks();
   
-  // Generate dynamic model options from playbooks
+  // Generate dynamic model options from playbooks - use actual playbook colors
   const playbookModelOptions = useMemo(() => {
     if (!playbooks || playbooks.length === 0) return [];
-    const colors = ["primary", "profit", "breakeven", "london", "tokyo", "newyork"];
-    return playbooks.map((pb, index) => ({
+    return playbooks.map((pb) => ({
       value: pb.name,
       label: pb.name,
-      color: colors[index % colors.length],
+      customColor: pb.color || undefined, // Use actual playbook hex color
     }));
   }, [playbooks]);
 
