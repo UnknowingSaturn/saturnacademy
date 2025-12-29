@@ -34,6 +34,7 @@ export interface Account {
   equity_current: number;
   is_active: boolean;
   api_key: string | null;
+  broker_utc_offset: number; // Broker server UTC offset in hours (e.g., 2 for UTC+2)
   created_at: string;
   updated_at: string;
 }

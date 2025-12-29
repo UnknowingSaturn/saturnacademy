@@ -16,6 +16,9 @@
 input group "=== Connection Settings ==="
 input string   InpApiKey         = "";                         // API Key (from journal app)
 
+input group "=== Broker Timezone ==="
+input int      InpBrokerUTCOffset = 2;                         // Broker Server UTC Offset (e.g., 2 for UTC+2)
+
 input group "=== Retry Settings ==="
 input int      InpMaxRetries     = 5;                          // Max retry attempts
 input int      InpRetryDelayMs   = 5000;                       // Retry delay (milliseconds)
@@ -301,15 +304,15 @@ string BuildEventPayload(ulong dealTicket, string eventType, string direction)
    // Build idempotency key using deal_id for uniqueness
    string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
    
-   // FIX: Convert deal time to UTC properly
-   // dealTime is in broker server time, convert to UTC using the GMT offset
-   // TimeGMT() - TimeCurrent() gives us the offset between GMT and server time
-   datetime dealTimeUTC = dealTime + (TimeGMT() - TimeCurrent());
+   // FIX: Convert deal time to UTC using the CONFIGURED broker offset
+   // dealTime is in broker server time (e.g., UTC+2), convert to UTC
+   // Using configured offset instead of runtime TimeGMT()-TimeCurrent() which is unreliable for historical trades
+   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
    string utcTimestamp = FormatTimestampUTC(dealTimeUTC);
    string serverTimestamp = FormatTimestamp(dealTime);
    
-   // Calculate timezone offset in seconds (server time - GMT)
-   long timezoneOffsetSeconds = (long)(TimeCurrent() - TimeGMT());
+   // Store the configured broker offset in seconds
+   long brokerOffsetSeconds = InpBrokerUTCOffset * 3600;
    
    // Get symbol digits for price formatting
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -359,12 +362,11 @@ string BuildEventPayload(ulong dealTicket, string eventType, string direction)
    json += "\"swap\":" + DoubleToString(swap, 2) + ",";
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
    
-   // FIX: Use actual deal time converted to UTC (not send time)
+   // FIX: Use configured broker offset (stored as seconds)
    json += "\"timestamp\":\"" + utcTimestamp + "\",";
    json += "\"server_time\":\"" + serverTimestamp + "\",";
-   
-   // FIX: Add timezone offset for reference
-   json += "\"timezone_offset_seconds\":" + IntegerToString(timezoneOffsetSeconds) + ",";
+   json += "\"broker_utc_offset\":" + IntegerToString(InpBrokerUTCOffset) + ",";
+   json += "\"timezone_offset_seconds\":" + IntegerToString(brokerOffsetSeconds) + ",";
    
    // FIX: For entry events, capture equity at entry for R% calculation
    if(eventType == "entry")
@@ -971,14 +973,14 @@ string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direct
    // Build idempotency key - use history_sync prefix to differentiate
    string idempotencyKey = g_terminalId + "_history_" + IntegerToString(dealTicket) + "_" + eventType;
    
-   // FIX: Convert deal time to UTC properly for historical trades
-   // dealTime is in broker server time, convert to UTC using the GMT offset
-   datetime dealTimeUTC = dealTime + (TimeGMT() - TimeCurrent());
+   // FIX: Convert deal time to UTC using the CONFIGURED broker offset
+   // dealTime is in broker server time (e.g., UTC+2), convert to UTC
+   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
    string utcTimestamp = FormatTimestampUTC(dealTimeUTC);
    string serverTimestamp = FormatTimestamp(dealTime);
    
-   // Calculate timezone offset in seconds (server time - GMT)
-   long timezoneOffsetSeconds = (long)(TimeCurrent() - TimeGMT());
+   // Store the configured broker offset in seconds
+   long brokerOffsetSeconds = InpBrokerUTCOffset * 3600;
    
    // Get symbol digits for price formatting
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -1029,12 +1031,11 @@ string BuildHistorySyncPayload(ulong dealTicket, string eventType, string direct
    json += "\"swap\":" + DoubleToString(swap, 2) + ",";
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
    
-   // FIX: Use deal time converted to UTC (not raw server time)
+   // FIX: Use configured broker offset
    json += "\"timestamp\":\"" + utcTimestamp + "\",";
    json += "\"server_time\":\"" + serverTimestamp + "\",";
-   
-   // FIX: Add timezone offset for reference
-   json += "\"timezone_offset_seconds\":" + IntegerToString(timezoneOffsetSeconds) + ",";
+   json += "\"broker_utc_offset\":" + IntegerToString(InpBrokerUTCOffset) + ",";
+   json += "\"timezone_offset_seconds\":" + IntegerToString(brokerOffsetSeconds) + ",";
    
    // Account info for auto-creation
    json += "\"account_info\":{";

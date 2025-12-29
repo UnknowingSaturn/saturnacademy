@@ -70,6 +70,7 @@ export function CreateAccountDialog({ open, onOpenChange }: CreateAccountDialogP
       equity_current: data.balance_start,
       is_active: true,
       terminal_id: null,
+      broker_utc_offset: 2, // Default to UTC+2 (most forex brokers)
     });
     form.reset();
     onOpenChange(false);
