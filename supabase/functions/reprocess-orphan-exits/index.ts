@@ -5,18 +5,28 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Session detection logic (same as ingest-events)
+// Session detection logic (DST-aware, same as ingest-events)
 function detectSession(utcTimestamp: string): string {
   const date = new Date(utcTimestamp);
-  const etOffset = -5; // EST (simplified)
-  const etHour = (date.getUTCHours() + etOffset + 24) % 24;
-  const etMinute = date.getUTCMinutes();
+  
+  // Use Intl.DateTimeFormat to get the hour in America/New_York timezone (handles DST)
+  const etFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  });
+  
+  const parts = etFormatter.formatToParts(date);
+  const etHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+  const etMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
   const etTime = etHour + etMinute / 60;
 
-  if (etTime >= 2 && etTime < 4) return "tokyo";
-  if (etTime >= 4 && etTime < 9.5) return "london";
-  if (etTime >= 9.5 && etTime < 12) return "new_york_am";
+  // Session detection priority (London takes precedence in the 03:00-04:00 overlap):
+  if (etTime >= 3 && etTime < 8) return "london";
+  if (etTime >= 8 && etTime < 12) return "new_york_am";
   if (etTime >= 12 && etTime < 17) return "new_york_pm";
+  if (etTime >= 19 || etTime < 3) return "tokyo";
   return "off_hours";
 }
 

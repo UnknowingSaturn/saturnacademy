@@ -24,12 +24,13 @@ interface SessionDefinition {
 }
 
 // Default sessions if user hasn't defined any
+// Order matters - first match wins. London comes before Tokyo to handle 03:00-04:00 overlap
 const DEFAULT_SESSIONS: SessionDefinition[] = [
-  { name: 'Tokyo', key: 'tokyo', start_hour: 19, start_minute: 0, end_hour: 4, end_minute: 0, timezone: 'America/New_York', is_active: true },
   { name: 'London', key: 'london', start_hour: 3, start_minute: 0, end_hour: 8, end_minute: 0, timezone: 'America/New_York', is_active: true },
   { name: 'NY AM', key: 'new_york_am', start_hour: 8, start_minute: 0, end_hour: 12, end_minute: 0, timezone: 'America/New_York', is_active: true },
   { name: 'NY PM', key: 'new_york_pm', start_hour: 12, start_minute: 0, end_hour: 17, end_minute: 0, timezone: 'America/New_York', is_active: true },
   { name: 'Off Hours', key: 'off_hours', start_hour: 17, start_minute: 0, end_hour: 19, end_minute: 0, timezone: 'America/New_York', is_active: true },
+  { name: 'Tokyo', key: 'tokyo', start_hour: 19, start_minute: 0, end_hour: 3, end_minute: 0, timezone: 'America/New_York', is_active: true },
 ];
 
 serve(async (req) => {

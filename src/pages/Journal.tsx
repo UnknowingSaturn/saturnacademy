@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTrades } from "@/hooks/useTrades";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import { useAccounts } from "@/hooks/useAccounts";
+import { supabase } from "@/integrations/supabase/client";
 import { TradeTable } from "@/components/journal/TradeTable";
 import { TradeDetailPanel } from "@/components/journal/TradeDetailPanel";
 import { ManualTradeForm } from "@/components/journal/ManualTradeForm";
@@ -16,7 +18,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Badge } from "@/components/ui/badge";
 import { SessionType, Trade } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
-import { Search, Settings, Table, CalendarDays, X } from "lucide-react";
+import { Search, Settings, Table, CalendarDays, X, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function Journal() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -29,9 +33,45 @@ export default function Journal() {
   const [settingsTab, setSettingsTab] = useState("sessions");
   const [activeFilters, setActiveFilters] = useState<FilterCondition[]>([]);
   const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
+  const [isRecalculating, setIsRecalculating] = useState(false);
 
   const { data: trades, isLoading } = useTrades();
   const { data: settings } = useUserSettings();
+  const { data: accounts } = useAccounts();
+  const queryClient = useQueryClient();
+
+  const handleRecalculateSessions = async () => {
+    if (!accounts || accounts.length === 0) {
+      toast.error("No accounts found");
+      return;
+    }
+
+    setIsRecalculating(true);
+    try {
+      let totalUpdated = 0;
+      
+      for (const account of accounts) {
+        const { data, error } = await supabase.functions.invoke('reprocess-trades', {
+          body: { account_id: account.id, use_custom_sessions: true }
+        });
+
+        if (error) {
+          console.error("Reprocess error for account:", account.name, error);
+          continue;
+        }
+
+        totalUpdated += data?.trades_updated || 0;
+      }
+
+      toast.success(`Recalculated sessions for ${totalUpdated} trades`);
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+    } catch (error) {
+      console.error("Recalculate error:", error);
+      toast.error("Failed to recalculate sessions");
+    } finally {
+      setIsRecalculating(false);
+    }
+  };
 
   // Read model filter from URL params on mount
   useEffect(() => {
@@ -142,6 +182,17 @@ export default function Journal() {
           <p className="text-muted-foreground">Review and analyze your trades</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Recalculate Sessions Button */}
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={handleRecalculateSessions}
+            disabled={isRecalculating}
+            title="Recalculate sessions for all trades"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
+            {isRecalculating ? 'Recalculating...' : 'Recalculate Sessions'}
+          </Button>
           {/* View Toggle */}
           <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "table" | "calendar")}>
             <ToggleGroupItem value="table" aria-label="Table view" className="px-3">
