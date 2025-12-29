@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Trade, SessionType } from "@/types/trading";
-import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatDateET, formatTimeET } from "@/lib/time";
 import { ChevronDown, ChevronRight, Image, Sparkles } from "lucide-react";
 import { TradeReviewPanel } from "./TradeReviewPanel";
 import { Badge } from "@/components/ui/badge";
@@ -73,13 +73,13 @@ export function TradeRow({ trade }: TradeRowProps) {
           )}
         </button>
 
-        {/* Date */}
+        {/* Date (ET) */}
         <div className="w-24 shrink-0">
           <p className="text-sm font-medium">
-            {format(new Date(trade.entry_time), "MMM d")}
+            {formatDateET(trade.entry_time)}
           </p>
           <p className="text-xs text-muted-foreground">
-            {format(new Date(trade.entry_time), "HH:mm")}
+            {formatTimeET(trade.entry_time)}
           </p>
         </div>
 

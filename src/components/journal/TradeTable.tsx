@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Trade, SessionType, EmotionalState, TradeModel, TimeframeAlignment, TradeProfile } from "@/types/trading";
 import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview } from "@/hooks/useTrades";
-import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatDateET, formatTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
 import { Input } from "@/components/ui/input";
 import { ChevronRight } from "lucide-react";
@@ -59,7 +59,7 @@ const profileOptions = [
   { value: "continuation", label: "Continuation", color: "muted" },
 ];
 
-const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 
 export function TradeTable({ trades, onTradeClick }: TradeTableProps) {
   const updateTrade = useUpdateTrade();
@@ -140,7 +140,7 @@ export function TradeTable({ trades, onTradeClick }: TradeTableProps) {
       <div className="divide-y divide-border">
         {trades.map((trade) => {
           const result = getResultBadge(trade);
-          const day = dayNames[new Date(trade.entry_time).getDay()];
+          const day = getDayNameET(trade.entry_time);
 
           return (
             <div
@@ -158,10 +158,10 @@ export function TradeTable({ trades, onTradeClick }: TradeTableProps) {
                 {trade.trade_number || "—"}
               </div>
 
-              {/* Date */}
+              {/* Date (ET) */}
               <div className="text-sm">
-                <div className="font-medium">{format(new Date(trade.entry_time), "MMM d, yyyy")}</div>
-                <div className="text-xs text-muted-foreground">{format(new Date(trade.entry_time), "h:mm a")}</div>
+                <div className="font-medium">{formatDateET(trade.entry_time)}</div>
+                <div className="text-xs text-muted-foreground">{formatTimeET(trade.entry_time)}</div>
               </div>
 
               {/* Day */}

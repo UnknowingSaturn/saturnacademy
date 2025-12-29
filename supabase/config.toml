@@ -6,6 +6,9 @@ verify_jwt = false
 [functions.trades-overlay]
 verify_jwt = false
 
+[functions.backfill-trades]
+verify_jwt = false
+
 [functions.analyze-trade]
 verify_jwt = true
 
