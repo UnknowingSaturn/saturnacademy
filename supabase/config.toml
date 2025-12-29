@@ -10,7 +10,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.reprocess-trades]
-verify_jwt = true
+verify_jwt = false
 
 [functions.analyze-trade]
 verify_jwt = true
