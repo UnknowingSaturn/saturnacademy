@@ -157,7 +157,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
         setScreenshots([]);
       }
     }
-  }, [trade?.id, trade?.review, setAnalysisResult, lastTradeId, hasUnsavedAnalysis]);
+  }, [trade?.id, trade?.review, setAnalysisResult, lastTradeId]);
 
   const score = Object.values(checklistAnswers).filter(Boolean).length;
 

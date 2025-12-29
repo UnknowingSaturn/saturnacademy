@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Check } from "lucide-react";
 
@@ -33,17 +33,22 @@ const colorClasses: Record<string, string> = {
   overlap: "bg-[hsl(var(--session-overlap)/0.15)] text-[hsl(var(--session-overlap))] border-[hsl(var(--session-overlap)/0.3)]",
 };
 
-export function BadgeSelect({
-  value,
-  onChange,
-  options,
-  placeholder = "Select...",
-  multiple = false,
-  allowClear = true,
-  className,
-}: BadgeSelectProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+export const BadgeSelect = React.forwardRef<HTMLDivElement, BadgeSelectProps>(
+  function BadgeSelect(
+    {
+      value,
+      onChange,
+      options,
+      placeholder = "Select...",
+      multiple = false,
+      allowClear = true,
+      className,
+    },
+    forwardedRef
+  ) {
+    const [isOpen, setIsOpen] = useState(false);
+    const internalRef = useRef<HTMLDivElement>(null);
+    const ref = (forwardedRef as React.RefObject<HTMLDivElement>) || internalRef;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -143,56 +148,58 @@ export function BadgeSelect({
         <ChevronDown className="w-3 h-3 text-muted-foreground ml-auto shrink-0" />
       </button>
 
-      {isOpen && (
-        <div className="absolute z-50 mt-1 w-48 rounded-md border border-border bg-popover shadow-lg">
-          <div className="p-1 max-h-60 overflow-auto">
-            {/* Clear option when value is selected */}
-            {allowClear && selectedValues.length > 0 && (
-              <button
-                type="button"
-                onClick={handleClear}
-                className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm",
-                  "hover:bg-accent transition-colors text-left text-muted-foreground"
-                )}
-              >
-                <span className="text-xs">Clear selection</span>
-              </button>
-            )}
-            {options.map((option) => {
-              const isSelected = selectedValues.includes(option.value);
-              return (
+        {isOpen && (
+          <div className="absolute z-50 mt-1 w-48 rounded-md border border-border bg-popover shadow-lg">
+            <div className="p-1 max-h-60 overflow-auto">
+              {/* Clear option when value is selected */}
+              {allowClear && selectedValues.length > 0 && (
                 <button
-                  key={option.value}
                   type="button"
-                  onClick={() => handleSelect(option.value)}
+                  onClick={handleClear}
                   className={cn(
                     "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm",
-                    "hover:bg-accent transition-colors text-left",
-                    isSelected && "bg-accent/50"
+                    "hover:bg-accent transition-colors text-left text-muted-foreground"
                   )}
                 >
-                  {(() => {
-                    const optStyle = getOptionStyle(option);
-                    return (
-                      <span
-                        className={cn(
-                          "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
-                          optStyle.className
-                        )}
-                        style={optStyle.style}
-                      >
-                        {option.label}
-                      </span>
-                    );
-                  })()}
-                  {isSelected && <Check className="w-3 h-3 ml-auto text-primary" />}
+                  <span className="text-xs">Clear selection</span>
                 </button>
-              );
-            })}
+              )}
+              {options.map((option) => {
+                const isSelected = selectedValues.includes(option.value);
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => handleSelect(option.value)}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm",
+                      "hover:bg-accent transition-colors text-left",
+                      isSelected && "bg-accent/50"
+                    )}
+                  >
+                    {(() => {
+                      const optStyle = getOptionStyle(option);
+                      return (
+                        <span
+                          className={cn(
+                            "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
+                            optStyle.className
+                          )}
+                          style={optStyle.style}
+                        >
+                          {option.label}
+                        </span>
+                      );
+                    })()}
+                    {isSelected && <Check className="w-3 h-3 ml-auto text-primary" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
-    </div>
-  );
-}
+        )}
+      </div>
+    );
+  }
+);
+BadgeSelect.displayName = "BadgeSelect";
