@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep, TradeScreenshot } from "@/types/trading";
-import { usePlaybooks } from "@/hooks/usePlaybooks";
+import { usePlaybooks, usePlaybook } from "@/hooks/usePlaybooks";
 import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
 import { TradeChart } from "@/components/chart/TradeChart";
 import { TradeProperties } from "./TradeProperties";
 import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
 import { AIAnalysisDisplay } from "./AIAnalysisDisplay";
+import { RuleComplianceAlert } from "@/components/playbooks/RuleComplianceAlert";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,7 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
   const { analyzeTrade, isAnalyzing, analysisResult, submitFeedback } = useAIAnalysis();
 
   const existingReview = trade?.review;
+  const selectedPlaybook = playbooks?.find(p => p.id === existingReview?.playbook_id);
 
   const [playbookId, setPlaybookId] = useState(existingReview?.playbook_id || "");
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, boolean>>(existingReview?.checklist_answers || {});
@@ -251,6 +253,15 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
             {/* Left Side - Scrollable Content */}
             <ScrollArea className="flex-1">
               <div className="p-4 space-y-6">
+                {/* Rule Compliance Alert */}
+                {selectedPlaybook && (
+                  <RuleComplianceAlert 
+                    trade={trade} 
+                    review={existingReview} 
+                    playbook={selectedPlaybook} 
+                  />
+                )}
+
                 {/* Replay Chart */}
                 <div className="rounded-lg border border-border bg-card/50 p-4">
                   <TradeChart trade={trade} />

@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Trade, SessionType } from "@/types/trading";
+import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { cn } from "@/lib/utils";
 import { formatDateET, formatTimeET } from "@/lib/time";
-import { ChevronDown, ChevronRight, Image, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, Image, Sparkles, BookOpen } from "lucide-react";
 import { TradeReviewPanel } from "./TradeReviewPanel";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TradeRowProps {
   trade: Trade;
@@ -28,6 +30,7 @@ const sessionLabels: Record<SessionType, string> = {
 
 export function TradeRow({ trade }: TradeRowProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const { data: playbooks } = usePlaybooks();
 
   const pnl = trade.net_pnl || 0;
   const isWin = pnl > 0;
@@ -37,6 +40,10 @@ export function TradeRow({ trade }: TradeRowProps) {
   const score = trade.review?.score || 0;
   const hasScreenshots = trade.review?.screenshots && trade.review.screenshots.length > 0;
   const hasReview = !!trade.review;
+  
+  // Get playbook name if trade has one assigned
+  const playbookId = trade.review?.playbook_id;
+  const playbook = playbookId ? playbooks?.find(p => p.id === playbookId) : null;
 
   return (
     <div className={cn(
@@ -160,6 +167,24 @@ export function TradeRow({ trade }: TradeRowProps) {
 
         {/* Indicators */}
         <div className="flex-1 min-w-0 flex items-center gap-2">
+          {/* Playbook badge */}
+          {playbook && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full border border-primary/20 cursor-default">
+                  <BookOpen className="w-3 h-3" />
+                  <span className="max-w-[80px] truncate">{playbook.name}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{playbook.name}</p>
+                {playbook.description && (
+                  <p className="text-xs text-muted-foreground">{playbook.description}</p>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          )}
+
           {/* Emotional State */}
           {trade.review?.emotional_state_before && (
             <span className={cn(
