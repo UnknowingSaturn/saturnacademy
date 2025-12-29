@@ -140,6 +140,10 @@ export interface Playbook {
   invalidation_rules: string[];
   management_rules: string[];
   failure_modes: string[];
+  // Risk management limits
+  max_r_per_trade: number | null;
+  max_daily_loss_r: number | null;
+  max_trades_per_session: number | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
