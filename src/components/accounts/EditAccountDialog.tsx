@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { RefreshCw, RotateCcw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -41,9 +41,19 @@ const formSchema = z.object({
   prop_firm: z.enum(['ftmo', 'fundednext', 'other']).optional(),
   balance_start: z.coerce.number().min(0),
   equity_current: z.coerce.number().min(0),
+  broker_utc_offset: z.coerce.number().min(-12).max(14),
 });
 
 type FormData = z.infer<typeof formSchema>;
+
+const BROKER_TIMEZONES = [
+  { value: -5, label: 'UTC-5 (New York)' },
+  { value: -4, label: 'UTC-4 (New York DST)' },
+  { value: 0, label: 'UTC+0 (London)' },
+  { value: 1, label: 'UTC+1 (London DST)' },
+  { value: 2, label: 'UTC+2 (Helsinki, Cyprus)' },
+  { value: 3, label: 'UTC+3 (Moscow, EET DST)' },
+];
 
 interface EditAccountDialogProps {
   account: Account;
@@ -54,8 +64,7 @@ interface EditAccountDialogProps {
 export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDialogProps) {
   const updateAccount = useUpdateAccount();
   const { toast } = useToast();
-  const [isReprocessing, setIsReprocessing] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -67,6 +76,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       prop_firm: account.prop_firm || undefined,
       balance_start: account.balance_start || 0,
       equity_current: account.equity_current || 0,
+      broker_utc_offset: account.broker_utc_offset ?? 2,
     },
   });
 
@@ -80,6 +90,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
         prop_firm: account.prop_firm || undefined,
         balance_start: account.balance_start || 0,
         equity_current: account.equity_current || 0,
+        broker_utc_offset: account.broker_utc_offset ?? 2,
       });
     }
   }, [open, account, form]);
@@ -96,67 +107,52 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       prop_firm: data.account_type === 'prop' ? (data.prop_firm as PropFirm) || null : null,
       balance_start: data.balance_start,
       equity_current: data.equity_current,
+      broker_utc_offset: data.broker_utc_offset,
     });
     onOpenChange(false);
   };
 
-  const handleRecalculateTrades = async () => {
-    setIsReprocessing(true);
+  const handleSyncTradeData = async () => {
+    setIsSyncing(true);
+    const brokerOffset = form.getValues('broker_utc_offset');
+    
     try {
-      const { data, error } = await supabase.functions.invoke('reprocess-trades', {
+      // First update the account with the broker offset
+      await updateAccount.mutateAsync({
+        id: account.id,
+        broker_utc_offset: brokerOffset,
+      });
+
+      // Restore original times from events with timezone conversion
+      const { data: restoreData, error: restoreError } = await supabase.functions.invoke('restore-trade-times', {
         body: { 
           account_id: account.id,
+          broker_utc_offset: brokerOffset,
         },
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: 'Trade data recalculated',
-        description: `Updated ${data.trades_updated || 0} trades with sessions and R%.`,
-      });
-    } catch (error) {
-      console.error('Recalculate error:', error);
-      toast({
-        title: 'Failed to recalculate trades',
-        description: error instanceof Error ? error.message : 'Unknown error',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsReprocessing(false);
-    }
-  };
-
-  const handleRestoreTimes = async () => {
-    setIsRestoring(true);
-    try {
-      // First restore original times from events
-      const { data: restoreData, error: restoreError } = await supabase.functions.invoke('restore-trade-times', {
-        body: { account_id: account.id },
       });
 
       if (restoreError) throw restoreError;
 
       // Then recalculate sessions and R%
-      const { data: reprocessData, error: reprocessError } = await supabase.functions.invoke('reprocess-trades', {
+      const { error: reprocessError } = await supabase.functions.invoke('reprocess-trades', {
         body: { account_id: account.id },
       });
 
       if (reprocessError) throw reprocessError;
 
       toast({
-        title: 'Trade times restored',
-        description: `Restored ${restoreData.trades_updated || 0} trades and recalculated sessions.`,
+        title: 'Trade data synced',
+        description: `Synced ${restoreData.trades_updated || 0} trades with UTC conversion and recalculated sessions.`,
       });
     } catch (error) {
-      console.error('Restore error:', error);
+      console.error('Sync error:', error);
       toast({
-        title: 'Failed to restore trade times',
+        title: 'Failed to sync trade data',
         description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive',
       });
     } finally {
-      setIsRestoring(false);
+      setIsSyncing(false);
     }
   };
 
@@ -298,35 +294,52 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <RefreshCw className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Trade Data</span>
+                <span className="text-sm font-medium">Trade Data Sync</span>
               </div>
 
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={handleRecalculateTrades}
-                disabled={isReprocessing}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${isReprocessing ? 'animate-spin' : ''}`} />
-                {isReprocessing ? 'Recalculating...' : 'Recalculate Sessions & R%'}
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                Recalculates sessions based on your session definitions and R% using running balance.
-              </p>
+              <FormField
+                control={form.control}
+                name="broker_utc_offset"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Broker Server Timezone</FormLabel>
+                    <Select 
+                      onValueChange={(v) => field.onChange(parseInt(v))} 
+                      value={field.value?.toString()}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select timezone" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {BROKER_TIMEZONES.map((tz) => (
+                          <SelectItem key={tz.value} value={tz.value.toString()}>
+                            {tz.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      The timezone of your broker's MT5 server
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <Button
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={handleRestoreTimes}
-                disabled={isRestoring || isReprocessing}
+                onClick={handleSyncTradeData}
+                disabled={isSyncing}
               >
-                <RotateCcw className={`h-4 w-4 mr-2 ${isRestoring ? 'animate-spin' : ''}`} />
-                {isRestoring ? 'Restoring...' : 'Restore Original Times'}
+                <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+                {isSyncing ? 'Syncing...' : 'Sync Trade Data'}
               </Button>
               <p className="text-xs text-muted-foreground">
-                Restores trade times from original MT5 events and recalculates sessions.
+                Restores original MT5 times, converts to UTC using broker timezone, and recalculates sessions & R%.
               </p>
             </div>
 

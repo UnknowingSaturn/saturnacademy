@@ -9,15 +9,17 @@ const corsHeaders = {
 
 interface RestoreRequest {
   account_id: string;
+  broker_utc_offset?: number; // Broker server UTC offset (e.g., 2 for UTC+2)
 }
 
 /**
- * Restore original trade times from events table
- * This undoes any incorrect time adjustments from previous reprocessing
+ * Restore original trade times from events table and convert to UTC
  * 
- * The events table stores the original timestamps from MT5.
- * MT5 timestamps are in broker server time (e.g., UTC+2).
- * These should be stored directly since that's the canonical source.
+ * The events table stores timestamps from MT5 in broker server time.
+ * This function converts them to UTC using the provided broker_utc_offset.
+ * 
+ * Example: If broker is UTC+2 and event_timestamp is "2024-01-01 10:00:00",
+ * the actual UTC time is "2024-01-01 08:00:00" (subtract 2 hours).
  */
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -29,7 +31,7 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { account_id }: RestoreRequest = await req.json();
+    const { account_id, broker_utc_offset }: RestoreRequest = await req.json();
 
     if (!account_id) {
       return new Response(
@@ -38,7 +40,10 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Restoring trade times for account ${account_id}`);
+    // Use provided offset or fall back to account setting or default to 2 (common for EU brokers)
+    let utcOffset = broker_utc_offset;
+    
+    console.log(`Restoring trade times for account ${account_id} with UTC offset ${utcOffset}`);
 
     // Get account data
     const { data: account, error: accountError } = await supabase
@@ -53,6 +58,13 @@ serve(async (req) => {
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // Use account's broker_utc_offset if not provided in request
+    if (utcOffset === undefined) {
+      utcOffset = account.broker_utc_offset ?? 2;
+    }
+    
+    console.log(`Using broker UTC offset: ${utcOffset}`);
 
     // Get all events for this account
     const { data: events, error: eventsError } = await supabase
@@ -119,13 +131,23 @@ serve(async (req) => {
         continue;
       }
 
-      // Prepare update with original times from events
-      const updateData: any = {
-        entry_time: openEvent.event_timestamp,
+      // Convert broker time to UTC by subtracting the offset
+      const convertToUTC = (brokerTimestamp: string): string => {
+        const brokerDate = new Date(brokerTimestamp);
+        const utcDate = new Date(brokerDate.getTime() - (utcOffset! * 60 * 60 * 1000));
+        return utcDate.toISOString();
       };
 
+      // Prepare update with times converted to UTC
+      const entryTimeUTC = convertToUTC(openEvent.event_timestamp);
+      const updateData: any = {
+        entry_time: entryTimeUTC,
+      };
+
+      let exitTimeUTC: string | undefined;
       if (closeEvent) {
-        updateData.exit_time = closeEvent.event_timestamp;
+        exitTimeUTC = convertToUTC(closeEvent.event_timestamp);
+        updateData.exit_time = exitTimeUTC;
       }
 
       // Update the trade
@@ -138,6 +160,7 @@ serve(async (req) => {
         console.error(`Error updating trade ${trade.id}:`, updateError);
       } else {
         updatedCount++;
+        console.log(`Restored ticket ${ticket}: broker=${openEvent.event_timestamp} -> UTC=${entryTimeUTC}`);
         console.log(`Restored times for ticket ${ticket}: entry=${openEvent.event_timestamp}, exit=${closeEvent?.event_timestamp || 'open'}`);
       }
     }
