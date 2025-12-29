@@ -22,9 +22,9 @@ export function PlaybookCard({ playbook, stats, onEdit, onDelete }: PlaybookCard
   };
 
   const handleCardClick = (e: React.MouseEvent) => {
-    // Only navigate if not clicking on buttons
+    // Only open edit if not clicking on buttons
     if ((e.target as HTMLElement).closest('button')) return;
-    handleViewTrades();
+    onEdit(playbook);
   };
 
   const winRate = stats?.winRate ?? 0;
@@ -149,10 +149,15 @@ export function PlaybookCard({ playbook, stats, onEdit, onDelete }: PlaybookCard
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1 text-primary opacity-0 group-hover:opacity-100 transition-opacity">
-            <span>View Trades</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs gap-1"
+            onClick={(e) => { e.stopPropagation(); handleViewTrades(); }}
+          >
+            View Trades
             <ExternalLink className="w-3 h-3" />
-          </div>
+          </Button>
         </div>
 
         {/* Checklist Questions Count */}
