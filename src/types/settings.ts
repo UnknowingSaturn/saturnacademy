@@ -104,10 +104,7 @@ export const DEFAULT_SESSIONS: Omit<SessionDefinition, 'id' | 'user_id' | 'creat
 ];
 
 export const DEFAULT_PROPERTY_OPTIONS: Omit<PropertyOption, 'id' | 'user_id' | 'created_at' | 'updated_at'>[] = [
-  // Models
-  { property_name: 'model', value: 'type_a', label: 'Type A', color: '#3B82F6', sort_order: 0, is_active: true },
-  { property_name: 'model', value: 'type_b', label: 'Type B', color: '#22C55E', sort_order: 1, is_active: true },
-  { property_name: 'model', value: 'type_c', label: 'Type C', color: '#EAB308', sort_order: 2, is_active: true },
+  // Models are now dynamic from playbooks - no static options needed
   // Profiles
   { property_name: 'profile', value: 'consolidation', label: 'Consolidation', color: '#3B82F6', sort_order: 0, is_active: true },
   { property_name: 'profile', value: 'expansion', label: 'Expansion', color: '#22C55E', sort_order: 1, is_active: true },
