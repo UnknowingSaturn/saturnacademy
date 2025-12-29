@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Link } from 'lucide-react';
+import { Plus, Link, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccounts } from '@/hooks/useAccounts';
 import { AccountCard } from '@/components/accounts/AccountCard';
@@ -7,12 +7,47 @@ import { CreateAccountDialog } from '@/components/accounts/CreateAccountDialog';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
 import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
 import { Account } from '@/types/trading';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 export default function Accounts() {
   const { data: accounts, isLoading } = useAccounts();
   const [createOpen, setCreateOpen] = useState(false);
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
+  const [isRecovering, setIsRecovering] = useState(false);
+
+  const handleRecoverTrades = async () => {
+    setIsRecovering(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Please sign in to recover trades");
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('reprocess-orphan-exits', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.recovered > 0) {
+        toast.success(data.message, {
+          description: data.trades?.join(', '),
+        });
+      } else {
+        toast.info(data.message);
+      }
+    } catch (err) {
+      console.error("Recovery error:", err);
+      toast.error("Failed to recover trades");
+    } finally {
+      setIsRecovering(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -22,6 +57,15 @@ export default function Accounts() {
           <p className="text-muted-foreground">Manage your trading accounts and MT5 connections</p>
         </div>
         <div className="flex gap-2">
+          <Button 
+            variant="ghost" 
+            size="sm"
+            onClick={handleRecoverTrades}
+            disabled={isRecovering}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isRecovering ? 'animate-spin' : ''}`} />
+            {isRecovering ? 'Recovering...' : 'Recover Missed Trades'}
+          </Button>
           <Button variant="outline" onClick={() => setQuickConnectOpen(true)}>
             <Link className="h-4 w-4 mr-2" />
             Connect MT5

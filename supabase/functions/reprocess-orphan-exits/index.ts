@@ -1,0 +1,195 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+// Session detection logic (same as ingest-events)
+function detectSession(utcTimestamp: string): string {
+  const date = new Date(utcTimestamp);
+  const etOffset = -5; // EST (simplified)
+  const etHour = (date.getUTCHours() + etOffset + 24) % 24;
+  const etMinute = date.getUTCMinutes();
+  const etTime = etHour + etMinute / 60;
+
+  if (etTime >= 2 && etTime < 4) return "tokyo";
+  if (etTime >= 4 && etTime < 9.5) return "london";
+  if (etTime >= 9.5 && etTime < 12) return "new_york_am";
+  if (etTime >= 12 && etTime < 17) return "new_york_pm";
+  return "off_hours";
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Get authorization header and verify user
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "No authorization header" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Get user from token
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: "Invalid token" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("Reprocessing orphan exits for user:", user.id);
+
+    // Get user's accounts
+    const { data: accounts } = await supabase
+      .from("accounts")
+      .select("id, equity_current, balance_start")
+      .eq("user_id", user.id);
+
+    if (!accounts || accounts.length === 0) {
+      return new Response(JSON.stringify({ recovered: 0, message: "No accounts found" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const accountIds = accounts.map(a => a.id);
+    const accountEquityMap = new Map(accounts.map(a => [a.id, a.equity_current || a.balance_start || 0]));
+
+    // Find all processed exit/close events for user's accounts
+    const { data: exitEvents, error: eventsError } = await supabase
+      .from("events")
+      .select("*")
+      .in("account_id", accountIds)
+      .in("event_type", ["close", "exit"])
+      .eq("processed", true)
+      .order("event_timestamp", { ascending: true });
+
+    if (eventsError) {
+      console.error("Error fetching events:", eventsError);
+      throw eventsError;
+    }
+
+    console.log(`Found ${exitEvents?.length || 0} processed exit events to check`);
+
+    let recovered = 0;
+    const recoveredTrades: string[] = [];
+
+    for (const event of exitEvents || []) {
+      const ticket = event.ticket;
+
+      // Check if trade exists for this ticket
+      const { data: existingTrade } = await supabase
+        .from("trades")
+        .select("id")
+        .eq("ticket", ticket)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (existingTrade) {
+        // Trade already exists, skip
+        continue;
+      }
+
+      console.log("Found orphan exit event for ticket:", ticket);
+
+      // Extract data from event
+      const rawPayload = event.raw_payload || {};
+      const entryPrice = rawPayload.entry_price || event.price;
+      const entryTime = rawPayload.entry_time || event.event_timestamp;
+      
+      // Calculate duration
+      const entryDate = new Date(entryTime);
+      const exitDate = new Date(event.event_timestamp);
+      const duration = Math.floor((exitDate.getTime() - entryDate.getTime()) / 1000);
+      
+      // Calculate PnL
+      const grossPnl = event.profit || 0;
+      const commission = event.commission || 0;
+      const swap = event.swap || 0;
+      const netPnl = grossPnl - commission - Math.abs(swap);
+      
+      // Get session
+      const session = detectSession(entryTime);
+      
+      // R% calculation
+      const currentEquity = accountEquityMap.get(event.account_id) || 0;
+      const equityAtEntry = rawPayload.equity_at_entry || currentEquity;
+      let rMultiple = null;
+      if (equityAtEntry && equityAtEntry > 0) {
+        rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
+      }
+
+      // Create the trade
+      const { error: insertError } = await supabase.from("trades").insert({
+        user_id: user.id,
+        account_id: event.account_id,
+        terminal_id: event.terminal_id,
+        ticket: ticket,
+        symbol: event.symbol,
+        direction: event.direction,
+        total_lots: 0,
+        original_lots: event.lot_size,
+        entry_price: entryPrice,
+        entry_time: entryTime,
+        exit_price: event.price,
+        exit_time: event.event_timestamp,
+        sl_initial: event.sl,
+        tp_initial: event.tp,
+        sl_final: event.sl,
+        tp_final: event.tp,
+        gross_pnl: grossPnl,
+        commission: commission,
+        swap: swap,
+        net_pnl: netPnl,
+        r_multiple_actual: rMultiple,
+        duration_seconds: duration > 0 ? duration : null,
+        session: session,
+        is_open: false,
+        balance_at_entry: currentEquity,
+        equity_at_entry: equityAtEntry,
+      });
+
+      if (insertError) {
+        console.error("Failed to create trade for ticket:", ticket, insertError);
+      } else {
+        recovered++;
+        recoveredTrades.push(`${event.symbol} #${ticket}`);
+        console.log("Recovered trade:", ticket, event.symbol, "PnL:", netPnl);
+      }
+    }
+
+    console.log(`Recovery complete: ${recovered} trades recovered`);
+
+    return new Response(
+      JSON.stringify({ 
+        recovered, 
+        trades: recoveredTrades,
+        message: recovered > 0 
+          ? `Recovered ${recovered} missed trade(s)` 
+          : "No missed trades found" 
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Internal error";
+    console.error("Reprocess error:", error);
+    return new Response(
+      JSON.stringify({ error: errorMessage }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});
