@@ -63,11 +63,28 @@ export function useAIAnalysis() {
 
       setAnalysisResult(result);
       
-      // Invalidate trades queries to refresh cache with new ai_review
+      // Immediately update the trade cache with the saved_review from backend
+      if (data.saved_review) {
+        // Update single trade query cache
+        queryClient.setQueryData(['trade', tradeId], (oldData: any) => {
+          if (!oldData) return oldData;
+          return { ...oldData, ai_review: data.saved_review };
+        });
+        
+        // Update trades list cache
+        queryClient.setQueryData(['trades', undefined], (oldData: any) => {
+          if (!Array.isArray(oldData)) return oldData;
+          return oldData.map((t: any) => 
+            t.id === tradeId ? { ...t, ai_review: data.saved_review } : t
+          );
+        });
+      }
+      
+      // Also invalidate to ensure fresh data on next fetch
       queryClient.invalidateQueries({ queryKey: ['trades'] });
       queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
       
-      toast({ title: "Analysis Complete", description: "AI review has been generated." });
+      toast({ title: "Analysis Complete", description: "AI review has been saved." });
       return result;
     } catch (error) {
       console.error("AI analysis error:", error);

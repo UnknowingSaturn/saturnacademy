@@ -28,7 +28,7 @@ export default function Journal() {
   const [sessionFilter, setSessionFilter] = useState<SessionType | "all">("all");
   const [resultFilter, setResultFilter] = useState<"all" | "win" | "loss" | "open">("all");
   const [modelFilter, setModelFilter] = useState<string | null>(null);
-  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
+  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState("sessions");
   const [activeFilters, setActiveFilters] = useState<FilterCondition[]>([]);
@@ -81,15 +81,7 @@ export default function Journal() {
     }
   }, [searchParams]);
 
-  // Keep selectedTrade in sync with fresh trades data (e.g., after AI analysis saves)
-  useEffect(() => {
-    if (selectedTrade && trades) {
-      const freshTrade = trades.find(t => t.id === selectedTrade.id);
-      if (freshTrade && freshTrade.ai_review !== selectedTrade.ai_review) {
-        setSelectedTrade(freshTrade);
-      }
-    }
-  }, [trades, selectedTrade?.id, selectedTrade?.ai_review]);
+  // No longer need selectedTrade sync effect - TradeDetailPanel fetches fresh data by ID
 
   const clearModelFilter = () => {
     setModelFilter(null);
@@ -290,7 +282,7 @@ export default function Journal() {
         ) : (
           <TradeTable 
             trades={filteredTrades} 
-            onTradeClick={setSelectedTrade}
+            onTradeClick={(trade) => setSelectedTradeId(trade.id)}
             visibleColumns={settings?.visible_columns}
             onEditProperty={handleEditProperty}
           />
@@ -298,15 +290,15 @@ export default function Journal() {
       ) : (
         <JournalCalendarView 
           trades={trades || []} 
-          onTradeClick={setSelectedTrade}
+          onTradeClick={(trade) => setSelectedTradeId(trade.id)}
         />
       )}
 
       {/* Trade Detail Panel */}
       <TradeDetailPanel
-        trade={selectedTrade}
-        isOpen={!!selectedTrade}
-        onClose={() => setSelectedTrade(null)}
+        tradeId={selectedTradeId}
+        isOpen={!!selectedTradeId}
+        onClose={() => setSelectedTradeId(null)}
       />
 
       {/* Settings Dialog */}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep, TradeScreenshot } from "@/types/trading";
 import { usePlaybooks, usePlaybook } from "@/hooks/usePlaybooks";
-import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
+import { useCreateTradeReview, useUpdateTradeReview, useTrade } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
 
 import { TradeProperties } from "./TradeProperties";
@@ -17,18 +17,22 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, Plus, X, Sparkles, Loader2, Save, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TradeDetailPanelProps {
-  trade: Trade | null;
+  tradeId: string | null;
   isOpen: boolean;
   onClose: () => void;
 }
 
-export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelProps) {
+export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelProps) {
+  // Fetch fresh trade data by ID - ensures we always have the latest including ai_review
+  const { data: trade, isLoading: isLoadingTrade } = useTrade(tradeId ?? undefined);
+  
   const { data: playbooks } = usePlaybooks();
   const createReview = useCreateTradeReview();
   const updateReview = useUpdateTradeReview();
@@ -199,7 +203,38 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
     setActionableSteps(actionableSteps.filter((_, i) => i !== index));
   };
 
-  if (!trade) return null;
+  // Show loading state while fetching trade
+  if (isLoadingTrade || !trade) {
+    return (
+      <Sheet open={isOpen} onOpenChange={() => onClose()}>
+        <SheetContent 
+          side="right" 
+          className="w-full sm:max-w-5xl p-0 overflow-hidden"
+          aria-describedby={undefined}
+        >
+          <div className="flex flex-col h-full">
+            <SheetHeader className="px-4 py-3 border-b border-border flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <SheetTitle className="text-base font-semibold">
+                  {isLoadingTrade ? "Loading..." : "Trade not found"}
+                </SheetTitle>
+              </div>
+            </SheetHeader>
+            {isLoadingTrade && (
+              <div className="p-6 space-y-4">
+                <Skeleton className="h-8 w-48" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
+  }
 
   const pnl = trade.net_pnl || 0;
 
@@ -255,20 +290,28 @@ export function TradeDetailPanel({ trade, isOpen, onClose }: TradeDetailPanelPro
                     {showProperties ? "Hide properties" : "Show properties"}
                   </TooltipContent>
                 </Tooltip>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8"
-                  onClick={() => trade && analyzeTrade(trade.id)}
-                  disabled={isAnalyzing}
-                >
-                  {isAnalyzing ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  ) : (
-                    <Sparkles className="h-4 w-4 mr-1" />
-                  )}
-                  AI
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      onClick={() => trade && analyzeTrade(trade.id)}
+                      disabled={isAnalyzing}
+                    >
+                      {isAnalyzing ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 mr-1" />
+                      )}
+                      AI
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Generate AI analysis</p>
+                    <p className="text-xs text-muted-foreground">Saves automatically</p>
+                  </TooltipContent>
+                </Tooltip>
                 <Button size="sm" className="h-8" onClick={handleSave} disabled={createReview.isPending || updateReview.isPending}>
                   <Save className="h-4 w-4 mr-1" />
                   Save
