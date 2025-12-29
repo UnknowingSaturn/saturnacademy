@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useNavigate } from "react-router-dom";
 import { Playbook } from "@/types/trading";
 import { PlaybookStats } from "@/hooks/usePlaybookStats";
@@ -597,12 +598,21 @@ export function PlaybookDetailSheet({
   );
 }
 
-// Collapsible rule section component
-function RuleSection({ title, rules, icon }: { title: string; rules: string[]; icon: React.ReactNode }) {
-  if (rules.length === 0) return null;
-  
-  return (
-    <Collapsible>
+// Collapsible rule section component - wrapped with forwardRef to absorb refs from JSX instrumentation
+interface RuleSectionProps {
+  title: string;
+  rules: string[];
+  icon: React.ReactNode;
+}
+
+const RuleSection = React.forwardRef<HTMLDivElement, RuleSectionProps>(
+  ({ title, rules, icon }, _ref) => {
+    if (rules.length === 0) return null;
+    
+    // Use React.createElement to bypass JSX instrumentation on Collapsible root
+    return React.createElement(
+      Collapsible,
+      null,
       <CollapsibleTrigger className="flex items-center justify-between w-full p-2 rounded-lg hover:bg-muted/50 transition-colors">
         <div className="flex items-center gap-2">
           {icon}
@@ -610,7 +620,7 @@ function RuleSection({ title, rules, icon }: { title: string; rules: string[]; i
           <Badge variant="secondary" className="text-xs">{rules.length}</Badge>
         </div>
         <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
-      </CollapsibleTrigger>
+      </CollapsibleTrigger>,
       <CollapsibleContent>
         <ul className="py-2 pl-8 space-y-1">
           {rules.map((rule, i) => (
@@ -620,6 +630,7 @@ function RuleSection({ title, rules, icon }: { title: string; rules: string[]; i
           ))}
         </ul>
       </CollapsibleContent>
-    </Collapsible>
-  );
-}
+    );
+  }
+);
+RuleSection.displayName = "RuleSection";

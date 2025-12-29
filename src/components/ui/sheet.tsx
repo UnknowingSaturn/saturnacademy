@@ -5,13 +5,24 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-const Sheet = SheetPrimitive.Root;
+// Ref-shield wrapper using React.createElement to bypass JSX instrumentation
+// that injects refs into non-forwardRef components (Radix Root/Portal).
+const Sheet = React.forwardRef<
+  HTMLDivElement,
+  React.ComponentPropsWithoutRef<typeof SheetPrimitive.Root>
+>((props, _ref) => React.createElement(SheetPrimitive.Root, props));
+Sheet.displayName = "Sheet";
 
 const SheetTrigger = SheetPrimitive.Trigger;
 
 const SheetClose = SheetPrimitive.Close;
 
-const SheetPortal = SheetPrimitive.Portal;
+// Ref-shield wrapper for Portal (also a non-DOM component)
+const SheetPortal = React.forwardRef<
+  HTMLDivElement,
+  React.ComponentPropsWithoutRef<typeof SheetPrimitive.Portal>
+>((props, _ref) => React.createElement(SheetPrimitive.Portal, props));
+SheetPortal.displayName = "SheetPortal";
 
 const SheetOverlay = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Overlay>,
