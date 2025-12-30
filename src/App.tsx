@@ -14,6 +14,7 @@ import Playbooks from "./pages/Playbooks";
 import Import from "./pages/Import";
 import Accounts from "./pages/Accounts";
 import LiveTrades from "./pages/LiveTrades";
+import Copier from "./pages/Copier";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -56,6 +57,7 @@ const AppRoutes = React.forwardRef<HTMLDivElement, object>(
         <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
         <Route path="/live-trades" element={<ProtectedRoute><LiveTrades /></ProtectedRoute>} />
         <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
+        <Route path="/copier" element={<ProtectedRoute><Copier /></ProtectedRoute>} />
         <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
         <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />

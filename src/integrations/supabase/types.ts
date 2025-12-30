@@ -22,10 +22,13 @@ export type Database = {
           balance_start: number | null
           broker: string | null
           broker_utc_offset: number | null
+          copier_enabled: boolean | null
+          copier_role: Database["public"]["Enums"]["copier_role"] | null
           created_at: string
           equity_current: number | null
           id: string
           is_active: boolean | null
+          master_account_id: string | null
           name: string
           prop_firm: Database["public"]["Enums"]["prop_firm"] | null
           terminal_id: string | null
@@ -39,10 +42,13 @@ export type Database = {
           balance_start?: number | null
           broker?: string | null
           broker_utc_offset?: number | null
+          copier_enabled?: boolean | null
+          copier_role?: Database["public"]["Enums"]["copier_role"] | null
           created_at?: string
           equity_current?: number | null
           id?: string
           is_active?: boolean | null
+          master_account_id?: string | null
           name: string
           prop_firm?: Database["public"]["Enums"]["prop_firm"] | null
           terminal_id?: string | null
@@ -56,10 +62,13 @@ export type Database = {
           balance_start?: number | null
           broker?: string | null
           broker_utc_offset?: number | null
+          copier_enabled?: boolean | null
+          copier_role?: Database["public"]["Enums"]["copier_role"] | null
           created_at?: string
           equity_current?: number | null
           id?: string
           is_active?: boolean | null
+          master_account_id?: string | null
           name?: string
           prop_firm?: Database["public"]["Enums"]["prop_firm"] | null
           terminal_id?: string | null
@@ -67,6 +76,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "accounts_master_account_id_fkey"
+            columns: ["master_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "accounts_user_id_fkey"
             columns: ["user_id"]
@@ -243,6 +259,215 @@ export type Database = {
             columns: ["trade_id"]
             isOneToOne: true
             referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      copier_config_versions: {
+        Row: {
+          config_hash: string
+          created_at: string | null
+          id: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          config_hash: string
+          created_at?: string | null
+          id?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          config_hash?: string
+          created_at?: string | null
+          id?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: []
+      }
+      copier_executions: {
+        Row: {
+          direction: string
+          error_message: string | null
+          event_type: string
+          executed_at: string | null
+          executed_price: number | null
+          id: string
+          idempotency_key: string
+          master_account_id: string | null
+          master_lots: number | null
+          master_position_id: number | null
+          master_price: number | null
+          receiver_account_id: string | null
+          receiver_lots: number | null
+          receiver_position_id: number | null
+          slippage_pips: number | null
+          status: string
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          direction: string
+          error_message?: string | null
+          event_type: string
+          executed_at?: string | null
+          executed_price?: number | null
+          id?: string
+          idempotency_key: string
+          master_account_id?: string | null
+          master_lots?: number | null
+          master_position_id?: number | null
+          master_price?: number | null
+          receiver_account_id?: string | null
+          receiver_lots?: number | null
+          receiver_position_id?: number | null
+          slippage_pips?: number | null
+          status: string
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          direction?: string
+          error_message?: string | null
+          event_type?: string
+          executed_at?: string | null
+          executed_price?: number | null
+          id?: string
+          idempotency_key?: string
+          master_account_id?: string | null
+          master_lots?: number | null
+          master_position_id?: number | null
+          master_price?: number | null
+          receiver_account_id?: string | null
+          receiver_lots?: number | null
+          receiver_position_id?: number | null
+          slippage_pips?: number | null
+          status?: string
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "copier_executions_master_account_id_fkey"
+            columns: ["master_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "copier_executions_receiver_account_id_fkey"
+            columns: ["receiver_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      copier_receiver_settings: {
+        Row: {
+          allowed_sessions: Json | null
+          created_at: string | null
+          id: string
+          manual_confirm_mode: boolean | null
+          max_daily_loss_r: number | null
+          max_slippage_pips: number | null
+          poll_interval_ms: number | null
+          prop_firm_safe_mode: boolean | null
+          receiver_account_id: string
+          risk_mode: string
+          risk_value: number
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          allowed_sessions?: Json | null
+          created_at?: string | null
+          id?: string
+          manual_confirm_mode?: boolean | null
+          max_daily_loss_r?: number | null
+          max_slippage_pips?: number | null
+          poll_interval_ms?: number | null
+          prop_firm_safe_mode?: boolean | null
+          receiver_account_id: string
+          risk_mode?: string
+          risk_value?: number
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          allowed_sessions?: Json | null
+          created_at?: string | null
+          id?: string
+          manual_confirm_mode?: boolean | null
+          max_daily_loss_r?: number | null
+          max_slippage_pips?: number | null
+          poll_interval_ms?: number | null
+          prop_firm_safe_mode?: boolean | null
+          receiver_account_id?: string
+          risk_mode?: string
+          risk_value?: number
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "copier_receiver_settings_receiver_account_id_fkey"
+            columns: ["receiver_account_id"]
+            isOneToOne: true
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      copier_symbol_mappings: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_enabled: boolean | null
+          master_account_id: string
+          master_symbol: string
+          receiver_account_id: string
+          receiver_symbol: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          master_account_id: string
+          master_symbol: string
+          receiver_account_id: string
+          receiver_symbol: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          master_account_id?: string
+          master_symbol?: string
+          receiver_account_id?: string
+          receiver_symbol?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "copier_symbol_mappings_master_account_id_fkey"
+            columns: ["master_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "copier_symbol_mappings_receiver_account_id_fkey"
+            columns: ["receiver_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
             referencedColumns: ["id"]
           },
         ]
@@ -1039,6 +1264,7 @@ export type Database = {
     Enums: {
       account_type: "demo" | "live" | "prop"
       ai_provider: "openai" | "gemini" | "lovable"
+      copier_role: "independent" | "master" | "receiver"
       emotional_state:
         | "great"
         | "good"
@@ -1196,6 +1422,7 @@ export const Constants = {
     Enums: {
       account_type: ["demo", "live", "prop"],
       ai_provider: ["openai", "gemini", "lovable"],
+      copier_role: ["independent", "master", "receiver"],
       emotional_state: [
         "great",
         "good",

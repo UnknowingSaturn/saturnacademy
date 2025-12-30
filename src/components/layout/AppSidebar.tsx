@@ -7,7 +7,8 @@ import {
   TrendingUp,
   LogOut,
   Wallet,
-  Activity
+  Activity,
+  Copy
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -32,6 +33,7 @@ const mainItems = [
   { title: "Trade Journal", url: "/journal", icon: BookOpen },
   { title: "Live Trades", url: "/live-trades", icon: Activity },
   { title: "Playbooks", url: "/playbooks", icon: FileText },
+  { title: "Trade Copier", url: "/copier", icon: Copy },
 ];
 
 const toolItems = [
