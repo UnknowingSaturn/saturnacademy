@@ -1,4 +1,4 @@
-import { Loader2, Check, AlertCircle, Cloud } from 'lucide-react';
+import { Loader2, Check, AlertCircle, CloudOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SaveStatus } from '@/hooks/useAutoSave';
 
@@ -16,6 +16,7 @@ export function SaveStatusIndicator({ status, onRetry }: SaveStatusIndicatorProp
     <div
       className={cn(
         "flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-md transition-all duration-200",
+        status === 'unsaved' && "text-breakeven bg-breakeven/10",
         status === 'saving' && "text-muted-foreground bg-muted/50",
         status === 'saved' && "text-profit bg-profit/10",
         status === 'error' && "text-loss bg-loss/10 cursor-pointer hover:bg-loss/20"
@@ -23,6 +24,12 @@ export function SaveStatusIndicator({ status, onRetry }: SaveStatusIndicatorProp
       onClick={status === 'error' ? onRetry : undefined}
       role={status === 'error' ? 'button' : undefined}
     >
+      {status === 'unsaved' && (
+        <>
+          <CloudOff className="h-3 w-3" />
+          <span>Unsaved</span>
+        </>
+      )}
       {status === 'saving' && (
         <>
           <Loader2 className="h-3 w-3 animate-spin" />

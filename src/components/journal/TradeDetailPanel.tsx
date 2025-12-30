@@ -138,11 +138,26 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
   }, [trade, createReview, updateReview]);
 
-  const { status: saveStatus, save: forceSave, hasUnsavedChanges } = useAutoSave(
+  const { status: saveStatus, flush, hasUnsavedChanges, hasDraft, restoreDraft, clearDraft } = useAutoSave(
     reviewData,
     saveReview,
-    { enabled: !!trade && isOpen }
+    { 
+      enabled: !!trade && isOpen,
+      storageKey: trade?.id ? `trade_review_draft_${trade.id}` : undefined
+    }
   );
+
+  // Check for draft recovery when trade loads
+  useEffect(() => {
+    if (trade && hasDraft) {
+      const draft = restoreDraft();
+      if (draft) {
+        // Show recovery option - for now auto-restore
+        setReviewData(draft);
+        clearDraft();
+      }
+    }
+  }, [trade?.id, hasDraft, restoreDraft, clearDraft]);
 
   // Reset state when trade changes
   useEffect(() => {
@@ -163,13 +178,13 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
   }, [isOpen]);
 
-  // Handle close with save
+  // Handle close with flush
   const handleClose = useCallback(async () => {
     if (hasUnsavedChanges) {
-      await forceSave();
+      await flush();
     }
     onClose();
-  }, [hasUnsavedChanges, forceSave, onClose]);
+  }, [hasUnsavedChanges, flush, onClose]);
 
   // Auto-reset progress after analysis completes
   useEffect(() => {
@@ -285,7 +300,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <SaveStatusIndicator status={saveStatus} onRetry={forceSave} />
+                <SaveStatusIndicator status={saveStatus} onRetry={flush} />
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button 
