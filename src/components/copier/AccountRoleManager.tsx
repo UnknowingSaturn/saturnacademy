@@ -22,8 +22,8 @@ interface AccountRoleManagerProps {
 export function AccountRoleManager({ accounts, isLoading }: AccountRoleManagerProps) {
   const updateRole = useUpdateCopierRole();
   
-  const masterAccount = accounts.find(a => (a as any).copier_role === 'master');
-  const receiverAccounts = accounts.filter(a => (a as any).copier_role === 'receiver');
+  const masterAccount = accounts.find(a => a.copier_role === 'master');
+  const receiverAccounts = accounts.filter(a => a.copier_role === 'receiver');
   
   const handleRoleChange = (accountId: string, newRole: CopierRole) => {
     // If setting as master, ensure no other master exists
@@ -102,7 +102,7 @@ export function AccountRoleManager({ accounts, isLoading }: AccountRoleManagerPr
       {/* Account List */}
       <div className="space-y-3">
         {accounts.map(account => {
-          const currentRole = (account as any).copier_role || 'independent';
+          const currentRole = account.copier_role || 'independent';
           const isUpdating = updateRole.isPending;
           
           return (
