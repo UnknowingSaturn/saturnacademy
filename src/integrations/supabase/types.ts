@@ -31,6 +31,8 @@ export type Database = {
           master_account_id: string | null
           name: string
           prop_firm: Database["public"]["Enums"]["prop_firm"] | null
+          sync_history_enabled: boolean | null
+          sync_history_from: string | null
           terminal_id: string | null
           updated_at: string
           user_id: string
@@ -51,6 +53,8 @@ export type Database = {
           master_account_id?: string | null
           name: string
           prop_firm?: Database["public"]["Enums"]["prop_firm"] | null
+          sync_history_enabled?: boolean | null
+          sync_history_from?: string | null
           terminal_id?: string | null
           updated_at?: string
           user_id: string
@@ -71,6 +75,8 @@ export type Database = {
           master_account_id?: string | null
           name?: string
           prop_firm?: Database["public"]["Enums"]["prop_firm"] | null
+          sync_history_enabled?: boolean | null
+          sync_history_from?: string | null
           terminal_id?: string | null
           updated_at?: string
           user_id?: string
