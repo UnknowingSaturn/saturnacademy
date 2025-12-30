@@ -44,7 +44,11 @@ export function useAIAnalysis() {
    * Generate AI analysis for a trade with step-by-step progress.
    * @returns true if successful, false if failed
    */
-  const analyzeTrade = useCallback(async (tradeId: string): Promise<boolean> => {
+  /**
+   * Generate AI analysis for a trade with step-by-step progress.
+   * @returns the saved AI review data if successful, null if failed
+   */
+  const analyzeTrade = useCallback(async (tradeId: string): Promise<any | null> => {
     setIsAnalyzing(true);
     resetProgress();
 
@@ -138,20 +142,17 @@ export function useAIAnalysis() {
         }
       }
 
-      // Step 5: Invalidate and refetch queries - wait for data before completing
-      setProgress({ step: "saving", message: "Refreshing data..." });
-      await queryClient.invalidateQueries({ queryKey: ['trades'] });
-      await queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
-      // Wait for refetch to ensure fresh data is loaded before showing complete
-      await queryClient.refetchQueries({ queryKey: ['trade', tradeId] });
-      
-      // Small delay to let React process the data update before marking complete
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Step 5: Invalidate queries in background (don't await)
+      setProgress({ step: "saving", message: "Saving results..." });
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
 
-      // Complete - UI will show progress until analysisData is present
+      // Complete and return the saved review for immediate use
       setProgress({ step: "complete", message: "Analysis complete" });
       toast({ title: "Analysis Complete", description: "AI analysis has been saved." });
-      return true;
+      
+      // Return the saved review data for immediate display
+      return data?.saved_review || data;
 
     } catch (error) {
       console.error("AI analysis error:", error);
@@ -162,7 +163,7 @@ export function useAIAnalysis() {
         description: message, 
         variant: "destructive" 
       });
-      return false;
+      return null;
     } finally {
       setIsAnalyzing(false);
     }
