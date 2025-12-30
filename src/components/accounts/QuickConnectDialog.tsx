@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Copy, Check, Download, ExternalLink, Loader2, History } from 'lucide-react';
+import { Copy, Check, Download, ExternalLink, Loader2, Info } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -8,85 +8,27 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { format, subDays, subMonths } from 'date-fns';
-import { CalendarIcon } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 interface QuickConnectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-type SyncPreset = '1week' | '2weeks' | '30days' | 'custom';
-
 export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogProps) {
   const [setupToken, setSetupToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [syncEnabled, setSyncEnabled] = useState(true);
-  const [syncPreset, setSyncPreset] = useState<SyncPreset>('30days');
-  const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
   const { toast } = useToast();
-
-  // Calculate sync_history_from based on preset
-  const getSyncFromDate = (): Date | null => {
-    if (!syncEnabled) return null;
-    
-    const now = new Date();
-    switch (syncPreset) {
-      case '1week':
-        return subDays(now, 7);
-      case '2weeks':
-        return subDays(now, 14);
-      case '30days':
-        return subDays(now, 30);
-      case 'custom':
-        return customDate || subDays(now, 30);
-      default:
-        return subDays(now, 30);
-    }
-  };
 
   // Generate setup token when dialog opens
   useEffect(() => {
     if (open && !setupToken) {
       generateSetupToken();
     }
-  }, [open, syncEnabled, syncPreset, customDate]);
-
-  // Regenerate token when sync settings change (if token already exists)
-  const regenerateTokenWithSettings = async () => {
-    if (!setupToken) return;
-    
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Delete old token
-      await supabase
-        .from('setup_tokens')
-        .delete()
-        .eq('token', setupToken);
-
-      // Generate new one with updated settings
-      await generateSetupToken();
-    } catch (error) {
-      console.error('Failed to update token:', error);
-    }
-  };
-
-  // Update token when sync settings change
-  useEffect(() => {
-    if (setupToken) {
-      regenerateTokenWithSettings();
-    }
-  }, [syncEnabled, syncPreset, customDate]);
+  }, [open]);
 
   const generateSetupToken = async () => {
     setIsLoading(true);
@@ -104,16 +46,15 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
 
-      const syncFromDate = getSyncFromDate();
-
+      // Default: no history sync (user can enable later from account card)
       const { error } = await supabase
         .from('setup_tokens')
         .insert({
           user_id: user.id,
           token,
           expires_at: expiresAt.toISOString(),
-          sync_history_enabled: syncEnabled,
-          sync_history_from: syncFromDate?.toISOString() || null,
+          sync_history_enabled: false,
+          sync_history_from: null,
         });
 
       if (error) throw error;
@@ -145,7 +86,6 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
   };
 
   const handleDownload = () => {
-    // Create a download link for the EA file
     const link = document.createElement('a');
     link.href = '/TradeJournalBridge.mq5';
     link.download = 'TradeJournalBridge.mq5';
@@ -157,16 +97,9 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
 
   const handleClose = () => {
     onOpenChange(false);
-    // Reset state when closing
     setSetupToken(null);
     setCopied(false);
-    setSyncEnabled(true);
-    setSyncPreset('30days');
-    setCustomDate(undefined);
   };
-
-  // Get max date (30 days ago - EA limitation)
-  const minDate = subDays(new Date(), 30);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -229,83 +162,11 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
             </div>
           </div>
 
-          {/* Step 4: Historical Trade Import Settings */}
+          {/* Step 4: Attach EA */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-medium">
                 4
-              </div>
-              <h3 className="font-medium">Historical Trade Import</h3>
-            </div>
-            <div className="ml-8 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <History className="h-4 w-4 text-muted-foreground" />
-                  <Label htmlFor="sync-enabled" className="text-sm">Import past trades</Label>
-                </div>
-                <Switch
-                  id="sync-enabled"
-                  checked={syncEnabled}
-                  onCheckedChange={setSyncEnabled}
-                />
-              </div>
-              
-              {syncEnabled && (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap gap-2">
-                    {(['1week', '2weeks', '30days'] as const).map((preset) => (
-                      <Button
-                        key={preset}
-                        variant={syncPreset === preset ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setSyncPreset(preset)}
-                      >
-                        {preset === '1week' && '1 Week'}
-                        {preset === '2weeks' && '2 Weeks'}
-                        {preset === '30days' && '30 Days'}
-                      </Button>
-                    ))}
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant={syncPreset === 'custom' ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => setSyncPreset('custom')}
-                          className={cn(syncPreset === 'custom' && customDate && 'gap-1')}
-                        >
-                          <CalendarIcon className="h-3.5 w-3.5" />
-                          {syncPreset === 'custom' && customDate 
-                            ? format(customDate, 'MMM d') 
-                            : 'Custom'}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={customDate}
-                          onSelect={(date) => {
-                            setCustomDate(date);
-                            setSyncPreset('custom');
-                          }}
-                          disabled={(date) => date < minDate || date > new Date()}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Maximum: 30 days (EA limitation). For older trades, use CSV import.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Step 5: Attach EA */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-medium">
-                5
               </div>
               <h3 className="font-medium">Attach EA to any chart</h3>
             </div>
@@ -345,12 +206,22 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
             </div>
           </div>
 
-          {/* Info box */}
-          <div className="ml-8 p-3 bg-muted/50 rounded-lg border">
-            <p className="text-sm text-muted-foreground">
-              <strong className="text-foreground">That's it!</strong> Your account will appear automatically 
-              after your first trade. The EA is read-only and prop-firm compliant.
-            </p>
+          {/* Info boxes */}
+          <div className="ml-8 space-y-3">
+            <div className="p-3 bg-muted/50 rounded-lg border">
+              <p className="text-sm text-muted-foreground">
+                <strong className="text-foreground">That's it!</strong> Your account will appear automatically 
+                after your first trade. The EA is read-only and prop-firm compliant.
+              </p>
+            </div>
+            
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                <strong>Historical trades:</strong> You can import past trades later using the "Import History" 
+                button on your account card.
+              </AlertDescription>
+            </Alert>
           </div>
         </div>
 

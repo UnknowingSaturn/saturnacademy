@@ -33,8 +33,9 @@ input string   InpSymbolFilter   = "";                         // Symbol filter 
 input long     InpMagicFilter    = 0;                          // Magic number filter (0 = all)
 
 input group "=== History Sync ==="
-input bool     InpSyncHistory    = true;                       // Sync historical trades on first run
-input int      InpSyncDaysBack   = 30;                         // Days of history to sync
+input bool     InpSyncHistory    = false;                      // Sync historical trades (enable after configuring in app)
+input int      InpSyncDaysBack   = 90;                         // Days of history to sync (max 3 months)
+input bool     InpResetSyncFlag  = false;                      // Delete sync flag to allow re-sync
 
 //+------------------------------------------------------------------+
 //| Constants - Direct Edge Function URL                              |
@@ -93,6 +94,14 @@ int OnInit()
    
    // Test WebRequest availability
    TestWebRequest();
+   
+   // Reset sync flag if requested (allows re-sync)
+   if(InpResetSyncFlag && FileIsExist(g_syncFlagFile))
+   {
+      FileDelete(g_syncFlagFile);
+      Print("Sync flag deleted - historical trades will be re-synced");
+      LogMessage("Sync flag deleted by user request");
+   }
    
    // Set timer for queue processing
    EventSetTimer(InpQueueCheckSec);
