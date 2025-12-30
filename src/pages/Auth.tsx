@@ -1,28 +1,50 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { z } from "zod";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { TrendingUp, Loader2 } from "lucide-react";
 
+const authSchema = z.object({
+  email: z.string().trim().email("Please enter a valid email address").max(255, "Email must be less than 255 characters"),
+  password: z.string().min(6, "Password must be at least 6 characters").max(72, "Password must be less than 72 characters"),
+});
+
+const signUpSchema = authSchema.extend({
+  displayName: z.string().trim().max(100, "Display name must be less than 100 characters").optional(),
+});
+
 export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState<{ email?: string; password?: string; displayName?: string }>({});
   const { signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setIsLoading(true);
+    setErrors({});
     const formData = new FormData(e.currentTarget);
     const email = formData.get("email") as string;
     const password = formData.get("password") as string;
 
-    const { error } = await signIn(email, password);
+    const result = authSchema.safeParse({ email, password });
+    if (!result.success) {
+      const fieldErrors: typeof errors = {};
+      result.error.errors.forEach(err => {
+        if (err.path[0]) fieldErrors[err.path[0] as keyof typeof errors] = err.message;
+      });
+      setErrors(fieldErrors);
+      return;
+    }
+
+    setIsLoading(true);
+    const { error } = await signIn(result.data.email, result.data.password);
     setIsLoading(false);
 
     if (error) {
@@ -34,13 +56,24 @@ export default function Auth() {
 
   const handleSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setIsLoading(true);
+    setErrors({});
     const formData = new FormData(e.currentTarget);
     const email = formData.get("email") as string;
     const password = formData.get("password") as string;
     const displayName = formData.get("displayName") as string;
 
-    const { error } = await signUp(email, password, displayName);
+    const result = signUpSchema.safeParse({ email, password, displayName: displayName || undefined });
+    if (!result.success) {
+      const fieldErrors: typeof errors = {};
+      result.error.errors.forEach(err => {
+        if (err.path[0]) fieldErrors[err.path[0] as keyof typeof errors] = err.message;
+      });
+      setErrors(fieldErrors);
+      return;
+    }
+
+    setIsLoading(true);
+    const { error } = await signUp(result.data.email, result.data.password, result.data.displayName);
     setIsLoading(false);
 
     if (error) {
@@ -85,6 +118,7 @@ export default function Auth() {
                       required
                       className="bg-background"
                     />
+                    {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="signin-password">Password</Label>
@@ -96,6 +130,7 @@ export default function Auth() {
                       required
                       className="bg-background"
                     />
+                    {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
                   </div>
                   <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
@@ -115,6 +150,7 @@ export default function Auth() {
                       placeholder="Your name"
                       className="bg-background"
                     />
+                    {errors.displayName && <p className="text-sm text-destructive">{errors.displayName}</p>}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="signup-email">Email</Label>
@@ -126,6 +162,7 @@ export default function Auth() {
                       required
                       className="bg-background"
                     />
+                    {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="signup-password">Password</Label>
@@ -138,6 +175,7 @@ export default function Auth() {
                       minLength={6}
                       className="bg-background"
                     />
+                    {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
                   </div>
                   <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
