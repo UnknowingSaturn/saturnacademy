@@ -35,6 +35,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Separator } from '@/components/ui/separator';
 import { 
   Command,
   CommandEmpty,
@@ -285,7 +286,7 @@ export function SymbolMappingsPanel({ masterAccount, receiverAccounts }: SymbolM
                           All Receivers
                         </span>
                       </SelectItem>
-                      <DropdownMenuSeparator />
+                      <Separator className="my-1" />
                       {receiverAccounts.map(acc => (
                         <SelectItem key={acc.id} value={acc.id}>
                           {acc.name}

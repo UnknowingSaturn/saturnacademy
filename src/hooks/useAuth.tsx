@@ -44,11 +44,13 @@ export const AuthProvider = React.forwardRef<HTMLDivElement, { children: ReactNo
   };
 
   const signUp = async (email: string, password: string, displayName?: string) => {
+    const redirectUrl = `${window.location.origin}/`;
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { display_name: displayName }
+        data: { display_name: displayName },
+        emailRedirectTo: redirectUrl
       }
     });
     return { error };

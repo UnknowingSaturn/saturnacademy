@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useState, useEffect } from 'react';
 import { Copy, Check, Download, ExternalLink, Loader2, History } from 'lucide-react';
 import {
@@ -38,7 +39,8 @@ function getSyncFromDate(preset: HistoryPreset): Date {
   }
 }
 
-export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogProps) {
+export const QuickConnectDialog = React.forwardRef<HTMLDivElement, QuickConnectDialogProps>(
+  function QuickConnectDialog({ open, onOpenChange }, _ref) {
   const [setupToken, setSetupToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -315,4 +317,4 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
       </DialogContent>
     </Dialog>
   );
-}
+});
