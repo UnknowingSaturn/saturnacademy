@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, Account } from "@/types/trading";
 import { TradeGroup } from "@/hooks/useTradeGroups";
-import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview, useBulkArchiveTrades } from "@/hooks/useTrades";
+import { useUpdateTrade, useUpsertTradeReview, useBulkArchiveTrades } from "@/hooks/useTrades";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { cn } from "@/lib/utils";
@@ -27,8 +27,7 @@ interface TradeTableProps {
 
 export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, onEditProperty, accounts }: TradeTableProps) {
   const updateTrade = useUpdateTrade();
-  const updateReview = useUpdateTradeReview();
-  const createReview = useCreateTradeReview();
+  const upsertReview = useUpsertTradeReview();
   const bulkArchive = useBulkArchiveTrades();
   const [editingPlace, setEditingPlace] = useState<string | null>(null);
   const [placeValue, setPlaceValue] = useState("");
@@ -173,19 +172,20 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
   };
 
   const handleEmotionChange = async (trade: Trade, emotion: string) => {
-    if (trade.review) {
-      await updateReview.mutateAsync({
-        id: trade.review.id,
+    await upsertReview.mutateAsync({
+      review: {
+        trade_id: trade.id,
         emotional_state_before: emotion as EmotionalState,
-      });
-    } else {
-      await createReview.mutateAsync({
-        review: {
-          trade_id: trade.id,
-          emotional_state_before: emotion as EmotionalState,
-        }
-      });
-    }
+        // Preserve existing values
+        ...(trade.review && {
+          checklist_answers: trade.review.checklist_answers,
+          regime: trade.review.regime,
+          psychology_notes: trade.review.psychology_notes,
+          screenshots: trade.review.screenshots,
+        }),
+      },
+      silent: true,
+    });
   };
 
   const getResultBadge = (trade: Trade) => {

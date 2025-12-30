@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Trade, Playbook } from "@/types/trading";
 import { useTradeCompliance, ComplianceRule } from "@/hooks/useTradeCompliance";
-import { useCreateTradeReview, useUpdateTradeReview } from "@/hooks/useTrades";
+import { useUpsertTradeReview } from "@/hooks/useTrades";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -41,8 +41,7 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
   );
   const [autoVerifiedOpen, setAutoVerifiedOpen] = useState(false);
   
-  const createReview = useCreateTradeReview();
-  const updateReview = useUpdateTradeReview();
+  const upsertReview = useUpsertTradeReview();
 
   const compliance = useTradeCompliance(trade, playbook, manualAnswers);
 
@@ -59,10 +58,10 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     setAutoVerifiedOpen(!allPassed);
   }, [compliance.autoVerified]);
 
-  // Auto-save when manual answers change (silently)
+  // Auto-save when manual answers change (silently) - uses upsert
   useEffect(() => {
     if (Object.keys(manualAnswers).length === 0) return;
-    if (createReview.isPending || updateReview.isPending) return;
+    if (upsertReview.isPending) return;
     
     const saveAnswers = async () => {
       const reviewData = {
@@ -70,14 +69,17 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
         playbook_id: playbook.id,
         checklist_answers: manualAnswers,
         score: Object.values(manualAnswers).filter(Boolean).length,
+        // Preserve existing values
+        ...(existingReview && {
+          regime: existingReview.regime,
+          emotional_state_before: existingReview.emotional_state_before,
+          psychology_notes: existingReview.psychology_notes,
+          screenshots: existingReview.screenshots,
+        }),
       };
 
       try {
-        if (existingReview) {
-          await updateReview.mutateAsync({ id: existingReview.id, silent: true, ...reviewData });
-        } else {
-          await createReview.mutateAsync({ review: reviewData, silent: true });
-        }
+        await upsertReview.mutateAsync({ review: reviewData, silent: true });
       } catch (error) {
         // Error handled by mutation
       }
@@ -85,7 +87,7 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
 
     const debounce = setTimeout(saveAnswers, 500);
     return () => clearTimeout(debounce);
-  }, [manualAnswers, trade.id, playbook.id, existingReview?.id, createReview.isPending, updateReview.isPending]);
+  }, [manualAnswers, trade.id, playbook.id, existingReview, upsertReview.isPending]);
 
   const toggleAnswer = (ruleId: string) => {
     setManualAnswers(prev => ({

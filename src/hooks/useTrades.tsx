@@ -6,11 +6,18 @@ import { Json } from '@/integrations/supabase/types';
 
 // Helper to transform database rows to typed Trade objects
 function transformTrade(row: any): Trade {
+  // Defensively pick the latest review (in case of cached/stale data)
+  const reviews = row.trade_reviews || [];
+  const sortedReviews = [...reviews].sort((a: any, b: any) => 
+    new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime()
+  );
+  const latestReview = sortedReviews[0];
+
   return {
     ...row,
     trade_type: row.trade_type || 'executed',
     partial_closes: (row.partial_closes as PartialClose[]) || [],
-    review: row.trade_reviews?.[0] ? transformReview(row.trade_reviews[0]) : undefined,
+    review: latestReview ? transformReview(latestReview) : undefined,
     playbook: row.playbook || undefined,
     ai_review: row.ai_reviews?.[0] || undefined,
   };
@@ -318,7 +325,8 @@ export function useArchivedTrades() {
   });
 }
 
-export function useCreateTradeReview() {
+// Upsert hook - creates or updates review by trade_id (idempotent, prevents duplicates)
+export function useUpsertTradeReview() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -327,7 +335,7 @@ export function useCreateTradeReview() {
       const { review, silent } = params;
       const { data, error } = await supabase
         .from('trade_reviews')
-        .insert({
+        .upsert({
           trade_id: review.trade_id,
           playbook_id: review.playbook_id,
           score: review.score ?? 0,
@@ -343,7 +351,7 @@ export function useCreateTradeReview() {
           to_improve: (review.to_improve || []) as unknown as Json,
           actionable_steps: (review.actionable_steps || []) as unknown as Json,
           screenshots: (review.screenshots || []) as unknown as Json,
-        })
+        }, { onConflict: 'trade_id' })
         .select()
         .single();
 
@@ -362,6 +370,11 @@ export function useCreateTradeReview() {
       toast({ title: 'Failed to save review', description: error.message, variant: 'destructive' });
     },
   });
+}
+
+// Keep for backwards compatibility but use upsert internally
+export function useCreateTradeReview() {
+  return useUpsertTradeReview();
 }
 
 export function useUpdateTradeReview() {

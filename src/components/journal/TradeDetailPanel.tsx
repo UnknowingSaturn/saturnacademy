@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep, TradeScreenshot } from "@/types/trading";
 import { usePlaybooks, usePlaybook } from "@/hooks/usePlaybooks";
-import { useCreateTradeReview, useUpdateTradeReview, useTrade } from "@/hooks/useTrades";
+import { useUpsertTradeReview, useTrade } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
 import { aiReviewToDisplayFormat, hasAIAnalysis } from "@/lib/aiAnalysisUtils";
 import { useAutoSave } from "@/hooks/useAutoSave";
@@ -87,8 +87,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   const { data: trade, isLoading: isLoadingTrade } = useTrade(tradeId ?? undefined);
   
   const { data: playbooks } = usePlaybooks();
-  const createReview = useCreateTradeReview();
-  const updateReview = useUpdateTradeReview();
+  const upsertReview = useUpsertTradeReview();
   const { analyzeTrade, isAnalyzing, progress, resetProgress, submitFeedback, retryAnalysis } = useAIAnalysis();
   
   const [immediateAiReview, setImmediateAiReview] = useState<any>(null);
@@ -97,14 +96,13 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
 
   const existingReview = trade?.review;
   const selectedPlaybook = playbooks?.find(p => p.id === trade?.playbook_id);
-  const existingReviewIdRef = useRef<string | null>(null);
 
   const [lastTradeId, setLastTradeId] = useState<string | null>(null);
   const [reviewData, setReviewData] = useState<ReviewData>(getInitialReviewData());
   const [newItem, setNewItem] = useState({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
   const [showProperties, setShowProperties] = useState(true);
 
-  // Save function for auto-save
+  // Save function for auto-save - uses upsert (idempotent, no duplicates)
   const saveReview = useCallback(async (data: ReviewData) => {
     if (!trade) return;
 
@@ -128,15 +126,8 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       reviewed_at: new Date().toISOString(),
     };
 
-    if (existingReviewIdRef.current) {
-      await updateReview.mutateAsync({ id: existingReviewIdRef.current, ...reviewPayload, silent: true });
-    } else {
-      const result = await createReview.mutateAsync({ review: reviewPayload, silent: true });
-      if (result.data?.id) {
-        existingReviewIdRef.current = result.data.id;
-      }
-    }
-  }, [trade, createReview, updateReview]);
+    await upsertReview.mutateAsync({ review: reviewPayload, silent: true });
+  }, [trade, upsertReview]);
 
   const { status: saveStatus, flush, hasUnsavedChanges, hasDraft, restoreDraft, clearDraft } = useAutoSave(
     reviewData,
@@ -147,29 +138,28 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
   );
 
-  // Check for draft recovery when trade loads
-  useEffect(() => {
-    if (trade && hasDraft) {
-      const draft = restoreDraft();
-      if (draft) {
-        // Show recovery option - for now auto-restore
-        setReviewData(draft);
-        clearDraft();
-      }
-    }
-  }, [trade?.id, hasDraft, restoreDraft, clearDraft]);
-
-  // Reset state when trade changes
+  // Reset state when trade changes - handle draft vs server data
   useEffect(() => {
     const isTradeSwitch = trade?.id !== lastTradeId;
     
     if (isTradeSwitch && trade) {
       setLastTradeId(trade.id);
       setImmediateAiReview(null);
-      existingReviewIdRef.current = trade.review?.id || null;
+      
+      // Check for draft first - if exists, use it (don't clear yet, autosave will clear on success)
+      if (hasDraft) {
+        const draft = restoreDraft();
+        if (draft) {
+          setReviewData(draft);
+          // Don't clearDraft() here - let autosave clear it after successful save
+          return;
+        }
+      }
+      
+      // No draft, use server data
       setReviewData(getInitialReviewData(trade.review));
     }
-  }, [trade?.id, trade?.review, lastTradeId]);
+  }, [trade?.id, trade?.review, lastTradeId, hasDraft, restoreDraft]);
 
   // Reset lastTradeId when panel closes
   useEffect(() => {
