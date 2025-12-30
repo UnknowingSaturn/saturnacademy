@@ -27,10 +27,15 @@ export function useTradeCompliance(
   playbook: Playbook | null,
   manualAnswers: Record<string, boolean> = {}
 ): ComplianceResult {
-  // Only fetch trades for the specific day to optimize
+  // Only fetch trades for the specific day AND account to optimize
   const tradeDate = trade?.entry_time ? format(parseISO(trade.entry_time), 'yyyy-MM-dd') : undefined;
   const { data: dayTrades = [] } = useTrades(
-    tradeDate ? { dateFrom: tradeDate, dateTo: tradeDate, isArchived: false } : { isArchived: false }
+    tradeDate ? { 
+      dateFrom: tradeDate, 
+      dateTo: tradeDate, 
+      isArchived: false,
+      accountId: trade?.account_id || undefined 
+    } : { isArchived: false }
   );
 
   return useMemo(() => {
