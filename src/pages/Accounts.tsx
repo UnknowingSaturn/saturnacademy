@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { Plus, Link, RefreshCw, AlertTriangle, Archive, Flame } from 'lucide-react';
+import { Link, RefreshCw, AlertTriangle, Archive, Flame } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useArchiveAllTrades } from '@/hooks/useTrades';
 import { AccountCard } from '@/components/accounts/AccountCard';
-import { CreateAccountDialog } from '@/components/accounts/CreateAccountDialog';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
 import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
 import { Account } from '@/types/trading';
@@ -32,7 +31,6 @@ import {
 export default function Accounts() {
   const { data: accounts, isLoading, refetch } = useAccounts();
   const archiveAllMutation = useArchiveAllTrades();
-  const [createOpen, setCreateOpen] = useState(false);
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
@@ -127,13 +125,9 @@ export default function Accounts() {
             <RefreshCw className={`h-4 w-4 mr-2 ${isRecovering ? 'animate-spin' : ''}`} />
             {isRecovering ? 'Recovering...' : 'Recover Missed Trades'}
           </Button>
-          <Button variant="outline" onClick={() => setQuickConnectOpen(true)}>
+          <Button onClick={() => setQuickConnectOpen(true)}>
             <Link className="h-4 w-4 mr-2" />
             Connect MT5
-          </Button>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            New Account
           </Button>
         </div>
       </div>
@@ -147,17 +141,11 @@ export default function Accounts() {
       ) : accounts?.length === 0 ? (
         <div className="text-center py-12 border border-dashed rounded-lg">
           <h3 className="text-lg font-medium">No accounts yet</h3>
-          <p className="text-muted-foreground mt-1 mb-4">Connect your MT5 terminal or create a manual account</p>
-          <div className="flex gap-2 justify-center">
-            <Button variant="outline" onClick={() => setQuickConnectOpen(true)}>
-              <Link className="h-4 w-4 mr-2" />
-              Connect MT5
-            </Button>
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Manual Account
-            </Button>
-          </div>
+          <p className="text-muted-foreground mt-1 mb-4">Connect your MT5 terminal to start tracking trades</p>
+          <Button onClick={() => setQuickConnectOpen(true)}>
+            <Link className="h-4 w-4 mr-2" />
+            Connect MT5
+          </Button>
         </div>
       ) : (
         <>
@@ -299,7 +287,6 @@ export default function Accounts() {
         </>
       )}
 
-      <CreateAccountDialog open={createOpen} onOpenChange={setCreateOpen} />
       <MT5SetupDialog account={setupAccount} onOpenChange={(open) => !open && setSetupAccount(null)} />
       <QuickConnectDialog open={quickConnectOpen} onOpenChange={setQuickConnectOpen} />
     </div>
