@@ -38,10 +38,13 @@ export default function LiveTrades() {
 
   const selectedTrade = openTrades.find(t => t.id === selectedTradeId);
 
-  // Find max trades per session from any playbook (for summary bar)
-  const maxDailyTrades = playbooks.reduce((max, p) => 
-    Math.max(max, p.max_trades_per_session ?? 0), 0
-  ) || undefined;
+  // Get max trades per session from the selected trade's playbook
+  const maxDailyTrades = selectedPlaybook?.max_trades_per_session || undefined;
+  
+  // Get account ID for trade summary bar
+  const summaryAccountId = selectedAccountId !== 'all' 
+    ? selectedAccountId 
+    : selectedTrade?.account_id;
 
   // Auto-select first trade if none selected
   useEffect(() => {
@@ -119,7 +122,7 @@ export default function LiveTrades() {
       ) : (
         <>
           {/* Summary Bar */}
-          <TradeSummaryBar trades={openTrades} maxDailyTrades={maxDailyTrades} />
+          <TradeSummaryBar trades={openTrades} maxDailyTrades={maxDailyTrades} accountId={summaryAccountId} />
 
           {/* Main Content */}
           <div className="flex-1 grid lg:grid-cols-5 gap-4 min-h-0">

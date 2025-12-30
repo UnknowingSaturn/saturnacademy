@@ -1,4 +1,5 @@
 import { Trade } from "@/types/trading";
+import { useTrades } from "@/hooks/useTrades";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { 
@@ -9,13 +10,15 @@ import {
   Target
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { startOfDay, format } from "date-fns";
 
 interface TradeSummaryBarProps {
   trades: Trade[];
   maxDailyTrades?: number;
+  accountId?: string;
 }
 
-export function TradeSummaryBar({ trades, maxDailyTrades }: TradeSummaryBarProps) {
+export function TradeSummaryBar({ trades, maxDailyTrades, accountId }: TradeSummaryBarProps) {
   const totalLongs = trades.filter(t => t.direction === 'buy').length;
   const totalShorts = trades.filter(t => t.direction === 'sell').length;
   
@@ -25,6 +28,16 @@ export function TradeSummaryBar({ trades, maxDailyTrades }: TradeSummaryBarProps
   // Calculate R exposure if SL is set
   const tradesWithSL = trades.filter(t => t.sl_initial);
   const rExposure = tradesWithSL.length;
+
+  // Fetch today's trades for the specific account
+  const todayStr = format(startOfDay(new Date()), 'yyyy-MM-dd');
+  const { data: todayAccountTrades = [] } = useTrades(
+    accountId ? {
+      accountId,
+      dateFrom: todayStr,
+      isArchived: false
+    } : undefined
+  );
 
   return (
     <Card className="p-4 border-border/50 bg-card/50 backdrop-blur-sm">
@@ -73,18 +86,18 @@ export function TradeSummaryBar({ trades, maxDailyTrades }: TradeSummaryBarProps
           )}
         </div>
 
-        {/* Daily Trade Count */}
-        {maxDailyTrades && (
+        {/* Daily Trade Count - per account */}
+        {maxDailyTrades && accountId && (
           <Badge 
             variant="outline" 
             className={cn(
               "text-xs",
-              trades.length >= maxDailyTrades 
+              todayAccountTrades.length >= maxDailyTrades 
                 ? "bg-loss/10 text-loss border-loss/30" 
                 : "bg-muted text-muted-foreground"
             )}
           >
-            Today: {trades.length}/{maxDailyTrades}
+            Today: {todayAccountTrades.length}/{maxDailyTrades}
           </Badge>
         )}
       </div>
