@@ -1,19 +1,29 @@
 import { useState } from "react";
 import { useCreateTrade } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
-import { SessionType } from "@/types/trading";
+import { SessionType, TradeType } from "@/types/trading";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus } from "lucide-react";
+import { Plus, Lightbulb, FileText, Clock, CheckCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const TRADE_TYPE_OPTIONS: { value: TradeType; label: string; icon: React.ReactNode; description: string }[] = [
+  { value: "executed", label: "Executed", icon: <CheckCircle className="w-4 h-4" />, description: "Real trade taken" },
+  { value: "idea", label: "Idea", icon: <Lightbulb className="w-4 h-4" />, description: "Setup not taken" },
+  { value: "paper", label: "Paper", icon: <FileText className="w-4 h-4" />, description: "Simulated trade" },
+  { value: "missed", label: "Missed", icon: <Clock className="w-4 h-4" />, description: "Should have taken" },
+];
 
 export function ManualTradeForm() {
   const [open, setOpen] = useState(false);
   const createTrade = useCreateTrade();
   const { data: playbooks } = usePlaybooks();
 
+  const [tradeType, setTradeType] = useState<TradeType>("executed");
   const [symbol, setSymbol] = useState("");
   const [direction, setDirection] = useState<"buy" | "sell">("buy");
   const [entryPrice, setEntryPrice] = useState("");
@@ -26,8 +36,12 @@ export function ManualTradeForm() {
   const [session, setSession] = useState<SessionType | "">("");
   const [pnl, setPnl] = useState("");
   const [strategy, setStrategy] = useState("");
+  const [reasonNotTaken, setReasonNotTaken] = useState("");
+
+  const isNonExecuted = tradeType !== "executed";
 
   const resetForm = () => {
+    setTradeType("executed");
     setSymbol("");
     setDirection("buy");
     setEntryPrice("");
@@ -40,6 +54,7 @@ export function ManualTradeForm() {
     setSession("");
     setPnl("");
     setStrategy("");
+    setReasonNotTaken("");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -47,7 +62,8 @@ export function ManualTradeForm() {
 
     if (!symbol || !entryPrice || !entryTime || !lots) return;
 
-    const isOpen = !exitPrice || !exitTime;
+    // For non-executed trades, they're always "closed" conceptually (hypothetical outcome)
+    const isOpen = tradeType === "executed" ? (!exitPrice || !exitTime) : false;
 
     await createTrade.mutateAsync({
       symbol: symbol.toUpperCase(),
@@ -63,6 +79,9 @@ export function ManualTradeForm() {
       net_pnl: pnl ? parseFloat(pnl) : undefined,
       is_open: isOpen,
       playbook_id: strategy || undefined,
+      trade_type: tradeType,
+      // Store reason not taken in the place field for now (could be separate field later)
+      place: isNonExecuted && reasonNotTaken ? `[${tradeType}] ${reasonNotTaken}` : undefined,
     });
 
     resetForm();
@@ -77,11 +96,41 @@ export function ManualTradeForm() {
           Add Trade
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add Trade Manually</DialogTitle>
+          <DialogTitle>Add Trade</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+          {/* Trade Type Selector */}
+          <div className="space-y-2">
+            <Label>Trade Type</Label>
+            <div className="grid grid-cols-4 gap-2">
+              {TRADE_TYPE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setTradeType(option.value)}
+                  className={cn(
+                    "flex flex-col items-center gap-1 p-3 rounded-lg border transition-colors",
+                    tradeType === option.value
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-muted/30 hover:bg-muted/50 border-border"
+                  )}
+                >
+                  {option.icon}
+                  <span className="text-xs font-medium">{option.label}</span>
+                </button>
+              ))}
+            </div>
+            {isNonExecuted && (
+              <p className="text-xs text-muted-foreground">
+                {tradeType === "idea" && "Log a trade setup you identified but chose not to take."}
+                {tradeType === "paper" && "Log a simulated trade for practice or testing."}
+                {tradeType === "missed" && "Log a valid setup you should have taken but missed."}
+              </p>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="symbol">Symbol *</Label>
@@ -134,7 +183,9 @@ export function ManualTradeForm() {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="exitPrice">Exit Price</Label>
+              <Label htmlFor="exitPrice">
+                {isNonExecuted ? "Hypothetical Exit" : "Exit Price"}
+              </Label>
               <Input
                 id="exitPrice"
                 type="number"
@@ -145,7 +196,9 @@ export function ManualTradeForm() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="exitTime">Exit Time</Label>
+              <Label htmlFor="exitTime">
+                {isNonExecuted ? "Hypothetical Exit Time" : "Exit Time"}
+              </Label>
               <Input
                 id="exitTime"
                 type="datetime-local"
@@ -226,16 +279,40 @@ export function ManualTradeForm() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="pnl">P&L (Net)</Label>
+            <Label htmlFor="pnl">
+              {isNonExecuted ? "Hypothetical P&L" : "P&L (Net)"}
+            </Label>
             <Input
               id="pnl"
               type="number"
               step="0.01"
               value={pnl}
               onChange={(e) => setPnl(e.target.value)}
-              placeholder="125.50"
+              placeholder={isNonExecuted ? "What would have been..." : "125.50"}
             />
           </div>
+
+          {/* Reason Not Taken - only for non-executed trades */}
+          {isNonExecuted && (
+            <div className="space-y-2">
+              <Label htmlFor="reasonNotTaken">
+                {tradeType === "idea" ? "Why not taken?" : tradeType === "missed" ? "Why missed?" : "Notes"}
+              </Label>
+              <Textarea
+                id="reasonNotTaken"
+                value={reasonNotTaken}
+                onChange={(e) => setReasonNotTaken(e.target.value)}
+                placeholder={
+                  tradeType === "idea" 
+                    ? "No confirmation, wrong session, risk limit reached..."
+                    : tradeType === "missed"
+                    ? "Wasn't watching charts, hesitated, distracted..."
+                    : "Any additional notes..."
+                }
+                className="h-20 resize-none"
+              />
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>

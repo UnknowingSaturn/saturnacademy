@@ -8,6 +8,7 @@ import { Json } from '@/integrations/supabase/types';
 function transformTrade(row: any): Trade {
   return {
     ...row,
+    trade_type: row.trade_type || 'executed',
     partial_closes: (row.partial_closes as PartialClose[]) || [],
     review: row.trade_reviews?.[0] ? transformReview(row.trade_reviews[0]) : undefined,
     playbook: row.playbook || undefined,
@@ -117,6 +118,9 @@ export function useCreateTrade() {
           r_multiple_actual: trade.r_multiple_actual,
           session: trade.session,
           is_open: trade.is_open ?? true,
+          playbook_id: trade.playbook_id,
+          place: trade.place,
+          trade_type: trade.trade_type || 'executed',
           partial_closes: (trade.partial_closes || []) as unknown as Json,
         })
         .select()

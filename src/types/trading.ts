@@ -7,6 +7,7 @@ export type PropFirm = 'ftmo' | 'fundednext' | 'other';
 export type SessionType = 'tokyo' | 'london' | 'new_york' | 'new_york_am' | 'new_york_pm' | 'overlap_london_ny' | 'off_hours';
 export type RegimeType = 'rotational' | 'transitional';
 export type NewsRisk = 'none' | 'low' | 'high';
+export type TradeType = 'executed' | 'idea' | 'paper' | 'missed';
 export type EmotionalState = 
   | 'great' | 'good' | 'calm' | 'confident' | 'focused'
   | 'alright' | 'okay' | 'normal'
@@ -127,6 +128,7 @@ export interface Trade {
   place: string | null;
   trade_number: number | null;
   trade_group_id: string | null; // Reference to trade_groups table for grouping similar trades
+  trade_type: TradeType; // Type of trade: executed, idea, paper, or missed
   // Joined data
   review?: TradeReview;
   account?: Account;

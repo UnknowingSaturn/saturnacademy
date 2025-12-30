@@ -3,7 +3,12 @@ import { Trade, DashboardMetrics, SessionMetrics, SessionType } from '@/types/tr
 
 export function useDashboardMetrics(trades: Trade[]): DashboardMetrics {
   return useMemo(() => {
-    const closedTrades = trades.filter(t => !t.is_open && t.net_pnl !== null);
+    // Only include executed trades in P&L calculations (exclude ideas, paper, missed)
+    const closedTrades = trades.filter(t => 
+      !t.is_open && 
+      t.net_pnl !== null &&
+      (!t.trade_type || t.trade_type === 'executed')
+    );
     
     if (closedTrades.length === 0) {
       return {

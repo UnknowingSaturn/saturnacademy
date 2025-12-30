@@ -106,17 +106,17 @@ export function useTradeCompliance(
       });
     }
 
-    // Auto-verified: Trade count today
+    // Auto-verified: Trade count today (only count executed trades)
     if (playbook.max_trades_per_session) {
-      const tradeCount = dayTrades.length;
-      const withinLimit = tradeCount <= playbook.max_trades_per_session;
+      const executedTradesCount = dayTrades.filter(t => !t.trade_type || t.trade_type === 'executed').length;
+      const withinLimit = executedTradesCount <= playbook.max_trades_per_session;
       
       autoVerified.push({
         id: 'auto_trade_count',
         label: 'Trade Count',
         category: 'auto',
         status: withinLimit ? 'passed' : 'failed',
-        detail: `${tradeCount}/${playbook.max_trades_per_session} trades today`,
+        detail: `${executedTradesCount}/${playbook.max_trades_per_session} trades today`,
       });
     }
 

@@ -12,7 +12,8 @@ import { BulkActionBar } from "./BulkActionBar";
 import { TradeGroupRow } from "./TradeGroupRow";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ChevronRight } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
+import { ChevronRight, Lightbulb, FileText, Clock } from "lucide-react";
 import { DEFAULT_COLUMNS, ColumnDefinition } from "@/types/settings";
 
 interface TradeTableProps {
@@ -189,10 +190,31 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
 
   const getResultBadge = (trade: Trade) => {
     const pnl = trade.net_pnl || 0;
+    const isNonExecuted = trade.trade_type && trade.trade_type !== 'executed';
+    
     if (trade.is_open) return { label: "Open", color: "muted" };
+    if (isNonExecuted) {
+      // For non-executed trades, show hypothetical result
+      if (pnl > 0) return { label: "Would Win", color: "profit" };
+      if (pnl < 0) return { label: "Would Lose", color: "loss" };
+      return { label: "Hypothetical", color: "muted" };
+    }
     if (pnl > 0) return { label: "Win", color: "profit" };
     if (pnl < 0) return { label: "Loss", color: "loss" };
     return { label: "BE", color: "breakeven" };
+  };
+
+  const getTradeTypeIcon = (tradeType: string | undefined) => {
+    switch (tradeType) {
+      case 'idea':
+        return { icon: <Lightbulb className="w-3.5 h-3.5" />, label: "Trade Idea", color: "text-amber-500" };
+      case 'paper':
+        return { icon: <FileText className="w-3.5 h-3.5" />, label: "Paper Trade", color: "text-blue-500" };
+      case 'missed':
+        return { icon: <Clock className="w-3.5 h-3.5" />, label: "Missed Setup", color: "text-orange-500" };
+      default:
+        return null;
+    }
   };
 
   const getColumn = (key: string): ColumnDefinition | undefined => 
@@ -264,6 +286,8 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
             const result = getResultBadge(trade);
             const day = getDayNameET(trade.entry_time);
             const isSelected = selectedIds.has(trade.id);
+            const tradeTypeInfo = getTradeTypeIcon(trade.trade_type);
+            const isNonExecuted = trade.trade_type && trade.trade_type !== 'executed';
 
             return (
               <div
@@ -271,8 +295,9 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
                 className={cn(
                   "grid gap-2 px-4 py-2 items-center",
                   "hover:bg-accent/30 transition-colors group cursor-pointer",
-                  trade.net_pnl && trade.net_pnl > 0 && "border-l-2 border-l-profit",
-                  trade.net_pnl && trade.net_pnl < 0 && "border-l-2 border-l-loss",
+                  !isNonExecuted && trade.net_pnl && trade.net_pnl > 0 && "border-l-2 border-l-profit",
+                  !isNonExecuted && trade.net_pnl && trade.net_pnl < 0 && "border-l-2 border-l-loss",
+                  isNonExecuted && "border-l-2 border-l-amber-500/50 bg-amber-500/5",
                   isSelected && "bg-accent/50"
                 )}
                 style={{ gridTemplateColumns: gridCols }}
@@ -319,7 +344,23 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
                   }
 
                   if (key === 'symbol') {
-                    return <div key={key} className="font-semibold text-sm">{trade.symbol}</div>;
+                    return (
+                      <div key={key} className="flex items-center gap-2">
+                        <span className={cn("font-semibold text-sm", isNonExecuted && "italic text-muted-foreground")}>{trade.symbol}</span>
+                        {tradeTypeInfo && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className={tradeTypeInfo.color}>{tradeTypeInfo.icon}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>{tradeTypeInfo.label}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
+                    );
                   }
 
                   if (key === 'session') {

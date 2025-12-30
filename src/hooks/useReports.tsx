@@ -32,7 +32,9 @@ export interface ReportPeriod {
 export function useReports(trades: Trade[], period: ReportPeriod) {
   const filteredTrades = useMemo(() => {
     return trades.filter(t => {
+      // Only include executed trades in reports (exclude ideas, paper, missed)
       if (t.is_open || t.net_pnl === null) return false;
+      if (t.trade_type && t.trade_type !== 'executed') return false;
       const entryDate = parseISO(t.entry_time);
       return isWithinInterval(entryDate, { start: period.start, end: period.end });
     });

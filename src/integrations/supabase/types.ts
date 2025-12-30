@@ -1167,6 +1167,7 @@ export type Database = {
           tp_initial: number | null
           trade_group_id: string | null
           trade_number: number | null
+          trade_type: Database["public"]["Enums"]["trade_type"]
           updated_at: string
           user_id: string
         }
@@ -1209,6 +1210,7 @@ export type Database = {
           tp_initial?: number | null
           trade_group_id?: string | null
           trade_number?: number | null
+          trade_type?: Database["public"]["Enums"]["trade_type"]
           updated_at?: string
           user_id: string
         }
@@ -1251,6 +1253,7 @@ export type Database = {
           tp_initial?: number | null
           trade_group_id?: string | null
           trade_number?: number | null
+          trade_type?: Database["public"]["Enums"]["trade_type"]
           updated_at?: string
           user_id?: string
         }
@@ -1362,6 +1365,7 @@ export type Database = {
         | "new_york_am"
         | "new_york_pm"
       trade_direction: "buy" | "sell"
+      trade_type: "executed" | "idea" | "paper" | "missed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1522,6 +1526,7 @@ export const Constants = {
         "new_york_pm",
       ],
       trade_direction: ["buy", "sell"],
+      trade_type: ["executed", "idea", "paper", "missed"],
     },
   },
 } as const
