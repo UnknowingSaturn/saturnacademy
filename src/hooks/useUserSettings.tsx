@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { UserSettings, SessionDefinition, PropertyOption, FilterCondition, DEFAULT_VISIBLE_COLUMNS, DEFAULT_SESSIONS, DEFAULT_PROPERTY_OPTIONS } from "@/types/settings";
 import { toast } from "sonner";
+import { useEffect, useRef } from "react";
 
 // Transform database row to typed object
 const transformSettings = (row: any): UserSettings => ({
@@ -125,11 +126,13 @@ export function useUpdateUserSettings() {
   });
 }
 
-// Session Definitions Hook
+// Session Definitions Hook with auto-initialization
 export function useSessionDefinitions() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const initializingRef = useRef(false);
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['session_definitions', user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
@@ -142,28 +145,36 @@ export function useSessionDefinitions() {
 
       if (error) throw error;
 
-      // Get custom sessions from database
-      const customSessions = (data || []).map(transformSession);
-      
-      // Get the keys of custom sessions to know which defaults have been overridden
-      const customKeys = new Set(customSessions.map(s => s.key));
-      
-      // Include default sessions that haven't been customized
-      const remainingDefaults = DEFAULT_SESSIONS
-        .filter(d => !customKeys.has(d.key))
-        .map((s, i) => ({
-          ...s,
-          id: `default-${s.key}`,
-          user_id: user.id,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })) as SessionDefinition[];
-
-      // Merge custom sessions with remaining defaults, sort by sort_order
-      return [...customSessions, ...remainingDefaults].sort((a, b) => a.sort_order - b.sort_order);
+      return (data || []).map(transformSession);
     },
     enabled: !!user?.id,
   });
+
+  // Auto-initialize defaults if empty
+  useEffect(() => {
+    const initializeDefaults = async () => {
+      if (!user?.id || initializingRef.current || query.isLoading) return;
+      if (query.data && query.data.length === 0) {
+        initializingRef.current = true;
+        try {
+          const sessions = DEFAULT_SESSIONS.map((s, i) => ({ 
+            ...s, 
+            user_id: user.id,
+            sort_order: i 
+          }));
+          await supabase.from('session_definitions').insert(sessions);
+          queryClient.invalidateQueries({ queryKey: ['session_definitions'] });
+        } catch (err) {
+          console.error('Failed to initialize sessions:', err);
+        } finally {
+          initializingRef.current = false;
+        }
+      }
+    };
+    initializeDefaults();
+  }, [user?.id, query.data, query.isLoading, queryClient]);
+
+  return query;
 }
 
 export function useCreateSession() {
@@ -236,48 +247,90 @@ export function useDeleteSession() {
   });
 }
 
-// Property Options Hook
+// Bulk update sort orders for sessions
+export function useReorderSessions() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sessions: { id: string; sort_order: number }[]) => {
+      for (const session of sessions) {
+        const { error } = await supabase
+          .from('session_definitions')
+          .update({ sort_order: session.sort_order })
+          .eq('id', session.id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session_definitions'] });
+    },
+    onError: (error) => {
+      toast.error('Failed to reorder sessions');
+      console.error(error);
+    },
+  });
+}
+
+// Property Options Hook with auto-initialization
 export function usePropertyOptions(propertyName?: string) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const initializingRef = useRef(false);
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['property_options', user?.id, propertyName],
     queryFn: async () => {
       if (!user?.id) return [];
 
-      let query = supabase
+      let q = supabase
         .from('property_options')
         .select('*')
         .eq('user_id', user.id)
         .order('sort_order');
 
       if (propertyName) {
-        query = query.eq('property_name', propertyName);
+        q = q.eq('property_name', propertyName);
       }
 
-      const { data, error } = await query;
+      const { data, error } = await q;
 
       if (error) throw error;
 
-      // Return default options if none exist
-      if (!data || data.length === 0) {
-        const defaults = propertyName 
-          ? DEFAULT_PROPERTY_OPTIONS.filter(o => o.property_name === propertyName)
-          : DEFAULT_PROPERTY_OPTIONS;
-        
-        return defaults.map((o, i) => ({
-          ...o,
-          id: `default-${o.property_name}-${i}`,
-          user_id: user.id,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })) as PropertyOption[];
-      }
-
-      return data.map(transformPropertyOption);
+      return (data || []).map(transformPropertyOption);
     },
     enabled: !!user?.id,
   });
+
+  // Auto-initialize defaults if empty
+  useEffect(() => {
+    const initializeDefaults = async () => {
+      if (!user?.id || initializingRef.current || query.isLoading) return;
+      if (query.data && query.data.length === 0) {
+        initializingRef.current = true;
+        try {
+          // Only initialize for the specific property or all if no propertyName
+          const defaults = propertyName 
+            ? DEFAULT_PROPERTY_OPTIONS.filter(o => o.property_name === propertyName)
+            : DEFAULT_PROPERTY_OPTIONS;
+          
+          const options = defaults.map((o, i) => ({ 
+            ...o, 
+            user_id: user.id,
+            sort_order: i 
+          }));
+          await supabase.from('property_options').insert(options);
+          queryClient.invalidateQueries({ queryKey: ['property_options'] });
+        } catch (err) {
+          console.error('Failed to initialize property options:', err);
+        } finally {
+          initializingRef.current = false;
+        }
+      }
+    };
+    initializeDefaults();
+  }, [user?.id, query.data, query.isLoading, queryClient, propertyName]);
+
+  return query;
 }
 
 export function useCreatePropertyOption() {
@@ -350,6 +403,30 @@ export function useDeletePropertyOption() {
   });
 }
 
+// Bulk update sort orders for property options
+export function useReorderPropertyOptions() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (options: { id: string; sort_order: number }[]) => {
+      for (const option of options) {
+        const { error } = await supabase
+          .from('property_options')
+          .update({ sort_order: option.sort_order })
+          .eq('id', option.id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['property_options'] });
+    },
+    onError: (error) => {
+      toast.error('Failed to reorder options');
+      console.error(error);
+    },
+  });
+}
+
 // Bulk initialize default options for a user
 export function useInitializeDefaults() {
   const queryClient = useQueryClient();
@@ -367,7 +444,7 @@ export function useInitializeDefaults() {
         .limit(1);
 
       if (!existingSessions || existingSessions.length === 0) {
-        const sessions = DEFAULT_SESSIONS.map(s => ({ ...s, user_id: user.id }));
+        const sessions = DEFAULT_SESSIONS.map((s, i) => ({ ...s, user_id: user.id, sort_order: i }));
         await supabase.from('session_definitions').insert(sessions);
       }
 
@@ -379,7 +456,7 @@ export function useInitializeDefaults() {
         .limit(1);
 
       if (!existingOptions || existingOptions.length === 0) {
-        const options = DEFAULT_PROPERTY_OPTIONS.map(o => ({ ...o, user_id: user.id }));
+        const options = DEFAULT_PROPERTY_OPTIONS.map((o, i) => ({ ...o, user_id: user.id, sort_order: i }));
         await supabase.from('property_options').insert(options);
       }
     },
