@@ -11,7 +11,9 @@ import {
   RefreshCw,
   FileJson,
   Clock,
-  Hash 
+  Hash,
+  ExternalLink,
+  FileCode
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
@@ -165,21 +167,78 @@ export function ConfigExportPanel({ masterAccount, receiverAccounts }: ConfigExp
         </div>
       )}
       
-      {/* Setup Instructions */}
+      {/* EA Downloads */}
       <Card>
         <CardContent className="p-4 space-y-3">
+          <h4 className="font-medium flex items-center gap-2">
+            <FileCode className="h-4 w-4" />
+            Download Expert Advisors
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <a 
+              href="/TradeCopierMaster.mq5" 
+              download
+              className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors group"
+            >
+              <div>
+                <p className="font-medium text-sm">TradeCopierMaster.mq5</p>
+                <p className="text-xs text-muted-foreground">Install on master terminal</p>
+              </div>
+              <Download className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
+            </a>
+            <a 
+              href="/TradeCopierReceiver.mq5" 
+              download
+              className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors group"
+            >
+              <div>
+                <p className="font-medium text-sm">TradeCopierReceiver.mq5</p>
+                <p className="text-xs text-muted-foreground">Install on receiver terminal(s)</p>
+              </div>
+              <Download className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
+            </a>
+          </div>
+        </CardContent>
+      </Card>
+      
+      {/* Setup Instructions */}
+      <Card>
+        <CardContent className="p-4 space-y-4">
           <h4 className="font-medium">Setup Instructions</h4>
-          <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
-            <li>Download the config file above</li>
-            <li>Place it in your MT5's <code className="bg-muted px-1 rounded">MQL5/Files/</code> folder</li>
-            <li>Install <code className="bg-muted px-1 rounded">TradeCopierMaster.mq5</code> on your master terminal</li>
-            <li>Install <code className="bg-muted px-1 rounded">TradeCopierReceiver.mq5</code> on receiver terminal(s)</li>
-            <li>Trades on master will be copied locally to receivers</li>
+          <ol className="list-decimal list-inside space-y-3 text-sm text-muted-foreground">
+            <li>
+              <span className="text-foreground font-medium">Download EAs above</span> and place in your MT5's{' '}
+              <code className="bg-muted px-1 rounded">MQL5/Experts/</code> folder
+            </li>
+            <li>
+              <span className="text-foreground font-medium">Generate and download config</span> above, then place in{' '}
+              <code className="bg-muted px-1 rounded">MQL5/Files/</code> folder on <strong>both</strong> terminals
+            </li>
+            <li>
+              <span className="text-foreground font-medium">Compile EAs</span> in MetaEditor (F7) on each terminal
+            </li>
+            <li>
+              <span className="text-foreground font-medium">Attach Master EA</span> to any chart on your master terminal
+            </li>
+            <li>
+              <span className="text-foreground font-medium">Attach Receiver EA</span> to any chart on receiver terminal(s)
+            </li>
+            <li>
+              <span className="text-foreground font-medium">Verify connection</span> by checking the Activity tab above
+            </li>
           </ol>
           
-          <div className="flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-yellow-600 dark:text-yellow-400 text-sm">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <p>Re-download config after making changes to update your EAs</p>
+          <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-yellow-600 dark:text-yellow-400 text-sm">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium">Important Notes:</p>
+              <ul className="list-disc list-inside mt-1 space-y-1 text-xs">
+                <li>Re-download config after making any changes to update your EAs</li>
+                <li>Ensure both terminals have <strong>Allow DLL imports</strong> enabled</li>
+                <li>Master and receiver terminals must be running simultaneously</li>
+                <li>File polling is used - ensure both terminals access the same config file path</li>
+              </ul>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -191,7 +250,12 @@ export function ConfigExportPanel({ masterAccount, receiverAccounts }: ConfigExp
           <div className="space-y-1">
             {versions.slice(0, 5).map(v => (
               <div key={v.id} className="flex items-center justify-between py-2 px-3 bg-muted/50 rounded text-sm">
-                <span>Version {v.version}</span>
+                <div className="flex items-center gap-2">
+                  <span>Version {v.version}</span>
+                  <Badge variant="outline" className="font-mono text-xs">
+                    {v.config_hash.slice(0, 8)}...
+                  </Badge>
+                </div>
                 <span className="text-muted-foreground">
                   {new Date(v.created_at).toLocaleDateString()}
                 </span>
@@ -210,7 +274,7 @@ function SummaryCard({ label, value, icon }: { label: string; value: string; ico
       <CardContent className="p-4 flex items-center justify-between">
         <div>
           <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="font-medium">{value}</p>
+          <p className="font-medium truncate">{value}</p>
         </div>
         {icon}
       </CardContent>
