@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useTrades } from "@/hooks/useTrades";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { useAccounts } from "@/hooks/useAccounts";
+import { useGroupedTradesView, useAutoGroupTrades, TradeGroup } from "@/hooks/useTradeGroups";
 
 import { TradeTable } from "@/components/journal/TradeTable";
 import { TradeDetailPanel } from "@/components/journal/TradeDetailPanel";
@@ -20,7 +21,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { SessionType, Trade } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
-import { Search, Settings, Table, CalendarDays, X, Archive } from "lucide-react";
+import { Search, Settings, Table, CalendarDays, X, Archive, Layers, List, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Journal() {
@@ -36,10 +37,13 @@ export default function Journal() {
   const [activeFilters, setActiveFilters] = useState<FilterCondition[]>([]);
   const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
   const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
+  const [tradeViewMode, setTradeViewMode] = useState<"ideas" | "all">("ideas");
 
   const { data: trades, isLoading } = useTrades();
   const { data: settings } = useUserSettings();
   const { data: accounts } = useAccounts();
+  const { data: groupedData, isLoading: isLoadingGroups } = useGroupedTradesView();
+  const autoGroup = useAutoGroupTrades();
 
   // Read model filter from URL params on mount
   useEffect(() => {
@@ -158,6 +162,39 @@ export default function Journal() {
           <p className="text-muted-foreground">Review and analyze your trades</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Ideas/All Toggle - only show for active tab and table view */}
+          {activeTab === "active" && viewMode === "table" && (
+            <ToggleGroup 
+              type="single" 
+              value={tradeViewMode} 
+              onValueChange={(v) => v && setTradeViewMode(v as "ideas" | "all")}
+              className="bg-muted/50 p-0.5 rounded-lg"
+            >
+              <ToggleGroupItem value="ideas" aria-label="Ideas view" className="px-3 gap-1.5 text-xs">
+                <Layers className="w-3.5 h-3.5" />
+                Ideas
+              </ToggleGroupItem>
+              <ToggleGroupItem value="all" aria-label="All trades view" className="px-3 gap-1.5 text-xs">
+                <List className="w-3.5 h-3.5" />
+                All
+              </ToggleGroupItem>
+            </ToggleGroup>
+          )}
+          
+          {/* Auto-group button - only show in ideas view */}
+          {activeTab === "active" && viewMode === "table" && tradeViewMode === "ideas" && (
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => autoGroup.mutate(60)}
+              disabled={autoGroup.isPending}
+              className="gap-1.5 text-xs"
+            >
+              <Wand2 className="w-3.5 h-3.5" />
+              {autoGroup.isPending ? "Grouping..." : "Auto-group"}
+            </Button>
+          )}
+          
           {/* View Toggle - only show for active tab */}
           {activeTab === "active" && (
             <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "table" | "calendar")}>
@@ -257,21 +294,40 @@ export default function Journal() {
           )}
 
           {/* Content based on view mode */}
-          {isLoading ? (
+          {isLoading || isLoadingGroups ? (
             <div className="space-y-2">
               {[...Array(5)].map((_, i) => (
                 <Skeleton key={i} className="h-16 rounded-lg" />
               ))}
             </div>
           ) : viewMode === "table" ? (
-            filteredTrades.length === 0 ? (
+            filteredTrades.length === 0 && (tradeViewMode === "all" || !groupedData?.groups.length) ? (
               <div className="text-center py-12 text-muted-foreground">
                 <p>No trades found</p>
                 <p className="text-sm">Import trades or add them manually to get started</p>
               </div>
             ) : (
             <TradeTable 
-              trades={filteredTrades} 
+              trades={tradeViewMode === "all" ? filteredTrades : groupedData?.ungrouped.filter(t => {
+                // Apply same filters to ungrouped trades
+                if (accountFilter !== "all" && t.account_id !== accountFilter) return false;
+                if (modelFilter && t.playbook_id !== modelFilter && t.playbook?.name !== modelFilter) return false;
+                if (symbolFilter && !t.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) return false;
+                if (sessionFilter !== "all" && t.session !== sessionFilter) return false;
+                if (resultFilter === "win" && (t.net_pnl || 0) <= 0) return false;
+                if (resultFilter === "loss" && (t.net_pnl || 0) >= 0) return false;
+                if (resultFilter === "open" && !t.is_open) return false;
+                return true;
+              }) || []}
+              tradeGroups={tradeViewMode === "ideas" ? groupedData?.groups.filter(g => {
+                // Apply filters to groups
+                if (accountFilter !== "all" && !g.account_ids.includes(accountFilter)) return false;
+                if (symbolFilter && !g.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) return false;
+                if (resultFilter === "win" && g.combined_net_pnl <= 0) return false;
+                if (resultFilter === "loss" && g.combined_net_pnl >= 0) return false;
+                if (resultFilter === "open" && !g.is_open) return false;
+                return true;
+              }) : undefined}
               onTradeClick={(trade) => setSelectedTradeId(trade.id)}
               visibleColumns={settings?.visible_columns}
               onEditProperty={handleEditProperty}
