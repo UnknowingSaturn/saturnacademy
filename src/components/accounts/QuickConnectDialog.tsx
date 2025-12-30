@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Copy, Check, Download, ExternalLink, Loader2, Info } from 'lucide-react';
+import { Copy, Check, Download, ExternalLink, Loader2, History } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -17,10 +18,32 @@ interface QuickConnectDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+type HistoryPreset = '1week' | '1month' | '3months';
+
+const HISTORY_PRESETS: { value: HistoryPreset; label: string }[] = [
+  { value: '1week', label: '1 Week' },
+  { value: '1month', label: '1 Month' },
+  { value: '3months', label: '3 Months' },
+];
+
+function getSyncFromDate(preset: HistoryPreset): Date {
+  const now = new Date();
+  switch (preset) {
+    case '1week':
+      return new Date(now.setDate(now.getDate() - 7));
+    case '1month':
+      return new Date(now.setMonth(now.getMonth() - 1));
+    case '3months':
+      return new Date(now.setMonth(now.getMonth() - 3));
+  }
+}
+
 export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogProps) {
   const [setupToken, setSetupToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [importHistory, setImportHistory] = useState(true);
+  const [historyPreset, setHistoryPreset] = useState<HistoryPreset>('1month');
   const { toast } = useToast();
 
   // Generate setup token when dialog opens
@@ -28,7 +51,14 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
     if (open && !setupToken) {
       generateSetupToken();
     }
-  }, [open]);
+  }, [open, importHistory, historyPreset]);
+
+  // Regenerate token when history settings change (only if we already have a token)
+  useEffect(() => {
+    if (open && setupToken) {
+      generateSetupToken();
+    }
+  }, [importHistory, historyPreset]);
 
   const generateSetupToken = async () => {
     setIsLoading(true);
@@ -46,15 +76,17 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
 
-      // Default: no history sync (user can enable later from account card)
+      // Calculate sync from date based on preset
+      const syncFrom = importHistory ? getSyncFromDate(historyPreset) : null;
+
       const { error } = await supabase
         .from('setup_tokens')
         .insert({
           user_id: user.id,
           token,
           expires_at: expiresAt.toISOString(),
-          sync_history_enabled: false,
-          sync_history_from: null,
+          sync_history_enabled: importHistory,
+          sync_history_from: syncFrom?.toISOString() ?? null,
         });
 
       if (error) throw error;
@@ -99,6 +131,8 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
     onOpenChange(false);
     setSetupToken(null);
     setCopied(false);
+    setImportHistory(true);
+    setHistoryPreset('1month');
   };
 
   return (
@@ -162,11 +196,59 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
             </div>
           </div>
 
-          {/* Step 4: Attach EA */}
+          {/* Step 4: History Import Settings */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-medium">
                 4
+              </div>
+              <h3 className="font-medium">Import Historical Trades</h3>
+            </div>
+            <div className="ml-8 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <History className="h-4 w-4 text-muted-foreground" />
+                  <Label htmlFor="import-history" className="text-sm">
+                    Import past trades when connecting
+                  </Label>
+                </div>
+                <Switch
+                  id="import-history"
+                  checked={importHistory}
+                  onCheckedChange={setImportHistory}
+                />
+              </div>
+              
+              {importHistory && (
+                <div className="flex gap-2">
+                  {HISTORY_PRESETS.map((preset) => (
+                    <Button
+                      key={preset.value}
+                      type="button"
+                      variant={historyPreset === preset.value ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setHistoryPreset(preset.value)}
+                      className="flex-1"
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              
+              <p className="text-xs text-muted-foreground">
+                {importHistory 
+                  ? `Trades from the past ${historyPreset === '1week' ? 'week' : historyPreset === '1month' ? 'month' : '3 months'} will be imported automatically.`
+                  : 'Only new trades will be tracked. You can import history later from account settings.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Step 5: Attach EA */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-medium">
+                5
               </div>
               <h3 className="font-medium">Attach EA to any chart</h3>
             </div>
@@ -206,22 +288,14 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
             </div>
           </div>
 
-          {/* Info boxes */}
-          <div className="ml-8 space-y-3">
+          {/* Info box */}
+          <div className="ml-8">
             <div className="p-3 bg-muted/50 rounded-lg border">
               <p className="text-sm text-muted-foreground">
                 <strong className="text-foreground">That's it!</strong> Your account will appear automatically 
                 after your first trade. The EA is read-only and prop-firm compliant.
               </p>
             </div>
-            
-            <Alert>
-              <Info className="h-4 w-4" />
-              <AlertDescription>
-                <strong>Historical trades:</strong> You can import past trades later using the "Import History" 
-                button on your account card.
-              </AlertDescription>
-            </Alert>
           </div>
         </div>
 
