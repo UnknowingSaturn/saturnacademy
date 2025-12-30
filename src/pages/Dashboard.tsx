@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTrades } from '@/hooks/useTrades';
 import { useAccounts } from '@/hooks/useAccounts';
+import { useAccountFilter } from '@/contexts/AccountFilterContext';
 import { useReports, getWeekPeriod, getMonthPeriod, getPreviousPeriod, ReportPeriod } from '@/hooks/useReports';
 import { ReportMetricsGrid } from '@/components/reports/ReportMetricsGrid';
 import { TradeHighlights } from '@/components/reports/TradeHighlights';
@@ -19,14 +20,25 @@ import { addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 
 const Dashboard = React.forwardRef<HTMLDivElement, object>(
   function Dashboard(_props, _ref) {
-  const { data: trades = [], isLoading } = useTrades();
+  const { data: allTrades = [], isLoading } = useTrades();
   const { data: accounts = [] } = useAccounts();
+  const { selectedAccountId, selectedAccount } = useAccountFilter();
   const [periodType, setPeriodType] = useState<'week' | 'month'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // Calculate starting balance from previous period trades or first trade of current period
-  const accountStartingBalance = accounts.reduce((sum, acc) => sum + Number(acc.balance_start || 0), 0);
-  const currentEquity = accounts.reduce((sum, acc) => sum + Number(acc.equity_current || 0), 0);
+  // Filter trades by selected account
+  const trades = useMemo(() => {
+    if (selectedAccountId === 'all') return allTrades;
+    return allTrades.filter(t => t.account_id === selectedAccountId);
+  }, [allTrades, selectedAccountId]);
+
+  // Calculate starting balance from selected account(s)
+  const filteredAccounts = selectedAccountId === 'all' 
+    ? accounts 
+    : accounts.filter(a => a.id === selectedAccountId);
+  
+  const accountStartingBalance = filteredAccounts.reduce((sum, acc) => sum + Number(acc.balance_start || 0), 0);
+  const currentEquity = filteredAccounts.reduce((sum, acc) => sum + Number(acc.equity_current || 0), 0);
 
   const period: ReportPeriod = periodType === 'week' 
     ? getWeekPeriod(currentDate) 
@@ -104,7 +116,14 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
             <LayoutDashboard className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+            <h1 className="text-2xl font-bold text-foreground">
+              Dashboard
+              {selectedAccount && (
+                <span className="text-lg font-normal text-muted-foreground ml-2">
+                  • {selectedAccount.name}
+                </span>
+              )}
+            </h1>
             <p className="text-muted-foreground text-sm">
               Your trading performance at a glance
             </p>

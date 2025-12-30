@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider as QCP } from "@tanstack/react-query";
 import { BrowserRouter as BR, Routes as R, Route, Navigate as Nav } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { AccountFilterProvider } from "@/contexts/AccountFilterContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { withForwardRef } from "@/lib/withForwardRef";
 import Auth from "./pages/Auth";
@@ -71,13 +72,15 @@ const App = React.forwardRef<HTMLDivElement, object>(
     return (
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <AppRoutes />
-            </BrowserRouter>
-          </TooltipProvider>
+          <AccountFilterProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <AppRoutes />
+              </BrowserRouter>
+            </TooltipProvider>
+          </AccountFilterProvider>
         </AuthProvider>
       </QueryClientProvider>
     );
