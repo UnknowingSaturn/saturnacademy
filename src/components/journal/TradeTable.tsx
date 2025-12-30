@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, Account } from "@/types/trading";
+import { TradeGroup } from "@/hooks/useTradeGroups";
 import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview, useBulkArchiveTrades } from "@/hooks/useTrades";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
@@ -8,6 +9,7 @@ import { formatDateET, formatTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
 import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
 import { BulkActionBar } from "./BulkActionBar";
+import { TradeGroupRow } from "./TradeGroupRow";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ChevronRight } from "lucide-react";
@@ -15,13 +17,14 @@ import { DEFAULT_COLUMNS, ColumnDefinition } from "@/types/settings";
 
 interface TradeTableProps {
   trades: Trade[];
+  tradeGroups?: TradeGroup[];
   onTradeClick: (trade: Trade) => void;
   visibleColumns?: string[];
   onEditProperty?: (propertyName: string) => void;
   accounts?: Account[];
 }
 
-export function TradeTable({ trades, onTradeClick, visibleColumns, onEditProperty, accounts }: TradeTableProps) {
+export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, onEditProperty, accounts }: TradeTableProps) {
   const updateTrade = useUpdateTrade();
   const updateReview = useUpdateTradeReview();
   const createReview = useCreateTradeReview();
@@ -244,6 +247,19 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
 
         {/* Rows */}
         <div className="divide-y divide-border">
+          {/* Render trade groups first if provided */}
+          {tradeGroups?.map((group) => (
+            <TradeGroupRow
+              key={group.id}
+              group={group}
+              accounts={accounts}
+              onTradeClick={onTradeClick}
+              gridCols={gridCols}
+              activeColumns={activeColumns}
+            />
+          ))}
+          
+          {/* Render individual trades */}
           {sortedTrades.map((trade) => {
             const result = getResultBadge(trade);
             const day = getDayNameET(trade.entry_time);

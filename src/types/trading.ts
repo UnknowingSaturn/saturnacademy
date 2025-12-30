@@ -126,6 +126,7 @@ export interface Trade {
   profile: TradeProfile | null;
   place: string | null;
   trade_number: number | null;
+  trade_group_id: string | null; // Reference to trade_groups table for grouping similar trades
   // Joined data
   review?: TradeReview;
   account?: Account;

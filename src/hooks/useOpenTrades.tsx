@@ -49,6 +49,7 @@ function transformTrade(row: any): Trade {
     profile: row.profile,
     place: row.place,
     trade_number: row.trade_number,
+    trade_group_id: row.trade_group_id || null,
     review: row.trade_reviews?.[0] ? transformReview(row.trade_reviews[0]) : undefined,
     account: row.accounts || undefined,
   };
