@@ -293,7 +293,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <RefreshCw className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Trade Data Sync</span>
+                <span className="text-sm font-medium">Timezone Correction</span>
               </div>
 
               <FormField
@@ -335,10 +335,10 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
                 disabled={isSyncing}
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
-                {isSyncing ? 'Syncing...' : 'Sync Trade Data'}
+                {isSyncing ? 'Applying...' : 'Apply Timezone Correction'}
               </Button>
               <p className="text-xs text-muted-foreground">
-                Restores original MT5 times, converts to UTC using broker timezone, and recalculates sessions & R%.
+                Converts trade times to UTC using your broker's timezone, then recalculates sessions & R-multiples.
               </p>
             </div>
 
