@@ -40,8 +40,11 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   const updateReview = useUpdateTradeReview();
   const { analyzeTrade, isAnalyzing, progress, resetProgress, submitFeedback, retryAnalysis } = useAIAnalysis();
   
-  // Database-first: read AI analysis directly from trade object
-  const aiReview = trade?.ai_review;
+  // Local state for immediate AI review display (avoids race condition with query cache)
+  const [immediateAiReview, setImmediateAiReview] = useState<any>(null);
+  
+  // Use immediate data OR database data
+  const aiReview = immediateAiReview || trade?.ai_review;
   const analysisData = aiReview ? aiReviewToDisplayFormat(aiReview) : null;
 
   const existingReview = trade?.review;
@@ -103,6 +106,8 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     // Only reset when switching to a different trade
     if (isTradeSwitch) {
       setLastTradeId(trade?.id || null);
+      // Clear immediate AI review when switching trades
+      setImmediateAiReview(null);
       
       // Reset manual review fields from database
       if (trade?.review) {
@@ -306,7 +311,13 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                       variant="outline"
                       size="sm"
                       className="h-8"
-                      onClick={() => trade && analyzeTrade(trade.id)}
+                      onClick={async () => {
+                        if (!trade) return;
+                        const result = await analyzeTrade(trade.id);
+                        if (result) {
+                          setImmediateAiReview(result);
+                        }
+                      }}
                       disabled={isAnalyzing}
                     >
                       {isAnalyzing ? (
@@ -398,10 +409,8 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
 
                 </div>
 
-                {/* AI Analysis Progress - shows during active analysis OR until data arrives */}
-                {(isAnalyzing || 
-                  (progress.step !== "idle" && progress.step !== "complete") ||
-                  (progress.step === "complete" && !analysisData)) && (
+                {/* AI Analysis Progress - shows only during active analysis */}
+                {isAnalyzing && (
                   <AIAnalysisProgress 
                     progress={progress} 
                     isAnalyzing={isAnalyzing}
