@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Lightbulb, FileText, Clock, CheckCircle } from "lucide-react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Plus, Lightbulb, FileText, Clock, CheckCircle, Percent, Hash } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TRADE_TYPE_OPTIONS: { value: TradeType; label: string; icon: React.ReactNode; description: string }[] = [
@@ -31,6 +32,8 @@ export function ManualTradeForm() {
   const [exitPrice, setExitPrice] = useState("");
   const [exitTime, setExitTime] = useState("");
   const [lots, setLots] = useState("");
+  const [riskMode, setRiskMode] = useState<"lots" | "risk_percent">("risk_percent");
+  const [riskPercent, setRiskPercent] = useState("");
   const [sl, setSl] = useState("");
   const [tp, setTp] = useState("");
   const [session, setSession] = useState<SessionType | "">("");
@@ -49,6 +52,8 @@ export function ManualTradeForm() {
     setExitPrice("");
     setExitTime("");
     setLots("");
+    setRiskMode("risk_percent");
+    setRiskPercent("");
     setSl("");
     setTp("");
     setSession("");
@@ -60,10 +65,24 @@ export function ManualTradeForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!symbol || !entryPrice || !entryTime || !lots) return;
+    // For non-executed trades, allow risk % instead of lots
+    const hasSize = isNonExecuted 
+      ? (riskMode === "lots" ? lots : riskPercent)
+      : lots;
+
+    if (!symbol || !entryPrice || !entryTime || !hasSize) return;
 
     // For non-executed trades, they're always "closed" conceptually (hypothetical outcome)
     const isOpen = tradeType === "executed" ? (!exitPrice || !exitTime) : false;
+
+    // Determine total_lots and risk_percent based on mode
+    const totalLots = isNonExecuted && riskMode === "risk_percent" 
+      ? 0.01 // Placeholder lot size for risk-based trades
+      : parseFloat(lots);
+    
+    const riskPercentValue = isNonExecuted && riskMode === "risk_percent"
+      ? parseFloat(riskPercent)
+      : undefined;
 
     await createTrade.mutateAsync({
       symbol: symbol.toUpperCase(),
@@ -72,7 +91,8 @@ export function ManualTradeForm() {
       entry_time: new Date(entryTime).toISOString(),
       exit_price: exitPrice ? parseFloat(exitPrice) : undefined,
       exit_time: exitTime ? new Date(exitTime).toISOString() : undefined,
-      total_lots: parseFloat(lots),
+      total_lots: totalLots,
+      risk_percent: riskPercentValue,
       sl_initial: sl ? parseFloat(sl) : undefined,
       tp_initial: tp ? parseFloat(tp) : undefined,
       session: session || undefined,
@@ -210,16 +230,62 @@ export function ManualTradeForm() {
 
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="lots">Lots *</Label>
-              <Input
-                id="lots"
-                type="number"
-                step="0.01"
-                value={lots}
-                onChange={(e) => setLots(e.target.value)}
-                placeholder="0.10"
-                required
-              />
+              {isNonExecuted ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <Label>{riskMode === "lots" ? "Lots" : "Risk %"} *</Label>
+                    <ToggleGroup 
+                      type="single" 
+                      value={riskMode} 
+                      onValueChange={(v) => v && setRiskMode(v as "lots" | "risk_percent")}
+                      className="h-6"
+                    >
+                      <ToggleGroupItem value="lots" aria-label="Lots" className="h-6 px-2 text-xs gap-1">
+                        <Hash className="w-3 h-3" />
+                        Lots
+                      </ToggleGroupItem>
+                      <ToggleGroupItem value="risk_percent" aria-label="Risk %" className="h-6 px-2 text-xs gap-1">
+                        <Percent className="w-3 h-3" />
+                        Risk
+                      </ToggleGroupItem>
+                    </ToggleGroup>
+                  </div>
+                  {riskMode === "lots" ? (
+                    <Input
+                      id="lots"
+                      type="number"
+                      step="0.01"
+                      value={lots}
+                      onChange={(e) => setLots(e.target.value)}
+                      placeholder="0.10"
+                      required
+                    />
+                  ) : (
+                    <Input
+                      id="riskPercent"
+                      type="number"
+                      step="0.1"
+                      value={riskPercent}
+                      onChange={(e) => setRiskPercent(e.target.value)}
+                      placeholder="1.0"
+                      required
+                    />
+                  )}
+                </>
+              ) : (
+                <>
+                  <Label htmlFor="lots">Lots *</Label>
+                  <Input
+                    id="lots"
+                    type="number"
+                    step="0.01"
+                    value={lots}
+                    onChange={(e) => setLots(e.target.value)}
+                    placeholder="0.10"
+                    required
+                  />
+                </>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="sl">Stop Loss</Label>

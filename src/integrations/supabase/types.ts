@@ -1155,6 +1155,7 @@ export type Database = {
           profile: string | null
           r_multiple_actual: number | null
           r_multiple_planned: number | null
+          risk_percent: number | null
           session: Database["public"]["Enums"]["session_type"] | null
           sl_final: number | null
           sl_initial: number | null
@@ -1198,6 +1199,7 @@ export type Database = {
           profile?: string | null
           r_multiple_actual?: number | null
           r_multiple_planned?: number | null
+          risk_percent?: number | null
           session?: Database["public"]["Enums"]["session_type"] | null
           sl_final?: number | null
           sl_initial?: number | null
@@ -1241,6 +1243,7 @@ export type Database = {
           profile?: string | null
           r_multiple_actual?: number | null
           r_multiple_planned?: number | null
+          risk_percent?: number | null
           session?: Database["public"]["Enums"]["session_type"] | null
           sl_final?: number | null
           sl_initial?: number | null
