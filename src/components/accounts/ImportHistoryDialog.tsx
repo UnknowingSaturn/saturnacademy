@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { format, subDays, subMonths } from 'date-fns';
-import { CalendarIcon, History, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { CalendarIcon, History, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -165,43 +165,27 @@ export function ImportHistoryDialog({ account, open, onOpenChange }: ImportHisto
             <Alert className="border-green-500/50 bg-green-500/10">
               <CheckCircle2 className="h-4 w-4 text-green-500" />
               <AlertDescription className="text-green-700 dark:text-green-400">
-                Settings saved! Follow the steps below to complete the import.
+                Import settings saved! Just restart your EA to begin importing.
               </AlertDescription>
             </Alert>
 
-            {/* Instructions */}
+            {/* Simple instructions */}
             <div className="space-y-4">
-              <h4 className="font-medium">Complete the import in MT5:</h4>
-              
-              <ol className="list-decimal list-inside space-y-3 text-sm text-muted-foreground">
-                <li>
-                  <span className="text-foreground">Open your EA settings in MT5</span>
-                  <p className="ml-5 mt-1">Right-click the EA on your chart → Inputs</p>
-                </li>
-                <li>
-                  <span className="text-foreground">Enable "Sync Historical Trades"</span>
-                  <p className="ml-5 mt-1">Set <code className="bg-muted px-1 rounded">InpSyncHistory</code> to <code className="bg-muted px-1 rounded">true</code></p>
-                </li>
-                <li>
-                  <span className="text-foreground">Set days to sync</span>
-                  <p className="ml-5 mt-1">Set <code className="bg-muted px-1 rounded">InpSyncDaysBack</code> to match your selection (e.g., 90 for 3 months)</p>
-                </li>
-                <li>
-                  <span className="text-foreground">Delete the sync flag (for re-sync)</span>
-                  <p className="ml-5 mt-1">Set <code className="bg-muted px-1 rounded">InpResetSyncFlag</code> to <code className="bg-muted px-1 rounded">true</code></p>
-                </li>
-                <li>
-                  <span className="text-foreground">Click OK and restart the EA</span>
-                  <p className="ml-5 mt-1">Trades will start syncing automatically</p>
-                </li>
-              </ol>
+              <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-4">
+                <RefreshCw className="h-5 w-5 text-primary mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-medium">Restart your EA</p>
+                  <p className="text-sm text-muted-foreground">
+                    Remove and re-attach the EA to your chart, or restart MT5. 
+                    Historical trades will automatically sync.
+                  </p>
+                </div>
+              </div>
 
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  After the import completes, set <code className="bg-muted px-1 rounded">InpSyncHistory</code> back to <code className="bg-muted px-1 rounded">false</code> to avoid duplicate imports on future restarts.
-                </AlertDescription>
-              </Alert>
+              <p className="text-sm text-muted-foreground">
+                The EA will send your trade history to the server. Trades within your selected 
+                date range will be imported. Duplicates are automatically handled.
+              </p>
             </div>
           </div>
         )}
@@ -216,7 +200,7 @@ export function ImportHistoryDialog({ account, open, onOpenChange }: ImportHisto
                 onClick={handleSaveAndShowInstructions}
                 disabled={updateSyncSettings.isPending}
               >
-                {updateSyncSettings.isPending ? 'Saving...' : 'Save & Show Instructions'}
+                {updateSyncSettings.isPending ? 'Saving...' : 'Enable Import'}
               </Button>
             </>
           ) : (

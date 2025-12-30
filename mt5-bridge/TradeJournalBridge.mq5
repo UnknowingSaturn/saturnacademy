@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Trade Journal Bridge"
 #property link      ""
-#property version   "2.10"
+#property version   "2.11"
 #property description "Captures trade lifecycle events and sends to journal backend"
 #property description "SAFE: Read-only, no trading operations, prop-firm compliant"
 #property description "Connects directly to cloud - no relay server needed!"
@@ -31,11 +31,6 @@ input bool     InpVerboseMode    = false;                      // Verbose consol
 input group "=== Filters ==="
 input string   InpSymbolFilter   = "";                         // Symbol filter (empty = all)
 input long     InpMagicFilter    = 0;                          // Magic number filter (0 = all)
-
-input group "=== History Sync ==="
-input bool     InpSyncHistory    = false;                      // Sync historical trades (enable after configuring in app)
-input int      InpSyncDaysBack   = 90;                         // Days of history to sync (max 3 months)
-input bool     InpResetSyncFlag  = false;                      // Delete sync flag to allow re-sync
 
 //+------------------------------------------------------------------+
 //| Constants - Direct Edge Function URL                              |
@@ -83,7 +78,7 @@ int OnInit()
       if(g_logHandle != INVALID_HANDLE)
       {
          FileSeek(g_logHandle, 0, SEEK_END);
-         LogMessage("=== Trade Journal Bridge v2.10 Started ===");
+         LogMessage("=== Trade Journal Bridge v2.11 Started ===");
          LogMessage("Terminal ID: " + g_terminalId);
          LogMessage("Account: " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
          LogMessage("Broker: " + AccountInfoString(ACCOUNT_COMPANY));
@@ -95,14 +90,6 @@ int OnInit()
    // Test WebRequest availability
    TestWebRequest();
    
-   // Reset sync flag if requested (allows re-sync)
-   if(InpResetSyncFlag && FileIsExist(g_syncFlagFile))
-   {
-      FileDelete(g_syncFlagFile);
-      Print("Sync flag deleted - historical trades will be re-synced");
-      LogMessage("Sync flag deleted by user request");
-   }
-   
    // Set timer for queue processing
    EventSetTimer(InpQueueCheckSec);
    
@@ -110,7 +97,7 @@ int OnInit()
    ArrayResize(g_processedDeals, 0);
    
    Print("=================================================");
-   Print("Trade Journal Bridge v2.10 - Direct Cloud Connection");
+   Print("Trade Journal Bridge v2.11 - Direct Cloud Connection");
    Print("=================================================");
    Print("Account: ", AccountInfoInteger(ACCOUNT_LOGIN));
    Print("Broker: ", AccountInfoString(ACCOUNT_COMPANY));
@@ -120,11 +107,13 @@ int OnInit()
    Print("after your first trade!");
    Print("=================================================");
    
-   // Sync historical trades on first run (after a brief delay to ensure connection is ready)
-   if(InpSyncHistory && g_webRequestOk && !IsHistorySynced())
+   // Always attempt to sync historical trades on startup (server controls what's accepted)
+   // Time-based check: re-sync if never synced or last sync was more than 24 hours ago
+   if(g_webRequestOk && ShouldSyncHistory())
    {
       Print("");
-      Print("First run detected - syncing historical trades...");
+      Print("Syncing historical trades (90 days)...");
+      Print("Server will accept trades based on your app settings.");
       SyncHistoricalDeals();
    }
    
@@ -847,24 +836,62 @@ string GetDeinitReasonText(int reason)
 }
 
 //+------------------------------------------------------------------+
-//| Check if History Already Synced (flag file exists)               |
+//| Check if History Sync Should Run (time-based)                     |
+//| Returns true if never synced or last sync was > 24 hours ago      |
 //+------------------------------------------------------------------+
-bool IsHistorySynced()
+bool ShouldSyncHistory()
 {
-   return FileIsExist(g_syncFlagFile);
+   if(!FileIsExist(g_syncFlagFile))
+      return true;  // Never synced before
+   
+   // Read last sync timestamp from flag file
+   int handle = FileOpen(g_syncFlagFile, FILE_READ|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+      return true;  // Can't read file, sync anyway
+   
+   datetime lastSyncTime = 0;
+   while(!FileIsEnding(handle))
+   {
+      string line = FileReadString(handle);
+      // Look for timestamp line (format: "sync_time=YYYY.MM.DD HH:MM:SS")
+      if(StringFind(line, "sync_time=") == 0)
+      {
+         string timeStr = StringSubstr(line, 10);
+         lastSyncTime = StringToTime(timeStr);
+         break;
+      }
+   }
+   FileClose(handle);
+   
+   if(lastSyncTime == 0)
+      return true;  // No valid timestamp found
+   
+   // Check if more than 24 hours since last sync
+   datetime now = TimeCurrent();
+   long hoursSinceSync = (now - lastSyncTime) / 3600;
+   
+   if(hoursSinceSync >= 24)
+   {
+      Print("Last sync was ", hoursSinceSync, " hours ago - will re-sync");
+      return true;
+   }
+   
+   Print("Last sync was ", hoursSinceSync, " hours ago - skipping (will sync again after 24h)");
+   return false;
 }
 
 //+------------------------------------------------------------------+
-//| Mark History as Synced (create flag file)                         |
+//| Mark History as Synced (create/update flag file with timestamp)   |
 //+------------------------------------------------------------------+
 void MarkHistorySynced(int dealCount)
 {
    int handle = FileOpen(g_syncFlagFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(handle != INVALID_HANDLE)
    {
-      string info = "History synced at " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\n";
-      info += "Deals synced: " + IntegerToString(dealCount) + "\n";
-      info += "Days back: " + IntegerToString(InpSyncDaysBack) + "\n";
+      // Store sync timestamp in a parseable format
+      string info = "sync_time=" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\n";
+      info += "deals_synced=" + IntegerToString(dealCount) + "\n";
+      info += "sync_days=90\n";
       FileWriteString(handle, info);
       FileClose(handle);
    }
@@ -873,10 +900,12 @@ void MarkHistorySynced(int dealCount)
 //+------------------------------------------------------------------+
 //| Sync Historical Deals                                             |
 //| Scans deal history and sends past trades to the journal           |
+//| Always syncs 90 days - server filters based on account settings   |
 //+------------------------------------------------------------------+
 void SyncHistoricalDeals()
 {
-   datetime fromTime = TimeCurrent() - (InpSyncDaysBack * 86400);
+   const int SYNC_DAYS = 90;  // Always sync 90 days, server controls what's accepted
+   datetime fromTime = TimeCurrent() - (SYNC_DAYS * 86400);
    datetime toTime = TimeCurrent();
    
    // Request deal history
@@ -888,7 +917,7 @@ void SyncHistoricalDeals()
    }
    
    int totalDeals = HistoryDealsTotal();
-   Print("Scanning ", totalDeals, " deals from the last ", InpSyncDaysBack, " days...");
+   Print("Scanning ", totalDeals, " deals from the last ", SYNC_DAYS, " days...");
    LogMessage("History sync started - scanning " + IntegerToString(totalDeals) + " deals");
    
    int sentCount = 0;
