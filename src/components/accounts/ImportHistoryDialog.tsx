@@ -182,10 +182,16 @@ export function ImportHistoryDialog({ account, open, onOpenChange }: ImportHisto
                 </div>
               </div>
 
-              <p className="text-sm text-muted-foreground">
-                The EA will send your trade history to the server. Trades within your selected 
-                date range will be imported. Duplicates are automatically handled.
-              </p>
+              <div className="text-sm text-muted-foreground space-y-2">
+                <p>
+                  The EA will send your trade history to the server. Trades within your selected 
+                  date range will be imported. Duplicates are automatically handled.
+                </p>
+                <p className="text-xs">
+                  <strong>Note:</strong> If trades don't appear after restarting, wait a few seconds and refresh the journal. 
+                  To re-import later, the EA will automatically re-sync after 24 hours, or you can restart MT5.
+                </p>
+              </div>
             </div>
           </div>
         )}

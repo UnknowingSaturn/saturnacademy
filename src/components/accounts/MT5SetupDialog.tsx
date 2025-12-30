@@ -129,14 +129,14 @@ export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
             <div className="pl-8 space-y-2 text-sm text-muted-foreground">
               <p>Check the MT5 <strong>Experts</strong> tab for these logs:</p>
               <ul className="list-disc list-inside space-y-1 text-xs">
-                <li>"Trade Journal Bridge v2.10 - Direct Cloud Connection"</li>
+                <li>"Trade Journal Bridge v2.11 - Direct Cloud Connection"</li>
                 <li>"Scanning currently open positions..." (syncs existing trades)</li>
               </ul>
               <p>Any existing open positions will be synced automatically on startup!</p>
             </div>
           </div>
 
-          {/* Important Notes */}
+          {/* What gets synced */}
           <div className="bg-muted/50 rounded-lg p-4 space-y-2">
             <h4 className="font-medium flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-green-500" />
@@ -144,10 +144,13 @@ export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
             </h4>
             <ul className="text-sm text-muted-foreground space-y-1">
               <li>✓ All currently open positions (on EA startup)</li>
-              <li>✓ Historical trades from the last 30 days (first run only)</li>
               <li>✓ New trades as they happen (entries, exits, partials)</li>
             </ul>
             <p className="text-xs text-muted-foreground mt-2">
+              <strong>Want historical trades?</strong> Use the "Import History" button on your account card 
+              to import closed trades from your MT5 history.
+            </p>
+            <p className="text-xs text-muted-foreground">
               <strong>Note:</strong> Pending orders won't appear until executed. 
               Netting accounts show one position per symbol.
             </p>

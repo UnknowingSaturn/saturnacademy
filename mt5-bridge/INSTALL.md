@@ -5,7 +5,7 @@ This Expert Advisor captures your MT5 trades in real-time and sends them directl
 ## Quick Setup (3 minutes)
 
 ### Step 1: Download the EA
-Download `TradeJournalBridge.mq5` from this folder.
+Download `TradeJournalBridge.mq5` from this folder or from the Accounts page in your Trade Journal.
 
 ### Step 2: Install in MetaTrader 5
 1. Open MT5
@@ -37,16 +37,26 @@ Download `TradeJournalBridge.mq5` from this folder.
 ## That's It!
 
 Your account will be created automatically after your first trade. The EA will:
-- ✅ **Auto-sync historical trades** from the last 30 days on first run
 - ✅ Capture all trade entries and exits in real-time
 - ✅ Track partial closes with proper volume aggregation
 - ✅ Auto-detect your broker and account type
 - ✅ Work with prop firm accounts (FTMO, FundedNext, etc.)
 
-## How It Works
+## Importing Historical Trades
 
-### Historical Sync (First Run)
-When you first install the EA, it automatically syncs your last 30 days of trades. This happens only once - subsequent restarts won't re-sync. To re-sync history, delete the flag file: `MQL5/Files/TradeJournalSynced_[ACCOUNT].flag`
+By default, only **new trades** are synced automatically. To import older trades:
+
+1. Go to the **Accounts** page in your Trade Journal
+2. Click the **History** button (clock icon) on your account card
+3. Select a date range (up to 3 months)
+4. Click **"Enable Import"**
+5. **Restart your EA** (remove and re-attach to chart, or restart MT5)
+
+Your historical trades will be imported automatically. Duplicates are handled gracefully.
+
+**Note:** The EA will automatically re-sync history every 24 hours if import is enabled. For older trades beyond 3 months, use the CSV import feature.
+
+## How It Works
 
 ### Real-Time Capture
 The EA sends **deal events** (entries and exits) to your journal. The backend:
@@ -54,6 +64,13 @@ The EA sends **deal events** (entries and exits) to your journal. The backend:
 - Automatically detects partial closes vs full closes
 - Calculates total PnL including all partial exits
 - Computes R-multiples when stop-loss is set
+
+### Server-Controlled Import
+When you enable history import from the app:
+1. The EA sends up to 90 days of history on startup
+2. The server filters trades based on your selected date range
+3. Only trades within your specified window are imported
+4. Duplicates are automatically skipped
 
 ## Features
 
@@ -94,6 +111,13 @@ The EA tracks processed deals in memory. If MT5 restarts, it may attempt to rese
 1. Check the EA's Experts tab for error messages
 2. Enable "Verbose Mode" in EA settings for detailed logging
 3. Check `MQL5/Files/TradeJournal.log` for debug information
+4. For historical trades, make sure you enabled import from the app first
+
+### Historical trades not importing
+1. Make sure you enabled import from the Accounts page
+2. Restart the EA after enabling import
+3. Wait a few seconds and refresh the journal page
+4. Check that trades fall within your selected date range
 
 ## Optional Settings
 
@@ -101,8 +125,6 @@ The EA tracks processed deals in memory. If MT5 restarts, it may attempt to rese
 |---------|---------|-------------|
 | Symbol Filter | (empty) | Only capture specific symbol (e.g., "EURUSD") |
 | Magic Filter | 0 | Only capture specific magic number (0 = all) |
-| **Sync History** | **true** | Sync historical trades on first run |
-| **Sync Days Back** | **30** | Number of days of history to sync |
 | Enable Logging | true | Write logs to file for debugging |
 | Verbose Mode | false | Show detailed console output |
 
@@ -120,6 +142,12 @@ The EA tracks processed deals in memory. If MT5 restarts, it may attempt to rese
 ### Timestamps
 - `timestamp`: UTC time (using TimeGMT())
 - `server_time`: Broker server time (for reference)
+
+## Version History
+
+- **v2.11**: Server-controlled history import (always sends 90 days, server filters)
+- **v2.10**: Added reset sync flag, configurable sync days
+- **v2.09**: Initial release with direct cloud connection
 
 ## Support
 

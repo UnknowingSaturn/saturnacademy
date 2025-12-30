@@ -17,6 +17,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { EditAccountDialog } from './EditAccountDialog';
 import { ImportHistoryDialog } from './ImportHistoryDialog';
 
@@ -114,14 +120,22 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
               <Terminal className="h-4 w-4 mr-2" />
               MT5 Setup
             </Button>
-            <Button 
-              variant="outline" 
-              size="icon" 
-              onClick={() => setImportHistoryOpen(true)}
-              title="Import historical trades"
-            >
-              <History className="h-4 w-4" />
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={() => setImportHistoryOpen(true)}
+                  >
+                    <History className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Import closed trades from MT5 history</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <Button variant="ghost" size="icon" onClick={() => setEditOpen(true)}>
               <Settings className="h-4 w-4" />
             </Button>
