@@ -165,7 +165,7 @@ export function useUpdateTrade() {
         'exit_price', 'exit_time', 'sl_initial', 'tp_initial', 'sl_final',
         'tp_final', 'net_pnl', 'gross_pnl', 'commission', 'swap',
         'r_multiple_actual', 'r_multiple_planned', 'session', 'is_open',
-        'playbook_id', 'profile', 'place', 'trade_number'
+        'playbook_id', 'profile', 'place', 'trade_number', 'account_id'
       ] as const;
       
       for (const field of scalarFields) {
