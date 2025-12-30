@@ -121,3 +121,37 @@ export function useDeleteAccount() {
     },
   });
 }
+
+export function useUpdateSyncSettings() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ 
+      accountId, 
+      syncEnabled, 
+      syncFrom 
+    }: {
+      accountId: string;
+      syncEnabled: boolean;
+      syncFrom: Date | null;
+    }) => {
+      const { error } = await supabase
+        .from('accounts')
+        .update({
+          sync_history_enabled: syncEnabled,
+          sync_history_from: syncFrom?.toISOString() || null,
+        })
+        .eq('id', accountId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      toast({ title: 'Sync settings saved' });
+    },
+    onError: (error) => {
+      toast({ title: 'Failed to save sync settings', description: error.message, variant: 'destructive' });
+    },
+  });
+}

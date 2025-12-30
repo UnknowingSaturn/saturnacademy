@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, Eye, EyeOff, Settings, Trash2, Terminal } from 'lucide-react';
+import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { EditAccountDialog } from './EditAccountDialog';
+import { ImportHistoryDialog } from './ImportHistoryDialog';
 
 interface AccountCardProps {
   account: Account;
@@ -29,6 +30,7 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
   const deleteAccount = useDeleteAccount();
   const [showApiKey, setShowApiKey] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [importHistoryOpen, setImportHistoryOpen] = useState(false);
 
   const copyApiKey = async () => {
     if (account.api_key) {
@@ -112,6 +114,14 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
               <Terminal className="h-4 w-4 mr-2" />
               MT5 Setup
             </Button>
+            <Button 
+              variant="outline" 
+              size="icon" 
+              onClick={() => setImportHistoryOpen(true)}
+              title="Import historical trades"
+            >
+              <History className="h-4 w-4" />
+            </Button>
             <Button variant="ghost" size="icon" onClick={() => setEditOpen(true)}>
               <Settings className="h-4 w-4" />
             </Button>
@@ -144,6 +154,7 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
       </Card>
 
       <EditAccountDialog account={account} open={editOpen} onOpenChange={setEditOpen} />
+      <ImportHistoryDialog account={account} open={importHistoryOpen} onOpenChange={setImportHistoryOpen} />
     </>
   );
 }
