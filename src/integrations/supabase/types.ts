@@ -853,6 +853,8 @@ export type Database = {
           created_at: string
           expires_at: string
           id: string
+          sync_history_enabled: boolean | null
+          sync_history_from: string | null
           token: string
           used: boolean | null
           used_at: string | null
@@ -862,6 +864,8 @@ export type Database = {
           created_at?: string
           expires_at: string
           id?: string
+          sync_history_enabled?: boolean | null
+          sync_history_from?: string | null
           token: string
           used?: boolean | null
           used_at?: string | null
@@ -871,6 +875,8 @@ export type Database = {
           created_at?: string
           expires_at?: string
           id?: string
+          sync_history_enabled?: boolean | null
+          sync_history_from?: string | null
           token?: string
           used?: boolean | null
           used_at?: string | null

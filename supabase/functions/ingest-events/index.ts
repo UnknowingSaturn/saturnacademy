@@ -138,7 +138,7 @@ serve(async (req) => {
       // FIX: Add expires_at check to prevent use of expired tokens
       const { data: setupToken, error: tokenError } = await supabase
         .from("setup_tokens")
-        .select("user_id, used")
+        .select("user_id, used, sync_history_enabled, sync_history_from")
         .eq("token", apiKey)
         .gt("expires_at", new Date().toISOString())
         .single();
@@ -168,7 +168,7 @@ serve(async (req) => {
         propFirm = "fundednext";
       }
 
-      // Create the account
+      // Create the account with sync settings from setup token
       const accountName = `${payload.account_info.broker} - ${payload.account_info.login}`;
       const { data: newAccount, error: createError } = await supabase
         .from("accounts")
@@ -184,6 +184,8 @@ serve(async (req) => {
           api_key: apiKey,
           prop_firm: propFirm,
           is_active: true,
+          sync_history_enabled: setupToken.sync_history_enabled ?? true,
+          sync_history_from: setupToken.sync_history_from,
         })
         .select("id, user_id, terminal_id")
         .single();
@@ -203,7 +205,7 @@ serve(async (req) => {
         .eq("token", apiKey);
 
       account = newAccount;
-      console.log("Auto-created account:", account.id, accountName);
+      console.log("Auto-created account:", account.id, accountName, "sync_history_enabled:", setupToken.sync_history_enabled, "sync_history_from:", setupToken.sync_history_from);
     } else if (accountError || !account) {
       console.error("Invalid API key:", accountError);
       return new Response(
