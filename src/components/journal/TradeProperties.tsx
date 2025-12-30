@@ -1,12 +1,13 @@
 import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, RegimeType } from "@/types/trading";
 import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
+import { useAccounts } from "@/hooks/useAccounts";
 import { cn } from "@/lib/utils";
 import { formatFullDateTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Calendar, Clock, TrendingUp, TrendingDown, DollarSign, Target, Hash } from "lucide-react";
+import { Calendar, Clock, TrendingUp, TrendingDown, DollarSign, Target, Hash, Wallet } from "lucide-react";
 import { useMemo } from "react";
 
 interface TradePropertiesProps {
@@ -66,6 +67,20 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   const updateReview = useUpdateTradeReview();
   const createReview = useCreateTradeReview();
   const { data: playbooks } = usePlaybooks();
+  const { data: accounts } = useAccounts();
+
+  // Check if trade is manually added (no ticket = not from EA)
+  const isManualTrade = !trade.ticket;
+
+  // Generate account options
+  const accountOptions = useMemo(() => {
+    if (!accounts) return [];
+    return accounts.map(acc => ({
+      value: acc.id,
+      label: acc.name,
+      color: "primary",
+    }));
+  }, [accounts]);
 
   // Generate model options from active playbooks using ID as value
   const modelOptions = useMemo(() => {
@@ -81,6 +96,10 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
 
   const handleSessionChange = async (session: string) => {
     await updateTrade.mutateAsync({ id: trade.id, session: session as SessionType });
+  };
+
+  const handleAccountChange = async (accountId: string) => {
+    await updateTrade.mutateAsync({ id: trade.id, account_id: accountId || null });
   };
 
   const handleRegimeChange = async (regime: string) => {
@@ -155,6 +174,18 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           <span className="text-muted-foreground">#{trade.trade_number}</span>
         )}
       </div>
+
+      {/* Account (only for manual trades) */}
+      {isManualTrade && (
+        <PropertyRow icon={<Wallet className="w-3.5 h-3.5" />} label="Account">
+          <BadgeSelect
+            value={trade.account_id || ""}
+            onChange={(v) => handleAccountChange(v as string)}
+            options={accountOptions}
+            placeholder="Select..."
+          />
+        </PropertyRow>
+      )}
 
       <Separator />
 
