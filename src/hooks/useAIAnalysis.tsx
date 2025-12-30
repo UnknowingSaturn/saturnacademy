@@ -138,10 +138,12 @@ export function useAIAnalysis() {
         }
       }
 
-      // Step 5: Invalidate queries
+      // Step 5: Invalidate and refetch queries - wait for data before completing
       setProgress({ step: "saving", message: "Refreshing data..." });
       await queryClient.invalidateQueries({ queryKey: ['trades'] });
       await queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
+      // Wait for refetch to ensure fresh data is loaded before showing complete
+      await queryClient.refetchQueries({ queryKey: ['trade', tradeId] });
 
       // Complete
       setProgress({ step: "complete", message: "Analysis complete" });

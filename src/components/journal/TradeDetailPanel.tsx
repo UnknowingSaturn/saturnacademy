@@ -136,6 +136,16 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
   }, [trade?.id, trade?.review, lastTradeId]);
 
+  // Auto-reset progress to idle after analysis completes and data loads
+  useEffect(() => {
+    if (progress.step === "complete" && analysisData) {
+      const timeout = setTimeout(() => {
+        resetProgress();
+      }, 1500); // Show "complete" briefly, then hide progress
+      return () => clearTimeout(timeout);
+    }
+  }, [progress.step, analysisData, resetProgress]);
+
   // No need for AI review sync effect - we read directly from trade.ai_review
 
   const score = Object.values(checklistAnswers).filter(Boolean).length;
@@ -387,8 +397,8 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
 
                 </div>
 
-                {/* AI Analysis Progress - shows during analysis */}
-                {(isAnalyzing || progress.step !== "idle") && (
+                {/* AI Analysis Progress - shows during active analysis */}
+                {(isAnalyzing || (progress.step !== "idle" && progress.step !== "complete")) && (
                   <AIAnalysisProgress 
                     progress={progress} 
                     isAnalyzing={isAnalyzing}
@@ -396,8 +406,8 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                   />
                 )}
 
-                {/* AI Analysis - reads directly from database via trade.ai_review */}
-                {analysisData && !isAnalyzing && progress.step !== "error" && (
+                {/* AI Analysis - always show when data exists */}
+                {analysisData && (
                   <div>
                     <Label className="text-sm font-semibold mb-3 flex items-center gap-2">
                       <Sparkles className="w-4 h-4" />
