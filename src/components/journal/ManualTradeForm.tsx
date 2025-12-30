@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useCreateTrade } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
+import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { SessionType, TradeType } from "@/types/trading";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,8 +24,10 @@ export function ManualTradeForm() {
   const [open, setOpen] = useState(false);
   const createTrade = useCreateTrade();
   const { data: playbooks } = usePlaybooks();
+  const { selectedAccountId, accounts } = useAccountFilter();
 
   const [tradeType, setTradeType] = useState<TradeType>("executed");
+  const [accountId, setAccountId] = useState<string>("");
   const [symbol, setSymbol] = useState("");
   const [direction, setDirection] = useState<"buy" | "sell">("buy");
   const [entryPrice, setEntryPrice] = useState("");
@@ -43,8 +46,19 @@ export function ManualTradeForm() {
 
   const isNonExecuted = tradeType !== "executed";
 
+  // Set default account when accounts load or selection changes
+  useEffect(() => {
+    if (accounts.length > 0 && !accountId) {
+      const defaultAccount = selectedAccountId !== "all" 
+        ? selectedAccountId 
+        : accounts[0]?.id;
+      if (defaultAccount) setAccountId(defaultAccount);
+    }
+  }, [accounts, selectedAccountId, accountId]);
+
   const resetForm = () => {
     setTradeType("executed");
+    setAccountId(selectedAccountId !== "all" ? selectedAccountId : accounts[0]?.id || "");
     setSymbol("");
     setDirection("buy");
     setEntryPrice("");
@@ -70,7 +84,7 @@ export function ManualTradeForm() {
       ? (riskMode === "lots" ? lots : riskPercent)
       : lots;
 
-    if (!symbol || !entryPrice || !entryTime || !hasSize) return;
+    if (!symbol || !entryPrice || !entryTime || !hasSize || !accountId) return;
 
     // For non-executed trades, they're always "closed" conceptually (hypothetical outcome)
     const isOpen = tradeType === "executed" ? (!exitPrice || !exitTime) : false;
@@ -85,6 +99,7 @@ export function ManualTradeForm() {
       : undefined;
 
     await createTrade.mutateAsync({
+      account_id: accountId,
       symbol: symbol.toUpperCase(),
       direction,
       entry_price: parseFloat(entryPrice),
@@ -121,6 +136,23 @@ export function ManualTradeForm() {
           <DialogTitle>Add Trade</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+          {/* Account Selector */}
+          <div className="space-y-2">
+            <Label>Account *</Label>
+            <Select value={accountId} onValueChange={setAccountId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Trade Type Selector */}
           <div className="space-y-2">
             <Label>Trade Type</Label>
