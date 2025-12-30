@@ -1,5 +1,5 @@
 import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, RegimeType } from "@/types/trading";
-import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview } from "@/hooks/useTrades";
+import { useUpdateTrade, useUpsertTradeReview } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useAccounts } from "@/hooks/useAccounts";
 import { cn } from "@/lib/utils";
@@ -64,8 +64,7 @@ const regimeOptions = [
 
 export function TradeProperties({ trade }: TradePropertiesProps) {
   const updateTrade = useUpdateTrade();
-  const updateReview = useUpdateTradeReview();
-  const createReview = useCreateTradeReview();
+  const upsertReview = useUpsertTradeReview();
   const { data: playbooks } = usePlaybooks();
   const { data: accounts } = useAccounts();
 
@@ -103,19 +102,21 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   };
 
   const handleRegimeChange = async (regime: string) => {
-    if (trade.review) {
-      await updateReview.mutateAsync({
-        id: trade.review.id,
+    await upsertReview.mutateAsync({
+      review: {
+        trade_id: trade.id,
         regime: regime as RegimeType,
-      });
-    } else {
-      await createReview.mutateAsync({
-        review: {
-          trade_id: trade.id,
-          regime: regime as RegimeType,
-        }
-      });
-    }
+        // Preserve existing values
+        ...(trade.review && {
+          checklist_answers: trade.review.checklist_answers,
+          emotional_state_before: trade.review.emotional_state_before,
+          emotional_state_after: trade.review.emotional_state_after,
+          psychology_notes: trade.review.psychology_notes,
+          screenshots: trade.review.screenshots,
+        }),
+      },
+      silent: true,
+    });
   };
 
   const handleModelChange = async (playbookId: string) => {
@@ -141,19 +142,20 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   };
 
   const handleEmotionChange = async (emotion: string) => {
-    if (trade.review) {
-      await updateReview.mutateAsync({
-        id: trade.review.id,
+    await upsertReview.mutateAsync({
+      review: {
+        trade_id: trade.id,
         emotional_state_before: emotion as EmotionalState,
-      });
-    } else {
-      await createReview.mutateAsync({
-        review: {
-          trade_id: trade.id,
-          emotional_state_before: emotion as EmotionalState,
-        }
-      });
-    }
+        // Preserve existing values
+        ...(trade.review && {
+          checklist_answers: trade.review.checklist_answers,
+          regime: trade.review.regime,
+          psychology_notes: trade.review.psychology_notes,
+          screenshots: trade.review.screenshots,
+        }),
+      },
+      silent: true,
+    });
   };
 
   const pnl = trade.net_pnl || 0;

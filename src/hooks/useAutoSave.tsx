@@ -34,10 +34,29 @@ export function useAutoSave<T>(
   const lastSavedRef = useRef<string>('');
   const saveFnRef = useRef(saveFn);
 
+  const prevStorageKeyRef = useRef<string | undefined>(storageKey);
+
   // Keep saveFn ref updated
   useEffect(() => {
     saveFnRef.current = saveFn;
   }, [saveFn]);
+
+  // Reset state when storageKey (document ID) changes - prevents phantom saves
+  useEffect(() => {
+    if (storageKey !== prevStorageKeyRef.current) {
+      // Clear any pending timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      // Reset baseline to current data
+      lastSavedRef.current = JSON.stringify(data);
+      savingRef.current = false;
+      setStatus('idle');
+      setError(null);
+      prevStorageKeyRef.current = storageKey;
+    }
+  }, [storageKey, data]);
 
   const currentDataStr = JSON.stringify(data);
   const hasUnsavedChanges = lastSavedRef.current !== '' && currentDataStr !== lastSavedRef.current;
