@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
+import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { Playbook } from "@/types/trading";
 import { ModelSelectionPrompt } from "@/components/journal/ModelSelectionPrompt";
 import { LiveTradeCompliancePanel } from "@/components/journal/LiveTradeCompliancePanel";
@@ -20,9 +21,16 @@ import { cn } from "@/lib/utils";
 
 export default function LiveTrades() {
   const location = useLocation();
-  const { data: openTrades = [], isLoading } = useOpenTrades();
+  const { data: allOpenTrades = [], isLoading } = useOpenTrades();
   const { data: playbooks = [] } = usePlaybooks();
+  const { selectedAccountId, selectedAccount } = useAccountFilter();
   
+  // Filter open trades by selected account
+  const openTrades = useMemo(() => {
+    if (selectedAccountId === 'all') return allOpenTrades;
+    return allOpenTrades.filter(t => t.account_id === selectedAccountId);
+  }, [allOpenTrades, selectedAccountId]);
+
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(
     location.state?.selectedTradeId || null
   );
@@ -74,7 +82,14 @@ export default function LiveTrades() {
           <Activity className="h-6 w-6 text-primary" />
         </div>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-foreground">Live Trades</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            Live Trades
+            {selectedAccount && (
+              <span className="text-lg font-normal text-muted-foreground ml-2">
+                • {selectedAccount.name}
+              </span>
+            )}
+          </h1>
           <p className="text-muted-foreground text-sm">
             Real-time position monitoring & compliance
           </p>
@@ -124,6 +139,7 @@ export default function LiveTrades() {
                       trade={trade}
                       isSelected={selectedTradeId === trade.id}
                       onClick={() => setSelectedTradeId(trade.id)}
+                      showAccountBadge={selectedAccountId === 'all'}
                     />
                   ))}
                 </div>

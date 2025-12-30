@@ -20,6 +20,7 @@ interface LiveTradeCardProps {
   };
   isSelected: boolean;
   onClick: () => void;
+  showAccountBadge?: boolean;
 }
 
 function formatDuration(seconds: number): string {
@@ -32,7 +33,7 @@ function formatDuration(seconds: number): string {
   return `${minutes}m`;
 }
 
-export function LiveTradeCard({ trade, isSelected, onClick }: LiveTradeCardProps) {
+export function LiveTradeCard({ trade, isSelected, onClick, showAccountBadge = false }: LiveTradeCardProps) {
   const [duration, setDuration] = useState(0);
 
   // Live duration timer
@@ -115,6 +116,11 @@ export function LiveTradeCard({ trade, isSelected, onClick }: LiveTradeCardProps
             <div className="text-xs text-muted-foreground">
               {formatBrokerDateTimeET(trade.entry_time, trade.account?.broker_utc_offset ?? 0)}
             </div>
+            {showAccountBadge && trade.account && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 mt-0.5">
+                {trade.account.name}
+              </Badge>
+            )}
           </div>
         </div>
         

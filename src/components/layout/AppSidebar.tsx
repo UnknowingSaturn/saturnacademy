@@ -8,7 +8,10 @@ import {
   LogOut,
   Wallet,
   Activity,
-  Copy
+  Copy,
+  ChevronDown,
+  Check,
+  Building2
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -24,9 +27,19 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
+import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { Button } from "@/components/ui/button";
 import { useOpenTradesCount } from "@/hooks/useOpenTrades";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 const mainItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
@@ -47,6 +60,18 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
     const collapsed = state === "collapsed";
     const { signOut, user } = useAuth();
     const openTradesCount = useOpenTradesCount();
+    const { selectedAccountId, setSelectedAccountId, selectedAccount, accounts } = useAccountFilter();
+
+    const getCopierRoleBadge = (role: string) => {
+      switch (role) {
+        case 'master':
+          return <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 bg-primary/10 text-primary border-primary/30">Master</Badge>;
+        case 'receiver':
+          return <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 bg-blue-500/10 text-blue-500 border-blue-500/30">Receiver</Badge>;
+        default:
+          return null;
+      }
+    };
 
     return (
       <Sidebar collapsible="icon" className="border-r border-border bg-sidebar">
@@ -61,6 +86,91 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
                 <span className="font-semibold text-lg text-sidebar-foreground">TradeLog</span>
               )}
             </div>
+          </div>
+
+          {/* Account Selector */}
+          <div className="px-3 pb-4 border-b border-sidebar-border mb-4">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-2 px-2 h-auto py-2",
+                    collapsed && "justify-center px-0"
+                  )}
+                >
+                  <div className={cn(
+                    "w-7 h-7 rounded-md flex items-center justify-center shrink-0",
+                    selectedAccountId === "all" 
+                      ? "bg-muted" 
+                      : "bg-primary/10"
+                  )}>
+                    {selectedAccountId === "all" ? (
+                      <Building2 className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <Wallet className="w-4 h-4 text-primary" />
+                    )}
+                  </div>
+                  {!collapsed && (
+                    <>
+                      <div className="flex-1 text-left min-w-0">
+                        <div className="text-sm font-medium truncate">
+                          {selectedAccountId === "all" 
+                            ? "All Accounts" 
+                            : selectedAccount?.name || "Select Account"
+                          }
+                        </div>
+                        {selectedAccount && (
+                          <div className="text-xs text-muted-foreground truncate">
+                            {selectedAccount.broker || "No broker"}
+                          </div>
+                        )}
+                      </div>
+                      <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                    </>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuLabel>Select Account</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem 
+                  onClick={() => setSelectedAccountId("all")}
+                  className="flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-muted-foreground" />
+                    <span>All Accounts</span>
+                  </div>
+                  {selectedAccountId === "all" && (
+                    <Check className="w-4 h-4 text-primary" />
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {accounts.map((account) => (
+                  <DropdownMenuItem
+                    key={account.id}
+                    onClick={() => setSelectedAccountId(account.id)}
+                    className="flex items-center justify-between"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate">{account.name}</span>
+                        {getCopierRoleBadge(account.copier_role)}
+                      </div>
+                      {account.broker && (
+                        <div className="text-xs text-muted-foreground truncate">
+                          {account.broker}
+                        </div>
+                      )}
+                    </div>
+                    {selectedAccountId === account.id && (
+                      <Check className="w-4 h-4 text-primary shrink-0 ml-2" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           {/* Main Navigation */}

@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTrades } from "@/hooks/useTrades";
 import { useUserSettings } from "@/hooks/useUserSettings";
-import { useAccounts } from "@/hooks/useAccounts";
+import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { useGroupedTradesView, useAutoGroupTrades, TradeGroup } from "@/hooks/useTradeGroups";
 
 import { TradeTable } from "@/components/journal/TradeTable";
@@ -29,7 +29,6 @@ export default function Journal() {
   const [symbolFilter, setSymbolFilter] = useState("");
   const [sessionFilter, setSessionFilter] = useState<SessionType | "all">("all");
   const [resultFilter, setResultFilter] = useState<"all" | "win" | "loss" | "open">("all");
-  const [accountFilter, setAccountFilter] = useState<string>("all");
   const [modelFilter, setModelFilter] = useState<string | null>(null);
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -41,7 +40,7 @@ export default function Journal() {
 
   const { data: trades, isLoading } = useTrades();
   const { data: settings } = useUserSettings();
-  const { data: accounts } = useAccounts();
+  const { selectedAccountId, accounts } = useAccountFilter();
   const { data: groupedData, isLoading: isLoadingGroups } = useGroupedTradesView();
   const autoGroup = useAutoGroupTrades();
 
@@ -63,9 +62,9 @@ export default function Journal() {
   const filteredTrades = useMemo(() => {
     let result = trades || [];
 
-    // Account filter
-    if (accountFilter !== "all") {
-      result = result.filter(trade => trade.account_id === accountFilter);
+    // Global account filter
+    if (selectedAccountId !== "all") {
+      result = result.filter(trade => trade.account_id === selectedAccountId);
     }
 
     // Model/Strategy filter (from URL) - now matches by playbook_id
@@ -123,7 +122,7 @@ export default function Journal() {
     }
 
     return result;
-  }, [trades, symbolFilter, sessionFilter, resultFilter, modelFilter, activeFilters, accountFilter]);
+  }, [trades, symbolFilter, sessionFilter, resultFilter, modelFilter, activeFilters, selectedAccountId]);
 
   const getTradeValue = (trade: Trade, column: string): any => {
     switch (column) {
@@ -240,20 +239,6 @@ export default function Journal() {
           {/* Filters - only show for table view */}
           {viewMode === "table" && (
             <div className="flex flex-wrap gap-3 items-center">
-              {/* Account Filter */}
-              <Select value={accountFilter} onValueChange={setAccountFilter}>
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="Account" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Accounts</SelectItem>
-                  {accounts?.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               <div className="relative flex-1 min-w-[200px] max-w-[300px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
@@ -310,7 +295,7 @@ export default function Journal() {
             <TradeTable 
               trades={tradeViewMode === "all" ? filteredTrades : groupedData?.ungrouped.filter(t => {
                 // Apply same filters to ungrouped trades
-                if (accountFilter !== "all" && t.account_id !== accountFilter) return false;
+                if (selectedAccountId !== "all" && t.account_id !== selectedAccountId) return false;
                 if (modelFilter && t.playbook_id !== modelFilter && t.playbook?.name !== modelFilter) return false;
                 if (symbolFilter && !t.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) return false;
                 if (sessionFilter !== "all" && t.session !== sessionFilter) return false;
@@ -321,7 +306,7 @@ export default function Journal() {
               }) || []}
               tradeGroups={tradeViewMode === "ideas" ? groupedData?.groups.filter(g => {
                 // Apply filters to groups
-                if (accountFilter !== "all" && !g.account_ids.includes(accountFilter)) return false;
+                if (selectedAccountId !== "all" && !g.account_ids.includes(selectedAccountId)) return false;
                 if (symbolFilter && !g.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) return false;
                 if (resultFilter === "win" && g.combined_net_pnl <= 0) return false;
                 if (resultFilter === "loss" && g.combined_net_pnl >= 0) return false;
