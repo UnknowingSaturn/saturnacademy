@@ -74,6 +74,7 @@ export interface ColumnDefinition {
 export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   // Calculated/Auto fields (left side)
   { key: 'trade_number', label: '#', type: 'number', sortable: true, filterable: true, hideable: false, width: 'minmax(40px, 0.4fr)', category: 'calculated' },
+  { key: 'account', label: 'Account', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'calculated' },
   { key: 'entry_time', label: 'Date (EST)', type: 'date', sortable: true, filterable: true, hideable: true, width: 'minmax(110px, 1.5fr)', category: 'calculated' },
   { key: 'day', label: 'Day', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(50px, 0.5fr)', category: 'calculated' },
   { key: 'symbol', label: 'Pair', type: 'text', sortable: true, filterable: true, hideable: false, width: 'minmax(70px, 1fr)', category: 'calculated' },

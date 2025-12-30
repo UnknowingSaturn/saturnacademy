@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile } from "@/types/trading";
+import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, Account } from "@/types/trading";
 import { useUpdateTrade, useUpdateTradeReview, useCreateTradeReview, useBulkArchiveTrades } from "@/hooks/useTrades";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
@@ -18,9 +18,10 @@ interface TradeTableProps {
   onTradeClick: (trade: Trade) => void;
   visibleColumns?: string[];
   onEditProperty?: (propertyName: string) => void;
+  accounts?: Account[];
 }
 
-export function TradeTable({ trades, onTradeClick, visibleColumns, onEditProperty }: TradeTableProps) {
+export function TradeTable({ trades, onTradeClick, visibleColumns, onEditProperty, accounts }: TradeTableProps) {
   const updateTrade = useUpdateTrade();
   const updateReview = useUpdateTradeReview();
   const createReview = useCreateTradeReview();
@@ -290,6 +291,15 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
 
                   if (key === 'day') {
                     return <div key={key} className="text-sm text-muted-foreground">{day}</div>;
+                  }
+
+                  if (key === 'account') {
+                    const account = accounts?.find(a => a.id === trade.account_id);
+                    return (
+                      <div key={key} className="text-sm text-muted-foreground truncate">
+                        {account?.name || "—"}
+                      </div>
+                    );
                   }
 
                   if (key === 'symbol') {

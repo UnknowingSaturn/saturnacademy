@@ -29,6 +29,7 @@ export default function Journal() {
   const [symbolFilter, setSymbolFilter] = useState("");
   const [sessionFilter, setSessionFilter] = useState<SessionType | "all">("all");
   const [resultFilter, setResultFilter] = useState<"all" | "win" | "loss" | "open">("all");
+  const [accountFilter, setAccountFilter] = useState<string>("all");
   const [modelFilter, setModelFilter] = useState<string | null>(null);
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -94,6 +95,11 @@ export default function Journal() {
   const filteredTrades = useMemo(() => {
     let result = trades || [];
 
+    // Account filter
+    if (accountFilter !== "all") {
+      result = result.filter(trade => trade.account_id === accountFilter);
+    }
+
     // Model/Strategy filter (from URL) - now matches by playbook_id
     if (modelFilter) {
       result = result.filter(trade => trade.playbook_id === modelFilter || trade.playbook?.name === modelFilter);
@@ -149,13 +155,16 @@ export default function Journal() {
     }
 
     return result;
-  }, [trades, symbolFilter, sessionFilter, resultFilter, modelFilter, activeFilters]);
+  }, [trades, symbolFilter, sessionFilter, resultFilter, modelFilter, activeFilters, accountFilter]);
 
   const getTradeValue = (trade: Trade, column: string): any => {
     switch (column) {
       case 'trade_number': return trade.trade_number;
       case 'symbol': return trade.symbol;
       case 'session': return trade.session;
+      case 'account': 
+        const account = accounts?.find(a => a.id === trade.account_id);
+        return account?.name || trade.account_id;
       case 'model': return trade.playbook?.name || trade.playbook_id;
       case 'profile': return trade.profile;
       case 'r_multiple_actual': return trade.r_multiple_actual;
@@ -241,6 +250,20 @@ export default function Journal() {
           {/* Filters - only show for table view */}
           {viewMode === "table" && (
             <div className="flex flex-wrap gap-3 items-center">
+              {/* Account Filter */}
+              <Select value={accountFilter} onValueChange={setAccountFilter}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="Account" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Accounts</SelectItem>
+                  {accounts?.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="relative flex-1 min-w-[200px] max-w-[300px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
@@ -294,12 +317,13 @@ export default function Journal() {
                 <p className="text-sm">Import trades or add them manually to get started</p>
               </div>
             ) : (
-              <TradeTable 
-                trades={filteredTrades} 
-                onTradeClick={(trade) => setSelectedTradeId(trade.id)}
-                visibleColumns={settings?.visible_columns}
-                onEditProperty={handleEditProperty}
-              />
+            <TradeTable 
+              trades={filteredTrades} 
+              onTradeClick={(trade) => setSelectedTradeId(trade.id)}
+              visibleColumns={settings?.visible_columns}
+              onEditProperty={handleEditProperty}
+              accounts={accounts}
+            />
             )
           ) : (
             <JournalCalendarView 
