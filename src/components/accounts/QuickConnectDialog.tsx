@@ -23,14 +23,14 @@ interface QuickConnectDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type SyncPreset = '1week' | '1month' | '3months' | 'custom';
+type SyncPreset = '1week' | '2weeks' | '30days' | 'custom';
 
 export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogProps) {
   const [setupToken, setSetupToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [syncEnabled, setSyncEnabled] = useState(true);
-  const [syncPreset, setSyncPreset] = useState<SyncPreset>('1month');
+  const [syncPreset, setSyncPreset] = useState<SyncPreset>('30days');
   const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
   const { toast } = useToast();
 
@@ -42,14 +42,14 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
     switch (syncPreset) {
       case '1week':
         return subDays(now, 7);
-      case '1month':
-        return subMonths(now, 1);
-      case '3months':
-        return subMonths(now, 3);
+      case '2weeks':
+        return subDays(now, 14);
+      case '30days':
+        return subDays(now, 30);
       case 'custom':
-        return customDate || subMonths(now, 1);
+        return customDate || subDays(now, 30);
       default:
-        return subMonths(now, 1);
+        return subDays(now, 30);
     }
   };
 
@@ -161,12 +161,12 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
     setSetupToken(null);
     setCopied(false);
     setSyncEnabled(true);
-    setSyncPreset('1month');
+    setSyncPreset('30days');
     setCustomDate(undefined);
   };
 
-  // Get max date (3 months ago)
-  const minDate = subMonths(new Date(), 3);
+  // Get max date (30 days ago - EA limitation)
+  const minDate = subDays(new Date(), 30);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -253,7 +253,7 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
               {syncEnabled && (
                 <div className="space-y-2">
                   <div className="flex flex-wrap gap-2">
-                    {(['1week', '1month', '3months'] as const).map((preset) => (
+                    {(['1week', '2weeks', '30days'] as const).map((preset) => (
                       <Button
                         key={preset}
                         variant={syncPreset === preset ? 'default' : 'outline'}
@@ -261,8 +261,8 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
                         onClick={() => setSyncPreset(preset)}
                       >
                         {preset === '1week' && '1 Week'}
-                        {preset === '1month' && '1 Month'}
-                        {preset === '3months' && '3 Months'}
+                        {preset === '2weeks' && '2 Weeks'}
+                        {preset === '30days' && '30 Days'}
                       </Button>
                     ))}
                     <Popover>
@@ -294,7 +294,7 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
                     </Popover>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Maximum history: 3 months. Trades will sync on first EA connection.
+                    Maximum: 30 days (EA limitation). For older trades, use CSV import.
                   </p>
                 </div>
               )}

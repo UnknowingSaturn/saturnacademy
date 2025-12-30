@@ -230,6 +230,50 @@ serve(async (req) => {
         .eq("id", account.id);
     }
 
+    // SERVER-SIDE FILTERING: Skip history_sync events older than sync_history_from
+    if (payload.event_type === "history_sync") {
+      // Fetch account sync settings
+      const { data: accountSettings } = await supabase
+        .from("accounts")
+        .select("sync_history_enabled, sync_history_from")
+        .eq("id", account.id)
+        .single();
+
+      // Skip if sync is disabled
+      if (accountSettings && accountSettings.sync_history_enabled === false) {
+        console.log("History sync disabled, skipping event:", payload.idempotency_key);
+        return new Response(
+          JSON.stringify({ 
+            status: "skipped", 
+            reason: "history_sync_disabled",
+            message: "Historical sync is disabled for this account" 
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Skip if event is older than sync_history_from
+      if (accountSettings?.sync_history_from) {
+        const eventTime = new Date(payload.timestamp);
+        const syncCutoff = new Date(accountSettings.sync_history_from);
+
+        if (eventTime < syncCutoff) {
+          console.log("Event before sync cutoff, skipping:", 
+            payload.idempotency_key, 
+            "event:", eventTime.toISOString(), 
+            "cutoff:", syncCutoff.toISOString());
+          return new Response(
+            JSON.stringify({ 
+              status: "skipped", 
+              reason: "before_sync_cutoff",
+              message: "Event is older than configured sync date" 
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      }
+    }
+
     // Check for duplicate (idempotency)
     const { data: existingEvent } = await supabase
       .from("events")
