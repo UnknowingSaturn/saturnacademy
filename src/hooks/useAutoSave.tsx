@@ -5,7 +5,7 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'unsaved';
 interface UseAutoSaveOptions {
   delay?: number;
   enabled?: boolean;
-  storageKey?: string; // For localStorage backup
+  storageKey?: string;
 }
 
 interface UseAutoSaveReturn<T> {
@@ -24,64 +24,31 @@ export function useAutoSave<T>(
   saveFn: (data: T) => Promise<void>,
   options: UseAutoSaveOptions = {}
 ): UseAutoSaveReturn<T> {
-  const { delay = 800, enabled = true, storageKey } = options;
+  const { delay = 500, enabled = true, storageKey } = options;
   
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [error, setError] = useState<Error | null>(null);
-  const [hasDraft, setHasDraft] = useState(false);
   
-  const lastSavedDataRef = useRef<string>('');
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isMountedRef = useRef(true);
   const savingRef = useRef(false);
-  const pendingDataRef = useRef<T | null>(null);
-  const latestDataRef = useRef<T>(data);
+  const lastSavedRef = useRef<string>('');
   const saveFnRef = useRef(saveFn);
 
-  // Keep refs updated
-  useEffect(() => {
-    latestDataRef.current = data;
-  }, [data]);
-
+  // Keep saveFn ref updated
   useEffect(() => {
     saveFnRef.current = saveFn;
   }, [saveFn]);
 
   const currentDataStr = JSON.stringify(data);
-  const hasUnsavedChanges = lastSavedDataRef.current !== '' && currentDataStr !== lastSavedDataRef.current;
+  const hasUnsavedChanges = lastSavedRef.current !== '' && currentDataStr !== lastSavedRef.current;
 
-  // Check for existing draft on mount
-  useEffect(() => {
-    if (storageKey) {
-      const draft = localStorage.getItem(storageKey);
-      setHasDraft(!!draft);
-    }
-  }, [storageKey]);
+  // Check for existing draft
+  const hasDraft = storageKey ? !!localStorage.getItem(storageKey) : false;
 
-  // Update status to show unsaved changes
-  useEffect(() => {
-    if (hasUnsavedChanges && status === 'idle') {
-      setStatus('unsaved');
-    }
-  }, [hasUnsavedChanges, status]);
-
-  // Save to localStorage as backup
-  const saveDraft = useCallback((dataToSave: T) => {
-    if (storageKey) {
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(dataToSave));
-        setHasDraft(true);
-      } catch (e) {
-        console.warn('Failed to save draft to localStorage:', e);
-      }
-    }
-  }, [storageKey]);
-
-  // Clear localStorage draft
+  // Clear draft from localStorage
   const clearDraft = useCallback(() => {
     if (storageKey) {
       localStorage.removeItem(storageKey);
-      setHasDraft(false);
     }
   }, [storageKey]);
 
@@ -90,100 +57,79 @@ export function useAutoSave<T>(
     if (!storageKey) return null;
     try {
       const draft = localStorage.getItem(storageKey);
-      if (draft) {
-        return JSON.parse(draft) as T;
-      }
-    } catch (e) {
-      console.warn('Failed to restore draft:', e);
+      return draft ? JSON.parse(draft) : null;
+    } catch {
+      return null;
     }
-    return null;
   }, [storageKey]);
 
-  // Perform the actual save
+  // Perform save
   const performSave = useCallback(async (dataToSave: T) => {
-    if (savingRef.current) {
-      // Queue this data for saving after current save completes
-      pendingDataRef.current = dataToSave;
-      return;
-    }
-
+    if (savingRef.current) return;
+    
     savingRef.current = true;
     setStatus('saving');
     setError(null);
 
     try {
       await saveFnRef.current(dataToSave);
-      if (isMountedRef.current) {
-        lastSavedDataRef.current = JSON.stringify(dataToSave);
-        setStatus('saved');
-        clearDraft(); // Clear localStorage backup after successful save
-        
-        // Fade back to idle after showing "saved"
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            setStatus('idle');
-          }
-        }, 2000);
-      }
+      const dataStr = JSON.stringify(dataToSave);
+      lastSavedRef.current = dataStr;
+      setStatus('saved');
+      clearDraft(); // Clear localStorage only after successful save
+      
+      setTimeout(() => setStatus('idle'), 2000);
     } catch (err) {
-      if (isMountedRef.current) {
-        setStatus('error');
-        setError(err instanceof Error ? err : new Error('Save failed'));
-        // Keep the draft in localStorage on error for recovery
-      }
+      setStatus('error');
+      setError(err instanceof Error ? err : new Error('Save failed'));
     } finally {
       savingRef.current = false;
-      
-      // Check if there's pending data to save
-      if (pendingDataRef.current && isMountedRef.current) {
-        const pending = pendingDataRef.current;
-        pendingDataRef.current = null;
-        performSave(pending);
-      }
     }
   }, [clearDraft]);
 
-  // Force immediate save
+  // Manual save
   const flush = useCallback(async () => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
     
-    const dataToSave = latestDataRef.current;
-    const dataStr = JSON.stringify(dataToSave);
-    
-    // Only save if there are actual changes
-    if (dataStr !== lastSavedDataRef.current && lastSavedDataRef.current !== '') {
-      await performSave(dataToSave);
+    const dataStr = JSON.stringify(data);
+    if (dataStr !== lastSavedRef.current && lastSavedRef.current !== '') {
+      await performSave(data);
     }
-  }, [performSave]);
+  }, [data, performSave]);
 
-  // Manual save trigger (same as flush but exposed as 'save')
   const save = flush;
 
-  // Debounced auto-save effect
+  // Auto-save effect
   useEffect(() => {
     if (!enabled) return;
 
-    // Initialize lastSavedDataRef on first render with data
-    if (lastSavedDataRef.current === '') {
-      lastSavedDataRef.current = currentDataStr;
+    // Initialize on first render
+    if (lastSavedRef.current === '') {
+      lastSavedRef.current = currentDataStr;
       return;
     }
 
-    // Only trigger save if data actually changed
-    if (currentDataStr === lastSavedDataRef.current) return;
+    // No changes
+    if (currentDataStr === lastSavedRef.current) return;
 
-    // Save draft to localStorage immediately for crash recovery
-    saveDraft(data);
+    // Save to localStorage immediately (crash recovery)
+    if (storageKey) {
+      try {
+        localStorage.setItem(storageKey, currentDataStr);
+      } catch {}
+    }
+
+    setStatus('unsaved');
 
     // Clear existing timeout
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
 
-    // Set new debounce timeout
+    // Debounce server save
     timeoutRef.current = setTimeout(() => {
       performSave(JSON.parse(currentDataStr));
     }, delay);
@@ -193,17 +139,16 @@ export function useAutoSave<T>(
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [currentDataStr, delay, enabled, performSave, saveDraft, data]);
+  }, [currentDataStr, delay, enabled, performSave, storageKey]);
 
-  // beforeunload handler - warn user before closing browser
+  // beforeunload warning
   useEffect(() => {
     if (!enabled) return;
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (hasUnsavedChanges) {
         e.preventDefault();
-        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
-        return e.returnValue;
+        e.returnValue = 'You have unsaved changes.';
       }
     };
 
@@ -211,13 +156,12 @@ export function useAutoSave<T>(
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [enabled, hasUnsavedChanges]);
 
-  // visibilitychange handler - save when tab becomes hidden
+  // Save on tab hide
   useEffect(() => {
     if (!enabled) return;
 
     const handleVisibilityChange = () => {
       if (document.hidden && hasUnsavedChanges) {
-        // Immediately save when user switches tabs
         flush();
       }
     };
@@ -225,30 +169,6 @@ export function useAutoSave<T>(
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [enabled, hasUnsavedChanges, flush]);
-
-  // Cleanup and flush on unmount
-  useEffect(() => {
-    isMountedRef.current = true;
-    
-    return () => {
-      isMountedRef.current = false;
-      
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-      
-      // Flush pending changes on unmount using sendBeacon for reliability
-      const dataStr = JSON.stringify(latestDataRef.current);
-      if (dataStr !== lastSavedDataRef.current && lastSavedDataRef.current !== '') {
-        // Try to save synchronously - this will work if component unmounts normally
-        saveFnRef.current(latestDataRef.current).catch(() => {
-          // If async save fails, at least the data is in localStorage
-          console.warn('Failed to save on unmount, data preserved in localStorage');
-        });
-      }
-    };
-  }, []);
 
   return {
     status,

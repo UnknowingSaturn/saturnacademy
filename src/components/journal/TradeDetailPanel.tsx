@@ -178,10 +178,10 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
   }, [isOpen]);
 
-  // Handle close with flush
-  const handleClose = useCallback(async () => {
+  // Handle close - don't await, localStorage is the safety net
+  const handleClose = useCallback(() => {
     if (hasUnsavedChanges) {
-      await flush();
+      flush(); // Fire and forget - localStorage has the backup
     }
     onClose();
   }, [hasUnsavedChanges, flush, onClose]);
