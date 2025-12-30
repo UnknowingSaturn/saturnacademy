@@ -453,3 +453,34 @@ export const PROP_FIRM_SAFE_PRESET: Partial<CopierReceiverSettings> = {
   prop_firm_safe_mode: true,
   poll_interval_ms: 3000,
 };
+
+// Fetch unique symbols traded by a specific account
+export function useTradedSymbols(accountId?: string) {
+  const { user } = useAuth();
+  
+  return useQuery({
+    queryKey: ['traded-symbols', accountId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('trades')
+        .select('symbol')
+        .eq('user_id', user!.id)
+        .eq('account_id', accountId!)
+        .order('entry_time', { ascending: false });
+      
+      if (error) throw error;
+      
+      // Get unique symbols with count
+      const symbolCounts = data.reduce((acc, trade) => {
+        acc[trade.symbol] = (acc[trade.symbol] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      
+      // Sort by count (most traded first)
+      return Object.entries(symbolCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([symbol, count]) => ({ symbol, count }));
+    },
+    enabled: !!user && !!accountId,
+  });
+}
