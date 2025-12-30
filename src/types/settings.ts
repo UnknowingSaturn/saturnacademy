@@ -81,6 +81,7 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'r_multiple_actual', label: 'RR', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(60px, 0.8fr)', category: 'calculated' },
   { key: 'account_pct', label: 'Acct %', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.9fr)', category: 'calculated' },
   { key: 'result', label: 'Result', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.8fr)', category: 'calculated' },
+  { key: 'trade_type', label: 'Type', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'calculated' },
   // User-editable fields (right side)
   { key: 'session', label: 'Session', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'session', category: 'editable' },
   { key: 'model', label: 'Model', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.5fr)', propertyName: 'model', category: 'editable' },

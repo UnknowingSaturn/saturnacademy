@@ -19,9 +19,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { SessionType, Trade } from "@/types/trading";
+import { SessionType, Trade, TradeType } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
-import { Search, Settings, Table, CalendarDays, X, Archive, Layers, List, Wand2 } from "lucide-react";
+import { Search, Settings, Table, CalendarDays, X, Archive, Layers, List, Wand2, Lightbulb, FileText, Clock, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Journal() {
@@ -29,6 +29,7 @@ export default function Journal() {
   const [symbolFilter, setSymbolFilter] = useState("");
   const [sessionFilter, setSessionFilter] = useState<SessionType | "all">("all");
   const [resultFilter, setResultFilter] = useState<"all" | "win" | "loss" | "open">("all");
+  const [tradeTypeFilter, setTradeTypeFilter] = useState<"all" | "executed" | "ideas">("all");
   const [modelFilter, setModelFilter] = useState<string | null>(null);
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -86,11 +87,18 @@ export default function Journal() {
 
     // Result filter
     if (resultFilter === "win") {
-      result = result.filter(trade => (trade.net_pnl || 0) > 0);
+      result = result.filter(trade => (trade.net_pnl || 0) > 0 && trade.trade_type === 'executed');
     } else if (resultFilter === "loss") {
-      result = result.filter(trade => (trade.net_pnl || 0) < 0);
+      result = result.filter(trade => (trade.net_pnl || 0) < 0 && trade.trade_type === 'executed');
     } else if (resultFilter === "open") {
       result = result.filter(trade => trade.is_open);
+    }
+
+    // Trade type filter
+    if (tradeTypeFilter === "executed") {
+      result = result.filter(trade => !trade.trade_type || trade.trade_type === 'executed');
+    } else if (tradeTypeFilter === "ideas") {
+      result = result.filter(trade => trade.trade_type && trade.trade_type !== 'executed');
     }
 
     // Apply advanced filters from FilterBar
@@ -122,7 +130,7 @@ export default function Journal() {
     }
 
     return result;
-  }, [trades, symbolFilter, sessionFilter, resultFilter, modelFilter, activeFilters, selectedAccountId]);
+  }, [trades, symbolFilter, sessionFilter, resultFilter, tradeTypeFilter, modelFilter, activeFilters, selectedAccountId]);
 
   const getTradeValue = (trade: Trade, column: string): any => {
     switch (column) {
@@ -138,6 +146,7 @@ export default function Journal() {
       case 'net_pnl': return trade.net_pnl;
       case 'place': return trade.place;
       case 'emotional_state_before': return trade.review?.emotional_state_before;
+      case 'trade_type': return trade.trade_type || 'executed';
       case 'result':
         if (trade.is_open) return 'open';
         if ((trade.net_pnl || 0) > 0) return 'win';
@@ -270,6 +279,28 @@ export default function Journal() {
                   <SelectItem value="win">Wins</SelectItem>
                   <SelectItem value="loss">Losses</SelectItem>
                   <SelectItem value="open">Open</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              {/* Trade Type Filter */}
+              <Select value={tradeTypeFilter} onValueChange={(v) => setTradeTypeFilter(v as typeof tradeTypeFilter)}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Trade Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="executed">
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Executed
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="ideas">
+                    <span className="flex items-center gap-1.5">
+                      <Lightbulb className="w-3.5 h-3.5" />
+                      Ideas & Setups
+                    </span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
               

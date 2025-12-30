@@ -86,20 +86,23 @@ export function TradeSummaryBar({ trades, maxDailyTrades, accountId }: TradeSumm
           )}
         </div>
 
-        {/* Daily Trade Count - per account */}
-        {maxDailyTrades && accountId && (
-          <Badge 
-            variant="outline" 
-            className={cn(
-              "text-xs",
-              todayAccountTrades.length >= maxDailyTrades 
-                ? "bg-loss/10 text-loss border-loss/30" 
-                : "bg-muted text-muted-foreground"
-            )}
-          >
-            Today: {todayAccountTrades.length}/{maxDailyTrades}
-          </Badge>
-        )}
+        {/* Daily Trade Count - per account (only counts executed trades) */}
+        {maxDailyTrades && accountId && (() => {
+          const executedCount = todayAccountTrades.filter(t => !t.trade_type || t.trade_type === 'executed').length;
+          return (
+            <Badge 
+              variant="outline" 
+              className={cn(
+                "text-xs",
+                executedCount >= maxDailyTrades 
+                  ? "bg-loss/10 text-loss border-loss/30" 
+                  : "bg-muted text-muted-foreground"
+              )}
+            >
+              Today: {executedCount}/{maxDailyTrades}
+            </Badge>
+          );
+        })()}
       </div>
     </Card>
   );
