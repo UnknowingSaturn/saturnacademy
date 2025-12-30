@@ -46,10 +46,10 @@ const mainItems = [
   { title: "Trade Journal", url: "/journal", icon: BookOpen },
   { title: "Live Trades", url: "/live-trades", icon: Activity },
   { title: "Playbooks", url: "/playbooks", icon: FileText },
-  { title: "Trade Copier", url: "/copier", icon: Copy },
 ];
 
 const toolItems = [
+  { title: "Trade Copier", url: "/copier", icon: Copy },
   { title: "Import Trades", url: "/import", icon: Upload },
   { title: "Accounts", url: "/accounts", icon: Wallet },
 ];
