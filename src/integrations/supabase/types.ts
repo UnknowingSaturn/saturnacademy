@@ -207,6 +207,7 @@ export type Database = {
           thesis_evaluation: Json | null
           trade_id: string
           updated_at: string | null
+          user_id: string | null
           visual_analysis: Json | null
         }
         Insert: {
@@ -229,6 +230,7 @@ export type Database = {
           thesis_evaluation?: Json | null
           trade_id: string
           updated_at?: string | null
+          user_id?: string | null
           visual_analysis?: Json | null
         }
         Update: {
@@ -251,6 +253,7 @@ export type Database = {
           thesis_evaluation?: Json | null
           trade_id?: string
           updated_at?: string | null
+          user_id?: string | null
           visual_analysis?: Json | null
         }
         Relationships: [

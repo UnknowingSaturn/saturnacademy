@@ -8,6 +8,7 @@ import { aiReviewToDisplayFormat, hasAIAnalysis } from "@/lib/aiAnalysisUtils";
 import { TradeProperties } from "./TradeProperties";
 import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
 import { AIAnalysisDisplay } from "./AIAnalysisDisplay";
+import { AIAnalysisProgress } from "./AIAnalysisProgress";
 import { RuleComplianceAlert } from "@/components/playbooks/RuleComplianceAlert";
 import { PlaybookComplianceChecklist } from "./PlaybookComplianceChecklist";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   const { data: playbooks } = usePlaybooks();
   const createReview = useCreateTradeReview();
   const updateReview = useUpdateTradeReview();
-  const { analyzeTrade, isAnalyzing, submitFeedback } = useAIAnalysis();
+  const { analyzeTrade, isAnalyzing, progress, resetProgress, submitFeedback, retryAnalysis } = useAIAnalysis();
   
   // Database-first: read AI analysis directly from trade object
   const aiReview = trade?.ai_review;
@@ -386,8 +387,17 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
 
                 </div>
 
+                {/* AI Analysis Progress - shows during analysis */}
+                {(isAnalyzing || progress.step !== "idle") && (
+                  <AIAnalysisProgress 
+                    progress={progress} 
+                    isAnalyzing={isAnalyzing}
+                    onRetry={() => trade && retryAnalysis(trade.id)}
+                  />
+                )}
+
                 {/* AI Analysis - reads directly from database via trade.ai_review */}
-                {analysisData && (
+                {analysisData && !isAnalyzing && progress.step !== "error" && (
                   <div>
                     <Label className="text-sm font-semibold mb-3 flex items-center gap-2">
                       <Sparkles className="w-4 h-4" />

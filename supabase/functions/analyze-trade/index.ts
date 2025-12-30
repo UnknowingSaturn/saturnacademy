@@ -195,7 +195,6 @@ Management Rules: ${playbook.management_rules?.join(', ') || 'None defined'}
 Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
 `;
 
-    // Add TRADER ATTESTATIONS section - clear display of what trader verified
     prompt += `
 ## TRADER ATTESTATIONS (Verified by Trader - DO NOT CONTRADICT without evidence)
 `;
@@ -214,7 +213,6 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
       });
     }
     
-    // Add checklist questions (range, OB, etc.) if present
     if (playbook.checklist_questions && Array.isArray(playbook.checklist_questions) && playbook.checklist_questions.length > 0) {
       const checklistAnswers = review?.checklist_answers || {};
       playbook.checklist_questions.forEach((q: any) => {
@@ -238,10 +236,10 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
 
   prompt += `
 ## DETERMINISTIC COMPLIANCE SCORE (Pre-computed, rule-based)
-- Setup Compliance: ${complianceResult.setup_compliance_score}/100
-- Context Alignment: ${complianceResult.context_alignment_score}/100
-- Rule Violations: ${complianceResult.rule_violations.length > 0 ? complianceResult.rule_violations.join('; ') : 'None'}
-- Matched Rules: ${complianceResult.matched_rules.length > 0 ? complianceResult.matched_rules.join('; ') : 'None'}
+- Setup Compliance: ${complianceResult?.setup_compliance_score || 0}/100
+- Context Alignment: ${complianceResult?.context_alignment_score || 0}/100
+- Rule Violations: ${complianceResult?.rule_violations?.length > 0 ? complianceResult.rule_violations.join('; ') : 'None'}
+- Matched Rules: ${complianceResult?.matched_rules?.length > 0 ? complianceResult.matched_rules.join('; ') : 'None'}
 
 ## TRADER'S REVIEW DATA
 `;
@@ -262,7 +260,6 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
     prompt += `No review data available for this trade.\n`;
   }
 
-  // Add TRADER'S VISUAL DOCUMENTATION section with screenshot descriptions
   prompt += `
 ## TRADER'S VISUAL DOCUMENTATION (First-hand accounts - treat as authoritative)
 `;
@@ -289,19 +286,19 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
 ## SIMILAR HISTORICAL TRADES
 `;
 
-  if (similarTrades.similar_winners?.length > 0) {
+  if (similarTrades?.similar_winners?.length > 0) {
     prompt += `\nSimilar Winning Trades:\n`;
     similarTrades.similar_winners.slice(0, 5).forEach((t: any, i: number) => {
-      prompt += `${i + 1}. ${t.symbol} (${t.similarity_score}% similar) - $${t.net_pnl.toFixed(2)}, ${t.r_multiple?.toFixed(2) || 'N/A'}R, session: ${t.session || 'unknown'}\n`;
+      prompt += `${i + 1}. ${t.symbol} (${t.similarity_score}% similar) - $${t.net_pnl?.toFixed(2) || 'N/A'}, ${t.r_multiple?.toFixed(2) || 'N/A'}R, session: ${t.session || 'unknown'}\n`;
     });
   } else {
     prompt += `No similar winning trades found.\n`;
   }
 
-  if (similarTrades.similar_losers?.length > 0) {
+  if (similarTrades?.similar_losers?.length > 0) {
     prompt += `\nSimilar Losing Trades:\n`;
     similarTrades.similar_losers.slice(0, 5).forEach((t: any, i: number) => {
-      prompt += `${i + 1}. ${t.symbol} (${t.similarity_score}% similar) - $${t.net_pnl.toFixed(2)}, ${t.r_multiple?.toFixed(2) || 'N/A'}R, session: ${t.session || 'unknown'}\n`;
+      prompt += `${i + 1}. ${t.symbol} (${t.similarity_score}% similar) - $${t.net_pnl?.toFixed(2) || 'N/A'}, ${t.r_multiple?.toFixed(2) || 'N/A'}R, session: ${t.session || 'unknown'}\n`;
     });
   } else {
     prompt += `No similar losing trades found.\n`;
@@ -321,32 +318,74 @@ CRITICAL ANALYSIS GUIDELINES:
 }
 
 serve(async (req) => {
+  console.log("=== analyze-trade function called ===");
+  
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Step 1: Validate environment
+    console.log("Step 1: Validating environment...");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+      console.error("LOVABLE_API_KEY not configured");
+      return new Response(
+        JSON.stringify({ error: "AI service not configured", step: "environment" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Step 2: Validate auth
+    console.log("Step 2: Validating authorization...");
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
+      console.error("Missing authorization header");
       return new Response(
-        JSON.stringify({ error: "Missing authorization" }),
+        JSON.stringify({ error: "Missing authorization", step: "auth" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const { trade_id, save = true } = await req.json();
-    console.log("AI Analysis request for trade:", trade_id, "save:", save);
+    // Get user from auth header
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    if (userError || !user) {
+      console.error("Invalid auth token:", userError);
+      return new Response(
+        JSON.stringify({ error: "Invalid authorization", step: "auth" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    console.log("User authenticated:", user.id);
 
-    // 1. Fetch trade with review and playbook
+    // Step 3: Parse request body - now accepts pre-computed data
+    console.log("Step 3: Parsing request body...");
+    const body = await req.json();
+    const { 
+      trade_id, 
+      save = true,
+      // Pre-computed data from client (optional - will fetch if not provided)
+      features: providedFeatures,
+      compliance: providedCompliance,
+      similar_trades: providedSimilarTrades
+    } = body;
+
+    if (!trade_id) {
+      console.error("Missing trade_id");
+      return new Response(
+        JSON.stringify({ error: "Missing trade_id", step: "parse" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    console.log("Trade ID:", trade_id, "Save:", save);
+
+    // Step 4: Fetch trade data
+    console.log("Step 4: Fetching trade data...");
     const { data: trade, error: tradeError } = await supabase
       .from("trades")
       .select(`
@@ -364,80 +403,57 @@ serve(async (req) => {
     if (tradeError || !trade) {
       console.error("Trade fetch error:", tradeError);
       return new Response(
-        JSON.stringify({ error: "Trade not found" }),
+        JSON.stringify({ error: "Trade not found", step: "fetch_trade" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 2. Fetch or compute trade features
-    let { data: features } = await supabase
-      .from("trade_features")
-      .select("*")
-      .eq("trade_id", trade_id)
-      .maybeSingle();
-
-    // If no features exist, compute them now
-    if (!features) {
-      console.log("Computing features for trade...");
-      const computeResponse = await fetch(`${supabaseUrl}/functions/v1/compute-trade-features`, {
-        method: "POST",
-        headers: {
-          Authorization: authHeader,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ trade_id }),
-      });
-      
-      if (computeResponse.ok) {
-        const computeResult = await computeResponse.json();
-        features = computeResult.features;
-      }
+    // Verify user owns this trade
+    if (trade.user_id !== user.id) {
+      console.error("User does not own this trade");
+      return new Response(
+        JSON.stringify({ error: "Access denied", step: "auth" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    // 3. Get compliance scores
-    console.log("Scoring trade compliance...");
-    const complianceResponse = await fetch(`${supabaseUrl}/functions/v1/score-trade-compliance`, {
-      method: "POST",
-      headers: {
-        Authorization: authHeader,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ trade_id }),
-    });
+    console.log("Trade fetched:", trade.symbol, trade.direction);
 
-    let complianceResult = {
+    // Step 5: Get features (use provided or fetch)
+    console.log("Step 5: Getting trade features...");
+    let features = providedFeatures;
+    if (!features) {
+      const { data: dbFeatures } = await supabase
+        .from("trade_features")
+        .select("*")
+        .eq("trade_id", trade_id)
+        .maybeSingle();
+      features = dbFeatures;
+    }
+    console.log("Features:", features ? "available" : "not available");
+
+    // Step 6: Get compliance (use provided or default)
+    console.log("Step 6: Getting compliance data...");
+    const complianceResult = providedCompliance || {
       setup_compliance_score: 0,
       context_alignment_score: 0,
-      rule_violations: [] as string[],
-      matched_rules: [] as string[],
+      rule_violations: [],
+      matched_rules: [],
     };
+    console.log("Compliance scores:", complianceResult.setup_compliance_score, complianceResult.context_alignment_score);
 
-    if (complianceResponse.ok) {
-      complianceResult = await complianceResponse.json();
-    }
+    // Step 7: Get similar trades (use provided or default)
+    console.log("Step 7: Getting similar trades...");
+    const similarTrades = providedSimilarTrades || { similar_winners: [], similar_losers: [] };
+    console.log("Similar trades:", similarTrades.similar_winners?.length || 0, "winners,", similarTrades.similar_losers?.length || 0, "losers");
 
-    // 4. Find similar trades
-    console.log("Finding similar trades...");
-    const similarResponse = await fetch(`${supabaseUrl}/functions/v1/find-similar-trades`, {
-      method: "POST",
-      headers: {
-        Authorization: authHeader,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ trade_id, limit: 5 }),
-    });
-
-    let similarTrades = { similar_winners: [], similar_losers: [] };
-    if (similarResponse.ok) {
-      similarTrades = await similarResponse.json();
-    }
-
+    // Step 8: Get playbook and review
+    console.log("Step 8: Extracting playbook and review...");
     const review = trade.trade_reviews?.[0];
     let playbook = trade.playbook || review?.playbook;
 
-    // Fallback: If no playbook from joined data, try to match by trade.playbook_id
     if (!playbook && trade.playbook_id) {
-      console.log("No playbook from joins, trying to fetch by playbook_id:", trade.playbook_id);
+      console.log("Fetching playbook by ID:", trade.playbook_id);
       const { data: matchedPlaybook } = await supabase
         .from("playbooks")
         .select("*")
@@ -445,12 +461,13 @@ serve(async (req) => {
         .maybeSingle();
       
       if (matchedPlaybook) {
-        console.log("Matched playbook by ID:", matchedPlaybook.name);
+        console.log("Matched playbook:", matchedPlaybook.name);
         playbook = matchedPlaybook;
       }
     }
 
-    // 5. Build prompt and call AI
+    // Step 9: Build prompt
+    console.log("Step 9: Building AI prompt...");
     const userPrompt = buildUserPrompt(
       trade,
       review,
@@ -459,18 +476,17 @@ serve(async (req) => {
       complianceResult,
       similarTrades
     );
+    console.log("Prompt length:", userPrompt.length, "characters");
 
-    // 6. Build multimodal messages with screenshots if available
+    // Step 10: Build multimodal content with screenshots
+    console.log("Step 10: Processing screenshots...");
     const screenshots = review?.screenshots || [];
     const hasScreenshots = Array.isArray(screenshots) && screenshots.length > 0;
-    
-    console.log(`Found ${screenshots.length} screenshots for visual analysis`);
+    console.log("Screenshots found:", screenshots.length);
 
-    // Build user content - multimodal if screenshots exist
     const userContent: any[] = [{ type: "text", text: userPrompt }];
     
     if (hasScreenshots) {
-      // Add up to 4 screenshots to avoid token limits
       for (const screenshot of screenshots.slice(0, 4)) {
         const url = typeof screenshot === 'string' ? screenshot : screenshot.url;
         if (url) {
@@ -478,13 +494,13 @@ serve(async (req) => {
             type: "image_url",
             image_url: { url }
           });
-          console.log("Added screenshot for analysis:", url.substring(0, 50) + "...");
+          console.log("Added screenshot for analysis");
         }
       }
     }
 
-    console.log("Calling Lovable AI with structured output...");
-
+    // Step 11: Call AI gateway
+    console.log("Step 11: Calling AI gateway...");
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -509,181 +525,80 @@ serve(async (req) => {
                   technical_review: {
                     type: "object",
                     properties: {
-                      matched_rules: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "Rules from the playbook that were followed correctly"
-                      },
-                      deviations: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "Rules or conditions that were violated"
-                      },
-                      failure_type: {
-                        type: "string",
-                        enum: ["structural", "execution", "both", "none"],
-                        description: "Whether the outcome was due to setup issues (structural), trade management issues (execution), both, or neither"
-                      }
+                      matched_rules: { type: "array", items: { type: "string" } },
+                      deviations: { type: "array", items: { type: "string" } },
+                      failure_type: { type: "string", enum: ["structural", "execution", "both", "none"] }
                     },
                     required: ["matched_rules", "deviations", "failure_type"]
                   },
                   thesis_evaluation: {
                     type: "object",
-                    description: "Evaluation of whether the trade thesis (idea) was correct, regardless of outcome",
                     properties: {
-                      thesis_correct: {
-                        type: "boolean",
-                        description: "Whether the trade idea/thesis was fundamentally correct (e.g., price eventually went to target)"
-                      },
-                      thesis_explanation: {
-                        type: "string",
-                        description: "Explanation of why the thesis was correct or wrong"
-                      },
-                      failure_category: {
-                        type: "string",
-                        enum: ["thesis_wrong", "execution_failure", "external_factor", "no_failure"],
-                        description: "Category of failure: thesis was wrong, execution was poor, external factor (news/late session), or no failure"
-                      }
+                      thesis_correct: { type: "boolean" },
+                      thesis_explanation: { type: "string" },
+                      failure_category: { type: "string", enum: ["thesis_wrong", "execution_failure", "external_factor", "no_failure"] }
                     },
                     required: ["thesis_correct", "thesis_explanation", "failure_category"]
                   },
                   mistake_attribution: {
                     type: "object",
                     properties: {
-                      primary: {
-                        type: "string",
-                        nullable: true,
-                        description: "The main mistake made, if any"
-                      },
-                      secondary: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "Contributing factors"
-                      },
-                      is_recurring: {
-                        type: "boolean",
-                        description: "Whether this appears to be a pattern based on similar trades"
-                      }
+                      primary: { type: "string", nullable: true },
+                      secondary: { type: "array", items: { type: "string" } },
+                      is_recurring: { type: "boolean" }
                     },
                     required: ["primary", "secondary", "is_recurring"]
                   },
                   psychology_analysis: {
                     type: "object",
                     properties: {
-                      influence: {
-                        type: "string",
-                        description: "How psychological state likely influenced the trade"
-                      },
-                      past_correlation: {
-                        type: "string",
-                        description: "How this correlates with past behavioral patterns"
-                      },
-                      psychology_vs_structure: {
-                        type: "string",
-                        enum: ["psychology", "structure", "both", "neither"],
-                        description: "Whether psychology or market structure had more impact"
-                      }
+                      influence: { type: "string" },
+                      past_correlation: { type: "string" },
+                      psychology_vs_structure: { type: "string", enum: ["psychology", "structure", "both", "neither"] }
                     },
                     required: ["influence", "past_correlation", "psychology_vs_structure"]
                   },
                   comparison_to_past: {
                     type: "object",
                     properties: {
-                      differs_from_winners: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "How this trade differs from similar winning trades"
-                      },
-                      resembles_losers: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "How this trade resembles similar losing trades"
-                      }
+                      differs_from_winners: { type: "array", items: { type: "string" } },
+                      resembles_losers: { type: "array", items: { type: "string" } }
                     },
                     required: ["differs_from_winners", "resembles_losers"]
                   },
                   actionable_guidance: {
                     type: "object",
                     properties: {
-                      rule_to_reinforce: {
-                        type: "string",
-                        description: "One specific rule to reinforce or add based on this trade"
-                      },
-                      avoid_condition: {
-                        type: "string",
-                        description: "One specific condition under which to avoid similar trades"
-                      }
+                      rule_to_reinforce: { type: "string" },
+                      avoid_condition: { type: "string" }
                     },
                     required: ["rule_to_reinforce", "avoid_condition"]
                   },
                   visual_analysis: {
                     type: "object",
-                    description: "Analysis based on chart screenshots (only if images provided)",
                     properties: {
-                      entry_quality: {
-                        type: "string",
-                        description: "Assessment of entry location relative to price structure"
-                      },
-                      exit_quality: {
-                        type: "string",
-                        description: "Assessment of exit timing and location"
-                      },
-                      stop_placement: {
-                        type: "string",
-                        description: "Evaluation of stop loss placement relative to structure"
-                      },
-                      confirmations_visible: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "Confirmation signals visually verified on the chart"
-                      },
-                      chart_observations: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "Key observations from the chart that inform the analysis"
-                      }
+                      entry_quality: { type: "string" },
+                      exit_quality: { type: "string" },
+                      stop_placement: { type: "string" },
+                      confirmations_visible: { type: "array", items: { type: "string" } },
+                      chart_observations: { type: "array", items: { type: "string" } }
                     }
                   },
                   strategy_refinement: {
                     type: "object",
-                    description: "Suggestions for improving the trading strategy",
                     properties: {
-                      rule_suggestion: {
-                        type: "string",
-                        nullable: true,
-                        description: "A new rule to add to the playbook based on this trade's outcome"
-                      },
-                      filter_recommendation: {
-                        type: "string",
-                        nullable: true,
-                        description: "A condition to filter out similar losing setups in the future"
-                      },
-                      edge_observation: {
-                        type: "string",
-                        nullable: true,
-                        description: "An observed edge or pattern that could be systematized"
-                      }
+                      rule_suggestion: { type: "string", nullable: true },
+                      filter_recommendation: { type: "string", nullable: true },
+                      edge_observation: { type: "string", nullable: true }
                     }
                   },
-                  confidence: {
-                    type: "string",
-                    enum: ["low", "medium", "high"],
-                    description: "Confidence in this analysis based on available data"
-                  },
-                  screenshots_analyzed: {
-                    type: "boolean",
-                    description: "Whether chart screenshots were analyzed"
-                  }
+                  confidence: { type: "string", enum: ["low", "medium", "high"] },
+                  screenshots_analyzed: { type: "boolean" }
                 },
                 required: [
-                  "technical_review",
-                  "thesis_evaluation",
-                  "mistake_attribution",
-                  "psychology_analysis",
-                  "comparison_to_past",
-                  "actionable_guidance",
-                  "confidence",
-                  "screenshots_analyzed"
+                  "technical_review", "thesis_evaluation", "mistake_attribution",
+                  "psychology_analysis", "comparison_to_past", "actionable_guidance",
+                  "confidence", "screenshots_analyzed"
                 ]
               }
             }
@@ -694,27 +609,34 @@ serve(async (req) => {
     });
 
     if (!aiResponse.ok) {
-      if (aiResponse.status === 429) {
+      const status = aiResponse.status;
+      console.error("AI gateway error:", status);
+      
+      if (status === 429) {
         return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+          JSON.stringify({ error: "Rate limit exceeded. Please try again later.", step: "ai_call" }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (aiResponse.status === 402) {
+      if (status === 402) {
         return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Please add credits to your workspace." }),
+          JSON.stringify({ error: "AI credits exhausted. Please add credits to your workspace.", step: "ai_call" }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
+      
       const errorText = await aiResponse.text();
-      console.error("AI gateway error:", aiResponse.status, errorText);
-      throw new Error(`AI gateway error: ${aiResponse.status}`);
+      console.error("AI gateway error text:", errorText);
+      return new Response(
+        JSON.stringify({ error: `AI gateway error: ${status}`, step: "ai_call" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
+    // Step 12: Parse AI response
+    console.log("Step 12: Parsing AI response...");
     const aiData = await aiResponse.json();
-    console.log("AI response received");
 
-    // Extract structured output from tool call
     let analysisOutput: AIAnalysisOutput | null = null;
     let rawAnalysis = "";
 
@@ -723,23 +645,25 @@ serve(async (req) => {
       try {
         analysisOutput = JSON.parse(toolCall.function.arguments);
         rawAnalysis = toolCall.function.arguments;
+        console.log("Successfully parsed structured analysis");
       } catch (e) {
         console.error("Failed to parse tool call arguments:", e);
       }
     }
 
     if (!analysisOutput) {
-      // Fallback to content if tool call failed
       rawAnalysis = aiData.choices?.[0]?.message?.content || "No analysis generated";
       console.warn("Tool call not used, falling back to raw content");
     }
 
-    // 6. Optionally store the AI review (skip if save=false)
+    // Step 13: Save to database
     let savedReview = null;
     
     if (save) {
+      console.log("Step 13: Saving to database...");
       const aiReviewData = {
         trade_id,
+        user_id: user.id, // NEW: Include user_id for simpler RLS
         technical_review: analysisOutput?.technical_review || {},
         thesis_evaluation: analysisOutput?.thesis_evaluation || null,
         mistake_attribution: analysisOutput?.mistake_attribution || {},
@@ -756,27 +680,30 @@ serve(async (req) => {
         similar_winners: similarTrades.similar_winners?.map((t: any) => t.trade_id) || [],
         similar_losers: similarTrades.similar_losers?.map((t: any) => t.trade_id) || [],
         raw_analysis: rawAnalysis,
+        updated_at: new Date().toISOString(),
       };
 
       const { data: saved, error: saveError } = await supabase
         .from("ai_reviews")
-        .upsert({ ...aiReviewData, updated_at: new Date().toISOString() }, { onConflict: "trade_id" })
+        .upsert(aiReviewData, { onConflict: "trade_id" })
         .select()
         .single();
 
       if (saveError) {
         console.error("Failed to save AI review:", saveError);
         return new Response(
-          JSON.stringify({ error: "Analysis generated but failed to save. Please try again." }),
+          JSON.stringify({ error: "Analysis generated but failed to save. Please try again.", step: "save" }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       
       savedReview = saved;
-      console.log("AI review saved:", savedReview.id);
+      console.log("AI review saved successfully:", savedReview.id);
     } else {
-      console.log("Skipping save (save=false)");
+      console.log("Step 13: Skipping save (save=false)");
     }
+
+    console.log("=== analyze-trade completed successfully ===");
 
     return new Response(
       JSON.stringify({
@@ -790,10 +717,10 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error("AI analysis error:", error);
+    console.error("Unhandled error in analyze-trade:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: message }),
+      JSON.stringify({ error: message, step: "unknown" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
