@@ -8,8 +8,8 @@ export function CopierDashboard() {
   const { data: accounts } = useCopierAccounts();
   const stats = useCopierStats();
   
-  const masterAccount = accounts?.find(a => (a as any).copier_role === 'master');
-  const receiverCount = accounts?.filter(a => (a as any).copier_role === 'receiver').length || 0;
+  const masterAccount = accounts?.find(a => a.copier_role === 'master');
+  const receiverCount = accounts?.filter(a => a.copier_role === 'receiver').length || 0;
   const isConfigured = !!masterAccount && receiverCount > 0;
   
   return (

@@ -71,6 +71,9 @@ export function CreateAccountDialog({ open, onOpenChange }: CreateAccountDialogP
       is_active: true,
       terminal_id: null,
       broker_utc_offset: 2, // Default to UTC+2 (most forex brokers)
+      copier_role: 'independent',
+      master_account_id: null,
+      copier_enabled: false,
     });
     form.reset();
     onOpenChange(false);

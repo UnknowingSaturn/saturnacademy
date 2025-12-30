@@ -21,6 +21,8 @@ export interface Profile {
   updated_at: string;
 }
 
+export type CopierRole = 'independent' | 'master' | 'receiver';
+
 export interface Account {
   id: string;
   user_id: string;
@@ -35,6 +37,10 @@ export interface Account {
   is_active: boolean;
   api_key: string | null;
   broker_utc_offset: number; // Broker server UTC offset in hours (e.g., 2 for UTC+2)
+  // Copier fields
+  copier_role: CopierRole;
+  master_account_id: string | null;
+  copier_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
