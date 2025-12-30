@@ -136,12 +136,13 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
   }, [trade?.id, trade?.review, lastTradeId]);
 
-  // Auto-reset progress to idle after analysis completes and data loads
+  // Auto-reset progress to idle ONLY after analysis completes AND data is confirmed present
   useEffect(() => {
     if (progress.step === "complete" && analysisData) {
+      // Data arrived - reset progress immediately since we'll show AIAnalysisDisplay
       const timeout = setTimeout(() => {
         resetProgress();
-      }, 1500); // Show "complete" briefly, then hide progress
+      }, 500);
       return () => clearTimeout(timeout);
     }
   }, [progress.step, analysisData, resetProgress]);
@@ -397,8 +398,10 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
 
                 </div>
 
-                {/* AI Analysis Progress - shows during active analysis */}
-                {(isAnalyzing || (progress.step !== "idle" && progress.step !== "complete")) && (
+                {/* AI Analysis Progress - shows during active analysis OR until data arrives */}
+                {(isAnalyzing || 
+                  (progress.step !== "idle" && progress.step !== "complete") ||
+                  (progress.step === "complete" && !analysisData)) && (
                   <AIAnalysisProgress 
                     progress={progress} 
                     isAnalyzing={isAnalyzing}

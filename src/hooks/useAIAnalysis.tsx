@@ -144,8 +144,11 @@ export function useAIAnalysis() {
       await queryClient.invalidateQueries({ queryKey: ['trade', tradeId] });
       // Wait for refetch to ensure fresh data is loaded before showing complete
       await queryClient.refetchQueries({ queryKey: ['trade', tradeId] });
+      
+      // Small delay to let React process the data update before marking complete
+      await new Promise(resolve => setTimeout(resolve, 150));
 
-      // Complete
+      // Complete - UI will show progress until analysisData is present
       setProgress({ step: "complete", message: "Analysis complete" });
       toast({ title: "Analysis Complete", description: "AI analysis has been saved." });
       return true;
