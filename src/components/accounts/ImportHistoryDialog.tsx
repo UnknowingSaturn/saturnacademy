@@ -165,31 +165,44 @@ export function ImportHistoryDialog({ account, open, onOpenChange }: ImportHisto
             <Alert className="border-green-500/50 bg-green-500/10">
               <CheckCircle2 className="h-4 w-4 text-green-500" />
               <AlertDescription className="text-green-700 dark:text-green-400">
-                Import settings saved! Just restart your EA to begin importing.
+                Import settings saved! Follow the steps below to import trades.
               </AlertDescription>
             </Alert>
 
-            {/* Simple instructions */}
+            {/* Instructions */}
             <div className="space-y-4">
               <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-4">
                 <RefreshCw className="h-5 w-5 text-primary mt-0.5" />
-                <div className="space-y-1">
-                  <p className="font-medium">Restart your EA</p>
+                <div className="space-y-2">
+                  <p className="font-medium">Force history re-sync now</p>
                   <p className="text-sm text-muted-foreground">
-                    Remove and re-attach the EA to your chart, or restart MT5. 
-                    Historical trades will automatically sync.
+                    The EA only syncs history once every 24 hours. To force an immediate re-sync:
                   </p>
+                  <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
+                    <li>In MT5, go to <strong>File → Open Data Folder</strong></li>
+                    <li>Navigate to <strong>MQL5 → Files</strong></li>
+                    <li>
+                      Delete the file: <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">
+                        TradeJournalSynced_{account.account_number || '[LOGIN]'}.flag
+                      </code>
+                    </li>
+                    <li>Restart MT5 or re-attach the EA</li>
+                  </ol>
                 </div>
               </div>
 
-              <div className="text-sm text-muted-foreground space-y-2">
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Why this happens:</strong> The EA creates a local flag file after syncing history 
+                  to prevent duplicate imports. Deleting this file forces an immediate re-sync.
+                </AlertDescription>
+              </Alert>
+
+              <div className="text-sm text-muted-foreground">
                 <p>
-                  The EA will send your trade history to the server. Trades within your selected 
-                  date range will be imported. Duplicates are automatically handled.
-                </p>
-                <p className="text-xs">
-                  <strong>Note:</strong> If trades don't appear after restarting, wait a few seconds and refresh the journal. 
-                  To re-import later, the EA will automatically re-sync after 24 hours, or you can restart MT5.
+                  After restarting, check MT5's <strong>Experts</strong> tab for "Syncing historical trades..." messages.
+                  Trades should appear in your Journal within 1-2 minutes.
                 </p>
               </div>
             </div>
