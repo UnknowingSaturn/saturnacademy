@@ -65,7 +65,9 @@ export default function Journal() {
 
     // Global account filter
     if (selectedAccountId !== "all") {
-      result = result.filter(trade => trade.account_id === selectedAccountId);
+      result = result.filter(trade => 
+        trade.account_id === selectedAccountId || trade.account_id === null
+      );
     }
 
     // Model/Strategy filter (from URL) - now matches by playbook_id
