@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Copy, Check, Download, ExternalLink, Loader2 } from 'lucide-react';
+import { Copy, Check, Download, ExternalLink, Loader2, History } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -8,26 +8,85 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { format, subDays, subMonths } from 'date-fns';
+import { CalendarIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface QuickConnectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+type SyncPreset = '1week' | '1month' | '3months' | 'custom';
+
 export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogProps) {
   const [setupToken, setSetupToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [syncEnabled, setSyncEnabled] = useState(true);
+  const [syncPreset, setSyncPreset] = useState<SyncPreset>('1month');
+  const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
   const { toast } = useToast();
+
+  // Calculate sync_history_from based on preset
+  const getSyncFromDate = (): Date | null => {
+    if (!syncEnabled) return null;
+    
+    const now = new Date();
+    switch (syncPreset) {
+      case '1week':
+        return subDays(now, 7);
+      case '1month':
+        return subMonths(now, 1);
+      case '3months':
+        return subMonths(now, 3);
+      case 'custom':
+        return customDate || subMonths(now, 1);
+      default:
+        return subMonths(now, 1);
+    }
+  };
 
   // Generate setup token when dialog opens
   useEffect(() => {
     if (open && !setupToken) {
       generateSetupToken();
     }
-  }, [open]);
+  }, [open, syncEnabled, syncPreset, customDate]);
+
+  // Regenerate token when sync settings change (if token already exists)
+  const regenerateTokenWithSettings = async () => {
+    if (!setupToken) return;
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Delete old token
+      await supabase
+        .from('setup_tokens')
+        .delete()
+        .eq('token', setupToken);
+
+      // Generate new one with updated settings
+      await generateSetupToken();
+    } catch (error) {
+      console.error('Failed to update token:', error);
+    }
+  };
+
+  // Update token when sync settings change
+  useEffect(() => {
+    if (setupToken) {
+      regenerateTokenWithSettings();
+    }
+  }, [syncEnabled, syncPreset, customDate]);
 
   const generateSetupToken = async () => {
     setIsLoading(true);
@@ -45,12 +104,16 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
 
+      const syncFromDate = getSyncFromDate();
+
       const { error } = await supabase
         .from('setup_tokens')
         .insert({
           user_id: user.id,
           token,
           expires_at: expiresAt.toISOString(),
+          sync_history_enabled: syncEnabled,
+          sync_history_from: syncFromDate?.toISOString() || null,
         });
 
       if (error) throw error;
@@ -97,11 +160,17 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
     // Reset state when closing
     setSetupToken(null);
     setCopied(false);
+    setSyncEnabled(true);
+    setSyncPreset('1month');
+    setCustomDate(undefined);
   };
+
+  // Get max date (3 months ago)
+  const minDate = subMonths(new Date(), 3);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl">Connect MT5 Terminal</DialogTitle>
           <DialogDescription>
@@ -160,11 +229,83 @@ export function QuickConnectDialog({ open, onOpenChange }: QuickConnectDialogPro
             </div>
           </div>
 
-          {/* Step 4: Attach EA */}
+          {/* Step 4: Historical Trade Import Settings */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-medium">
                 4
+              </div>
+              <h3 className="font-medium">Historical Trade Import</h3>
+            </div>
+            <div className="ml-8 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <History className="h-4 w-4 text-muted-foreground" />
+                  <Label htmlFor="sync-enabled" className="text-sm">Import past trades</Label>
+                </div>
+                <Switch
+                  id="sync-enabled"
+                  checked={syncEnabled}
+                  onCheckedChange={setSyncEnabled}
+                />
+              </div>
+              
+              {syncEnabled && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {(['1week', '1month', '3months'] as const).map((preset) => (
+                      <Button
+                        key={preset}
+                        variant={syncPreset === preset ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setSyncPreset(preset)}
+                      >
+                        {preset === '1week' && '1 Week'}
+                        {preset === '1month' && '1 Month'}
+                        {preset === '3months' && '3 Months'}
+                      </Button>
+                    ))}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant={syncPreset === 'custom' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setSyncPreset('custom')}
+                          className={cn(syncPreset === 'custom' && customDate && 'gap-1')}
+                        >
+                          <CalendarIcon className="h-3.5 w-3.5" />
+                          {syncPreset === 'custom' && customDate 
+                            ? format(customDate, 'MMM d') 
+                            : 'Custom'}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={customDate}
+                          onSelect={(date) => {
+                            setCustomDate(date);
+                            setSyncPreset('custom');
+                          }}
+                          disabled={(date) => date < minDate || date > new Date()}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Maximum history: 3 months. Trades will sync on first EA connection.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Step 5: Attach EA */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-medium">
+                5
               </div>
               <h3 className="font-medium">Attach EA to any chart</h3>
             </div>
