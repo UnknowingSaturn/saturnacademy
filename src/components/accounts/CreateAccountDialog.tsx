@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { format, subDays, subMonths } from 'date-fns';
+import { CalendarIcon } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +17,7 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -24,8 +28,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 import { useCreateAccount } from '@/hooks/useAccounts';
 import { AccountType, PropFirm } from '@/types/trading';
+
+type SyncPreset = 'week' | 'month' | '3months' | 'custom';
 
 const formSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -34,6 +48,8 @@ const formSchema = z.object({
   account_type: z.enum(['demo', 'live', 'prop']),
   prop_firm: z.enum(['ftmo', 'fundednext', 'other']).optional(),
   balance_start: z.coerce.number().min(0),
+  sync_history_enabled: z.boolean().default(true),
+  sync_history_from: z.date().optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -43,8 +59,16 @@ interface CreateAccountDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+const SYNC_PRESETS: { value: SyncPreset; label: string; getDays: () => number }[] = [
+  { value: 'week', label: '1 Week', getDays: () => 7 },
+  { value: 'month', label: '1 Month', getDays: () => 30 },
+  { value: '3months', label: '3 Months', getDays: () => 90 },
+  { value: 'custom', label: 'Custom', getDays: () => 0 },
+];
+
 export function CreateAccountDialog({ open, onOpenChange }: CreateAccountDialogProps) {
   const createAccount = useCreateAccount();
+  const [syncPreset, setSyncPreset] = useState<SyncPreset>('month');
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -54,10 +78,24 @@ export function CreateAccountDialog({ open, onOpenChange }: CreateAccountDialogP
       account_number: '',
       account_type: 'demo',
       balance_start: 10000,
+      sync_history_enabled: true,
+      sync_history_from: subDays(new Date(), 30),
     },
   });
 
   const accountType = form.watch('account_type');
+  const syncHistoryEnabled = form.watch('sync_history_enabled');
+
+  // Update sync_history_from when preset changes
+  const handlePresetChange = (preset: SyncPreset) => {
+    setSyncPreset(preset);
+    if (preset !== 'custom') {
+      const presetConfig = SYNC_PRESETS.find(p => p.value === preset);
+      if (presetConfig) {
+        form.setValue('sync_history_from', subDays(new Date(), presetConfig.getDays()));
+      }
+    }
+  };
 
   const onSubmit = async (data: FormData) => {
     await createAccount.mutateAsync({
@@ -70,12 +108,15 @@ export function CreateAccountDialog({ open, onOpenChange }: CreateAccountDialogP
       equity_current: data.balance_start,
       is_active: true,
       terminal_id: null,
-      broker_utc_offset: 2, // Default to UTC+2 (most forex brokers)
+      broker_utc_offset: 2,
       copier_role: 'independent',
       master_account_id: null,
       copier_enabled: false,
+      sync_history_enabled: data.sync_history_enabled,
+      sync_history_from: data.sync_history_enabled ? data.sync_history_from?.toISOString() || null : null,
     });
     form.reset();
+    setSyncPreset('month');
     onOpenChange(false);
   };
 
@@ -194,6 +235,97 @@ export function CreateAccountDialog({ open, onOpenChange }: CreateAccountDialogP
                 </FormItem>
               )}
             />
+
+            {/* Historical Sync Settings */}
+            <div className="space-y-4 rounded-lg border border-border/50 p-4">
+              <FormField
+                control={form.control}
+                name="sync_history_enabled"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between">
+                    <div className="space-y-0.5">
+                      <FormLabel>Sync Historical Trades</FormLabel>
+                      <FormDescription className="text-xs">
+                        Import past trades when the EA connects
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              {syncHistoryEnabled && (
+                <div className="space-y-3">
+                  <div className="text-sm text-muted-foreground">How far back?</div>
+                  <div className="flex flex-wrap gap-2">
+                    {SYNC_PRESETS.map((preset) => (
+                      <Button
+                        key={preset.value}
+                        type="button"
+                        variant={syncPreset === preset.value ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => handlePresetChange(preset.value)}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
+
+                  {syncPreset === 'custom' && (
+                    <FormField
+                      control={form.control}
+                      name="sync_history_from"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                          <FormLabel>Start Date</FormLabel>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  variant="outline"
+                                  className={cn(
+                                    "w-full pl-3 text-left font-normal",
+                                    !field.value && "text-muted-foreground"
+                                  )}
+                                >
+                                  {field.value ? (
+                                    format(field.value, "PPP")
+                                  ) : (
+                                    <span>Pick a date</span>
+                                  )}
+                                  <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <Calendar
+                                mode="single"
+                                selected={field.value}
+                                onSelect={field.onChange}
+                                disabled={(date) =>
+                                  date > new Date() || date < subDays(new Date(), 90)
+                                }
+                                initialFocus
+                                className={cn("p-3 pointer-events-auto")}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                          <FormDescription className="text-xs">
+                            Maximum 90 days of history
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="flex justify-end gap-2 pt-4">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
