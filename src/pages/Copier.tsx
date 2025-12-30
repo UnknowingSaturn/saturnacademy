@@ -1,16 +1,14 @@
 import * as React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Users, ArrowLeftRight, Shield, Download, Activity, CheckCircle, XCircle, AlertTriangle, ArrowUp, ArrowDown } from 'lucide-react';
+import { Users, ArrowLeftRight, Shield, Download, Activity } from 'lucide-react';
 import { AccountRoleManager } from '@/components/copier/AccountRoleManager';
 import { SymbolMappingsPanel } from '@/components/copier/SymbolMappingsPanel';
 import { RiskSettingsPanel } from '@/components/copier/RiskSettingsPanel';
 import { ConfigExportPanel } from '@/components/copier/ConfigExportPanel';
 import { CopierDashboard } from '@/components/copier/CopierDashboard';
-import { useCopierAccounts, useCopierExecutions } from '@/hooks/useCopier';
-import { format } from 'date-fns';
+import { ExecutionHistory } from '@/components/copier/ExecutionHistory';
+import { useCopierAccounts } from '@/hooks/useCopier';
 
 export default function Copier() {
   const { data: accounts, isLoading } = useCopierAccounts();
@@ -131,7 +129,7 @@ export default function Copier() {
             <CardHeader>
               <CardTitle>Execution History</CardTitle>
               <CardDescription>
-                View recent copy executions and their status
+                View recent copy executions and their status with real-time updates
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -142,108 +140,4 @@ export default function Copier() {
       </Tabs>
     </div>
   );
-}
-
-// Execution History Component
-function ExecutionHistory() {
-  const { data: executions, isLoading } = useCopierExecutions({ limit: 50 });
-  
-  if (isLoading) {
-    return <div className="text-center py-8 text-muted-foreground">Loading...</div>;
-  }
-  
-  if (!executions || executions.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
-        <p>No execution history yet</p>
-        <p className="text-sm">Executions will appear here once the copier is active</p>
-      </div>
-    );
-  }
-  
-  return (
-    <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Time</TableHead>
-            <TableHead>Symbol</TableHead>
-            <TableHead>Direction</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Lots</TableHead>
-            <TableHead>Slippage</TableHead>
-            <TableHead>Status</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {executions.map((execution) => (
-            <TableRow key={execution.id}>
-              <TableCell className="text-muted-foreground text-sm">
-                {execution.executed_at 
-                  ? format(new Date(execution.executed_at), 'MMM d, HH:mm:ss')
-                  : '-'}
-              </TableCell>
-              <TableCell className="font-medium">{execution.symbol}</TableCell>
-              <TableCell>
-                <div className="flex items-center gap-1">
-                  {execution.direction === 'buy' ? (
-                    <ArrowUp className="h-3 w-3 text-green-500" />
-                  ) : (
-                    <ArrowDown className="h-3 w-3 text-red-500" />
-                  )}
-                  <span className={execution.direction === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
-                    {execution.direction.toUpperCase()}
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell className="capitalize">{execution.event_type}</TableCell>
-              <TableCell>{execution.receiver_lots?.toFixed(2) || '-'}</TableCell>
-              <TableCell>
-                {execution.slippage_pips != null ? (
-                  <span className={execution.slippage_pips > 2 ? 'text-yellow-600 dark:text-yellow-400' : 'text-muted-foreground'}>
-                    {execution.slippage_pips.toFixed(1)} pips
-                  </span>
-                ) : '-'}
-              </TableCell>
-              <TableCell>
-                <StatusBadge status={execution.status} error={execution.error_message} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function StatusBadge({ status, error }: { status: string; error?: string | null }) {
-  switch (status) {
-    case 'success':
-      return (
-        <Badge className="bg-green-500/20 text-green-600 dark:text-green-400 border-green-500/30">
-          <CheckCircle className="h-3 w-3 mr-1" />
-          Success
-        </Badge>
-      );
-    case 'failed':
-      return (
-        <Badge 
-          className="bg-red-500/20 text-red-600 dark:text-red-400 border-red-500/30"
-          title={error || undefined}
-        >
-          <XCircle className="h-3 w-3 mr-1" />
-          Failed
-        </Badge>
-      );
-    case 'skipped':
-      return (
-        <Badge className="bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 border-yellow-500/30">
-          <AlertTriangle className="h-3 w-3 mr-1" />
-          Skipped
-        </Badge>
-      );
-    default:
-      return <Badge variant="secondary">{status}</Badge>;
-  }
 }

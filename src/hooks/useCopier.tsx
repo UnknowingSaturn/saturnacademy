@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -227,6 +228,9 @@ export function useCopierExecutions(filters?: {
   receiverAccountId?: string;
   status?: 'success' | 'failed' | 'skipped';
   limit?: number;
+  offset?: number;
+  dateFrom?: Date;
+  dateTo?: Date;
 }) {
   const { user } = useAuth();
   
@@ -245,8 +249,17 @@ export function useCopierExecutions(filters?: {
       if (filters?.status) {
         query = query.eq('status', filters.status);
       }
+      if (filters?.dateFrom) {
+        query = query.gte('executed_at', filters.dateFrom.toISOString());
+      }
+      if (filters?.dateTo) {
+        query = query.lte('executed_at', filters.dateTo.toISOString());
+      }
       if (filters?.limit) {
         query = query.limit(filters.limit);
+      }
+      if (filters?.offset) {
+        query = query.range(filters.offset, filters.offset + (filters.limit || 25) - 1);
       }
       
       const { data, error } = await query;
@@ -255,6 +268,82 @@ export function useCopierExecutions(filters?: {
       return data as CopierExecution[];
     },
     enabled: !!user,
+  });
+}
+
+// Fetch copier executions with realtime subscription
+export function useCopierExecutionsRealtime(filters?: {
+  receiverAccountId?: string;
+  status?: 'success' | 'failed' | 'skipped';
+  limit?: number;
+  offset?: number;
+  dateFrom?: Date;
+  dateTo?: Date;
+}) {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  
+  // Subscribe to realtime updates
+  React.useEffect(() => {
+    if (!user) return;
+    
+    const channel = supabase
+      .channel('copier-executions-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'copier_executions',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          // Invalidate queries to refetch on new execution
+          queryClient.invalidateQueries({ queryKey: ['copier-executions'] });
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, queryClient]);
+  
+  return useQuery({
+    queryKey: ['copier-executions', filters],
+    queryFn: async () => {
+      let query = supabase
+        .from('copier_executions')
+        .select('*')
+        .eq('user_id', user!.id)
+        .order('executed_at', { ascending: false });
+      
+      if (filters?.receiverAccountId) {
+        query = query.eq('receiver_account_id', filters.receiverAccountId);
+      }
+      if (filters?.status) {
+        query = query.eq('status', filters.status);
+      }
+      if (filters?.dateFrom) {
+        query = query.gte('executed_at', filters.dateFrom.toISOString());
+      }
+      if (filters?.dateTo) {
+        query = query.lte('executed_at', filters.dateTo.toISOString());
+      }
+      if (filters?.limit) {
+        query = query.limit(filters.limit);
+      }
+      if (filters?.offset) {
+        query = query.range(filters.offset, filters.offset + (filters.limit || 25) - 1);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) throw error;
+      return data as CopierExecution[];
+    },
+    enabled: !!user,
+    refetchInterval: 30000, // Also poll every 30 seconds as fallback
   });
 }
 

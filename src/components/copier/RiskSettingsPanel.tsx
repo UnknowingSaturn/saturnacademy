@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { 
   Select,
   SelectContent,
@@ -97,24 +98,55 @@ export function RiskSettingsPanel({ receiverAccounts }: RiskSettingsPanelProps) 
   );
 }
 
+// Loading skeleton for the form
+function FormSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Skeleton className="h-12 w-full" />
+      <div className="space-y-3">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-32" />
+      </div>
+      <div className="space-y-4">
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+      <Skeleton className="h-10 w-full" />
+    </div>
+  );
+}
+
 function ReceiverSettingsForm({ account }: { account: Account }) {
-  const { data: settingsData, isLoading } = useReceiverSettings(account.id);
+  const { data: settingsData, isLoading, isFetched } = useReceiverSettings(account.id);
   const upsertSettings = useUpsertReceiverSettings();
   
   const existingSettings = settingsData?.[0];
   
-  const [settings, setSettings] = React.useState<Partial<CopierReceiverSettings>>({
-    ...DEFAULT_RECEIVER_SETTINGS,
-    ...existingSettings,
-  });
+  // Initialize state only after data is fetched
+  const [settings, setSettings] = React.useState<Partial<CopierReceiverSettings> | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false);
   
+  // Initialize form state once data is loaded
   React.useEffect(() => {
-    if (existingSettings) {
-      setSettings(prev => ({ ...prev, ...existingSettings }));
+    if (isFetched && settings === null) {
+      setSettings({
+        ...DEFAULT_RECEIVER_SETTINGS,
+        ...existingSettings,
+      });
     }
-  }, [existingSettings]);
+  }, [isFetched, existingSettings, settings]);
+  
+  // Track changes
+  const updateSettings = React.useCallback((updates: Partial<CopierReceiverSettings>) => {
+    setSettings(prev => prev ? { ...prev, ...updates } : null);
+    setHasUnsavedChanges(true);
+  }, []);
   
   const handleSave = () => {
+    if (!settings) return;
+    
     upsertSettings.mutate({
       receiver_account_id: account.id,
       risk_mode: settings.risk_mode || 'balance_multiplier',
@@ -125,27 +157,30 @@ function ReceiverSettingsForm({ account }: { account: Account }) {
       manual_confirm_mode: settings.manual_confirm_mode || false,
       prop_firm_safe_mode: settings.prop_firm_safe_mode || false,
       poll_interval_ms: settings.poll_interval_ms || 1000,
+    }, {
+      onSuccess: () => {
+        setHasUnsavedChanges(false);
+      }
     });
   };
   
   const handleApplyPropFirmPreset = () => {
-    setSettings(prev => ({ ...prev, ...PROP_FIRM_SAFE_PRESET }));
+    setSettings(prev => prev ? { ...prev, ...PROP_FIRM_SAFE_PRESET } : null);
+    setHasUnsavedChanges(true);
   };
   
   const toggleSession = (session: string) => {
+    if (!settings) return;
     const current = settings.allowed_sessions || [];
     const updated = current.includes(session)
       ? current.filter(s => s !== session)
       : [...current, session];
-    setSettings(prev => ({ ...prev, allowed_sessions: updated }));
+    updateSettings({ allowed_sessions: updated });
   };
   
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+  // Show skeleton during initial load
+  if (isLoading || settings === null) {
+    return <FormSkeleton />;
   }
   
   return (
@@ -166,7 +201,7 @@ function ReceiverSettingsForm({ account }: { account: Account }) {
         <Label>Risk Calculation Mode</Label>
         <Select
           value={settings.risk_mode}
-          onValueChange={(v) => setSettings(prev => ({ ...prev, risk_mode: v as RiskMode }))}
+          onValueChange={(v) => updateSettings({ risk_mode: v as RiskMode })}
         >
           <SelectTrigger>
             <SelectValue />
@@ -188,8 +223,8 @@ function ReceiverSettingsForm({ account }: { account: Account }) {
             type="number"
             step="0.1"
             min="0.01"
-            value={settings.risk_value}
-            onChange={(e) => setSettings(prev => ({ ...prev, risk_value: parseFloat(e.target.value) || 1 }))}
+            value={settings.risk_value ?? 1}
+            onChange={(e) => updateSettings({ risk_value: parseFloat(e.target.value) || 1 })}
             className="w-32"
           />
           <span className="text-sm text-muted-foreground">
@@ -211,14 +246,14 @@ function ReceiverSettingsForm({ account }: { account: Account }) {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label>Max Slippage</Label>
-            <span className="text-sm text-muted-foreground">{settings.max_slippage_pips} pips</span>
+            <span className="text-sm text-muted-foreground">{settings.max_slippage_pips ?? 3} pips</span>
           </div>
           <Slider
-            value={[settings.max_slippage_pips || 3]}
+            value={[settings.max_slippage_pips ?? 3]}
             min={0.5}
             max={10}
             step={0.5}
-            onValueChange={([v]) => setSettings(prev => ({ ...prev, max_slippage_pips: v }))}
+            onValueChange={([v]) => updateSettings({ max_slippage_pips: v })}
           />
         </div>
         
@@ -226,14 +261,14 @@ function ReceiverSettingsForm({ account }: { account: Account }) {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label>Max Daily Loss</Label>
-            <span className="text-sm text-muted-foreground">{settings.max_daily_loss_r}R</span>
+            <span className="text-sm text-muted-foreground">{settings.max_daily_loss_r ?? 3}R</span>
           </div>
           <Slider
-            value={[settings.max_daily_loss_r || 3]}
+            value={[settings.max_daily_loss_r ?? 3]}
             min={1}
             max={10}
             step={0.5}
-            onValueChange={([v]) => setSettings(prev => ({ ...prev, max_daily_loss_r: v }))}
+            onValueChange={([v]) => updateSettings({ max_daily_loss_r: v })}
           />
         </div>
         
@@ -241,14 +276,14 @@ function ReceiverSettingsForm({ account }: { account: Account }) {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label>Poll Interval</Label>
-            <span className="text-sm text-muted-foreground">{settings.poll_interval_ms}ms</span>
+            <span className="text-sm text-muted-foreground">{settings.poll_interval_ms ?? 1000}ms</span>
           </div>
           <Slider
-            value={[settings.poll_interval_ms || 1000]}
+            value={[settings.poll_interval_ms ?? 1000]}
             min={500}
             max={5000}
             step={100}
-            onValueChange={([v]) => setSettings(prev => ({ ...prev, poll_interval_ms: v }))}
+            onValueChange={([v]) => updateSettings({ poll_interval_ms: v })}
           />
         </div>
         
@@ -281,8 +316,8 @@ function ReceiverSettingsForm({ account }: { account: Account }) {
               <p className="text-xs text-muted-foreground">Show confirmation dialog before each trade</p>
             </div>
             <Switch
-              checked={settings.manual_confirm_mode}
-              onCheckedChange={(v) => setSettings(prev => ({ ...prev, manual_confirm_mode: v }))}
+              checked={settings.manual_confirm_mode ?? false}
+              onCheckedChange={(v) => updateSettings({ manual_confirm_mode: v })}
             />
           </div>
           
@@ -292,18 +327,27 @@ function ReceiverSettingsForm({ account }: { account: Account }) {
               <p className="text-xs text-muted-foreground">Enable conservative defaults for prop accounts</p>
             </div>
             <Switch
-              checked={settings.prop_firm_safe_mode}
-              onCheckedChange={(v) => setSettings(prev => ({ ...prev, prop_firm_safe_mode: v }))}
+              checked={settings.prop_firm_safe_mode ?? false}
+              onCheckedChange={(v) => updateSettings({ prop_firm_safe_mode: v })}
             />
           </div>
         </div>
       </div>
       
       {/* Save Button */}
-      <Button onClick={handleSave} disabled={upsertSettings.isPending} className="w-full">
-        {upsertSettings.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-        Save Settings
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button 
+          onClick={handleSave} 
+          disabled={upsertSettings.isPending || !hasUnsavedChanges} 
+          className="flex-1"
+        >
+          {upsertSettings.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          {hasUnsavedChanges ? 'Save Settings' : 'Saved'}
+        </Button>
+        {hasUnsavedChanges && (
+          <span className="text-xs text-muted-foreground">Unsaved changes</span>
+        )}
+      </div>
     </div>
   );
 }
