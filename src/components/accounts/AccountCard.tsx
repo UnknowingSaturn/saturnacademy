@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History } from 'lucide-react';
+import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History, Activity, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useDeleteAccount } from '@/hooks/useAccounts';
+import { useAccountStatus } from '@/hooks/useAccountStatus';
 import { Account } from '@/types/trading';
+import { formatDistanceToNow } from 'date-fns';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,9 +36,15 @@ interface AccountCardProps {
 export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
   const { toast } = useToast();
   const deleteAccount = useDeleteAccount();
+  const { data: status } = useAccountStatus(account.id);
   const [showApiKey, setShowApiKey] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
+
+  // Determine connection status
+  const isConnected = status?.lastEventAt && 
+    (new Date().getTime() - status.lastEventAt.getTime()) < 24 * 60 * 60 * 1000; // Active in last 24h
+  const neverConnected = !status?.lastEventAt;
 
   const copyApiKey = async () => {
     if (account.api_key) {
@@ -98,6 +106,37 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
               <span className="text-muted-foreground">Current Equity</span>
               <p className="font-medium">${(account.equity_current || 0).toLocaleString()}</p>
             </div>
+          </div>
+
+          {/* Connection Status */}
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {neverConnected ? (
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                ) : isConnected ? (
+                  <Activity className="h-4 w-4 text-green-500" />
+                ) : (
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                )}
+                <span className="text-sm font-medium">
+                  {neverConnected ? 'Not connected' : isConnected ? 'Connected' : 'Inactive'}
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {status?.tradeCount || 0} trades
+              </span>
+            </div>
+            {status?.lastEventAt && (
+              <p className="text-xs text-muted-foreground">
+                Last activity: {formatDistanceToNow(status.lastEventAt, { addSuffix: true })}
+              </p>
+            )}
+            {neverConnected && (
+              <p className="text-xs text-muted-foreground">
+                Set up MT5 to start syncing trades
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
