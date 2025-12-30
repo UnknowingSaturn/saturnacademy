@@ -97,7 +97,7 @@ export function useCreateTrade() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (trade: Partial<Trade> & { symbol: string; direction: 'buy' | 'sell'; total_lots: number; entry_price: number; entry_time: string }) => {
+    mutationFn: async (trade: Partial<Trade> & { symbol: string; direction: 'buy' | 'sell'; total_lots: number; entry_price: number; entry_time: string; risk_percent?: number }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
@@ -121,6 +121,7 @@ export function useCreateTrade() {
           playbook_id: trade.playbook_id,
           place: trade.place,
           trade_type: trade.trade_type || 'executed',
+          risk_percent: trade.risk_percent,
           partial_closes: (trade.partial_closes || []) as unknown as Json,
         })
         .select()

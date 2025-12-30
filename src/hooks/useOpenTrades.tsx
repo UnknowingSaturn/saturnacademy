@@ -51,6 +51,7 @@ function transformTrade(row: any): Trade {
     trade_number: row.trade_number,
     trade_group_id: row.trade_group_id || null,
     trade_type: row.trade_type || 'executed',
+    risk_percent: row.risk_percent ? Number(row.risk_percent) : null,
     review: row.trade_reviews?.[0] ? transformReview(row.trade_reviews[0]) : undefined,
     account: row.accounts || undefined,
   };
