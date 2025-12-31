@@ -78,6 +78,66 @@ export interface RiskAnalysis {
   risk_distribution: { bucket: string; count: number }[];
 }
 
+// Behavioral Analytics Types
+export interface ChecklistCorrelation {
+  full_pass: { trades: number; win_rate: number; avg_r: number };
+  partial_pass: { trades: number; win_rate: number; avg_r: number };
+  no_checklist: { trades: number; win_rate: number; avg_r: number };
+}
+
+export interface EmotionalImpact {
+  state: string;
+  trades: number;
+  win_rate: number;
+  avg_r: number;
+}
+
+export interface WinnerLoserComparison {
+  playbook_name: string;
+  winners: {
+    count: number;
+    avg_duration_minutes: number;
+    avg_risk_percent: number;
+    checklist_pass_rate: number;
+  };
+  losers: {
+    count: number;
+    avg_duration_minutes: number;
+    avg_risk_percent: number;
+    checklist_pass_rate: number;
+  };
+  key_differences: string[];
+}
+
+export interface RegimeByPlaybook {
+  playbook_name: string;
+  rotational: { trades: number; win_rate: number; avg_r: number };
+  transitional: { trades: number; win_rate: number; avg_r: number };
+  no_regime: { trades: number; win_rate: number; avg_r: number };
+}
+
+export interface RiskPatterns {
+  winners_avg_risk: number;
+  losers_avg_risk: number;
+  risk_after_loss: number;
+  risk_after_win: number;
+  over_risking_on_losers: boolean;
+}
+
+export interface BehavioralAnalytics {
+  checklist_correlation: ChecklistCorrelation;
+  emotional_impact: EmotionalImpact[];
+  winner_loser_comparison: WinnerLoserComparison[];
+  regime_by_playbook: RegimeByPlaybook[];
+  risk_patterns: RiskPatterns;
+  sample_sizes: {
+    total_trades: number;
+    trades_with_checklist: number;
+    trades_with_emotional_state: number;
+    trades_with_regime: number;
+  };
+}
+
 // AI Analysis Types
 export interface MistakeMining {
   definition: string;
@@ -86,6 +146,8 @@ export interface MistakeMining {
   expectancy_impact: number;
   rule_change: string;
   skip_condition: string;
+  sample_size?: number;
+  confidence_level?: 'high' | 'medium' | 'low';
 }
 
 export interface Recommendation {
@@ -102,6 +164,7 @@ export interface PlaybookGrade {
   key_strength: string;
   key_weakness: string;
   focus_rule: string;
+  sample_size?: number;
 }
 
 export interface EdgeSummary {
@@ -130,5 +193,6 @@ export interface TradeAnalytics {
   journal_insights: JournalInsights;
   day_of_week: DayPerformance[];
   risk_analysis: RiskAnalysis;
+  behavioral_analytics?: BehavioralAnalytics;
   ai_analysis?: AIAnalysis;
 }
