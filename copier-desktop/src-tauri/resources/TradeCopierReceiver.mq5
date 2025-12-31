@@ -887,6 +887,7 @@ string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string 
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"ea_type\":\"receiver\",";
    json += "\"event_type\":\"" + eventType + "\",";
    json += "\"position_id\":" + IntegerToString(dealTicket) + ",";
    json += "\"deal_id\":" + IntegerToString(dealTicket) + ",";
@@ -970,6 +971,7 @@ string BuildJournalPayload(ulong dealTicket, string eventType, string direction)
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"ea_type\":\"receiver\",";
    json += "\"event_type\":\"" + eventType + "\",";
    json += "\"position_id\":" + IntegerToString(positionId) + ",";
    json += "\"deal_id\":" + IntegerToString(dealTicket) + ",";

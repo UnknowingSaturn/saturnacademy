@@ -98,14 +98,15 @@ serve(async (req) => {
     const isReceiver = account.copier_role === 'receiver';
     const receiverAccountId = isReceiver ? account.id : null;
 
-    // Find the master account for this user
+    // Find the master account for this user (must have copier_role AND ea_type = master)
     const { data: masterAccount, error: masterError } = await supabase
       .from('accounts')
       .select('id, name, broker, terminal_id')
       .eq('user_id', userId)
       .eq('copier_role', 'master')
+      .eq('ea_type', 'master')
       .eq('copier_enabled', true)
-      .single();
+      .maybeSingle();
 
     if (masterError || !masterAccount) {
       return new Response(
@@ -115,11 +116,13 @@ serve(async (req) => {
     }
 
     // Get all receiver accounts (or just this one if receiver is requesting)
+    // Must have copier_role AND ea_type = receiver
     let receiverQuery = supabase
       .from('accounts')
       .select('id, name, broker, terminal_id, master_account_id')
       .eq('user_id', userId)
       .eq('copier_role', 'receiver')
+      .eq('ea_type', 'receiver')
       .eq('copier_enabled', true)
       .eq('master_account_id', masterAccount.id);
 
