@@ -138,7 +138,7 @@ serve(async (req) => {
       // FIX: Add expires_at check to prevent use of expired tokens
       const { data: setupToken, error: tokenError } = await supabase
         .from("setup_tokens")
-        .select("user_id, used, sync_history_enabled, sync_history_from")
+        .select("user_id, used, sync_history_enabled, sync_history_from, copier_role, master_account_id")
         .eq("token", apiKey)
         .gt("expires_at", new Date().toISOString())
         .single();
@@ -168,7 +168,11 @@ serve(async (req) => {
         propFirm = "fundednext";
       }
 
-      // Create the account with sync settings from setup token
+      // Determine copier settings from setup token
+      const copierRole = setupToken.copier_role || 'independent';
+      const isCopierAccount = copierRole !== 'independent';
+
+      // Create the account with sync settings and copier settings from setup token
       const accountName = `${payload.account_info.broker} - ${payload.account_info.login}`;
       const { data: newAccount, error: createError } = await supabase
         .from("accounts")
@@ -186,6 +190,10 @@ serve(async (req) => {
           is_active: true,
           sync_history_enabled: setupToken.sync_history_enabled ?? true,
           sync_history_from: setupToken.sync_history_from,
+          // Copier-specific fields from setup token
+          copier_role: copierRole,
+          copier_enabled: isCopierAccount,
+          master_account_id: setupToken.master_account_id || null,
         })
         .select("id, user_id, terminal_id")
         .single();
@@ -205,7 +213,11 @@ serve(async (req) => {
         .eq("token", apiKey);
 
       account = newAccount;
-      console.log("Auto-created account:", account.id, accountName, "sync_history_enabled:", setupToken.sync_history_enabled, "sync_history_from:", setupToken.sync_history_from);
+      console.log("Auto-created account:", account.id, accountName, 
+        "sync_history_enabled:", setupToken.sync_history_enabled, 
+        "sync_history_from:", setupToken.sync_history_from,
+        "copier_role:", copierRole,
+        "master_account_id:", setupToken.master_account_id);
     } else if (accountError || !account) {
       console.error("Invalid API key:", accountError);
       return new Response(

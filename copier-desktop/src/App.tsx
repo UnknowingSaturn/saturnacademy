@@ -4,17 +4,39 @@ import StatusPanel from "./components/StatusPanel";
 import ExecutionLog from "./components/ExecutionLog";
 import Settings from "./components/Settings";
 import TerminalManager from "./components/TerminalManager";
+import WizardView from "./components/WizardView";
 import { CopierStatus, Execution } from "./types";
 
 type Tab = "terminals" | "status" | "log" | "settings";
+type AppMode = "wizard" | "dashboard";
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("terminals");
+  const [mode, setMode] = useState<AppMode>("wizard");
+  const [activeTab, setActiveTab] = useState<Tab>("status");
   const [status, setStatus] = useState<CopierStatus | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
 
+  // Check if setup is complete on mount
   useEffect(() => {
-    // Poll for status updates
+    const checkSetup = async () => {
+      try {
+        // Check if we have any configured accounts by looking for config
+        const status = await invoke<CopierStatus>("get_copier_status");
+        // If copier is connected or running, show dashboard
+        if (status.is_connected || status.is_running) {
+          setMode("dashboard");
+        }
+      } catch (error) {
+        console.log("Initial setup needed");
+      }
+    };
+    checkSetup();
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "dashboard") return;
+
+    // Poll for status updates only in dashboard mode
     const interval = setInterval(async () => {
       try {
         const result = await invoke<CopierStatus>("get_copier_status");
@@ -28,7 +50,39 @@ function App() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [mode]);
+
+  const handleWizardComplete = () => {
+    setMode("dashboard");
+  };
+
+  const handleShowWizard = () => {
+    setMode("wizard");
+  };
+
+  if (mode === "wizard") {
+    return (
+      <div className="h-screen flex flex-col bg-background">
+        {/* Header */}
+        <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-sm">Saturn Trade Copier - Setup</span>
+          </div>
+          <button
+            onClick={() => setMode("dashboard")}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Skip to Dashboard →
+          </button>
+        </header>
+
+        {/* Wizard Content */}
+        <main className="flex-1 overflow-hidden">
+          <WizardView onComplete={handleWizardComplete} />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col bg-background">
@@ -46,22 +100,30 @@ function App() {
           />
           <span className="font-semibold text-sm">Saturn Trade Copier</span>
         </div>
-        <span className="text-xs text-muted-foreground">v1.0.0</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleShowWizard}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Run Setup
+          </button>
+          <span className="text-xs text-muted-foreground">v1.0.0</span>
+        </div>
       </header>
 
       {/* Tab Navigation */}
       <nav className="flex border-b border-border bg-card/50">
         <TabButton
-          active={activeTab === "terminals"}
-          onClick={() => setActiveTab("terminals")}
-        >
-          Terminals
-        </TabButton>
-        <TabButton
           active={activeTab === "status"}
           onClick={() => setActiveTab("status")}
         >
           Status
+        </TabButton>
+        <TabButton
+          active={activeTab === "terminals"}
+          onClick={() => setActiveTab("terminals")}
+        >
+          Terminals
         </TabButton>
         <TabButton
           active={activeTab === "log"}
@@ -79,8 +141,8 @@ function App() {
 
       {/* Content */}
       <main className="flex-1 overflow-hidden">
-        {activeTab === "terminals" && <TerminalManager />}
         {activeTab === "status" && <StatusPanel status={status} />}
+        {activeTab === "terminals" && <TerminalManager />}
         {activeTab === "log" && <ExecutionLog executions={executions} />}
         {activeTab === "settings" && <Settings status={status} />}
       </main>

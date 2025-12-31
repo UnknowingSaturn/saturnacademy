@@ -853,9 +853,11 @@ export type Database = {
       }
       setup_tokens: {
         Row: {
+          copier_role: Database["public"]["Enums"]["copier_role"] | null
           created_at: string
           expires_at: string
           id: string
+          master_account_id: string | null
           sync_history_enabled: boolean | null
           sync_history_from: string | null
           token: string
@@ -864,9 +866,11 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          copier_role?: Database["public"]["Enums"]["copier_role"] | null
           created_at?: string
           expires_at: string
           id?: string
+          master_account_id?: string | null
           sync_history_enabled?: boolean | null
           sync_history_from?: string | null
           token: string
@@ -875,9 +879,11 @@ export type Database = {
           user_id: string
         }
         Update: {
+          copier_role?: Database["public"]["Enums"]["copier_role"] | null
           created_at?: string
           expires_at?: string
           id?: string
+          master_account_id?: string | null
           sync_history_enabled?: boolean | null
           sync_history_from?: string | null
           token?: string
@@ -886,6 +892,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "setup_tokens_master_account_id_fkey"
+            columns: ["master_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "setup_tokens_user_id_fkey"
             columns: ["user_id"]
