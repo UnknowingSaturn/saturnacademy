@@ -4,10 +4,16 @@ import { Trade, TradeReview, SessionType, ActionableStep, PartialClose } from '@
 import { useToast } from '@/hooks/use-toast';
 import { Json } from '@/integrations/supabase/types';
 
+// Helper to normalize embedded trade_reviews (handles object or array from Supabase)
+function normalizeReviews(raw: any): any[] {
+  if (!raw) return [];
+  return Array.isArray(raw) ? raw : [raw];
+}
+
 // Helper to transform database rows to typed Trade objects
 function transformTrade(row: any): Trade {
-  // Defensively pick the latest review (in case of cached/stale data)
-  const reviews = row.trade_reviews || [];
+  // Normalize embedded trade_reviews (could be object or array after UNIQUE constraint)
+  const reviews = normalizeReviews(row.trade_reviews);
   const sortedReviews = [...reviews].sort((a: any, b: any) => 
     new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime()
   );
