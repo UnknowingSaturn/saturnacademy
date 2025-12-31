@@ -107,6 +107,11 @@ export function EASetupGuide() {
 
   const faqs = [
     {
+      id: 'transition',
+      question: 'How do I switch from TradeJournalBridge to TradeCopierMaster?',
+      answer: 'Simply remove TradeJournalBridge from your chart and attach TradeCopierMaster instead. Use the SAME API key you were using before - this ensures all trades (past and future) stay linked to the same account. The idempotency system prevents any duplicates.'
+    },
+    {
       id: 'bridge',
       question: 'Do I need TradeJournalBridge if I\'m copying trades?',
       answer: 'No! Both TradeCopierMaster.mq5 and TradeCopierReceiver.mq5 have journaling built-in. Use TradeJournalBridge.mq5 only for Independent accounts that don\'t participate in copying.'
@@ -114,7 +119,12 @@ export function EASetupGuide() {
     {
       id: 'api-key',
       question: 'Where do I get my API key?',
-      answer: 'Go to the Accounts page and you\'ll find your API key in your account settings. Each account has its own unique API key for journaling.'
+      answer: 'Go to the Accounts page and you\'ll find your API key in your account settings. Each account has its own unique API key for journaling. You can also see it in the Accounts tab here when you set a role.'
+    },
+    {
+      id: 'same-key',
+      question: 'Should I use the same API key across different EAs?',
+      answer: 'Yes! Always use the same API key for the same trading account. This keeps all your trades linked together and prevents duplicate accounts from being created.'
     },
     {
       id: 'config-path',
@@ -298,6 +308,33 @@ export function EASetupGuide() {
               </CollapsibleContent>
             </Collapsible>
           ))}
+        </CardContent>
+      </Card>
+
+      {/* Transition Guide */}
+      <Card className="border-amber-500/30 bg-amber-500/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+            <ArrowRight className="h-5 w-5" />
+            Transitioning from Journal-Only?
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            If you're already using <code className="bg-muted px-1 rounded">TradeJournalBridge.mq5</code> and want to enable trade copying:
+          </p>
+          <ol className="list-decimal list-inside space-y-2 text-sm">
+            <li>Copy your existing <strong>API key</strong> from the Accounts page</li>
+            <li>Remove TradeJournalBridge from your chart</li>
+            <li>Attach <code className="bg-muted px-1 rounded">TradeCopierMaster.mq5</code> with the <strong>same API key</strong></li>
+            <li>On receiver accounts, use <code className="bg-muted px-1 rounded">TradeCopierReceiver.mq5</code> with their respective API keys</li>
+          </ol>
+          <Alert className="bg-green-500/10 border-green-500/30">
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            <AlertDescription className="text-sm">
+              Using the same API key ensures all trades (past and future) stay linked to the same account. The system automatically prevents duplicates.
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
 

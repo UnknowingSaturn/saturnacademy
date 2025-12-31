@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Copy, Eye, EyeOff, Key } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -65,6 +65,18 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
   const updateAccount = useUpdateAccount();
   const { toast } = useToast();
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+
+  const maskedKey = account.api_key
+    ? `${account.api_key.slice(0, 8)}${'•'.repeat(16)}${account.api_key.slice(-4)}`
+    : 'No API key';
+
+  const copyApiKey = async () => {
+    if (account.api_key) {
+      await navigator.clipboard.writeText(account.api_key);
+      toast({ title: 'API key copied to clipboard' });
+    }
+  };
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -286,6 +298,30 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
                   </FormItem>
                 )}
               />
+            </div>
+
+            <Separator />
+
+            {/* API Key Section */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Key className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">API Key</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs bg-muted px-3 py-2 rounded font-mono truncate">
+                  {showApiKey ? account.api_key || 'No API key' : maskedKey}
+                </code>
+                <Button type="button" variant="ghost" size="icon" onClick={() => setShowApiKey(!showApiKey)}>
+                  {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button type="button" variant="ghost" size="icon" onClick={copyApiKey} disabled={!account.api_key}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Use this API key in your EA to journal trades. Keep the same key when switching between EAs.
+              </p>
             </div>
 
             <Separator />

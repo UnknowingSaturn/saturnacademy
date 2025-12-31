@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History, Activity, AlertTriangle } from 'lucide-react';
+import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History, Activity, AlertTriangle, Crown, Radio, Minus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -93,6 +93,19 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
                   {account.prop_firm}
                 </Badge>
               )}
+              {/* EA Type Indicator */}
+              {account.copier_role === 'master' && (
+                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
+                  <Crown className="h-3 w-3 mr-1" />
+                  Master
+                </Badge>
+              )}
+              {account.copier_role === 'receiver' && (
+                <Badge variant="outline" className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30">
+                  <Radio className="h-3 w-3 mr-1" />
+                  Receiver
+                </Badge>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -140,7 +153,14 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
           </div>
 
           <div className="space-y-2">
-            <span className="text-sm text-muted-foreground">API Key</span>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">API Key</span>
+              {account.copier_role && account.copier_role !== 'independent' && (
+                <span className="text-xs text-muted-foreground">
+                  Use this key in {account.copier_role === 'master' ? 'TradeCopierMaster' : 'TradeCopierReceiver'}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <code className="flex-1 text-xs bg-muted px-3 py-2 rounded font-mono truncate">
                 {showApiKey ? account.api_key || 'No API key' : maskedKey}
@@ -152,6 +172,11 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
                 <Copy className="h-4 w-4" />
               </Button>
             </div>
+            {account.copier_role && account.copier_role !== 'independent' && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Use this same API key when switching EAs to keep trades linked
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-2 pt-2 border-t">
