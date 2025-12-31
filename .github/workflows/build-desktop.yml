@@ -23,6 +23,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Generate Windows icon
+        working-directory: ./copier-desktop/src-tauri/icons
+        run: |
+          choco install imagemagick -y
+          magick icon.png -define icon:auto-resize=256,128,48,32,16 icon.ico
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
