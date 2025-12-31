@@ -6,14 +6,18 @@ export function useScreenshots() {
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
 
-  const uploadScreenshot = async (file: File, tradeId: string): Promise<string | null> => {
+  const uploadScreenshot = async (
+    file: File, 
+    contextId: string, 
+    contextType: 'trade' | 'playbook' = 'trade'
+  ): Promise<string | null> => {
     setIsUploading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
       const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/${tradeId}/${Date.now()}.${fileExt}`;
+      const fileName = `${user.id}/${contextType}/${contextId}/${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('trade-screenshots')

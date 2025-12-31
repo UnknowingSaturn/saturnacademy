@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { TradeScreenshot, ChartTimeframe } from "@/types/trading";
-import { AddScreenshotDialog } from "./AddScreenshotDialog";
+import { AddScreenshotDialog } from "@/components/journal/AddScreenshotDialog";
 import { useScreenshots } from "@/hooks/useScreenshots";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,8 +13,8 @@ import {
 import { Plus, Trash2, Maximize2, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface TradeScreenshotGalleryProps {
-  tradeId: string;
+interface PlaybookScreenshotGalleryProps {
+  playbookId: string;
   screenshots: TradeScreenshot[];
   onScreenshotsChange: (screenshots: TradeScreenshot[]) => void;
 }
@@ -33,11 +33,11 @@ const TIMEFRAME_COLORS: Record<ChartTimeframe, string> = {
   "1m": "bg-red-500/20 text-red-400 border-red-500/30",
 };
 
-export function TradeScreenshotGallery({
-  tradeId,
+export function PlaybookScreenshotGallery({
+  playbookId,
   screenshots,
   onScreenshotsChange,
-}: TradeScreenshotGalleryProps) {
+}: PlaybookScreenshotGalleryProps) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [expandedImage, setExpandedImage] = useState<TradeScreenshot | null>(null);
   const { deleteScreenshot } = useScreenshots();
@@ -64,7 +64,7 @@ export function TradeScreenshotGallery({
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold flex items-center gap-2">
           <ImageIcon className="h-4 w-4" />
-          Trade Screenshots
+          Setup Examples
         </h3>
         <Button
           variant="outline"
@@ -79,7 +79,7 @@ export function TradeScreenshotGallery({
 
       {/* Gallery Grid */}
       {sortedScreenshots.length > 0 ? (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-3">
           {sortedScreenshots.map((screenshot) => (
             <div
               key={screenshot.id}
@@ -110,7 +110,7 @@ export function TradeScreenshotGallery({
                 <Button
                   variant="secondary"
                   size="icon"
-                  className="h-9 w-9"
+                  className="h-8 w-8"
                   onClick={() => setExpandedImage(screenshot)}
                 >
                   <Maximize2 className="h-4 w-4" />
@@ -118,7 +118,7 @@ export function TradeScreenshotGallery({
                 <Button
                   variant="destructive"
                   size="icon"
-                  className="h-9 w-9"
+                  className="h-8 w-8"
                   onClick={() => handleDelete(screenshot)}
                 >
                   <Trash2 className="h-4 w-4" />
@@ -127,41 +127,29 @@ export function TradeScreenshotGallery({
 
               {/* Description */}
               {screenshot.description && (
-                <div className="p-3 border-t border-border">
-                  <p className="text-sm text-muted-foreground line-clamp-2">
+                <div className="p-2 border-t border-border">
+                  <p className="text-xs text-muted-foreground line-clamp-2">
                     {screenshot.description}
                   </p>
                 </div>
               )}
             </div>
           ))}
-
-          {/* Add Card */}
-          <div
-            className={cn(
-              "aspect-video rounded-lg border-2 border-dashed border-border/50 flex flex-col items-center justify-center cursor-pointer",
-              "hover:border-primary/30 hover:bg-muted/20 transition-colors"
-            )}
-            onClick={() => setIsAddDialogOpen(true)}
-          >
-            <Plus className="h-8 w-8 text-muted-foreground mb-2" />
-            <span className="text-sm text-muted-foreground">Add Screenshot</span>
-          </div>
         </div>
       ) : (
         <div
           className={cn(
-            "border-2 border-dashed border-border/50 rounded-lg p-8 text-center cursor-pointer",
+            "border-2 border-dashed border-border/50 rounded-lg p-6 text-center cursor-pointer",
             "hover:border-primary/30 hover:bg-muted/20 transition-colors"
           )}
           onClick={() => setIsAddDialogOpen(true)}
         >
-          <ImageIcon className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+          <ImageIcon className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
           <p className="text-sm text-muted-foreground mb-1">
-            No screenshots yet
+            No setup examples yet
           </p>
           <p className="text-xs text-muted-foreground">
-            Add screenshots from different timeframes to document your trade analysis
+            Add screenshots showing ideal setups for this playbook
           </p>
         </div>
       )}
@@ -170,14 +158,14 @@ export function TradeScreenshotGallery({
       <AddScreenshotDialog
         open={isAddDialogOpen}
         onOpenChange={setIsAddDialogOpen}
-        contextId={tradeId}
-        contextType="trade"
+        contextId={playbookId}
+        contextType="playbook"
         onAdd={handleAdd}
       />
 
       {/* Expanded Image Dialog */}
       <Dialog open={!!expandedImage} onOpenChange={() => setExpandedImage(null)}>
-        <DialogContent className="max-w-5xl">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <Badge
@@ -189,7 +177,7 @@ export function TradeScreenshotGallery({
               >
                 {expandedImage?.timeframe}
               </Badge>
-              Chart Screenshot
+              Setup Example
             </DialogTitle>
           </DialogHeader>
           {expandedImage && (

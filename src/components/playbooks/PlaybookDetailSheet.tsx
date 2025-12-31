@@ -496,6 +496,37 @@ export function PlaybookDetailSheet({
             </section>
           )}
 
+          {/* Setup Examples */}
+          {playbook.screenshots && playbook.screenshots.length > 0 && (
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                Setup Examples ({playbook.screenshots.length})
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                {playbook.screenshots.slice(0, 4).map((screenshot) => (
+                  <div key={screenshot.id} className="relative rounded-lg overflow-hidden border border-border">
+                    <Badge
+                      variant="outline"
+                      className="absolute top-1 left-1 z-10 font-mono text-xs bg-background/80 backdrop-blur-sm"
+                    >
+                      {screenshot.timeframe}
+                    </Badge>
+                    <img
+                      src={screenshot.url}
+                      alt={`${screenshot.timeframe} chart`}
+                      className="w-full aspect-video object-cover"
+                    />
+                  </div>
+                ))}
+              </div>
+              {playbook.screenshots.length > 4 && (
+                <p className="text-xs text-muted-foreground text-center">
+                  +{playbook.screenshots.length - 4} more screenshots
+                </p>
+              )}
+            </section>
+          )}
+
           {/* Checklist Preview */}
           {playbook.checklist_questions.length > 0 && (
             <section className="space-y-3">

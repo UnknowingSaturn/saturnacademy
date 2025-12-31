@@ -625,6 +625,7 @@ export type Database = {
           max_r_per_trade: number | null
           max_trades_per_session: number | null
           name: string
+          screenshots: Json | null
           session_filter: Database["public"]["Enums"]["session_type"][] | null
           symbol_filter: string[] | null
           updated_at: string
@@ -647,6 +648,7 @@ export type Database = {
           max_r_per_trade?: number | null
           max_trades_per_session?: number | null
           name: string
+          screenshots?: Json | null
           session_filter?: Database["public"]["Enums"]["session_type"][] | null
           symbol_filter?: string[] | null
           updated_at?: string
@@ -669,6 +671,7 @@ export type Database = {
           max_r_per_trade?: number | null
           max_trades_per_session?: number | null
           name?: string
+          screenshots?: Json | null
           session_filter?: Database["public"]["Enums"]["session_type"][] | null
           symbol_filter?: string[] | null
           updated_at?: string
