@@ -31,7 +31,7 @@ interface ExecutionFilters {
   dateTo?: Date;
 }
 
-export function ExecutionHistory() {
+export const ExecutionHistory = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>((props, ref) => {
   const { data: accounts } = useCopierAccounts();
   const receiverAccounts = accounts?.filter(a => a.copier_role === 'receiver') || [];
   
@@ -72,7 +72,7 @@ export function ExecutionHistory() {
   }
   
   return (
-    <div className="space-y-4">
+    <div ref={ref} className="space-y-4" {...props}>
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
@@ -306,7 +306,9 @@ export function ExecutionHistory() {
       )}
     </div>
   );
-}
+});
+
+ExecutionHistory.displayName = 'ExecutionHistory';
 
 function StatusBadge({ status, error }: { status: string; error?: string | null }) {
   switch (status) {

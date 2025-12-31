@@ -38,6 +38,40 @@ Add the public key to `copier-desktop/src-tauri/tauri.conf.json`:
 }
 ```
 
+### 4. Add Application Icons
+
+Before building for production, add icon files to `copier-desktop/src-tauri/icons/`:
+
+Required files:
+- `icon.ico` (Windows) - 256x256 multi-resolution
+- `icon.icns` (macOS) - Apple icon format
+- `32x32.png` - 32x32 PNG
+- `128x128.png` - 128x128 PNG
+- `128x128@2x.png` - 256x256 PNG (for retina displays)
+
+Then update `tauri.conf.json` to reference them:
+
+```json
+{
+  "tauri": {
+    "bundle": {
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ]
+    },
+    "systemTray": {
+      "iconPath": "icons/icon.ico"
+    }
+  }
+}
+```
+
+**Note**: The default configuration has empty icon paths for development. Icons are required for production builds.
+
 ---
 
 ## Releasing a New Version
@@ -103,6 +137,7 @@ GitHub Actions will automatically:
 - Check GitHub Actions logs
 - Ensure all 3 version files match
 - Verify secrets are set correctly
+- Ensure icons are configured (see Step 4 above)
 
 ### Updates Not Working
 - Check update endpoint logs in Lovable Cloud
