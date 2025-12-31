@@ -102,6 +102,9 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   const [newItem, setNewItem] = useState({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
   const [showProperties, setShowProperties] = useState(true);
 
+  // Persist input drafts to localStorage (separate from review autosave)
+  const inputDraftKey = trade?.id ? `trade_input_drafts_${trade.id}` : undefined;
+
   // Save function for auto-save - uses upsert (idempotent, no duplicates)
   const saveReview = useCallback(async (data: ReviewData) => {
     if (!trade) return;
@@ -146,6 +149,19 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       setLastTradeId(trade.id);
       setImmediateAiReview(null);
       
+      // Restore input drafts from localStorage
+      const draftKey = `trade_input_drafts_${trade.id}`;
+      try {
+        const savedInputDrafts = localStorage.getItem(draftKey);
+        if (savedInputDrafts) {
+          setNewItem(JSON.parse(savedInputDrafts));
+        } else {
+          setNewItem({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
+        }
+      } catch {
+        setNewItem({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
+      }
+      
       // Check for draft first - if exists, use it (don't clear yet, autosave will clear on success)
       if (hasDraft) {
         const draft = restoreDraft();
@@ -160,6 +176,20 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       setReviewData(getInitialReviewData(trade.review));
     }
   }, [trade?.id, trade?.review, lastTradeId, hasDraft, restoreDraft]);
+
+  // Persist input drafts to localStorage when they change
+  useEffect(() => {
+    if (!inputDraftKey) return;
+    const hasContent = newItem.mistakes || newItem.didWell || newItem.toImprove || newItem.actionable;
+    if (hasContent) {
+      try {
+        localStorage.setItem(inputDraftKey, JSON.stringify(newItem));
+      } catch {}
+    } else {
+      // Clear drafts if all inputs are empty
+      localStorage.removeItem(inputDraftKey);
+    }
+  }, [newItem, inputDraftKey]);
 
   // Reset lastTradeId when panel closes
   useEffect(() => {
@@ -202,7 +232,23 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     } else {
       updateField("toImprove", [...reviewData.toImprove, value]);
     }
-    setNewItem({ ...newItem, [field]: "" });
+    setNewItem(prev => ({ ...prev, [field]: "" }));
+    // Clear draft for this field after adding
+    if (inputDraftKey) {
+      try {
+        const currentDrafts = localStorage.getItem(inputDraftKey);
+        if (currentDrafts) {
+          const parsed = JSON.parse(currentDrafts);
+          parsed[field] = "";
+          const hasContent = parsed.mistakes || parsed.didWell || parsed.toImprove || parsed.actionable;
+          if (hasContent) {
+            localStorage.setItem(inputDraftKey, JSON.stringify(parsed));
+          } else {
+            localStorage.removeItem(inputDraftKey);
+          }
+        }
+      } catch {}
+    }
   };
 
   const removeItem = (field: "mistakes" | "didWell" | "toImprove", index: number) => {
@@ -429,6 +475,17 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                       analysis={analysisData.analysis}
                       compliance={analysisData.compliance}
                       similarTrades={analysisData.similarTrades}
+                      hasScreenshots={(reviewData.screenshots?.length || 0) > 0}
+                      onReanalyze={async () => {
+                        if (!trade) return;
+                        if (hasUnsavedChanges) {
+                          await flush();
+                        }
+                        const result = await analyzeTrade(trade.id);
+                        if (result) {
+                          setImmediateAiReview(result);
+                        }
+                      }}
                       onSubmitFeedback={aiReview ? 
                         (isAccurate, isUseful, notes) => submitFeedback(aiReview.id, isAccurate, isUseful, notes) 
                         : undefined
