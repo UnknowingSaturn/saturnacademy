@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/tauri";
+import { checkUpdate, installUpdate } from "@tauri-apps/api/updater";
+import { relaunch } from "@tauri-apps/api/process";
 import { useState } from "react";
-import { Check, Eye, EyeOff, FolderOpen, Key, Save } from "lucide-react";
+import { Check, Download, Eye, EyeOff, FolderOpen, Key, Loader2, RefreshCw, Save } from "lucide-react";
 import { CopierStatus } from "../types";
 
 interface SettingsProps {
@@ -14,6 +16,12 @@ export default function Settings({ status }: SettingsProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Update states
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
 
   const handleSaveApiKey = async () => {
     if (!apiKey.trim()) return;
@@ -40,6 +48,42 @@ export default function Settings({ status }: SettingsProps) {
       await invoke("set_mt5_path", { path: mt5Path.trim() });
     } catch (e) {
       setError(String(e));
+    }
+  };
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    setError(null);
+    
+    try {
+      const { shouldUpdate, manifest } = await checkUpdate();
+      
+      if (shouldUpdate && manifest) {
+        setUpdateAvailable(true);
+        setUpdateVersion(manifest.version);
+      } else {
+        setUpdateAvailable(false);
+        setUpdateVersion(null);
+      }
+    } catch (e) {
+      console.error("Update check failed:", e);
+      setError(`Update check failed: ${String(e)}`);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    setInstalling(true);
+    setError(null);
+    
+    try {
+      await installUpdate();
+      await relaunch();
+    } catch (e) {
+      console.error("Update installation failed:", e);
+      setError(`Update failed: ${String(e)}`);
+      setInstalling(false);
     }
   };
 
@@ -124,6 +168,62 @@ export default function Settings({ status }: SettingsProps) {
           <Save className="w-4 h-4" />
           Set Path
         </button>
+      </div>
+
+      {/* Updates */}
+      <div className="bg-card rounded-lg border border-border p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Download className="w-4 h-4 text-primary" />
+          <h3 className="text-sm font-medium">Updates</h3>
+        </div>
+
+        {updateAvailable && updateVersion ? (
+          <div className="space-y-3">
+            <div className="bg-primary/10 border border-primary/30 rounded-md p-3">
+              <p className="text-sm font-medium text-primary">
+                Update Available: v{updateVersion}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                A new version is ready to install
+              </p>
+            </div>
+            <button
+              onClick={handleInstallUpdate}
+              disabled={installing}
+              className="w-full flex items-center justify-center gap-2 bg-primary text-primary-foreground rounded-md py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {installing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Installing...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Install & Restart
+                </>
+              )}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleCheckUpdate}
+            disabled={checkingUpdate}
+            className="w-full flex items-center justify-center gap-2 bg-secondary text-foreground rounded-md py-2 text-sm font-medium hover:bg-secondary/80 disabled:opacity-50 transition-colors"
+          >
+            {checkingUpdate ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Checking...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                Check for Updates
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Status Info */}

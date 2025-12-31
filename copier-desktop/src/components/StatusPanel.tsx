@@ -72,7 +72,7 @@ export default function StatusPanel({ status }: StatusPanelProps) {
           </div>
         )}
 
-        {status?.config_version > 0 && (
+        {status && status.config_version != null && status.config_version > 0 && (
           <div className="text-xs text-muted-foreground mt-1">
             Config v{status.config_version}
           </div>
