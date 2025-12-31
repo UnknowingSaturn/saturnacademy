@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useState } from "react";
 import { 
   LayoutDashboard, 
   BookOpen, 
@@ -11,8 +12,10 @@ import {
   Copy,
   ChevronDown,
   Check,
-  Building2
+  Building2,
+  Settings
 } from "lucide-react";
+import { AccountSettingsDialog } from "./AccountSettingsDialog";
 import { NavLink } from "@/components/NavLink";
 import {
   Sidebar,
@@ -61,6 +64,7 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
     const { signOut, user } = useAuth();
     const openTradesCount = useOpenTradesCount();
     const { selectedAccountId, setSelectedAccountId, selectedAccount, accounts } = useAccountFilter();
+    const [settingsOpen, setSettingsOpen] = useState(false);
 
     const getCopierRoleBadge = (role: string) => {
       switch (role) {
@@ -244,12 +248,23 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
             <Button 
               variant="ghost" 
               size="icon" 
+              onClick={() => setSettingsOpen(true)}
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              title="Account Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon" 
               onClick={signOut}
               className="shrink-0 text-muted-foreground hover:text-foreground"
+              title="Sign Out"
             >
               <LogOut className="w-4 h-4" />
             </Button>
           </div>
+          <AccountSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
         </SidebarFooter>
       </Sidebar>
     );

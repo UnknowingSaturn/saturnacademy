@@ -17,6 +17,7 @@ import Accounts from "./pages/Accounts";
 import LiveTrades from "./pages/LiveTrades";
 import Copier from "./pages/Copier";
 import NotFound from "./pages/NotFound";
+import ResetPassword from "./pages/ResetPassword";
 
 const queryClient = new QueryClient();
 
@@ -53,6 +54,7 @@ const AppRoutes = React.forwardRef<HTMLDivElement, object>(
     return (
       <Routes>
         <Route path="/auth" element={user ? <Navigate to="/dashboard" replace /> : <Auth />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
