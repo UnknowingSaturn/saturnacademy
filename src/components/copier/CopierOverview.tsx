@@ -7,8 +7,13 @@ import { useCopierAccounts } from '@/hooks/useCopier';
 export function CopierOverview() {
   const { data: accounts, isLoading } = useCopierAccounts();
   
-  const masterAccount = accounts?.find(a => a.copier_role === 'master');
-  const receiverAccounts = accounts?.filter(a => a.copier_role === 'receiver') || [];
+  // Only show accounts where the actual copier EA is running (ea_type matches copier_role)
+  const masterAccount = accounts?.find(a => 
+    a.copier_role === 'master' && a.ea_type === 'master'
+  );
+  const receiverAccounts = accounts?.filter(a => 
+    a.copier_role === 'receiver' && a.ea_type === 'receiver'
+  ) || [];
   const hasCopierSetup = masterAccount || receiverAccounts.length > 0;
 
   if (isLoading) {
