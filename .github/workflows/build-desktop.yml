@@ -44,6 +44,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           projectPath: './copier-desktop'
           tagName: ${{ github.event.inputs.version || github.ref_name }}
@@ -60,5 +62,8 @@ jobs:
             ### Requirements
             - Windows 10/11 (64-bit)
             - MetaTrader 5 installed
+            
+            ### Auto-Update
+            The app will automatically check for updates on startup.
           releaseDraft: false
           prerelease: false
