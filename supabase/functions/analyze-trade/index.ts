@@ -124,6 +124,26 @@ interface AIAnalysisOutput {
   screenshots_analyzed: boolean;
 }
 
+// CRITICAL FIX: Normalize trade_reviews which can be object OR array depending on Supabase join
+function normalizeToArray<T>(data: T | T[] | null | undefined): T[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  return [data];
+}
+
+// Get the latest review from normalized array
+function getLatestReview(reviews: any[]): any | null {
+  if (reviews.length === 0) return null;
+  if (reviews.length === 1) return reviews[0];
+  
+  // Sort by updated_at descending, fallback to created_at
+  return reviews.sort((a, b) => {
+    const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
+    const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
+    return bTime - aTime;
+  })[0];
+}
+
 function formatTimeInET(utcTimestamp: string): string {
   try {
     const date = new Date(utcTimestamp);
@@ -698,9 +718,21 @@ serve(async (req) => {
     const similarTrades = providedSimilarTrades || { similar_winners: [], similar_losers: [] };
     console.log("Similar trades:", similarTrades.similar_winners?.length || 0, "winners,", similarTrades.similar_losers?.length || 0, "losers");
 
-    // Step 8: Get playbook and review
+    // Step 8: Get playbook and review - CRITICAL FIX: normalize trade_reviews
     console.log("Step 8: Extracting playbook and review...");
-    const review = trade.trade_reviews?.[0];
+    
+    // CRITICAL FIX: trade_reviews can be object or array depending on Supabase join behavior
+    const reviewsArray = normalizeToArray(trade.trade_reviews);
+    const review = getLatestReview(reviewsArray);
+    
+    console.log("Reviews normalized:", {
+      rawType: Array.isArray(trade.trade_reviews) ? 'array' : typeof trade.trade_reviews,
+      rawLength: Array.isArray(trade.trade_reviews) ? trade.trade_reviews.length : (trade.trade_reviews ? 1 : 0),
+      normalizedLength: reviewsArray.length,
+      selectedReviewId: review?.id || null,
+      selectedReviewUpdatedAt: review?.updated_at || null
+    });
+    
     let playbook = trade.playbook || review?.playbook;
 
     if (!playbook && trade.playbook_id) {
@@ -734,7 +766,7 @@ serve(async (req) => {
     const screenshots = review?.screenshots || [];
     const hasScreenshots = Array.isArray(screenshots) && screenshots.length > 0;
     const screenshotCount = hasScreenshots ? screenshots.length : 0;
-    console.log("Screenshots found:", screenshotCount);
+    console.log("Screenshots found:", screenshotCount, "from review:", review?.id || "none");
 
     const userContent: any[] = [{ type: "text", text: userPrompt }];
     
@@ -746,7 +778,7 @@ serve(async (req) => {
             type: "image_url",
             image_url: { url }
           });
-          console.log("Added screenshot for analysis");
+          console.log("Added screenshot for analysis:", url.substring(0, 50) + "...");
         }
       }
     }
@@ -819,6 +851,7 @@ serve(async (req) => {
         console.log("Successfully parsed structured analysis");
         console.log("Visual analysis provided:", !!analysisOutput?.visual_analysis);
         console.log("Strategy refinement provided:", !!analysisOutput?.strategy_refinement);
+        console.log("Screenshots analyzed flag:", analysisOutput?.screenshots_analyzed);
       } catch (e) {
         console.error("Failed to parse tool call arguments:", e);
       }
@@ -827,6 +860,12 @@ serve(async (req) => {
     if (!analysisOutput) {
       rawAnalysis = aiData.choices?.[0]?.message?.content || "No analysis generated";
       console.warn("Tool call not used, falling back to raw content");
+    }
+
+    // Step 13.5: Validate visual analysis if screenshots were provided but AI didn't analyze them
+    if (hasScreenshots && analysisOutput && !analysisOutput.screenshots_analyzed) {
+      console.warn("Screenshots provided but AI reported screenshots_analyzed=false. Analysis may be incomplete.");
+      // Don't retry automatically - just log the warning and let the UI handle it
     }
 
     // Step 14: Save to database
@@ -885,6 +924,13 @@ serve(async (req) => {
         similar_trades: similarTrades,
         raw_analysis: rawAnalysis,
         saved_review: savedReview,
+        // Include metadata for debugging
+        _meta: {
+          model_used: model,
+          screenshots_count: screenshotCount,
+          review_id: review?.id || null,
+          review_updated_at: review?.updated_at || null
+        }
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

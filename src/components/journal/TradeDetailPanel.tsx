@@ -318,14 +318,20 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                       className="h-8"
                       onClick={async () => {
                         if (!trade) return;
+                        // CRITICAL: Flush pending autosave before running AI analysis
+                        if (hasUnsavedChanges) {
+                          await flush();
+                        }
                         const result = await analyzeTrade(trade.id);
                         if (result) {
                           setImmediateAiReview(result);
                         }
                       }}
-                      disabled={isAnalyzing}
+                      disabled={isAnalyzing || saveStatus === 'saving'}
                     >
                       {isAnalyzing ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                      ) : saveStatus === 'saving' ? (
                         <Loader2 className="h-4 w-4 animate-spin mr-1" />
                       ) : (
                         <Sparkles className="h-4 w-4 mr-1" />
@@ -334,7 +340,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Generate AI analysis</p>
+                    <p>{saveStatus === 'saving' ? 'Saving your review first...' : 'Generate AI analysis'}</p>
                   </TooltipContent>
                 </Tooltip>
               </div>

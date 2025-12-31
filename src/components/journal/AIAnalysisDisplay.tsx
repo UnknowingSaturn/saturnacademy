@@ -21,10 +21,12 @@ interface AIAnalysisDisplayProps {
     similar_losers: SimilarTrade[];
   };
   onSubmitFeedback?: (isAccurate: boolean, isUseful: boolean, notes?: string) => void;
+  onReanalyze?: () => void;
+  hasScreenshots?: boolean;
 }
 
 export const AIAnalysisDisplay = forwardRef<HTMLDivElement, AIAnalysisDisplayProps>(
-  function AIAnalysisDisplay({ analysis, compliance, similarTrades, onSubmitFeedback }, ref) {
+  function AIAnalysisDisplay({ analysis, compliance, similarTrades, onSubmitFeedback, onReanalyze, hasScreenshots }, ref) {
   const [feedbackGiven, setFeedbackGiven] = useState(false);
   const [feedbackNotes, setFeedbackNotes] = useState("");
   const [accuracyVote, setAccuracyVote] = useState<boolean | null>(null);
@@ -312,15 +314,34 @@ export const AIAnalysisDisplay = forwardRef<HTMLDivElement, AIAnalysisDisplayPro
             </Card>
           )}
 
-          {/* No Screenshots Warning */}
+          {/* Screenshots Warning - Different message based on whether screenshots exist */}
           {analysis.screenshots_analyzed === false && (
-            <Card className="border-dashed border-muted-foreground/30 bg-muted/20">
-              <CardContent className="py-4 flex items-center gap-3 text-muted-foreground">
-                <ImageOff className="w-5 h-5" />
-                <div className="text-sm">
-                  <p className="font-medium">No chart screenshots analyzed</p>
-                  <p className="text-xs">Add screenshots for deeper visual analysis of entry/exit quality</p>
+            <Card className={cn(
+              "border-dashed",
+              hasScreenshots ? "border-amber-500/50 bg-amber-500/10" : "border-muted-foreground/30 bg-muted/20"
+            )}>
+              <CardContent className="py-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <ImageOff className={cn("w-5 h-5", hasScreenshots ? "text-amber-500" : "text-muted-foreground")} />
+                  <div className="text-sm">
+                    {hasScreenshots ? (
+                      <>
+                        <p className="font-medium text-amber-600">Screenshots exist but weren't analyzed</p>
+                        <p className="text-xs text-muted-foreground">This analysis was generated before screenshots were saved. Re-run for visual analysis.</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-medium text-muted-foreground">No chart screenshots analyzed</p>
+                        <p className="text-xs text-muted-foreground">Add screenshots for deeper visual analysis of entry/exit quality</p>
+                      </>
+                    )}
+                  </div>
                 </div>
+                {hasScreenshots && onReanalyze && (
+                  <Button size="sm" variant="outline" onClick={onReanalyze} className="shrink-0">
+                    Re-analyze
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
