@@ -9,7 +9,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
-import { Crown, Radio, Minus, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
+import { Crown, Radio, Minus, AlertCircle, Loader2, ArrowRight, Copy, Key, Info } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useUpdateCopierRole } from '@/hooks/useCopier';
 import type { CopierRole } from '@/types/copier';
 import type { Account } from '@/types/trading';
@@ -21,9 +23,15 @@ interface AccountRoleManagerProps {
 
 export function AccountRoleManager({ accounts, isLoading }: AccountRoleManagerProps) {
   const updateRole = useUpdateCopierRole();
+  const { toast } = useToast();
   
   const masterAccount = accounts.find(a => a.copier_role === 'master');
   const receiverAccounts = accounts.filter(a => a.copier_role === 'receiver');
+
+  const copyApiKey = async (apiKey: string) => {
+    await navigator.clipboard.writeText(apiKey);
+    toast({ title: 'API key copied to clipboard' });
+  };
   
   const handleRoleChange = (accountId: string, newRole: CopierRole) => {
     // If setting as master, ensure no other master exists
@@ -108,6 +116,14 @@ export function AccountRoleManager({ accounts, isLoading }: AccountRoleManagerPr
         </div>
       )}
       
+      {/* Transition Note */}
+      <Alert className="bg-blue-500/10 border-blue-500/30">
+        <Info className="h-4 w-4 text-blue-500" />
+        <AlertDescription className="text-sm">
+          <strong>Switching from TradeJournalBridge?</strong> Use your existing API key in the new EA to keep all trades linked to the same account.
+        </AlertDescription>
+      </Alert>
+
       {/* Account List */}
       <div className="space-y-3">
         {accounts.map(account => {
@@ -116,7 +132,7 @@ export function AccountRoleManager({ accounts, isLoading }: AccountRoleManagerPr
           
           return (
             <Card key={account.id} className="overflow-hidden">
-              <CardContent className="p-4">
+              <CardContent className="p-4 space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
                     <RoleIcon role={currentRole} />
@@ -163,6 +179,30 @@ export function AccountRoleManager({ accounts, isLoading }: AccountRoleManagerPr
                     </Select>
                   </div>
                 </div>
+                
+                {/* API Key display for Master/Receiver accounts */}
+                {currentRole !== 'independent' && account.api_key && (
+                  <div className="pl-13 ml-10 pt-2 border-t border-dashed">
+                    <div className="flex items-center gap-2">
+                      <Key className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">API Key:</span>
+                      <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">
+                        {account.api_key.slice(0, 8)}...{account.api_key.slice(-4)}
+                      </code>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-6 w-6"
+                        onClick={() => copyApiKey(account.api_key!)}
+                      >
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Use this key in {currentRole === 'master' ? 'TradeCopierMaster.mq5' : 'TradeCopierReceiver.mq5'}
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           );
