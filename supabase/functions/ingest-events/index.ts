@@ -20,6 +20,8 @@ interface EventPayload {
   idempotency_key: string;
   terminal_id: string;
   account_id?: string;
+  // EA type to distinguish between journal/master/receiver
+  ea_type?: "journal" | "master" | "receiver";
   // Accept all event types including history_sync
   event_type: "entry" | "exit" | "history_sync" | "open" | "modify" | "partial_close" | "close";
   // For history_sync, this contains the actual event type (entry/exit)
@@ -171,6 +173,8 @@ serve(async (req) => {
       // Determine copier settings from setup token
       const copierRole = setupToken.copier_role || 'independent';
       const isCopierAccount = copierRole !== 'independent';
+      // Determine ea_type: if copier role specified, use it; otherwise default to journal
+      const eaType = copierRole !== 'independent' ? copierRole : (payload.ea_type || 'journal');
 
       // Create the account with sync settings and copier settings from setup token
       const accountName = `${payload.account_info.broker} - ${payload.account_info.login}`;
@@ -194,6 +198,8 @@ serve(async (req) => {
           copier_role: copierRole,
           copier_enabled: isCopierAccount,
           master_account_id: setupToken.master_account_id || null,
+          // Track which EA type is running
+          ea_type: eaType,
         })
         .select("id, user_id, terminal_id")
         .single();
@@ -234,12 +240,21 @@ serve(async (req) => {
         .eq("id", account.id);
     }
 
-    // Update equity if provided
-    if (payload.account_info?.equity) {
-      await supabase
-        .from("accounts")
-        .update({ equity_current: payload.account_info.equity })
-        .eq("id", account.id);
+    // Update equity and ea_type if provided
+    if (payload.account_info?.equity || payload.ea_type) {
+      const updateData: Record<string, unknown> = {};
+      if (payload.account_info?.equity) {
+        updateData.equity_current = payload.account_info.equity;
+      }
+      if (payload.ea_type) {
+        updateData.ea_type = payload.ea_type;
+      }
+      if (Object.keys(updateData).length > 0) {
+        await supabase
+          .from("accounts")
+          .update(updateData)
+          .eq("id", account.id);
+      }
     }
 
     // SERVER-SIDE FILTERING: Skip history_sync events older than sync_history_from

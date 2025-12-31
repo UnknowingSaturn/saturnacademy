@@ -25,6 +25,7 @@ export type Database = {
           copier_enabled: boolean | null
           copier_role: Database["public"]["Enums"]["copier_role"] | null
           created_at: string
+          ea_type: Database["public"]["Enums"]["ea_type"] | null
           equity_current: number | null
           id: string
           is_active: boolean | null
@@ -47,6 +48,7 @@ export type Database = {
           copier_enabled?: boolean | null
           copier_role?: Database["public"]["Enums"]["copier_role"] | null
           created_at?: string
+          ea_type?: Database["public"]["Enums"]["ea_type"] | null
           equity_current?: number | null
           id?: string
           is_active?: boolean | null
@@ -69,6 +71,7 @@ export type Database = {
           copier_enabled?: boolean | null
           copier_role?: Database["public"]["Enums"]["copier_role"] | null
           created_at?: string
+          ea_type?: Database["public"]["Enums"]["ea_type"] | null
           equity_current?: number | null
           id?: string
           is_active?: boolean | null
@@ -1302,6 +1305,7 @@ export type Database = {
       account_type: "demo" | "live" | "prop"
       ai_provider: "openai" | "gemini" | "lovable"
       copier_role: "independent" | "master" | "receiver"
+      ea_type: "journal" | "master" | "receiver"
       emotional_state:
         | "great"
         | "good"
@@ -1461,6 +1465,7 @@ export const Constants = {
       account_type: ["demo", "live", "prop"],
       ai_provider: ["openai", "gemini", "lovable"],
       copier_role: ["independent", "master", "receiver"],
+      ea_type: ["journal", "master", "receiver"],
       emotional_state: [
         "great",
         "good",
