@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.live-journal-chat]
 verify_jwt = false
+
+[functions.copier-config]
+verify_jwt = false
