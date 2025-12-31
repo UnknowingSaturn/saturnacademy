@@ -18,7 +18,11 @@ import {
   Lightbulb,
   XCircle,
   CheckCircle,
-  ArrowUpRight
+  ArrowUpRight,
+  Brain,
+  Zap,
+  AlertOctagon,
+  Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -80,6 +84,7 @@ const Analytics = React.forwardRef<HTMLDivElement, object>(
               <Skeleton key={i} className="h-28" />
             ))}
           </div>
+          <Skeleton className="h-64" />
           <div className="grid gap-6 lg:grid-cols-2">
             <Skeleton className="h-80" />
             <Skeleton className="h-80" />
@@ -101,7 +106,7 @@ const Analytics = React.forwardRef<HTMLDivElement, object>(
       );
     }
 
-    const { overview, playbook_comparison, symbol_performance, session_matrix, journal_insights, day_of_week, risk_analysis } = data;
+    const { overview, playbook_comparison, symbol_performance, session_matrix, journal_insights, day_of_week, risk_analysis, ai_analysis } = data;
 
     return (
       <div className="space-y-6 p-6 animate-fade-in">
@@ -121,7 +126,7 @@ const Analytics = React.forwardRef<HTMLDivElement, object>(
                 )}
               </h1>
               <p className="text-muted-foreground text-sm">
-                Deep insights from your trading history
+                AI-powered insights from your trading history
               </p>
             </div>
           </div>
@@ -196,6 +201,257 @@ const Analytics = React.forwardRef<HTMLDivElement, object>(
             </CardContent>
           </Card>
         </div>
+
+        {/* AI Edge Summary */}
+        {ai_analysis?.edge_summary && (
+          <Card className="glass-card border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Brain className="h-5 w-5 text-primary" />
+                Edge Summary
+                <Badge variant="outline" className="ml-2 bg-primary/10 text-primary border-primary/30">
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  AI Analysis
+                </Badge>
+              </CardTitle>
+              <CardDescription>Your trading edge identified from historical data</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* What Works */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-green-500 flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4" />
+                    What Works
+                  </h4>
+                  <div className="space-y-2">
+                    {ai_analysis.edge_summary.what_works.map((item, idx) => (
+                      <div key={idx} className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                        <p className="text-sm text-foreground">{item}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {ai_analysis.edge_summary.primary_edge && (
+                    <div className="p-3 rounded-lg bg-green-500/20 border border-green-500/30">
+                      <p className="text-xs text-green-500 font-medium mb-1">Primary Edge</p>
+                      <p className="text-sm font-medium text-foreground">{ai_analysis.edge_summary.primary_edge}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* What Fails */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-red-500 flex items-center gap-2">
+                    <TrendingDown className="h-4 w-4" />
+                    What Fails
+                  </h4>
+                  <div className="space-y-2">
+                    {ai_analysis.edge_summary.what_fails.map((item, idx) => (
+                      <div key={idx} className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                        <p className="text-sm text-foreground">{item}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {ai_analysis.edge_summary.primary_leak && (
+                    <div className="p-3 rounded-lg bg-red-500/20 border border-red-500/30">
+                      <p className="text-xs text-red-500 font-medium mb-1">Primary Leak</p>
+                      <p className="text-sm font-medium text-foreground">{ai_analysis.edge_summary.primary_leak}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Mistake Mining */}
+        {ai_analysis?.mistake_mining && ai_analysis.mistake_mining.length > 0 && (
+          <Card className="glass-card">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertOctagon className="h-5 w-5 text-red-500" />
+                Top Mistakes (Ranked by R Lost)
+              </CardTitle>
+              <CardDescription>Recurring patterns costing you money, with actionable fixes</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[300px]">Mistake</TableHead>
+                    <TableHead className="text-center">Frequency</TableHead>
+                    <TableHead className="text-right">R Lost</TableHead>
+                    <TableHead>Skip Condition</TableHead>
+                    <TableHead>Fix</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {ai_analysis.mistake_mining.map((mistake, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell className="font-medium">
+                        {mistake.definition}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline">{mistake.frequency}x</Badge>
+                      </TableCell>
+                      <TableCell className="text-right text-red-500 font-medium">
+                        {mistake.total_r_lost.toFixed(1)}R
+                      </TableCell>
+                      <TableCell>
+                        <code className="text-xs bg-muted px-2 py-1 rounded">
+                          {mistake.skip_condition}
+                        </code>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-[200px]">
+                        {mistake.rule_change}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Recommendations */}
+        {ai_analysis?.recommendations && (
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Rule Updates */}
+            <Card className="glass-card">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BookOpen className="h-5 w-5 text-blue-500" />
+                  Rule Updates
+                </CardTitle>
+                <CardDescription>Changes to your trading rules</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {ai_analysis.recommendations.rule_updates.map((rec, idx) => (
+                  <div key={idx} className="p-4 rounded-lg bg-blue-500/5 border border-blue-500/20 space-y-3">
+                    <div>
+                      <p className="text-xs text-blue-500 font-medium mb-1">When</p>
+                      <p className="text-sm">{rec.trigger_condition}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-2 rounded bg-green-500/10">
+                        <p className="text-xs text-green-500 font-medium mb-1">Do This</p>
+                        <p className="text-sm">{rec.action}</p>
+                      </div>
+                      <div className="p-2 rounded bg-red-500/10">
+                        <p className="text-xs text-red-500 font-medium mb-1">Don't Do This</p>
+                        <p className="text-sm">{rec.avoid}</p>
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      <span className="font-medium">Measure:</span> {rec.success_metric}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            {/* Execution Updates */}
+            <Card className="glass-card">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-yellow-500" />
+                  Execution Updates
+                </CardTitle>
+                <CardDescription>Changes to your trade execution</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {ai_analysis.recommendations.execution_updates.map((rec, idx) => (
+                  <div key={idx} className="p-4 rounded-lg bg-yellow-500/5 border border-yellow-500/20 space-y-3">
+                    <div>
+                      <p className="text-xs text-yellow-500 font-medium mb-1">When</p>
+                      <p className="text-sm">{rec.trigger_condition}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-2 rounded bg-green-500/10">
+                        <p className="text-xs text-green-500 font-medium mb-1">Do This</p>
+                        <p className="text-sm">{rec.action}</p>
+                      </div>
+                      <div className="p-2 rounded bg-red-500/10">
+                        <p className="text-xs text-red-500 font-medium mb-1">Don't Do This</p>
+                        <p className="text-sm">{rec.avoid}</p>
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      <span className="font-medium">Measure:</span> {rec.success_metric}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* AI Playbook Grades */}
+        {ai_analysis?.playbook_grades && ai_analysis.playbook_grades.length > 0 && (
+          <Card className="glass-card">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BookOpen className="h-5 w-5" />
+                Playbook Analysis
+                <Badge variant="outline" className="ml-2 bg-primary/10 text-primary border-primary/30">
+                  <Brain className="h-3 w-3 mr-1" />
+                  AI Graded
+                </Badge>
+              </CardTitle>
+              <CardDescription>AI-generated strengths, weaknesses, and focus areas for each playbook</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {ai_analysis.playbook_grades.map((pg) => (
+                  <div 
+                    key={pg.playbook_id} 
+                    className="p-4 rounded-lg border bg-card/50 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-semibold text-foreground">{pg.playbook_name}</h4>
+                      <Badge variant="outline" className={getGradeColor(pg.grade)}>
+                        {pg.grade}
+                      </Badge>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="p-2 rounded bg-green-500/10">
+                        <p className="text-xs text-green-500 font-medium mb-1">Strength</p>
+                        <p className="text-muted-foreground">{pg.key_strength}</p>
+                      </div>
+                      <div className="p-2 rounded bg-red-500/10">
+                        <p className="text-xs text-red-500 font-medium mb-1">Weakness</p>
+                        <p className="text-muted-foreground">{pg.key_weakness}</p>
+                      </div>
+                      <div className="p-2 rounded bg-primary/10">
+                        <p className="text-xs text-primary font-medium mb-1">Focus Rule</p>
+                        <p className="text-muted-foreground">{pg.focus_rule}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Insufficient Data Warning */}
+        {ai_analysis?.insufficient_data && ai_analysis.insufficient_data.length > 0 && (
+          <Card className="glass-card border-yellow-500/30">
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground mb-2">Insufficient Data</p>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    {ai_analysis.insufficient_data.map((item, idx) => (
+                      <li key={idx}>• {item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Playbook Comparison & Symbol Performance */}
         <div className="grid gap-6 lg:grid-cols-2">
