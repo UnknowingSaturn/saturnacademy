@@ -127,7 +127,6 @@ export interface Trade {
   profile: TradeProfile | null;
   place: string | null;
   trade_number: number | null;
-  trade_group_id: string | null; // Reference to trade_groups table for grouping similar trades
   trade_type: TradeType; // Type of trade: executed, idea, paper, or missed
   risk_percent: number | null; // Percentage of balance/equity risked (for idea/paper/missed trades)
   // Joined data

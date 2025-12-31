@@ -990,50 +990,6 @@ export type Database = {
           },
         ]
       }
-      trade_groups: {
-        Row: {
-          created_at: string
-          direction: Database["public"]["Enums"]["trade_direction"]
-          first_entry_time: string
-          id: string
-          name: string | null
-          playbook_id: string | null
-          symbol: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          direction: Database["public"]["Enums"]["trade_direction"]
-          first_entry_time: string
-          id?: string
-          name?: string | null
-          playbook_id?: string | null
-          symbol: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          direction?: Database["public"]["Enums"]["trade_direction"]
-          first_entry_time?: string
-          id?: string
-          name?: string | null
-          playbook_id?: string | null
-          symbol?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "trade_groups_playbook_id_fkey"
-            columns: ["playbook_id"]
-            isOneToOne: false
-            referencedRelation: "playbooks"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       trade_reviews: {
         Row: {
           actionable_steps: Json | null
@@ -1166,7 +1122,6 @@ export type Database = {
           total_lots: number
           tp_final: number | null
           tp_initial: number | null
-          trade_group_id: string | null
           trade_number: number | null
           trade_type: Database["public"]["Enums"]["trade_type"]
           updated_at: string
@@ -1210,7 +1165,6 @@ export type Database = {
           total_lots: number
           tp_final?: number | null
           tp_initial?: number | null
-          trade_group_id?: string | null
           trade_number?: number | null
           trade_type?: Database["public"]["Enums"]["trade_type"]
           updated_at?: string
@@ -1254,7 +1208,6 @@ export type Database = {
           total_lots?: number
           tp_final?: number | null
           tp_initial?: number | null
-          trade_group_id?: string | null
           trade_number?: number | null
           trade_type?: Database["public"]["Enums"]["trade_type"]
           updated_at?: string
@@ -1273,13 +1226,6 @@ export type Database = {
             columns: ["playbook_id"]
             isOneToOne: false
             referencedRelation: "playbooks"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trades_trade_group_id_fkey"
-            columns: ["trade_group_id"]
-            isOneToOne: false
-            referencedRelation: "trade_groups"
             referencedColumns: ["id"]
           },
           {

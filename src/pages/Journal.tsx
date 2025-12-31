@@ -3,7 +3,6 @@ import { useSearchParams } from "react-router-dom";
 import { useTrades } from "@/hooks/useTrades";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
-import { useGroupedTradesView, useAutoGroupTrades, TradeGroup } from "@/hooks/useTradeGroups";
 
 import { TradeTable } from "@/components/journal/TradeTable";
 import { TradeDetailPanel } from "@/components/journal/TradeDetailPanel";
@@ -21,8 +20,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { SessionType, Trade, TradeType } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
-import { Search, Settings, Table, CalendarDays, X, Archive, Layers, List, Wand2, Lightbulb, FileText, Clock, CheckCircle } from "lucide-react";
-import { toast } from "sonner";
+import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, FileText, Clock, CheckCircle } from "lucide-react";
 
 export default function Journal() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -37,13 +35,10 @@ export default function Journal() {
   const [activeFilters, setActiveFilters] = useState<FilterCondition[]>([]);
   const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
   const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
-  const [groupViewMode, setGroupViewMode] = useState<"groups" | "flat">("groups");
 
   const { data: trades, isLoading } = useTrades();
   const { data: settings } = useUserSettings();
   const { selectedAccountId, accounts } = useAccountFilter();
-  const { data: groupedData, isLoading: isLoadingGroups } = useGroupedTradesView();
-  const autoGroup = useAutoGroupTrades();
 
   // Read model filter from URL params on mount
   useEffect(() => {
@@ -172,39 +167,6 @@ export default function Journal() {
           <p className="text-muted-foreground">Review and analyze your trades</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Groups/Flat Toggle - only show for active tab and table view */}
-          {activeTab === "active" && viewMode === "table" && (
-            <ToggleGroup 
-              type="single" 
-              value={groupViewMode} 
-              onValueChange={(v) => v && setGroupViewMode(v as "groups" | "flat")}
-              className="bg-muted/50 p-0.5 rounded-lg"
-            >
-              <ToggleGroupItem value="groups" aria-label="Grouped view" className="px-3 gap-1.5 text-xs">
-                <Layers className="w-3.5 h-3.5" />
-                Grouped
-              </ToggleGroupItem>
-              <ToggleGroupItem value="flat" aria-label="Flat view" className="px-3 gap-1.5 text-xs">
-                <List className="w-3.5 h-3.5" />
-                Flat
-              </ToggleGroupItem>
-            </ToggleGroup>
-          )}
-          
-          {/* Auto-group button - only show in grouped view */}
-          {activeTab === "active" && viewMode === "table" && groupViewMode === "groups" && (
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => autoGroup.mutate(60)}
-              disabled={autoGroup.isPending}
-              className="gap-1.5 text-xs"
-            >
-              <Wand2 className="w-3.5 h-3.5" />
-              {autoGroup.isPending ? "Grouping..." : "Auto-group"}
-            </Button>
-          )}
-          
           {/* View Toggle - only show for active tab */}
           {activeTab === "active" && (
             <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "table" | "calendar")}>
@@ -312,43 +274,21 @@ export default function Journal() {
           )}
 
           {/* Content based on view mode */}
-          {isLoading || isLoadingGroups ? (
+          {isLoading ? (
             <div className="space-y-2">
               {[...Array(5)].map((_, i) => (
                 <Skeleton key={i} className="h-16 rounded-lg" />
               ))}
             </div>
           ) : viewMode === "table" ? (
-            filteredTrades.length === 0 && (groupViewMode === "flat" || !groupedData?.groups.length) ? (
+            filteredTrades.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <p>No trades found</p>
                 <p className="text-sm">Import trades or add them manually to get started</p>
               </div>
             ) : (
             <TradeTable 
-              trades={groupViewMode === "flat" ? filteredTrades : groupedData?.ungrouped.filter(t => {
-                // Apply same filters to ungrouped trades
-                if (selectedAccountId !== "all" && t.account_id !== selectedAccountId) return false;
-                if (modelFilter && t.playbook_id !== modelFilter && t.playbook?.name !== modelFilter) return false;
-                if (symbolFilter && !t.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) return false;
-                if (sessionFilter !== "all" && t.session !== sessionFilter) return false;
-                if (resultFilter === "win" && (t.net_pnl || 0) <= 0) return false;
-                if (resultFilter === "loss" && (t.net_pnl || 0) >= 0) return false;
-                if (resultFilter === "open" && !t.is_open) return false;
-                // Apply trade type filter
-                if (tradeTypeFilter === "executed" && t.trade_type && t.trade_type !== 'executed') return false;
-                if (tradeTypeFilter === "ideas" && (!t.trade_type || t.trade_type === 'executed')) return false;
-                return true;
-              }) || []}
-              tradeGroups={groupViewMode === "groups" ? groupedData?.groups.filter(g => {
-                // Apply filters to groups
-                if (selectedAccountId !== "all" && !g.account_ids.includes(selectedAccountId)) return false;
-                if (symbolFilter && !g.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) return false;
-                if (resultFilter === "win" && g.combined_net_pnl <= 0) return false;
-                if (resultFilter === "loss" && g.combined_net_pnl >= 0) return false;
-                if (resultFilter === "open" && !g.is_open) return false;
-                return true;
-              }) : undefined}
+              trades={filteredTrades}
               onTradeClick={(trade) => setSelectedTradeId(trade.id)}
               visibleColumns={settings?.visible_columns}
               onEditProperty={handleEditProperty}
