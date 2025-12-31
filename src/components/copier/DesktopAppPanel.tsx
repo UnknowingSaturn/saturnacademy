@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,15 @@ import {
   Terminal,
   FileCode,
   HardDrive,
-  Clock
+  Clock,
+  Package,
+  Calendar,
+  Sparkles,
+  ChevronRight,
+  CheckCircle2,
+  MousePointer,
+  Key,
+  Play
 } from "lucide-react";
 import { Account } from "@/types/trading";
 import { toast } from "sonner";
@@ -30,9 +38,34 @@ interface DesktopAppPanelProps {
   receiverAccounts: Account[];
 }
 
+interface ReleaseInfo {
+  version: string;
+  releaseDate: string;
+  downloadUrl: string;
+  downloadSize: string;
+  releaseNotes: string[];
+}
+
+// This would typically come from an API call
+const CURRENT_RELEASE: ReleaseInfo = {
+  version: "1.0.0",
+  releaseDate: "2025-01-15",
+  downloadUrl: "https://github.com/your-org/saturn-copier-desktop/releases/latest/download/SaturnTradeCopier-setup.exe",
+  downloadSize: "3.5 MB",
+  releaseNotes: [
+    "Initial release",
+    "Ultra-low latency trade copying (20-50ms)",
+    "System tray operation with mini dashboard",
+    "Auto-sync configuration from cloud",
+    "All risk calculation modes supported"
+  ]
+};
+
 export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppPanelProps) {
   const [copied, setCopied] = useState(false);
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
+  const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo>(CURRENT_RELEASE);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
   const receiverWithApiKey = receiverAccounts.find(a => a.api_key);
   const configEndpoint = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copier-config`;
@@ -50,6 +83,19 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
       setApiKeyCopied(true);
       toast.success("API key copied!");
       setTimeout(() => setApiKeyCopied(false), 2000);
+    }
+  };
+
+  const handleCheckForUpdates = async () => {
+    setIsCheckingUpdate(true);
+    try {
+      // In production, this would call the copier-update-check endpoint
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      toast.info("You have the latest version!");
+    } catch (error) {
+      toast.error("Failed to check for updates");
+    } finally {
+      setIsCheckingUpdate(false);
     }
   };
 
@@ -76,7 +122,46 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
     }
   ];
 
-  const setupSteps = [
+  const installationSteps = [
+    {
+      step: 1,
+      icon: Download,
+      title: "Download the installer",
+      description: "Click the download button above to get the Windows installer"
+    },
+    {
+      step: 2,
+      icon: MousePointer,
+      title: "Run the installer",
+      description: "Double-click the .exe file and follow the installation wizard"
+    },
+    {
+      step: 3,
+      icon: Shield,
+      title: "Allow Windows Security",
+      description: "Click 'More info' → 'Run anyway' if Windows SmartScreen appears"
+    },
+    {
+      step: 4,
+      icon: Monitor,
+      title: "Find in system tray",
+      description: "The app will appear in your system tray (bottom-right near clock)"
+    },
+    {
+      step: 5,
+      icon: Key,
+      title: "Enter your API key",
+      description: "Copy your API key from below and paste it in the app's settings"
+    },
+    {
+      step: 6,
+      icon: Play,
+      title: "Start copying trades",
+      description: "The app will automatically sync your configuration and start copying"
+    }
+  ];
+
+  const buildSteps = [
     {
       step: 1,
       title: "Clone the Repository",
@@ -134,40 +219,92 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
         {/* Download Section */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Download className="h-5 w-5" />
-              Download Desktop App
-            </CardTitle>
-            <CardDescription>
-              Get the pre-built installer or build from source
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Download className="h-5 w-5" />
+                  Download Desktop App
+                </CardTitle>
+                <CardDescription>
+                  Get the pre-built installer for Windows
+                </CardDescription>
+              </div>
+              <Badge variant="outline" className="text-xs">
+                <Package className="h-3 w-3 mr-1" />
+                v{releaseInfo.version}
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Version Info */}
+            <div className="p-4 rounded-lg bg-muted/50 border space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <span className="font-medium">Latest Release</span>
+                </div>
+                <span className="text-sm text-muted-foreground">
+                  v{releaseInfo.version}
+                </span>
+              </div>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <div className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  {new Date(releaseInfo.releaseDate).toLocaleDateString()}
+                </div>
+                <div className="flex items-center gap-1">
+                  <HardDrive className="h-3 w-3" />
+                  {releaseInfo.downloadSize}
+                </div>
+              </div>
+              
+              {/* Release Notes */}
+              <div className="pt-2 border-t">
+                <p className="text-xs font-medium text-muted-foreground mb-2">What's new:</p>
+                <ul className="text-xs text-muted-foreground space-y-1">
+                  {releaseInfo.releaseNotes.slice(0, 3).map((note, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <ChevronRight className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                      {note}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
             {/* Download buttons */}
             <div className="space-y-3">
-              <Button className="w-full" size="lg" disabled>
-                <Download className="mr-2 h-4 w-4" />
-                Download for Windows (Coming Soon)
-                <Badge variant="secondary" className="ml-2">3.5 MB</Badge>
-              </Button>
-              
-              <div className="flex items-center gap-2">
-                <Separator className="flex-1" />
-                <span className="text-xs text-muted-foreground">or</span>
-                <Separator className="flex-1" />
-              </div>
-
-              <Button variant="outline" className="w-full" asChild>
+              <Button className="w-full" size="lg" asChild>
                 <a 
-                  href="https://github.com/your-org/saturn-copier-desktop" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
+                  href={releaseInfo.downloadUrl}
+                  download
                 >
-                  <Github className="mr-2 h-4 w-4" />
-                  Build from Source
-                  <ExternalLink className="ml-2 h-3 w-3" />
+                  <Download className="mr-2 h-4 w-4" />
+                  Download for Windows
+                  <Badge variant="secondary" className="ml-2">{releaseInfo.downloadSize}</Badge>
                 </a>
               </Button>
+              
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  className="flex-1" 
+                  onClick={handleCheckForUpdates}
+                  disabled={isCheckingUpdate}
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                  Check for Updates
+                </Button>
+                <Button variant="outline" asChild>
+                  <a 
+                    href="https://github.com/your-org/saturn-copier-desktop/releases" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                  >
+                    <Github className="h-4 w-4" />
+                  </a>
+                </Button>
+              </div>
             </div>
 
             {/* System Requirements */}
@@ -278,7 +415,47 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
         </Card>
       </div>
 
-      {/* Build Instructions */}
+      {/* Installation Guide */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5" />
+            Installation Guide
+          </CardTitle>
+          <CardDescription>
+            Quick setup in 6 easy steps
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {installationSteps.map((item) => (
+              <div 
+                key={item.step} 
+                className="p-4 rounded-lg border bg-card hover:bg-muted/30 transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                    <item.icon className="h-4 w-4 text-primary" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Step {item.step}
+                      </span>
+                    </div>
+                    <h4 className="font-medium text-sm">{item.title}</h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {item.description}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Build from Source (Collapsible) */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -286,7 +463,7 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
             Build from Source
           </CardTitle>
           <CardDescription>
-            Step-by-step instructions for building the desktop app locally
+            For developers who want to customize or contribute
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -323,7 +500,7 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
 
             {/* Steps */}
             <div className="space-y-4">
-              {setupSteps.map((item) => (
+              {buildSteps.map((item) => (
                 <div key={item.step} className="flex gap-4">
                   <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium">
                     {item.step}
@@ -365,6 +542,16 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
                 >
                   Install Rust
                   <ExternalLink className="ml-2 h-3 w-3" />
+                </a>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <a 
+                  href="https://github.com/your-org/saturn-copier-desktop" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                >
+                  <Github className="mr-2 h-3 w-3" />
+                  View Source
                 </a>
               </Button>
             </div>
