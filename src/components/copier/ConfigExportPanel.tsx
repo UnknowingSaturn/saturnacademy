@@ -174,26 +174,49 @@ export function ConfigExportPanel({ masterAccount, receiverAccounts }: ConfigExp
             <FileCode className="h-4 w-4" />
             Download Expert Advisors
           </h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <p className="text-sm text-muted-foreground">
+            Each EA includes built-in cloud journaling. No need for TradeJournalBridge on copier accounts.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <a 
               href="/TradeCopierMaster.mq5" 
               download
-              className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors group"
+              className="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-lg hover:bg-primary/10 transition-colors group"
             >
               <div>
-                <p className="font-medium text-sm">TradeCopierMaster.mq5</p>
-                <p className="text-xs text-muted-foreground">Install on master terminal</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-sm">TradeCopierMaster.mq5</p>
+                  <span className="text-xs bg-primary/20 text-primary px-1.5 rounded">Master</span>
+                </div>
+                <p className="text-xs text-muted-foreground">Journals + writes copier queue</p>
               </div>
               <Download className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
             </a>
             <a 
               href="/TradeCopierReceiver.mq5" 
               download
+              className="flex items-center justify-between p-3 bg-green-500/5 border border-green-500/20 rounded-lg hover:bg-green-500/10 transition-colors group"
+            >
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-sm">TradeCopierReceiver.mq5</p>
+                  <span className="text-xs bg-green-500/20 text-green-600 dark:text-green-400 px-1.5 rounded">Receiver</span>
+                </div>
+                <p className="text-xs text-muted-foreground">Executes trades + journals</p>
+              </div>
+              <Download className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
+            </a>
+            <a 
+              href="/TradeJournalBridge.mq5" 
+              download
               className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors group"
             >
               <div>
-                <p className="font-medium text-sm">TradeCopierReceiver.mq5</p>
-                <p className="text-xs text-muted-foreground">Install on receiver terminal(s)</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-sm">TradeJournalBridge.mq5</p>
+                  <span className="text-xs bg-muted text-muted-foreground px-1.5 rounded">Independent</span>
+                </div>
+                <p className="text-xs text-muted-foreground">Journal only (no copying)</p>
               </div>
               <Download className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
             </a>

@@ -185,7 +185,7 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
     {
       step: 1,
       title: "Clone the Repository",
-      code: "git clone https://github.com/your-org/saturn-copier-desktop.git\ncd saturn-copier-desktop"
+      code: "git clone https://github.com/UnknowingSaturn/saturnacademy.git\ncd saturnacademy/copier-desktop"
     },
     {
       step: 2,
@@ -619,7 +619,7 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
               </Button>
               <Button variant="outline" size="sm" asChild>
                 <a 
-                  href="https://github.com/your-org/saturn-copier-desktop" 
+                  href="https://github.com/UnknowingSaturn/saturnacademy" 
                   target="_blank" 
                   rel="noopener noreferrer"
                 >
