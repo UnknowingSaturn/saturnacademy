@@ -37,6 +37,10 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
+      "resources": [
+        "resources/TradeCopierMaster.mq5",
+        "resources/TradeCopierReceiver.mq5"
+      ],
       "windows": {
         "certificateThumbprint": null,
         "digestAlgorithm": "sha256",

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Find all MT5 terminal installations on the system
 pub fn find_mt5_terminals() -> Vec<Mt5Terminal> {
@@ -46,12 +46,66 @@ fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
     let files_path = path.join("MQL5").join("Files");
     let has_mql5 = files_path.exists();
 
+    // Check which EAs are installed
+    let experts_path = path.join("MQL5").join("Experts");
+    let master_installed = experts_path.join("TradeCopierMaster.mq5").exists() 
+        || experts_path.join("TradeCopierMaster.ex5").exists();
+    let receiver_installed = experts_path.join("TradeCopierReceiver.mq5").exists()
+        || experts_path.join("TradeCopierReceiver.ex5").exists();
+
     Some(Mt5Terminal {
         terminal_id,
         path: path.to_string_lossy().to_string(),
         broker,
         has_mql5,
+        master_installed,
+        receiver_installed,
     })
+}
+
+/// Install EA file to a terminal's MQL5/Experts folder
+pub fn install_ea_to_terminal(
+    terminal_id: &str,
+    ea_type: &str,
+    ea_content: &[u8],
+) -> Result<String, String> {
+    let appdata = std::env::var("APPDATA")
+        .map_err(|_| "Could not find APPDATA directory".to_string())?;
+    
+    let terminal_path = PathBuf::from(format!(
+        "{}\\MetaQuotes\\Terminal\\{}",
+        appdata, terminal_id
+    ));
+    
+    if !terminal_path.exists() {
+        return Err(format!("Terminal {} not found", terminal_id));
+    }
+
+    // Ensure MQL5/Experts folder exists
+    let experts_path = terminal_path.join("MQL5").join("Experts");
+    std::fs::create_dir_all(&experts_path)
+        .map_err(|e| format!("Failed to create Experts folder: {}", e))?;
+
+    // Determine EA filename
+    let ea_filename = match ea_type {
+        "master" => "TradeCopierMaster.mq5",
+        "receiver" => "TradeCopierReceiver.mq5",
+        _ => return Err(format!("Invalid EA type: {}", ea_type)),
+    };
+
+    // Write EA file
+    let ea_path = experts_path.join(ea_filename);
+    std::fs::write(&ea_path, ea_content)
+        .map_err(|e| format!("Failed to write EA file: {}", e))?;
+
+    // Create necessary folders for copier operation
+    let files_path = terminal_path.join("MQL5").join("Files");
+    std::fs::create_dir_all(files_path.join("CopierQueue"))
+        .map_err(|e| format!("Failed to create CopierQueue folder: {}", e))?;
+    std::fs::create_dir_all(files_path.join("CopierCommands"))
+        .map_err(|e| format!("Failed to create CopierCommands folder: {}", e))?;
+
+    Ok(ea_path.to_string_lossy().to_string())
 }
 
 /// Get account info from MT5 terminal via file
@@ -92,6 +146,8 @@ pub struct Mt5Terminal {
     pub path: String,
     pub broker: Option<String>,
     pub has_mql5: bool,
+    pub master_installed: bool,
+    pub receiver_installed: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
