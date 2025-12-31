@@ -11,7 +11,17 @@ export interface OpenTradeWithCompliance extends Trade {
   detectedSession?: string;
 }
 
+// Helper to normalize embedded trade_reviews (handles object or array)
+function normalizeReviews(raw: any): any[] {
+  if (!raw) return [];
+  return Array.isArray(raw) ? raw : [raw];
+}
+
 function transformTrade(row: any): Trade {
+  // Normalize reviews - could be object or array after UNIQUE constraint
+  const reviews = normalizeReviews(row.trade_reviews);
+  const latestReview = reviews[0];
+
   return {
     id: row.id,
     user_id: row.user_id,
@@ -52,7 +62,7 @@ function transformTrade(row: any): Trade {
     trade_group_id: row.trade_group_id || null,
     trade_type: row.trade_type || 'executed',
     risk_percent: row.risk_percent ? Number(row.risk_percent) : null,
-    review: row.trade_reviews?.[0] ? transformReview(row.trade_reviews[0]) : undefined,
+    review: latestReview ? transformReview(latestReview) : undefined,
     account: row.accounts || undefined,
   };
 }

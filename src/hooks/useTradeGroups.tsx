@@ -4,6 +4,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { Trade, Account } from "@/types/trading";
 import { toast } from "sonner";
 
+// Helper to normalize embedded review (handles object or array)
+function normalizeReview(raw: any): any | null {
+  if (!raw) return null;
+  return Array.isArray(raw) ? raw[0] : raw;
+}
+
 export interface TradeGroup {
   id: string;
   symbol: string;
@@ -84,10 +90,10 @@ export function useTradeGroups() {
 
       if (tradesError) throw tradesError;
 
-      // Transform trades
+      // Transform trades - normalize review (could be object or array)
       const transformedTrades = (trades || []).map((row: any) => ({
         ...row,
-        review: row.review?.[0] || null,
+        review: normalizeReview(row.review),
         trade_group_id: row.trade_group_id,
       }));
 
@@ -126,7 +132,7 @@ export function useUngroupedTrades() {
 
       return (data || []).map((row: any) => ({
         ...row,
-        review: row.review?.[0] || null,
+        review: normalizeReview(row.review),
       }));
     },
     enabled: !!user?.id,
@@ -166,10 +172,10 @@ export function useGroupedTradesView() {
 
       if (groupsError) throw groupsError;
 
-      // Transform trades
+      // Transform trades - normalize review (could be object or array)
       const transformedTrades = (allTrades || []).map((row: any) => ({
         ...row,
-        review: row.review?.[0] || null,
+        review: normalizeReview(row.review),
         trade_group_id: row.trade_group_id,
       }));
 
