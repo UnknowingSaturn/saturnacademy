@@ -337,13 +337,18 @@ export interface AIAnalysisOutput {
     entry_quality: string;
     exit_quality: string;
     stop_placement: string;
+    key_levels_identified?: string[];
     confirmations_visible: string[];
     chart_observations: string[];
+    better_entry_identified?: string | null;
+    structure_analysis?: string;
   };
   strategy_refinement?: {
     rule_suggestion: string | null;
     filter_recommendation: string | null;
     edge_observation: string | null;
+    entry_refinement?: string | null;
+    stop_refinement?: string | null;
   };
   confidence: 'low' | 'medium' | 'high';
   screenshots_analyzed?: boolean;

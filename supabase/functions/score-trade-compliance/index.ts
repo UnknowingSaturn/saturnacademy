@@ -28,6 +28,26 @@ interface ComplianceResult {
   matched_rules: string[];
 }
 
+// CRITICAL FIX: Normalize trade_reviews which can be object OR array depending on Supabase join
+function normalizeToArray<T>(data: T | T[] | null | undefined): T[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  return [data];
+}
+
+// Get the latest review from normalized array
+function getLatestReview(reviews: any[]): any | null {
+  if (reviews.length === 0) return null;
+  if (reviews.length === 1) return reviews[0];
+  
+  // Sort by updated_at descending, fallback to created_at
+  return reviews.sort((a, b) => {
+    const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
+    const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
+    return bTime - aTime;
+  })[0];
+}
+
 // Normalize symbol to handle broker-specific suffixes like EURUSD+, EURUSD., EURUSDm
 function normalizeSymbol(symbol: string): string {
   if (!symbol) return '';
@@ -260,7 +280,16 @@ serve(async (req) => {
       .eq("trade_id", trade_id)
       .maybeSingle();
 
-    const review = trade.trade_reviews?.[0];
+    // CRITICAL FIX: Normalize trade_reviews which can be object OR array
+    const reviewsArray = normalizeToArray(trade.trade_reviews);
+    const review = getLatestReview(reviewsArray);
+    
+    console.log("Reviews normalized:", {
+      rawType: Array.isArray(trade.trade_reviews) ? 'array' : typeof trade.trade_reviews,
+      normalizedLength: reviewsArray.length,
+      selectedReviewId: review?.id || null
+    });
+    
     let playbook = trade.playbook || review?.playbook;
 
     // Fallback: If no playbook from joined data, try to fetch by trade.playbook_id
