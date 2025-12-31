@@ -39,24 +39,38 @@ ABOUT CONFIRMATION RULES:
 - If no checklist answers exist confirming these rules, state them as "unable to verify from available data"
 - Only mark confirmation rules as deviations if the trader explicitly marked them as failed
 
-VISUAL CHART ANALYSIS (when screenshots are provided):
-- Analyze the chart images to verify entry/exit quality
-- USE SCREENSHOT DESCRIPTIONS as context - they tell you what the trader saw
-- Assess whether entry was at a key level (support/resistance, order block, fair value gap)
-- Evaluate if exit was optimal or if more could have been captured
-- Check if stop placement was behind structure or arbitrary
-- Reference specific visual elements (price levels, candle patterns, structure) in your analysis
+CHART ANALYSIS REQUIREMENTS (when screenshots are provided):
+1. IDENTIFY KEY LEVELS: Call out specific price levels for support, resistance, order blocks, fair value gaps visible in the charts
+2. GRADE THE ENTRY: Was entry at premium/discount? At a key level or in no-man's land? Reference the exact price and visible structure
+3. ASSESS STOP PLACEMENT: Is the stop behind structure (order block, swing low/high) or arbitrary? Would a few pips tighter/wider have made a difference?
+4. REFERENCE TRADER NOTES: The trader's screenshot descriptions are first-hand accounts - validate and extend them with your visual analysis
+5. IDENTIFY ALTERNATIVE ENTRY: If a better entry was visible, describe exactly where (price level, candle pattern, structure)
+6. MULTI-TIMEFRAME ANALYSIS: If multiple timeframe screenshots exist, assess confluence or conflict between timeframes
+7. PRICE ACTION PATTERNS: Identify ICT/SMC concepts visible in charts:
+   - Order Blocks (bullish/bearish)
+   - Fair Value Gaps (FVGs) / Imbalances
+   - Liquidity sweeps / Stop hunts
+   - Break of Structure (BOS) / Change of Character (CHoCH)
+   - Premium/Discount zones
+8. COMPARE TO IDEAL: How does this entry compare to the playbook's ideal setup if examples are provided?
+9. VISUAL EVIDENCE FOR DEVIATIONS: Only cite rule deviations that are visually verifiable in the screenshots
 
-STRATEGY REFINEMENT:
-- Based on your analysis, suggest specific rule improvements
-- Identify patterns that could become systematic filters
+STRATEGY REFINEMENT (be specific, not generic):
+- Based on your analysis, suggest specific rule improvements with exact conditions
+- Identify patterns that could become systematic filters (e.g., "avoid entries in first 15 mins of session when...")
 - Observe potential edges that could be added to the playbook
+- Reference specific chart elements when making suggestions
 
 TIME WINDOW VERIFICATION (CRITICAL):
 - All entry times in TRADE DATA are shown in ET (Eastern Time)
 - When checking time windows (e.g., "03:00-04:00 EST"), verify the ET hour is within range before flagging as a violation
 - For example, if entry is at 03:19 ET and rule says "within 03:00-04:00", this is COMPLIANT (not a deviation)
 - Only flag time-based violations when the time is clearly OUTSIDE the specified window
+
+CONFIDENCE CALIBRATION:
+- LOW: No screenshots OR no playbook assigned OR missing most review data OR conflicting information that cannot be resolved
+- MEDIUM: Has screenshots but limited/no descriptions OR some data gaps OR playbook without detailed rules
+- HIGH: Has screenshots with descriptions AND complete playbook with rules AND trader review with emotional states AND checklist answers
 
 Your tone is that of a research analyst: precise, data-driven, and constructive but not soft.`;
 
@@ -93,13 +107,18 @@ interface AIAnalysisOutput {
     entry_quality: string;
     exit_quality: string;
     stop_placement: string;
+    key_levels_identified: string[];
     confirmations_visible: string[];
     chart_observations: string[];
+    better_entry_identified: string | null;
+    structure_analysis: string;
   };
   strategy_refinement?: {
     rule_suggestion: string | null;
     filter_recommendation: string | null;
     edge_observation: string | null;
+    entry_refinement: string | null;
+    stop_refinement: string | null;
   };
   confidence: "low" | "medium" | "high";
   screenshots_analyzed: boolean;
@@ -162,6 +181,8 @@ function buildUserPrompt(
 - Session: ${trade.session || "Unknown"}
 - Initial SL: ${trade.sl_initial || "Not set"}
 - Initial TP: ${trade.tp_initial || "Not set"}
+- Final SL: ${trade.sl_final || trade.sl_initial || "Not set"}
+- Final TP: ${trade.tp_final || trade.tp_initial || "Not set"}
 
 ## COMPUTED FEATURES
 `;
@@ -173,6 +194,8 @@ function buildUserPrompt(
 - Entry Efficiency: ${features.entry_efficiency?.toFixed(1) || 'N/A'}%
 - Exit Efficiency: ${features.exit_efficiency?.toFixed(1) || 'N/A'}%
 - Stop Location Quality: ${features.stop_location_quality?.toFixed(1) || 'N/A'}%
+- Volatility Regime: ${features.volatility_regime || 'Unknown'}
+- HTF Bias: ${features.htf_bias || 'Unknown'}
 `;
   } else {
     prompt += `- No computed features available\n`;
@@ -193,10 +216,29 @@ Confirmation Rules: ${playbook.confirmation_rules?.join(', ') || 'None defined'}
 Invalidation Conditions: ${playbook.invalidation_rules?.join(', ') || 'None defined'}
 Management Rules: ${playbook.management_rules?.join(', ') || 'None defined'}
 Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
+Max R Per Trade: ${playbook.max_r_per_trade || 'Not specified'}
+Max Daily Loss R: ${playbook.max_daily_loss_r || 'Not specified'}
 `;
 
+    // Include playbook example screenshots if available
+    const playbookScreenshots = playbook.screenshots || [];
+    if (Array.isArray(playbookScreenshots) && playbookScreenshots.length > 0) {
+      prompt += `
+## PLAYBOOK REFERENCE CHARTS (Trader's Ideal Setup Examples)
+These are the trader's own examples of what ideal setups look like for this playbook. Compare the current trade to these:
+`;
+      playbookScreenshots.forEach((s: any, i: number) => {
+        const description = typeof s === 'object' ? s.description : null;
+        const timeframe = typeof s === 'object' ? s.timeframe : null;
+        if (description) {
+          prompt += `Example ${i + 1}${timeframe ? ` (${timeframe})` : ''}: "${description}"\n`;
+        }
+      });
+      prompt += `\nNote similarities and differences between the current trade and these ideal examples.\n`;
+    }
+
     prompt += `
-## TRADER ATTESTATIONS (Verified by Trader - DO NOT CONTRADICT without evidence)
+## TRADER ATTESTATIONS (Verified by Trader - DO NOT CONTRADICT without visual evidence)
 `;
     
     if (playbook.confirmation_rules && Array.isArray(playbook.confirmation_rules) && playbook.confirmation_rules.length > 0) {
@@ -260,26 +302,46 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
     prompt += `No review data available for this trade.\n`;
   }
 
-  prompt += `
-## TRADER'S VISUAL DOCUMENTATION (First-hand accounts - treat as authoritative)
-`;
-
+  // Enhanced screenshot section with emphasis on visual analysis
   const screenshots = review?.screenshots || [];
   if (Array.isArray(screenshots) && screenshots.length > 0) {
+    prompt += `
+## CRITICAL: TRADER'S VISUAL DOCUMENTATION
+
+The trader has provided ${screenshots.length} chart screenshot(s) with descriptions. These are FIRST-HAND ACCOUNTS of what happened during the trade.
+You MUST analyze these charts and reference specific visual elements in your analysis.
+
+`;
+
     screenshots.forEach((screenshot: any, i: number) => {
-      const url = typeof screenshot === 'string' ? screenshot : screenshot.url;
       const description = typeof screenshot === 'object' ? screenshot.description : null;
       const timeframe = typeof screenshot === 'object' ? screenshot.timeframe : null;
       
+      prompt += `### Screenshot ${i + 1}${timeframe ? ` (${timeframe} timeframe)` : ''}
+`;
       if (description) {
-        prompt += `Screenshot ${i + 1}${timeframe ? ` (${timeframe})` : ''}: "${description}"\n`;
-      } else if (url) {
-        prompt += `Screenshot ${i + 1}${timeframe ? ` (${timeframe})` : ''}: [No description provided]\n`;
+        prompt += `Trader's Description: "${description}"
+
+For this screenshot, you MUST:
+- Identify key S/R levels, order blocks, or FVGs visible
+- Assess entry location relative to structure
+- Note any price action patterns (liquidity sweeps, BOS, CHoCH)
+- Validate or extend the trader's description with your visual analysis
+
+`;
+      } else {
+        prompt += `[No description provided - analyze the chart and describe what you see]
+
+`;
       }
     });
-    prompt += `\nIMPORTANT: These descriptions are from the trader who took the trade. They describe what actually happened. Do NOT contradict them without explicit visual evidence from the screenshots.\n`;
+
+    prompt += `IMPORTANT: Your visual_analysis section MUST reference specific elements from these screenshots. Do NOT provide generic analysis - cite what you actually see in the charts.\n`;
   } else {
-    prompt += `No screenshot documentation provided.\n`;
+    prompt += `
+## VISUAL DOCUMENTATION
+No screenshot documentation provided. Visual analysis will be limited.
+`;
   }
 
   prompt += `
@@ -287,7 +349,7 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
 `;
 
   if (similarTrades?.similar_winners?.length > 0) {
-    prompt += `\nSimilar Winning Trades:\n`;
+    prompt += `\nSimilar Winning Trades (compare what worked):\n`;
     similarTrades.similar_winners.slice(0, 5).forEach((t: any, i: number) => {
       prompt += `${i + 1}. ${t.symbol} (${t.similarity_score}% similar) - $${t.net_pnl?.toFixed(2) || 'N/A'}, ${t.r_multiple?.toFixed(2) || 'N/A'}R, session: ${t.session || 'unknown'}\n`;
     });
@@ -296,7 +358,7 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
   }
 
   if (similarTrades?.similar_losers?.length > 0) {
-    prompt += `\nSimilar Losing Trades:\n`;
+    prompt += `\nSimilar Losing Trades (identify patterns to avoid):\n`;
     similarTrades.similar_losers.slice(0, 5).forEach((t: any, i: number) => {
       prompt += `${i + 1}. ${t.symbol} (${t.similarity_score}% similar) - $${t.net_pnl?.toFixed(2) || 'N/A'}, ${t.r_multiple?.toFixed(2) || 'N/A'}R, session: ${t.session || 'unknown'}\n`;
     });
@@ -308,13 +370,202 @@ Known Failure Modes: ${playbook.failure_modes?.join(', ') || 'None documented'}
 Based on this data, provide your structured analysis using the trade_analysis function.
 
 CRITICAL ANALYSIS GUIDELINES:
-1. Use screenshot descriptions as first-hand accounts of what happened
-2. Do NOT contradict trader-confirmed attestations (marked with ✓ CONFIRMED)
-3. If this is a loss but trader notes "price reached target after stop" - the THESIS was correct, analyze WHY execution failed
-4. For each deviation you cite, reference the specific data point that shows it
-5. Distinguish between thesis failure, execution failure, and external factors`;
+1. For visual_analysis: Reference SPECIFIC price levels, candle patterns, and structure visible in screenshots
+2. For strategy_refinement: Suggest SPECIFIC rules with exact conditions, not generic advice
+3. For deviations: Only cite violations you can prove with data points or visual evidence
+4. For thesis_evaluation: Distinguish between thesis failure, execution failure, and external factors
+5. Screenshots are analyzed: Set screenshots_analyzed=true ONLY if you provided substantive chart observations
+6. Confidence: Set based on data completeness (see confidence calibration in system prompt)`;
 
   return prompt;
+}
+
+// Build the tool schema dynamically based on whether screenshots exist
+function buildToolSchema(hasScreenshots: boolean) {
+  const baseRequired = [
+    "technical_review", "thesis_evaluation", "mistake_attribution",
+    "psychology_analysis", "comparison_to_past", "actionable_guidance",
+    "confidence", "screenshots_analyzed"
+  ];
+  
+  // When screenshots exist, require visual_analysis and strategy_refinement
+  const required = hasScreenshots 
+    ? [...baseRequired, "visual_analysis", "strategy_refinement"]
+    : baseRequired;
+
+  return {
+    type: "function",
+    function: {
+      name: "trade_analysis",
+      description: "Structured analysis of a trade against the trader's playbook and history. When screenshots are provided, you MUST provide detailed visual analysis.",
+      parameters: {
+        type: "object",
+        properties: {
+          technical_review: {
+            type: "object",
+            properties: {
+              matched_rules: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "Specific playbook rules that the trade followed correctly"
+              },
+              deviations: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "Rules that were violated WITH specific evidence for each"
+              },
+              failure_type: { 
+                type: "string", 
+                enum: ["structural", "execution", "both", "none"],
+                description: "structural=thesis wrong, execution=right idea wrong timing, both=multiple failures, none=good trade"
+              }
+            },
+            required: ["matched_rules", "deviations", "failure_type"]
+          },
+          thesis_evaluation: {
+            type: "object",
+            properties: {
+              thesis_correct: { type: "boolean" },
+              thesis_explanation: { 
+                type: "string",
+                description: "Explain why the trade thesis was correct or incorrect, referencing price action"
+              },
+              failure_category: { 
+                type: "string", 
+                enum: ["thesis_wrong", "execution_failure", "external_factor", "no_failure"] 
+              }
+            },
+            required: ["thesis_correct", "thesis_explanation", "failure_category"]
+          },
+          mistake_attribution: {
+            type: "object",
+            properties: {
+              primary: { type: "string", nullable: true, description: "The main mistake if any, with specific evidence" },
+              secondary: { type: "array", items: { type: "string" } },
+              is_recurring: { type: "boolean", description: "Does this mistake appear in similar losing trades?" }
+            },
+            required: ["primary", "secondary", "is_recurring"]
+          },
+          psychology_analysis: {
+            type: "object",
+            properties: {
+              influence: { type: "string", description: "How emotional state affected the trade" },
+              past_correlation: { type: "string", description: "How this correlates with similar emotional states in history" },
+              psychology_vs_structure: { type: "string", enum: ["psychology", "structure", "both", "neither"] }
+            },
+            required: ["influence", "past_correlation", "psychology_vs_structure"]
+          },
+          comparison_to_past: {
+            type: "object",
+            properties: {
+              differs_from_winners: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "Specific ways this trade differs from similar winning trades"
+              },
+              resembles_losers: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "Specific ways this trade resembles similar losing trades"
+              }
+            },
+            required: ["differs_from_winners", "resembles_losers"]
+          },
+          actionable_guidance: {
+            type: "object",
+            properties: {
+              rule_to_reinforce: { type: "string", description: "A specific rule to practice, with exact conditions" },
+              avoid_condition: { type: "string", description: "A specific condition to avoid, with exact criteria" }
+            },
+            required: ["rule_to_reinforce", "avoid_condition"]
+          },
+          visual_analysis: {
+            type: "object",
+            description: "REQUIRED when screenshots are provided. Reference specific chart elements.",
+            properties: {
+              entry_quality: { 
+                type: "string", 
+                description: "Assessment of entry location. Reference specific price level and structure (e.g., 'Entry at 1.2650 was at the top of the 1H order block')"
+              },
+              exit_quality: { 
+                type: "string", 
+                description: "Assessment of exit relative to price action and structure visible in chart"
+              },
+              stop_placement: { 
+                type: "string", 
+                description: "Was stop behind structure or arbitrary? Reference specific level (e.g., 'Stop at 1.2620 was 5 pips below the swing low at 1.2625')"
+              },
+              key_levels_identified: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "List specific S/R levels, order blocks, FVGs visible with price levels"
+              },
+              confirmations_visible: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "List specific patterns/confirmations visible (e.g., 'BOS on 1min at 09:15', 'Liquidity sweep of 1.2600 low')"
+              },
+              chart_observations: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "Key observations from visual chart analysis not covered above"
+              },
+              better_entry_identified: { 
+                type: "string", 
+                nullable: true,
+                description: "If a better entry was visible, describe exactly where with price level"
+              },
+              structure_analysis: {
+                type: "string",
+                description: "Overall market structure assessment based on charts (e.g., 'Price in discount of daily range, bullish order flow on 1H')"
+              }
+            }
+          },
+          strategy_refinement: {
+            type: "object",
+            description: "Specific, actionable improvements based on this trade's lessons",
+            properties: {
+              rule_suggestion: { 
+                type: "string", 
+                nullable: true,
+                description: "A specific new rule to add (e.g., 'Wait for 1min CHoCH before entering off 15min OB during NY overlap')"
+              },
+              filter_recommendation: { 
+                type: "string", 
+                nullable: true,
+                description: "A filter to avoid similar losses or select similar wins (e.g., 'Avoid entries in first 15 mins of London session on Fridays')"
+              },
+              edge_observation: { 
+                type: "string", 
+                nullable: true,
+                description: "A potential edge pattern worth testing/tracking"
+              },
+              entry_refinement: {
+                type: "string",
+                nullable: true,
+                description: "How entry criteria could be refined based on chart analysis (e.g., 'Enter at POC instead of OB top for better R:R')"
+              },
+              stop_refinement: {
+                type: "string", 
+                nullable: true,
+                description: "How stop placement could be improved based on visible structure"
+              }
+            }
+          },
+          confidence: { 
+            type: "string", 
+            enum: ["low", "medium", "high"],
+            description: "LOW: no screenshots/playbook, MEDIUM: partial data, HIGH: screenshots+playbook+review"
+          },
+          screenshots_analyzed: { 
+            type: "boolean",
+            description: "Set TRUE only if you provided substantive visual analysis referencing specific chart elements"
+          }
+        },
+        required
+      }
+    }
+  };
 }
 
 serve(async (req) => {
@@ -482,12 +733,13 @@ serve(async (req) => {
     console.log("Step 10: Processing screenshots...");
     const screenshots = review?.screenshots || [];
     const hasScreenshots = Array.isArray(screenshots) && screenshots.length > 0;
-    console.log("Screenshots found:", screenshots.length);
+    const screenshotCount = hasScreenshots ? screenshots.length : 0;
+    console.log("Screenshots found:", screenshotCount);
 
     const userContent: any[] = [{ type: "text", text: userPrompt }];
     
     if (hasScreenshots) {
-      for (const screenshot of screenshots.slice(0, 4)) {
+      for (const screenshot of screenshots.slice(0, 5)) { // Allow up to 5 screenshots
         const url = typeof screenshot === 'string' ? screenshot : screenshot.url;
         if (url) {
           userContent.push({
@@ -499,8 +751,17 @@ serve(async (req) => {
       }
     }
 
-    // Step 11: Call AI gateway
-    console.log("Step 11: Calling AI gateway...");
+    // Step 11: Select model based on screenshot presence
+    // Use Gemini 2.5 Pro for trades with screenshots (better multimodal reasoning)
+    // Use Gemini 2.5 Flash for trades without screenshots (faster, cheaper)
+    const model = hasScreenshots ? "google/gemini-2.5-pro" : "google/gemini-2.5-flash";
+    console.log("Step 11: Selected model:", model, "(screenshots:", hasScreenshots, ")");
+
+    // Build dynamic tool schema based on screenshot presence
+    const toolSchema = buildToolSchema(hasScreenshots);
+
+    // Step 12: Call AI gateway
+    console.log("Step 12: Calling AI gateway...");
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -508,102 +769,12 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: hasScreenshots ? userContent : userPrompt },
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "trade_analysis",
-              description: "Structured analysis of a trade against the trader's playbook and history",
-              parameters: {
-                type: "object",
-                properties: {
-                  technical_review: {
-                    type: "object",
-                    properties: {
-                      matched_rules: { type: "array", items: { type: "string" } },
-                      deviations: { type: "array", items: { type: "string" } },
-                      failure_type: { type: "string", enum: ["structural", "execution", "both", "none"] }
-                    },
-                    required: ["matched_rules", "deviations", "failure_type"]
-                  },
-                  thesis_evaluation: {
-                    type: "object",
-                    properties: {
-                      thesis_correct: { type: "boolean" },
-                      thesis_explanation: { type: "string" },
-                      failure_category: { type: "string", enum: ["thesis_wrong", "execution_failure", "external_factor", "no_failure"] }
-                    },
-                    required: ["thesis_correct", "thesis_explanation", "failure_category"]
-                  },
-                  mistake_attribution: {
-                    type: "object",
-                    properties: {
-                      primary: { type: "string", nullable: true },
-                      secondary: { type: "array", items: { type: "string" } },
-                      is_recurring: { type: "boolean" }
-                    },
-                    required: ["primary", "secondary", "is_recurring"]
-                  },
-                  psychology_analysis: {
-                    type: "object",
-                    properties: {
-                      influence: { type: "string" },
-                      past_correlation: { type: "string" },
-                      psychology_vs_structure: { type: "string", enum: ["psychology", "structure", "both", "neither"] }
-                    },
-                    required: ["influence", "past_correlation", "psychology_vs_structure"]
-                  },
-                  comparison_to_past: {
-                    type: "object",
-                    properties: {
-                      differs_from_winners: { type: "array", items: { type: "string" } },
-                      resembles_losers: { type: "array", items: { type: "string" } }
-                    },
-                    required: ["differs_from_winners", "resembles_losers"]
-                  },
-                  actionable_guidance: {
-                    type: "object",
-                    properties: {
-                      rule_to_reinforce: { type: "string" },
-                      avoid_condition: { type: "string" }
-                    },
-                    required: ["rule_to_reinforce", "avoid_condition"]
-                  },
-                  visual_analysis: {
-                    type: "object",
-                    properties: {
-                      entry_quality: { type: "string" },
-                      exit_quality: { type: "string" },
-                      stop_placement: { type: "string" },
-                      confirmations_visible: { type: "array", items: { type: "string" } },
-                      chart_observations: { type: "array", items: { type: "string" } }
-                    }
-                  },
-                  strategy_refinement: {
-                    type: "object",
-                    properties: {
-                      rule_suggestion: { type: "string", nullable: true },
-                      filter_recommendation: { type: "string", nullable: true },
-                      edge_observation: { type: "string", nullable: true }
-                    }
-                  },
-                  confidence: { type: "string", enum: ["low", "medium", "high"] },
-                  screenshots_analyzed: { type: "boolean" }
-                },
-                required: [
-                  "technical_review", "thesis_evaluation", "mistake_attribution",
-                  "psychology_analysis", "comparison_to_past", "actionable_guidance",
-                  "confidence", "screenshots_analyzed"
-                ]
-              }
-            }
-          }
-        ],
+        tools: [toolSchema],
         tool_choice: { type: "function", function: { name: "trade_analysis" } }
       }),
     });
@@ -633,8 +804,8 @@ serve(async (req) => {
       );
     }
 
-    // Step 12: Parse AI response
-    console.log("Step 12: Parsing AI response...");
+    // Step 13: Parse AI response
+    console.log("Step 13: Parsing AI response...");
     const aiData = await aiResponse.json();
 
     let analysisOutput: AIAnalysisOutput | null = null;
@@ -646,6 +817,8 @@ serve(async (req) => {
         analysisOutput = JSON.parse(toolCall.function.arguments);
         rawAnalysis = toolCall.function.arguments;
         console.log("Successfully parsed structured analysis");
+        console.log("Visual analysis provided:", !!analysisOutput?.visual_analysis);
+        console.log("Strategy refinement provided:", !!analysisOutput?.strategy_refinement);
       } catch (e) {
         console.error("Failed to parse tool call arguments:", e);
       }
@@ -656,14 +829,14 @@ serve(async (req) => {
       console.warn("Tool call not used, falling back to raw content");
     }
 
-    // Step 13: Save to database
+    // Step 14: Save to database
     let savedReview = null;
     
     if (save) {
-      console.log("Step 13: Saving to database...");
+      console.log("Step 14: Saving to database...");
       const aiReviewData = {
         trade_id,
-        user_id: user.id, // NEW: Include user_id for simpler RLS
+        user_id: user.id,
         technical_review: analysisOutput?.technical_review || {},
         thesis_evaluation: analysisOutput?.thesis_evaluation || null,
         mistake_attribution: analysisOutput?.mistake_attribution || {},
@@ -700,7 +873,7 @@ serve(async (req) => {
       savedReview = saved;
       console.log("AI review saved successfully:", savedReview.id);
     } else {
-      console.log("Step 13: Skipping save (save=false)");
+      console.log("Step 14: Skipping save (save=false)");
     }
 
     console.log("=== analyze-trade completed successfully ===");
