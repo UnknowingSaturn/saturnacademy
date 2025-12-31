@@ -46,14 +46,12 @@ interface ReleaseInfo {
   releaseNotes: string[];
 }
 
-// This would typically come from an API call
-const CURRENT_RELEASE: ReleaseInfo = {
+const DEFAULT_RELEASE: ReleaseInfo = {
   version: "1.0.0",
-  releaseDate: "2025-01-15",
-  downloadUrl: "https://github.com/your-org/saturn-copier-desktop/releases/latest/download/SaturnTradeCopier-setup.exe",
-  downloadSize: "3.5 MB",
+  releaseDate: new Date().toISOString().split('T')[0],
+  downloadUrl: "",
+  downloadSize: "~5 MB",
   releaseNotes: [
-    "Initial release",
     "Ultra-low latency trade copying (20-50ms)",
     "System tray operation with mini dashboard",
     "Auto-sync configuration from cloud",
@@ -61,14 +59,37 @@ const CURRENT_RELEASE: ReleaseInfo = {
   ]
 };
 
+// Local storage key for the download URL
+const DOWNLOAD_URL_KEY = 'saturn_desktop_download_url';
+
 export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppPanelProps) {
   const [copied, setCopied] = useState(false);
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
-  const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo>(CURRENT_RELEASE);
+  const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo>(DEFAULT_RELEASE);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [downloadUrlInput, setDownloadUrlInput] = useState("");
+  const [isEditingUrl, setIsEditingUrl] = useState(false);
 
   const receiverWithApiKey = receiverAccounts.find(a => a.api_key);
   const configEndpoint = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copier-config`;
+
+  // Load saved download URL on mount
+  useEffect(() => {
+    const savedUrl = localStorage.getItem(DOWNLOAD_URL_KEY);
+    if (savedUrl) {
+      setReleaseInfo(prev => ({ ...prev, downloadUrl: savedUrl }));
+      setDownloadUrlInput(savedUrl);
+    }
+  }, []);
+
+  const handleSaveDownloadUrl = () => {
+    if (downloadUrlInput.trim()) {
+      localStorage.setItem(DOWNLOAD_URL_KEY, downloadUrlInput.trim());
+      setReleaseInfo(prev => ({ ...prev, downloadUrl: downloadUrlInput.trim() }));
+      toast.success("Download URL saved!");
+    }
+    setIsEditingUrl(false);
+  };
 
   const handleCopyEndpoint = async () => {
     await navigator.clipboard.writeText(configEndpoint);
@@ -89,7 +110,6 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
   const handleCheckForUpdates = async () => {
     setIsCheckingUpdate(true);
     try {
-      // In production, this would call the copier-update-check endpoint
       await new Promise(resolve => setTimeout(resolve, 1000));
       toast.info("You have the latest version!");
     } catch (error) {
@@ -274,30 +294,83 @@ export function DesktopAppPanel({ masterAccount, receiverAccounts }: DesktopAppP
 
             {/* Download buttons */}
             <div className="space-y-3">
-              <Button className="w-full" size="lg" asChild>
-                <a 
-                  href={releaseInfo.downloadUrl}
-                  download
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  Download for Windows
-                  <Badge variant="secondary" className="ml-2">{releaseInfo.downloadSize}</Badge>
-                </a>
-              </Button>
+              {releaseInfo.downloadUrl ? (
+                <Button className="w-full" size="lg" asChild>
+                  <a href={releaseInfo.downloadUrl} download>
+                    <Download className="mr-2 h-4 w-4" />
+                    Download for Windows
+                    <Badge variant="secondary" className="ml-2">{releaseInfo.downloadSize}</Badge>
+                  </a>
+                </Button>
+              ) : (
+                <div className="p-4 rounded-lg border-2 border-dashed border-muted-foreground/30 text-center">
+                  <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm font-medium">No download available yet</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Build the app via GitHub Actions, then paste the download URL below
+                  </p>
+                </div>
+              )}
+
+              {/* Download URL Configuration */}
+              <div className="p-3 rounded-lg bg-muted/50 border space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-medium">Download URL</Label>
+                  {!isEditingUrl && releaseInfo.downloadUrl && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-6 text-xs"
+                      onClick={() => setIsEditingUrl(true)}
+                    >
+                      Edit
+                    </Button>
+                  )}
+                </div>
+                {isEditingUrl || !releaseInfo.downloadUrl ? (
+                  <div className="flex gap-2">
+                    <Input
+                      value={downloadUrlInput}
+                      onChange={(e) => setDownloadUrlInput(e.target.value)}
+                      placeholder="https://github.com/.../releases/download/v1.0.0/..."
+                      className="text-xs font-mono"
+                    />
+                    <Button size="sm" onClick={handleSaveDownloadUrl}>
+                      Save
+                    </Button>
+                    {isEditingUrl && (
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => {
+                          setIsEditingUrl(false);
+                          setDownloadUrlInput(releaseInfo.downloadUrl);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground font-mono truncate">
+                    {releaseInfo.downloadUrl}
+                  </p>
+                )}
+              </div>
               
               <div className="flex gap-2">
                 <Button 
                   variant="outline" 
                   className="flex-1" 
                   onClick={handleCheckForUpdates}
-                  disabled={isCheckingUpdate}
+                  disabled={isCheckingUpdate || !releaseInfo.downloadUrl}
                 >
                   <RefreshCw className={`mr-2 h-4 w-4 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
                   Check for Updates
                 </Button>
                 <Button variant="outline" asChild>
                   <a 
-                    href="https://github.com/your-org/saturn-copier-desktop/releases" 
+                    href="https://github.com" 
                     target="_blank" 
                     rel="noopener noreferrer"
                   >
