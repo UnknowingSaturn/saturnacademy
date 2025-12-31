@@ -11,7 +11,6 @@ import { ExportControls } from '@/components/reports/ExportControls';
 import { EquityCurve } from '@/components/dashboard/EquityCurve';
 import { SessionBreakdown } from '@/components/dashboard/SessionBreakdown';
 import { PlaybookCompliance } from '@/components/dashboard/PlaybookCompliance';
-import { PatternInsights } from '@/components/dashboard/PatternInsights';
 
 import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
 import { Button } from '@/components/ui/button';
@@ -194,8 +193,6 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
         <SessionBreakdown bySession={dashboardMetrics.bySession} />
       </div>
 
-      {/* Pattern Insights - Full Width */}
-      <PatternInsights accountId={selectedAccountId} />
 
       {/* Main Content */}
       <div className="grid lg:grid-cols-3 gap-6">

@@ -27,5 +27,5 @@ verify_jwt = false
 [functions.auto-group-trades]
 verify_jwt = false
 
-[functions.mine-trade-patterns]
+[functions.trade-analytics]
 verify_jwt = false

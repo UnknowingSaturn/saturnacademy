@@ -16,6 +16,7 @@ import Import from "./pages/Import";
 import Accounts from "./pages/Accounts";
 import LiveTrades from "./pages/LiveTrades";
 import Copier from "./pages/Copier";
+import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 import ResetPassword from "./pages/ResetPassword";
 
@@ -57,6 +58,7 @@ const AppRoutes = React.forwardRef<HTMLDivElement, object>(
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
         <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
         <Route path="/live-trades" element={<ProtectedRoute><LiveTrades /></ProtectedRoute>} />
         <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
