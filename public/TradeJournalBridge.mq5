@@ -369,6 +369,7 @@ string BuildEventPayload(ulong dealTicket, string eventType, string direction)
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"ea_type\":\"journal\",";  // Identify this as the journal EA
    json += "\"event_type\":\"" + eventType + "\",";
    
    // FIX Issue #1: Send all three IDs explicitly
