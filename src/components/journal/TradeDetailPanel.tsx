@@ -2,15 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep, TradeScreenshot } from "@/types/trading";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useUpsertTradeReview, useTrade } from "@/hooks/useTrades";
-import { useAIAnalysis } from "@/hooks/useAIAnalysis";
-import { aiReviewToDisplayFormat } from "@/lib/aiAnalysisUtils";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { SaveStatusIndicator } from "./SaveStatusIndicator";
 
 import { TradeProperties } from "./TradeProperties";
 import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
-import { AIAnalysisDisplay } from "./AIAnalysisDisplay";
-import { AIAnalysisProgress } from "./AIAnalysisProgress";
 import { RuleComplianceAlert } from "@/components/playbooks/RuleComplianceAlert";
 import { PlaybookComplianceChecklist } from "./PlaybookComplianceChecklist";
 import { Button } from "@/components/ui/button";
@@ -24,7 +20,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, Plus, X, Sparkles, Loader2, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { ArrowLeft, Plus, X, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TradeDetailPanelProps {
@@ -88,12 +84,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   
   const { data: playbooks } = usePlaybooks();
   const upsertReview = useUpsertTradeReview();
-  const { analyzeTrade, isAnalyzing, progress, resetProgress, submitFeedback, retryAnalysis } = useAIAnalysis();
   
-  const [immediateAiReview, setImmediateAiReview] = useState<any>(null);
-  const aiReview = immediateAiReview || trade?.ai_review;
-  const analysisData = aiReview ? aiReviewToDisplayFormat(aiReview) : null;
-
   const existingReview = trade?.review;
   const selectedPlaybook = playbooks?.find(p => p.id === trade?.playbook_id);
 
@@ -132,7 +123,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     await upsertReview.mutateAsync({ review: reviewPayload, silent: true });
   }, [trade, upsertReview]);
 
-  const { status: saveStatus, flush, hasUnsavedChanges, hasDraft, restoreDraft, clearDraft } = useAutoSave(
+  const { status: saveStatus, flush, hasUnsavedChanges, hasDraft, restoreDraft } = useAutoSave(
     reviewData,
     saveReview,
     { 
@@ -147,7 +138,6 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     
     if (isTradeSwitch && trade) {
       setLastTradeId(trade.id);
-      setImmediateAiReview(null);
       
       // Restore input drafts from localStorage
       const draftKey = `trade_input_drafts_${trade.id}`;
@@ -205,14 +195,6 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
     onClose();
   }, [hasUnsavedChanges, flush, onClose]);
-
-  // Auto-reset progress after analysis completes
-  useEffect(() => {
-    if (progress.step === "complete" && analysisData) {
-      const timeout = setTimeout(() => resetProgress(), 500);
-      return () => clearTimeout(timeout);
-    }
-  }, [progress.step, analysisData, resetProgress]);
 
   // Helper functions for managing review data
   const updateField = useCallback(<K extends keyof ReviewData>(field: K, value: ReviewData[K]) => {
@@ -356,39 +338,6 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                     {showProperties ? "Hide properties" : "Show properties"}
                   </TooltipContent>
                 </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8"
-                      onClick={async () => {
-                        if (!trade) return;
-                        // CRITICAL: Flush pending autosave before running AI analysis
-                        if (hasUnsavedChanges) {
-                          await flush();
-                        }
-                        const result = await analyzeTrade(trade.id);
-                        if (result) {
-                          setImmediateAiReview(result);
-                        }
-                      }}
-                      disabled={isAnalyzing || saveStatus === 'saving'}
-                    >
-                      {isAnalyzing ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                      ) : saveStatus === 'saving' ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                      ) : (
-                        <Sparkles className="h-4 w-4 mr-1" />
-                      )}
-                      AI
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{saveStatus === 'saving' ? 'Saving your review first...' : 'Generate AI analysis'}</p>
-                  </TooltipContent>
-                </Tooltip>
               </div>
             </div>
           </SheetHeader>
@@ -454,45 +403,6 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                     />
                   </div>
                 </div>
-
-                {/* AI Analysis Progress */}
-                {isAnalyzing && (
-                  <AIAnalysisProgress 
-                    progress={progress} 
-                    isAnalyzing={isAnalyzing}
-                    onRetry={() => trade && retryAnalysis(trade.id)}
-                  />
-                )}
-
-                {/* AI Analysis */}
-                {analysisData && (
-                  <div>
-                    <Label className="text-sm font-semibold mb-3 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4" />
-                      AI Analysis
-                    </Label>
-                    <AIAnalysisDisplay
-                      analysis={analysisData.analysis}
-                      compliance={analysisData.compliance}
-                      similarTrades={analysisData.similarTrades}
-                      hasScreenshots={(reviewData.screenshots?.length || 0) > 0}
-                      onReanalyze={async () => {
-                        if (!trade) return;
-                        if (hasUnsavedChanges) {
-                          await flush();
-                        }
-                        const result = await analyzeTrade(trade.id);
-                        if (result) {
-                          setImmediateAiReview(result);
-                        }
-                      }}
-                      onSubmitFeedback={aiReview ? 
-                        (isAccurate, isUseful, notes) => submitFeedback(aiReview.id, isAccurate, isUseful, notes) 
-                        : undefined
-                      }
-                    />
-                  </div>
-                )}
 
                 <Separator />
 

@@ -133,7 +133,6 @@ export interface Trade {
   review?: TradeReview;
   account?: Account;
   playbook?: Playbook;
-  ai_review?: AIReview;
 }
 
 export interface PartialClose {
@@ -303,103 +302,6 @@ export interface TradeFeatures {
   computed_at: string;
 }
 
-// AI Analysis structured output
-export interface AIAnalysisOutput {
-  technical_review: {
-    matched_rules: string[];
-    deviations: string[];
-    failure_type: 'structural' | 'execution' | 'both' | 'none';
-  };
-  thesis_evaluation?: {
-    thesis_correct: boolean;
-    thesis_explanation: string;
-    failure_category: 'thesis_wrong' | 'execution_failure' | 'external_factor' | 'no_failure';
-  };
-  mistake_attribution: {
-    primary: string | null;
-    secondary: string[];
-    is_recurring: boolean;
-  };
-  psychology_analysis: {
-    influence: string;
-    past_correlation: string;
-    psychology_vs_structure: 'psychology' | 'structure' | 'both' | 'neither';
-  };
-  comparison_to_past: {
-    differs_from_winners: string[];
-    resembles_losers: string[];
-  };
-  actionable_guidance: {
-    rule_to_reinforce: string;
-    avoid_condition: string;
-  };
-  visual_analysis?: {
-    entry_quality: string;
-    exit_quality: string;
-    stop_placement: string;
-    key_levels_identified?: string[];
-    confirmations_visible: string[];
-    chart_observations: string[];
-    better_entry_identified?: string | null;
-    structure_analysis?: string;
-  };
-  strategy_refinement?: {
-    rule_suggestion: string | null;
-    filter_recommendation: string | null;
-    edge_observation: string | null;
-    entry_refinement?: string | null;
-    stop_refinement?: string | null;
-  };
-  confidence: 'low' | 'medium' | 'high';
-  screenshots_analyzed?: boolean;
-}
-
-// AI Review (stored in database)
-export interface AIReview {
-  id: string;
-  trade_id: string;
-  technical_review: AIAnalysisOutput['technical_review'];
-  thesis_evaluation?: AIAnalysisOutput['thesis_evaluation'];
-  mistake_attribution: AIAnalysisOutput['mistake_attribution'];
-  psychology_analysis: AIAnalysisOutput['psychology_analysis'];
-  comparison_to_past: AIAnalysisOutput['comparison_to_past'];
-  actionable_guidance: AIAnalysisOutput['actionable_guidance'];
-  visual_analysis?: AIAnalysisOutput['visual_analysis'];
-  strategy_refinement?: AIAnalysisOutput['strategy_refinement'];
-  confidence: AIAnalysisOutput['confidence'];
-  screenshots_analyzed?: boolean;
-  setup_compliance_score: number;
-  rule_violations: string[];
-  context_alignment_score: number;
-  similar_winners: string[];
-  similar_losers: string[];
-  raw_analysis: string;
-  created_at: string;
-  updated_at: string;
-}
-
-// AI Feedback for learning loop
-export interface AIFeedback {
-  id: string;
-  ai_review_id: string;
-  user_id: string;
-  is_accurate: boolean | null;
-  is_useful: boolean | null;
-  feedback_notes: string | null;
-  created_at: string;
-}
-
-// Similar trade for display
-export interface SimilarTrade {
-  trade_id: string;
-  similarity_score: number;
-  net_pnl: number;
-  r_multiple: number | null;
-  symbol: string;
-  session: string | null;
-  entry_percentile: number | null;
-}
-
 // Dashboard metrics
 export interface DashboardMetrics {
   totalTrades: number;
@@ -444,4 +346,29 @@ export interface CSVImportRow {
 export interface CSVColumnMapping {
   csvColumn: string;
   dbField: keyof Trade | 'emotional_state' | 'notes' | 'skip';
+}
+
+// Pattern Mining types
+export interface TradingPattern {
+  type: 'day_of_week' | 'session' | 'session_direction' | 'symbol' | 'regime' | 'time_of_day';
+  category: string;
+  insight: string;
+  severity: 'positive' | 'negative' | 'neutral';
+  recommendation: string;
+  stats: {
+    trades: number;
+    winRate: number;
+    avgR: number;
+    totalPnl: number;
+  };
+}
+
+export interface PatternMiningResult {
+  patterns: TradingPattern[];
+  summary: {
+    bestConditions: string[];
+    worstConditions: string[];
+    totalTradesAnalyzed: number;
+    dataRange: { start: string; end: string };
+  };
 }

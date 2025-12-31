@@ -11,6 +11,7 @@ import { ExportControls } from '@/components/reports/ExportControls';
 import { EquityCurve } from '@/components/dashboard/EquityCurve';
 import { SessionBreakdown } from '@/components/dashboard/SessionBreakdown';
 import { PlaybookCompliance } from '@/components/dashboard/PlaybookCompliance';
+import { PatternInsights } from '@/components/dashboard/PatternInsights';
 
 import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
 import { Button } from '@/components/ui/button';
@@ -205,6 +206,7 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
 
         {/* Sidebar - Export Controls & Compliance */}
         <div className="space-y-4">
+          <PatternInsights accountId={selectedAccountId} />
           <PlaybookCompliance />
           <ExportControls
             trades={trades}
