@@ -6,8 +6,8 @@ const corsHeaders = {
 };
 
 // GitHub repository info
-const GITHUB_OWNER = "your-org";
-const GITHUB_REPO = "saturn-copier-desktop";
+const GITHUB_OWNER = "UnknowingSaturn";
+const GITHUB_REPO = "saturnacademy";
 
 interface GitHubRelease {
   tag_name: string;
