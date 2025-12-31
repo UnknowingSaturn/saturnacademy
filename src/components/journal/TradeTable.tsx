@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
 import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, Account } from "@/types/trading";
-import { TradeGroup } from "@/hooks/useTradeGroups";
 import { useUpdateTrade, useUpsertTradeReview, useBulkArchiveTrades } from "@/hooks/useTrades";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
@@ -9,7 +8,6 @@ import { formatDateET, formatTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
 import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
 import { BulkActionBar } from "./BulkActionBar";
-import { TradeGroupRow } from "./TradeGroupRow";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
@@ -18,14 +16,13 @@ import { DEFAULT_COLUMNS, ColumnDefinition } from "@/types/settings";
 
 interface TradeTableProps {
   trades: Trade[];
-  tradeGroups?: TradeGroup[];
   onTradeClick: (trade: Trade) => void;
   visibleColumns?: string[];
   onEditProperty?: (propertyName: string) => void;
   accounts?: Account[];
 }
 
-export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, onEditProperty, accounts }: TradeTableProps) {
+export function TradeTable({ trades, onTradeClick, visibleColumns, onEditProperty, accounts }: TradeTableProps) {
   const updateTrade = useUpdateTrade();
   const upsertReview = useUpsertTradeReview();
   const bulkArchive = useBulkArchiveTrades();
@@ -269,18 +266,6 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
 
         {/* Rows */}
         <div className="divide-y divide-border">
-          {/* Render trade groups first if provided */}
-          {tradeGroups?.map((group) => (
-            <TradeGroupRow
-              key={group.id}
-              group={group}
-              accounts={accounts}
-              onTradeClick={onTradeClick}
-              gridCols={gridCols}
-              activeColumns={activeColumns}
-            />
-          ))}
-          
           {/* Render individual trades */}
           {sortedTrades.map((trade) => {
             const result = getResultBadge(trade);
@@ -432,7 +417,7 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
                             { value: "4hr", label: "4hr", color: "profit" },
                             { value: "daily", label: "Daily", color: "profit" },
                           ]}
-                          placeholder="Entry"
+                          placeholder="Entry TF"
                           multiple
                         />
                       </div>
@@ -446,10 +431,10 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
                           value={trade.profile || ""}
                           onChange={(v) => handleProfileChange(trade, v as string)}
                           options={formatOptions(profileOptions).length > 0 ? formatOptions(profileOptions) : [
-                            { value: "consolidation", label: "Consolidation", color: "primary" },
+                            { value: "consolidation", label: "Consolidation", color: "muted" },
                             { value: "expansion", label: "Expansion", color: "profit" },
-                            { value: "reversal", label: "Reversal", color: "breakeven" },
-                            { value: "continuation", label: "Continuation", color: "muted" },
+                            { value: "reversal", label: "Reversal", color: "loss" },
+                            { value: "continuation", label: "Continuation", color: "primary" },
                           ]}
                           placeholder="Profile"
                         />
@@ -458,56 +443,41 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
                   }
 
                   if (key === 'r_multiple_actual') {
+                    const r = trade.r_multiple_actual;
                     return (
-                      <div key={key} className="text-right">
-                        <span
-                          className={cn(
-                            "font-mono-numbers font-bold text-sm",
-                            trade.r_multiple_actual && trade.r_multiple_actual >= 0 && "text-profit",
-                            trade.r_multiple_actual && trade.r_multiple_actual < 0 && "text-loss"
-                          )}
-                        >
-                          {trade.r_multiple_actual !== null
-                            ? `${trade.r_multiple_actual >= 0 ? "+" : ""}${trade.r_multiple_actual.toFixed(1)}R`
-                            : "—"}
-                        </span>
+                      <div key={key} className={cn(
+                        "text-sm font-mono-numbers text-right",
+                        r && r > 0 && "text-profit",
+                        r && r < 0 && "text-loss"
+                      )}>
+                        {r !== null ? `${r >= 0 ? '+' : ''}${r.toFixed(2)}R` : '—'}
                       </div>
                     );
                   }
 
-                  if (key === 'account_pct') {
-                    const accountPct = trade.balance_at_entry && trade.net_pnl !== null
-                      ? (trade.net_pnl / trade.balance_at_entry) * 100
-                      : null;
+                  if (key === 'net_pnl') {
+                    const pnl = trade.net_pnl;
                     return (
-                      <div key={key} className="text-right">
-                        <span
-                          className={cn(
-                            "font-mono-numbers font-bold text-sm",
-                            accountPct !== null && accountPct >= 0 && "text-profit",
-                            accountPct !== null && accountPct < 0 && "text-loss"
-                          )}
-                        >
-                          {accountPct !== null
-                            ? `${accountPct >= 0 ? "+" : ""}${accountPct.toFixed(2)}%`
-                            : "—"}
-                        </span>
+                      <div key={key} className={cn(
+                        "text-sm font-mono-numbers text-right",
+                        pnl && pnl > 0 && "text-profit",
+                        pnl && pnl < 0 && "text-loss"
+                      )}>
+                        {pnl !== null ? `$${pnl.toFixed(2)}` : '—'}
                       </div>
                     );
                   }
 
                   if (key === 'result') {
                     return (
-                      <div key={key} className="text-center">
-                        <span
-                          className={cn(
-                            "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border",
-                            result.color === "profit" && "bg-profit/15 text-profit border-profit/30",
-                            result.color === "loss" && "bg-loss/15 text-loss border-loss/30",
-                            result.color === "breakeven" && "bg-breakeven/15 text-breakeven border-breakeven/30",
-                            result.color === "muted" && "bg-muted text-muted-foreground border-border"
-                          )}
-                        >
+                      <div key={key} className="flex justify-center">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-xs font-medium",
+                          result.color === 'profit' && "bg-profit/20 text-profit",
+                          result.color === 'loss' && "bg-loss/20 text-loss",
+                          result.color === 'breakeven' && "bg-breakeven/20 text-breakeven",
+                          result.color === 'muted' && "bg-muted text-muted-foreground"
+                        )}>
                           {result.label}
                         </span>
                       </div>
@@ -523,10 +493,12 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
                           options={formatOptions(emotionOptions).length > 0 ? formatOptions(emotionOptions) : [
                             { value: "great", label: "Great", color: "profit" },
                             { value: "good", label: "Good", color: "profit" },
-                            { value: "calm", label: "Calm", color: "profit" },
-                            { value: "normal", label: "Normal", color: "muted" },
+                            { value: "calm", label: "Calm", color: "primary" },
+                            { value: "focused", label: "Focused", color: "primary" },
+                            { value: "okay", label: "Okay", color: "muted" },
                             { value: "anxious", label: "Anxious", color: "loss" },
                             { value: "fomo", label: "FOMO", color: "loss" },
+                            { value: "revenge", label: "Revenge", color: "loss" },
                           ]}
                           placeholder="Emotion"
                         />
@@ -535,37 +507,73 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
                   }
 
                   if (key === 'place') {
-                    return (
-                      <div key={key} onClick={(e) => e.stopPropagation()}>
-                        {editingPlace === trade.id ? (
+                    if (editingPlace === trade.id) {
+                      return (
+                        <div key={key} onClick={(e) => e.stopPropagation()}>
                           <Input
                             value={placeValue}
                             onChange={(e) => setPlaceValue(e.target.value)}
                             onBlur={() => handlePlaceChange(trade)}
-                            onKeyDown={(e) => e.key === "Enter" && handlePlaceChange(trade)}
-                            className="h-7 text-sm"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handlePlaceChange(trade);
+                              if (e.key === 'Escape') setEditingPlace(null);
+                            }}
+                            className="h-7 text-xs"
                             autoFocus
                           />
-                        ) : (
-                          <button
-                            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                            onClick={() => {
-                              setEditingPlace(trade.id);
-                              setPlaceValue(trade.place || "");
-                            }}
-                          >
-                            {trade.place || "Add place..."}
-                          </button>
-                        )}
+                        </div>
+                      );
+                    }
+                    return (
+                      <div 
+                        key={key} 
+                        className="text-sm text-muted-foreground truncate cursor-pointer hover:text-foreground"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingPlace(trade.id);
+                          setPlaceValue(trade.place || "");
+                        }}
+                      >
+                        {trade.place || "—"}
                       </div>
                     );
                   }
 
-                  return null;
+                  if (key === 'direction') {
+                    return (
+                      <div key={key} className={cn(
+                        "text-xs font-medium uppercase",
+                        trade.direction === 'buy' && "text-profit",
+                        trade.direction === 'sell' && "text-loss"
+                      )}>
+                        {trade.direction}
+                      </div>
+                    );
+                  }
+
+                  if (key === 'duration_seconds') {
+                    const duration = trade.duration_seconds;
+                    if (!duration) return <div key={key} className="text-sm text-muted-foreground">—</div>;
+                    const hours = Math.floor(duration / 3600);
+                    const minutes = Math.floor((duration % 3600) / 60);
+                    return (
+                      <div key={key} className="text-sm text-muted-foreground">
+                        {hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`}
+                      </div>
+                    );
+                  }
+
+                  // Default: show raw value
+                  const value = (trade as any)[key];
+                  return (
+                    <div key={key} className="text-sm text-muted-foreground truncate">
+                      {value !== null && value !== undefined ? String(value) : "—"}
+                    </div>
+                  );
                 })}
 
                 {/* Expand arrow */}
-                <div className="flex justify-end">
+                <div className="flex justify-center">
                   <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
                 </div>
               </div>
@@ -574,13 +582,11 @@ export function TradeTable({ trades, tradeGroups, onTradeClick, visibleColumns, 
         </div>
       </div>
 
-      {/* Bulk action bar */}
+      {/* Bulk Action Bar */}
       <BulkActionBar
         selectedCount={selectedIds.size}
         onAction={handleBulkArchive}
         onClear={() => setSelectedIds(new Set())}
-        isLoading={bulkArchive.isPending}
-        mode="archive"
       />
     </div>
   );
