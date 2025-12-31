@@ -30,7 +30,9 @@
       "active": true,
       "targets": ["msi", "nsis"],
       "identifier": "com.saturn.tradecopier",
-      "icon": [],
+      "icon": [
+        "icons/icon.png"
+      ],
       "resources": [
         "resources/TradeCopierMaster.mq5",
         "resources/TradeCopierReceiver.mq5"
@@ -53,7 +55,7 @@
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFQjZCRUMwODU1QzI0ODAKUldTQUpGeUZ3TDYydms3RjZuakRPS2thVDNFNUtDQnIvSXE1ZE5GYkZUdDZIQXF2OGFrVjlvWmoK"
     },
     "systemTray": {
-      "iconPath": "",
+      "iconPath": "icons/icon.png",
       "iconAsTemplate": true,
       "menuOnLeftClick": false
     },
