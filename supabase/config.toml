@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.copier-config]
 verify_jwt = false
+
+[functions.copier-update-check]
+verify_jwt = false

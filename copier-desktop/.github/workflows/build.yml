@@ -1,0 +1,89 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Saturn Trade Copier v__VERSION__'
+          releaseBody: |
+            ## Saturn Trade Copier Desktop App
+            
+            ### What's New
+            - See [CHANGELOG.md](https://github.com/your-org/saturn-copier-desktop/blob/main/CHANGELOG.md) for details
+            
+            ### Installation
+            1. Download the `.exe` installer below
+            2. Run the installer
+            3. Find the app in your system tray
+            4. Enter your API key from the web dashboard
+            
+            ### System Requirements
+            - Windows 10/11 (64-bit)
+            - MetaTrader 5 installed
+            - Internet connection for configuration sync
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+
+  notify-web-app:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: success()
+    
+    steps:
+      - name: Notify web app of new release
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -d '{
+              "version": "${{ github.ref_name }}",
+              "releaseDate": "'$(date -u +%Y-%m-%d)'",
+              "downloadUrl": "https://github.com/your-org/saturn-copier-desktop/releases/download/${{ github.ref_name }}/SaturnTradeCopier-setup.exe"
+            }' \
+            "${{ secrets.SUPABASE_URL }}/functions/v1/update-release-info" || true
