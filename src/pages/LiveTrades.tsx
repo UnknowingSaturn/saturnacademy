@@ -6,16 +6,20 @@ import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { Playbook } from "@/types/trading";
 import { ModelSelectionPrompt } from "@/components/journal/ModelSelectionPrompt";
 import { LiveTradeCompliancePanel } from "@/components/journal/LiveTradeCompliancePanel";
+import { LiveJournalChat } from "@/components/live/LiveJournalChat";
 import { TradeSummaryBar } from "@/components/live/TradeSummaryBar";
 import { LiveTradeCard } from "@/components/live/LiveTradeCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Activity, 
   Radio,
   Loader2,
-  Zap
+  Zap,
+  Bot,
+  Shield
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -194,10 +198,30 @@ export default function LiveTrades() {
                         onModelSelected={handleModelSelected}
                       />
                     ) : (
-                      <LiveTradeCompliancePanel
-                        trade={selectedTrade}
-                        playbook={selectedPlaybook}
-                      />
+                      <Tabs defaultValue="journal" className="h-full flex flex-col">
+                        <TabsList className="grid w-full grid-cols-2 mb-3">
+                          <TabsTrigger value="journal" className="gap-1.5">
+                            <Bot className="h-3.5 w-3.5" />
+                            Journal
+                          </TabsTrigger>
+                          <TabsTrigger value="compliance" className="gap-1.5">
+                            <Shield className="h-3.5 w-3.5" />
+                            Compliance
+                          </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="journal" className="flex-1 mt-0">
+                          <LiveJournalChat
+                            trade={selectedTrade}
+                            playbook={selectedPlaybook}
+                          />
+                        </TabsContent>
+                        <TabsContent value="compliance" className="flex-1 mt-0">
+                          <LiveTradeCompliancePanel
+                            trade={selectedTrade}
+                            playbook={selectedPlaybook}
+                          />
+                        </TabsContent>
+                      </Tabs>
                     )}
                   </CardContent>
                 </>

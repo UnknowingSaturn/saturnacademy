@@ -19,7 +19,6 @@ import {
   XCircle,
   CheckCircle,
   ArrowUpRight,
-  Bot
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -30,7 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { AnalyticsAIChat } from '@/components/analytics/AnalyticsAIChat';
+
 
 const Analytics = React.forwardRef<HTMLDivElement, object>(
   function Analytics(_props, _ref) {
@@ -196,25 +195,6 @@ const Analytics = React.forwardRef<HTMLDivElement, object>(
           </Card>
         </div>
 
-        {/* TradeGPT Chat - Main AI Analysis Section */}
-        <Card className="glass-card border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bot className="h-5 w-5 text-primary" />
-              TradeGPT Analysis
-            </CardTitle>
-            <CardDescription>
-              Ask questions about your trading performance, get playbook validation, 
-              and uncover execution patterns
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="h-[500px]">
-            <AnalyticsAIChat 
-              accountId={selectedAccountId === 'all' ? undefined : selectedAccountId}
-              totalTrades={overview.total_trades}
-            />
-          </CardContent>
-        </Card>
 
         {/* Playbook Comparison & Symbol Performance */}
         <div className="grid gap-6 lg:grid-cols-2">

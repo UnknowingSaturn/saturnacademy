@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.analytics-chat]
 verify_jwt = false
+
+[functions.live-journal-chat]
+verify_jwt = false
