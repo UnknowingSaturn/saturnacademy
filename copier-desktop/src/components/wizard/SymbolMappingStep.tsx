@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Mt5Terminal } from "../../types";
 
 export interface SymbolMapping {
   master_symbol: string;
@@ -8,16 +7,11 @@ export interface SymbolMapping {
 }
 
 interface SymbolMappingStepProps {
-  masterTerminal: Mt5Terminal | null;
-  receiverTerminals: Mt5Terminal[];
   symbolMappings: SymbolMapping[];
   onMappingsChange: (mappings: SymbolMapping[]) => void;
   onContinue: () => void;
   onBack: () => void;
 }
-
-// Common symbol suffixes for different brokers
-const COMMON_SUFFIXES = ['', 'm', '.', 'pro', 'c', 'i', 'b', 'sb', '-a', '-b', '-c'];
 
 // Most commonly traded symbols
 const COMMON_SYMBOLS = [
@@ -27,8 +21,6 @@ const COMMON_SYMBOLS = [
 ];
 
 export default function SymbolMappingStep({
-  masterTerminal,
-  receiverTerminals,
   symbolMappings,
   onMappingsChange,
   onContinue,
