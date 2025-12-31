@@ -358,6 +358,7 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
    // Build JSON
    string json = "{\n";
    json += "  \"idempotency_key\": \"" + idempotencyKey + "\",\n";
+   json += "  \"ea_type\": \"master\",\n";
    json += "  \"event_type\": \"" + eventType + "\",\n";
    json += "  \"position_id\": " + IntegerToString(positionId) + ",\n";
    json += "  \"deal_id\": " + IntegerToString(dealTicket) + ",\n";

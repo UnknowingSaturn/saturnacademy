@@ -137,6 +137,9 @@ export interface CopierTradeEvent {
   };
 }
 
+// EA type from installation
+export type EAType = 'journal' | 'master' | 'receiver';
+
 // Extended Account type with copier fields
 export interface CopierAccount {
   id: string;
@@ -148,4 +151,5 @@ export interface CopierAccount {
   copier_role: CopierRole;
   master_account_id: string | null;
   copier_enabled: boolean;
+  ea_type: EAType | null;
 }

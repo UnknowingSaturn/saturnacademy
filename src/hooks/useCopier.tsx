@@ -32,41 +32,6 @@ export function useCopierAccounts() {
   });
 }
 
-// Update account copier role
-export function useUpdateCopierRole() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ 
-      accountId, 
-      role, 
-      masterAccountId 
-    }: { 
-      accountId: string; 
-      role: CopierRole; 
-      masterAccountId?: string | null;
-    }) => {
-      const { error } = await supabase
-        .from('accounts')
-        .update({ 
-          copier_role: role,
-          master_account_id: role === 'receiver' ? masterAccountId : null,
-          copier_enabled: role !== 'independent'
-        })
-        .eq('id', accountId);
-      
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['copier-accounts'] });
-      toast.success('Account role updated');
-    },
-    onError: (error) => {
-      toast.error('Failed to update role: ' + error.message);
-    },
-  });
-}
-
 // Fetch symbol mappings for a master account
 export function useSymbolMappings(masterAccountId?: string) {
   const { user } = useAuth();

@@ -15,13 +15,6 @@ export default function ConfirmationStep({
   onBack,
   onAddMoreReceivers,
 }: ConfirmationStepProps) {
-  const shortenId = (id: string) => {
-    if (id.length > 12) {
-      return `${id.slice(0, 6)}...${id.slice(-4)}`;
-    }
-    return id;
-  };
-
   return (
     <div className="space-y-6">
       <div className="text-center">

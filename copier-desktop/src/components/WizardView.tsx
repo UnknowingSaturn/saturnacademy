@@ -1,24 +1,41 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Mt5Terminal, WizardState } from "../types";
 import WizardProgress from "./wizard/WizardProgress";
 import TerminalScanStep from "./wizard/TerminalScanStep";
 import MasterSelectionStep from "./wizard/MasterSelectionStep";
 import ReceiverSelectionStep from "./wizard/ReceiverSelectionStep";
+import RiskConfigStep, { RiskConfig } from "./wizard/RiskConfigStep";
+import SymbolMappingStep, { SymbolMapping } from "./wizard/SymbolMappingStep";
 import ConfirmationStep from "./wizard/ConfirmationStep";
 
 interface WizardViewProps {
   onComplete: () => void;
 }
 
-const STEPS = ["Scan", "Master", "Receivers", "Complete"];
+interface ExtendedWizardState extends WizardState {
+  riskConfig: RiskConfig;
+  symbolMappings: SymbolMapping[];
+}
+
+const STEPS = ["Scan", "Master", "Receivers", "Risk", "Symbols", "Complete"];
+
+const DEFAULT_RISK_CONFIG: RiskConfig = {
+  risk_mode: 'balance_multiplier',
+  risk_value: 1.0,
+  max_slippage_pips: 3.0,
+  max_daily_loss_r: 3.0,
+  prop_firm_safe_mode: false,
+};
 
 export default function WizardView({ onComplete }: WizardViewProps) {
-  const [state, setState] = useState<WizardState>({
+  const [state, setState] = useState<ExtendedWizardState>({
     step: 0,
     terminals: [],
     masterTerminal: null,
     receiverTerminals: [],
     setupComplete: false,
+    riskConfig: DEFAULT_RISK_CONFIG,
+    symbolMappings: [],
   });
 
   const goToStep = (step: number) => {
@@ -36,6 +53,14 @@ export default function WizardView({ onComplete }: WizardViewProps) {
   const handleSelectReceivers = (terminals: Mt5Terminal[]) => {
     setState((prev) => ({ ...prev, receiverTerminals: terminals }));
   };
+
+  const handleRiskConfigChange = useCallback((config: RiskConfig) => {
+    setState((prev) => ({ ...prev, riskConfig: config }));
+  }, []);
+
+  const handleSymbolMappingsChange = useCallback((mappings: SymbolMapping[]) => {
+    setState((prev) => ({ ...prev, symbolMappings: mappings }));
+  }, []);
 
   const handleComplete = () => {
     setState((prev) => ({ ...prev, setupComplete: true }));
@@ -79,11 +104,32 @@ export default function WizardView({ onComplete }: WizardViewProps) {
           )}
 
           {state.step === 3 && (
+            <RiskConfigStep
+              receiverTerminals={state.receiverTerminals}
+              riskConfig={state.riskConfig}
+              onConfigChange={handleRiskConfigChange}
+              onContinue={() => goToStep(4)}
+              onBack={() => goToStep(2)}
+            />
+          )}
+
+          {state.step === 4 && (
+            <SymbolMappingStep
+              masterTerminal={state.masterTerminal}
+              receiverTerminals={state.receiverTerminals}
+              symbolMappings={state.symbolMappings}
+              onMappingsChange={handleSymbolMappingsChange}
+              onContinue={() => goToStep(5)}
+              onBack={() => goToStep(3)}
+            />
+          )}
+
+          {state.step === 5 && (
             <ConfirmationStep
               masterTerminal={state.masterTerminal}
               receiverTerminals={state.receiverTerminals}
               onComplete={handleComplete}
-              onBack={() => goToStep(2)}
+              onBack={() => goToStep(4)}
               onAddMoreReceivers={() => goToStep(2)}
             />
           )}
