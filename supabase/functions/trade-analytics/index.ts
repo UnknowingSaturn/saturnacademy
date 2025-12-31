@@ -155,6 +155,258 @@ function calculateStdDev(values: number[]): number {
   return Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / values.length);
 }
 
+// Behavioral Analytics Computation
+interface BehavioralAnalytics {
+  checklist_correlation: {
+    full_pass: { trades: number; win_rate: number; avg_r: number };
+    partial_pass: { trades: number; win_rate: number; avg_r: number };
+    no_checklist: { trades: number; win_rate: number; avg_r: number };
+  };
+  emotional_impact: { state: string; trades: number; win_rate: number; avg_r: number }[];
+  winner_loser_comparison: {
+    playbook_name: string;
+    winners: { count: number; avg_duration_minutes: number; avg_risk_percent: number; checklist_pass_rate: number };
+    losers: { count: number; avg_duration_minutes: number; avg_risk_percent: number; checklist_pass_rate: number };
+    key_differences: string[];
+  }[];
+  regime_by_playbook: {
+    playbook_name: string;
+    rotational: { trades: number; win_rate: number; avg_r: number };
+    transitional: { trades: number; win_rate: number; avg_r: number };
+    no_regime: { trades: number; win_rate: number; avg_r: number };
+  }[];
+  risk_patterns: {
+    winners_avg_risk: number;
+    losers_avg_risk: number;
+    risk_after_loss: number;
+    risk_after_win: number;
+    over_risking_on_losers: boolean;
+  };
+  sample_sizes: {
+    total_trades: number;
+    trades_with_checklist: number;
+    trades_with_emotional_state: number;
+    trades_with_regime: number;
+  };
+}
+
+function computeBehavioralAnalytics(
+  trades: any[],
+  reviews: any[],
+  playbookMap: Map<string, any>
+): BehavioralAnalytics {
+  const reviewMap = new Map(reviews.map(r => [r.trade_id, r]));
+  
+  // === CHECKLIST CORRELATION ===
+  const tradesWithFullPass: any[] = [];
+  const tradesWithPartialPass: any[] = [];
+  const tradesNoChecklist: any[] = [];
+
+  trades.forEach(t => {
+    const review = reviewMap.get(t.id);
+    if (!review?.checklist_answers) {
+      tradesNoChecklist.push(t);
+      return;
+    }
+    
+    const answers = review.checklist_answers;
+    const total = Object.keys(answers).length;
+    const passed = Object.values(answers).filter(v => v === true).length;
+    
+    if (total === 0) {
+      tradesNoChecklist.push(t);
+    } else if (passed === total) {
+      tradesWithFullPass.push(t);
+    } else {
+      tradesWithPartialPass.push(t);
+    }
+  });
+
+  const calcGroupStats = (group: any[]) => {
+    if (group.length === 0) return { trades: 0, win_rate: 0, avg_r: 0 };
+    const wins = group.filter(t => (t.net_pnl || 0) > 0).length;
+    const totalR = group.reduce((sum, t) => sum + (t.r_multiple_actual || 0), 0);
+    return {
+      trades: group.length,
+      win_rate: (wins / group.length) * 100,
+      avg_r: totalR / group.length,
+    };
+  };
+
+  const checklist_correlation = {
+    full_pass: calcGroupStats(tradesWithFullPass),
+    partial_pass: calcGroupStats(tradesWithPartialPass),
+    no_checklist: calcGroupStats(tradesNoChecklist),
+  };
+
+  // === EMOTIONAL STATE IMPACT ===
+  const tradesByEmotionalState = new Map<string, any[]>();
+  trades.forEach(t => {
+    const review = reviewMap.get(t.id);
+    const state = review?.emotional_state_before || 'unknown';
+    if (!tradesByEmotionalState.has(state)) tradesByEmotionalState.set(state, []);
+    tradesByEmotionalState.get(state)!.push(t);
+  });
+
+  const emotional_impact = Array.from(tradesByEmotionalState.entries())
+    .filter(([state]) => state !== 'unknown')
+    .map(([state, group]) => ({
+      state,
+      ...calcGroupStats(group),
+    }))
+    .sort((a, b) => b.trades - a.trades);
+
+  // === WINNER VS LOSER COMPARISON (per playbook) ===
+  const tradesByPlaybook = new Map<string, any[]>();
+  trades.forEach(t => {
+    const key = t.playbook_id || 'unassigned';
+    if (!tradesByPlaybook.has(key)) tradesByPlaybook.set(key, []);
+    tradesByPlaybook.get(key)!.push(t);
+  });
+
+  const winner_loser_comparison = Array.from(tradesByPlaybook.entries())
+    .filter(([_, group]) => group.length >= 5) // Need minimum sample
+    .map(([pbId, group]) => {
+      const playbook = playbookMap.get(pbId);
+      const winners = group.filter(t => (t.net_pnl || 0) > 0);
+      const losers = group.filter(t => (t.net_pnl || 0) < 0);
+
+      const calcGroupDetails = (subgroup: any[]) => {
+        if (subgroup.length === 0) return { count: 0, avg_duration_minutes: 0, avg_risk_percent: 0, checklist_pass_rate: 0 };
+        
+        const durations = subgroup.filter(t => t.duration_seconds).map(t => t.duration_seconds / 60);
+        const risks = subgroup.filter(t => t.risk_percent).map(t => t.risk_percent);
+        
+        let checklistPasses = 0;
+        let checklistTotal = 0;
+        subgroup.forEach(t => {
+          const review = reviewMap.get(t.id);
+          if (review?.checklist_answers) {
+            const answers = review.checklist_answers;
+            const total = Object.keys(answers).length;
+            const passed = Object.values(answers).filter(v => v === true).length;
+            if (total > 0) {
+              checklistTotal++;
+              if (passed === total) checklistPasses++;
+            }
+          }
+        });
+
+        return {
+          count: subgroup.length,
+          avg_duration_minutes: durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0,
+          avg_risk_percent: risks.length > 0 ? risks.reduce((a, b) => a + b, 0) / risks.length : 0,
+          checklist_pass_rate: checklistTotal > 0 ? (checklistPasses / checklistTotal) * 100 : 0,
+        };
+      };
+
+      const winnersDetails = calcGroupDetails(winners);
+      const losersDetails = calcGroupDetails(losers);
+
+      // Identify key differences
+      const key_differences: string[] = [];
+      if (winnersDetails.checklist_pass_rate > losersDetails.checklist_pass_rate + 20) {
+        key_differences.push(`Winners have ${(winnersDetails.checklist_pass_rate - losersDetails.checklist_pass_rate).toFixed(0)}% higher checklist compliance`);
+      }
+      if (losersDetails.avg_risk_percent > winnersDetails.avg_risk_percent * 1.3 && losersDetails.avg_risk_percent > 0) {
+        key_differences.push(`Losers use ${((losersDetails.avg_risk_percent / winnersDetails.avg_risk_percent - 1) * 100).toFixed(0)}% higher risk`);
+      }
+      if (losersDetails.avg_duration_minutes < winnersDetails.avg_duration_minutes * 0.5 && losersDetails.avg_duration_minutes > 0) {
+        key_differences.push(`Losers exit ${((1 - losersDetails.avg_duration_minutes / winnersDetails.avg_duration_minutes) * 100).toFixed(0)}% earlier than winners`);
+      }
+
+      return {
+        playbook_name: playbook?.name || (pbId === 'unassigned' ? 'Unassigned' : 'Unknown'),
+        winners: winnersDetails,
+        losers: losersDetails,
+        key_differences,
+      };
+    });
+
+  // === REGIME BY PLAYBOOK ===
+  const regime_by_playbook = Array.from(tradesByPlaybook.entries())
+    .filter(([_, group]) => group.length >= 5)
+    .map(([pbId, group]) => {
+      const playbook = playbookMap.get(pbId);
+      const rotational = group.filter(t => reviewMap.get(t.id)?.regime === 'rotational');
+      const transitional = group.filter(t => reviewMap.get(t.id)?.regime === 'transitional');
+      const noRegime = group.filter(t => !reviewMap.get(t.id)?.regime);
+
+      return {
+        playbook_name: playbook?.name || (pbId === 'unassigned' ? 'Unassigned' : 'Unknown'),
+        rotational: calcGroupStats(rotational),
+        transitional: calcGroupStats(transitional),
+        no_regime: calcGroupStats(noRegime),
+      };
+    });
+
+  // === RISK PATTERNS ===
+  const winners = trades.filter(t => (t.net_pnl || 0) > 0);
+  const losers = trades.filter(t => (t.net_pnl || 0) < 0);
+  
+  const winnersWithRisk = winners.filter(t => t.risk_percent);
+  const losersWithRisk = losers.filter(t => t.risk_percent);
+  
+  const winnersAvgRisk = winnersWithRisk.length > 0 
+    ? winnersWithRisk.reduce((sum, t) => sum + t.risk_percent, 0) / winnersWithRisk.length 
+    : 0;
+  const losersAvgRisk = losersWithRisk.length > 0 
+    ? losersWithRisk.reduce((sum, t) => sum + t.risk_percent, 0) / losersWithRisk.length 
+    : 0;
+
+  // Risk after previous trade result
+  let riskAfterLoss = 0;
+  let riskAfterWin = 0;
+  let afterLossCount = 0;
+  let afterWinCount = 0;
+
+  const sortedTrades = [...trades].sort((a, b) => 
+    new Date(a.entry_time).getTime() - new Date(b.entry_time).getTime()
+  );
+
+  for (let i = 1; i < sortedTrades.length; i++) {
+    const current = sortedTrades[i];
+    const previous = sortedTrades[i - 1];
+    
+    if (current.risk_percent && previous.net_pnl !== null) {
+      if (previous.net_pnl < 0) {
+        riskAfterLoss += current.risk_percent;
+        afterLossCount++;
+      } else if (previous.net_pnl > 0) {
+        riskAfterWin += current.risk_percent;
+        afterWinCount++;
+      }
+    }
+  }
+
+  const risk_patterns = {
+    winners_avg_risk: winnersAvgRisk,
+    losers_avg_risk: losersAvgRisk,
+    risk_after_loss: afterLossCount > 0 ? riskAfterLoss / afterLossCount : 0,
+    risk_after_win: afterWinCount > 0 ? riskAfterWin / afterWinCount : 0,
+    over_risking_on_losers: losersAvgRisk > winnersAvgRisk * 1.2,
+  };
+
+  // === SAMPLE SIZES ===
+  const sample_sizes = {
+    total_trades: trades.length,
+    trades_with_checklist: tradesWithFullPass.length + tradesWithPartialPass.length,
+    trades_with_emotional_state: Array.from(tradesByEmotionalState.entries())
+      .filter(([state]) => state !== 'unknown')
+      .reduce((sum, [_, group]) => sum + group.length, 0),
+    trades_with_regime: regime_by_playbook.reduce((sum, r) => sum + r.rotational.trades + r.transitional.trades, 0),
+  };
+
+  return {
+    checklist_correlation,
+    emotional_impact,
+    winner_loser_comparison,
+    regime_by_playbook,
+    risk_patterns,
+    sample_sizes,
+  };
+}
+
 async function generateAIAnalysis(
   playbooks: any[],
   playbookComparison: PlaybookPerformance[],
@@ -163,6 +415,7 @@ async function generateAIAnalysis(
   journalInsights: JournalInsights,
   dayOfWeek: DayPerformance[],
   riskAnalysis: RiskAnalysis,
+  behavioralAnalytics: BehavioralAnalytics,
   recentTrades: any[],
   reviews: any[]
 ): Promise<any> {
@@ -172,71 +425,116 @@ async function generateAIAnalysis(
     return null;
   }
 
+  // Minimum sample sizes for different types of advice
+  const MIN_TRADES_PLAYBOOK_ADVICE = 10;
+  const MIN_TRADES_CONFIDENT = 20;
+
+  // Filter playbooks with sufficient data
+  const playbooksWithSufficientData = playbookComparison.filter(p => p.trades >= MIN_TRADES_PLAYBOOK_ADVICE);
+  const playbooksWithLimitedData = playbookComparison.filter(p => p.trades < MIN_TRADES_PLAYBOOK_ADVICE && p.trades > 0);
+
   // Prepare context for AI
   const aiContext = {
-    playbooks: playbooks.map(p => ({
+    // Sample size thresholds (tell AI what's reliable)
+    thresholds: {
+      playbook_advice: MIN_TRADES_PLAYBOOK_ADVICE,
+      confident_recommendation: MIN_TRADES_CONFIDENT,
+    },
+
+    // Flag low-sample playbooks
+    low_sample_playbooks: playbooksWithLimitedData.map(p => `${p.name} (${p.trades} trades)`),
+
+    // Pre-computed behavioral analytics (the good stuff!)
+    behavioral_analytics: {
+      checklist_correlation: behavioralAnalytics.checklist_correlation,
+      emotional_impact: behavioralAnalytics.emotional_impact,
+      winner_loser_comparison: behavioralAnalytics.winner_loser_comparison,
+      regime_by_playbook: behavioralAnalytics.regime_by_playbook,
+      risk_patterns: behavioralAnalytics.risk_patterns,
+      sample_sizes: behavioralAnalytics.sample_sizes,
+    },
+
+    // Playbooks with sufficient data
+    playbooks_with_data: playbooksWithSufficientData.map(p => ({
       id: p.id,
+      name: p.name,
+      trades: p.trades,
+      win_rate: p.win_rate,
+      avg_r: p.avg_r,
+      expectancy: p.expectancy,
+    })),
+
+    // Playbook rules (for context)
+    playbook_rules: playbooks.map(p => ({
       name: p.name,
       checklist_questions: p.checklist_questions,
       confirmation_rules: p.confirmation_rules,
       invalidation_rules: p.invalidation_rules,
       management_rules: p.management_rules,
       failure_modes: p.failure_modes,
-      valid_regimes: p.valid_regimes,
     })),
+
+    // Metrics
     metrics: {
-      by_playbook: playbookComparison,
-      by_symbol: symbolPerformance,
-      by_session_direction: sessionMatrix,
+      by_symbol: symbolPerformance.filter(s => s.trades >= 5),
+      by_session_direction: sessionMatrix.filter(s => s.trades >= 5),
       by_day: dayOfWeek,
     },
+
+    // Risk metrics
     risk_metrics: riskAnalysis,
+
+    // Journal aggregates
     journal_aggregates: journalInsights,
-    recent_trades: recentTrades.slice(0, 30).map(t => ({
-      symbol: t.symbol,
-      direction: t.direction,
-      session: t.session,
-      r_multiple: t.r_multiple_actual,
-      net_pnl: t.net_pnl,
-      playbook_name: t.playbook_name,
-      entry_time: t.entry_time,
-    })),
-    review_data: reviews.slice(0, 30).map(r => ({
-      mistakes: r.mistakes,
-      did_well: r.did_well,
-      to_improve: r.to_improve,
-      regime: r.regime,
-      checklist_answers: r.checklist_answers,
-    })),
   };
 
-  const systemPrompt = `You are a trade journal analyst engine. Do NOT give generic advice.
+  const systemPrompt = `You are a trade execution analyst. Your goal is to find EXECUTION MISTAKES within the trader's approach, NOT to recommend avoiding setups.
 
-You must ground every recommendation in:
-(1) the user's Playbook rules (provided as structured JSON),
-(2) the user's historical trades (provided in metrics),
-(3) computed metrics provided (expectancy, win rate, R-multiple distributions).
+CRITICAL RULES:
+1. NEVER recommend "avoid playbook X" unless it has 20+ trades AND negative expectancy
+2. For playbooks with <10 trades, DO NOT judge the playbook itself - focus on execution issues
+3. Always compare WINNERS vs LOSERS within the same playbook using the behavioral_analytics.winner_loser_comparison data
+4. Prioritize insights from behavioral data: checklist compliance, emotional state, risk sizing
+5. If checklist_correlation shows partial_pass has worse outcomes than full_pass, that's a key insight
+6. If risk_patterns shows over_risking_on_losers is true, that's a key insight
+7. Check emotional_impact for states that correlate with losses
 
-OUTPUT FORMAT (strict JSON only, no markdown, no explanation text):
+ANALYSIS HIERARCHY (in order of importance):
+1. Checklist Compliance - Are losses correlated with skipped checklist items? (use behavioral_analytics.checklist_correlation)
+2. Risk Management - Are losses larger because of over-sizing? (use behavioral_analytics.risk_patterns)
+3. Emotional State - Do certain emotional states predict losses? (use behavioral_analytics.emotional_impact)
+4. Winner vs Loser Patterns - What differs between winning and losing trades in same setup? (use behavioral_analytics.winner_loser_comparison)
+5. Regime Match - Is the playbook being used in wrong regimes? (use behavioral_analytics.regime_by_playbook)
 
+For each insight, CITE THE SPECIFIC NUMBERS from the behavioral data.
+
+FORBIDDEN OUTPUTS:
+- "Avoid [playbook]" with <20 trades
+- "Skip [session]" without regime-specific breakdown
+- Generic advice not grounded in the user's specific behavioral data
+- Advice that ignores the sample sizes provided
+
+OUTPUT FORMAT (strict JSON only):
 {
   "mistake_mining": [
     {
-      "definition": "string - operational, measurable definition of the mistake",
+      "definition": "string - specific, measurable execution mistake from behavioral data",
       "frequency": number,
       "total_r_lost": number,
       "expectancy_impact": number,
-      "rule_change": "string - specific rule change to reduce this mistake",
-      "skip_condition": "string - binary, testable condition to avoid this"
+      "rule_change": "string - specific rule change",
+      "skip_condition": "string - binary, testable condition",
+      "sample_size": number,
+      "confidence_level": "high|medium|low"
     }
   ],
   "recommendations": {
     "rule_updates": [
       {
-        "trigger_condition": "string - when this applies",
-        "action": "string - what to do",
-        "avoid": "string - what NOT to do",
-        "success_metric": "string - how to measure if this works"
+        "trigger_condition": "string",
+        "action": "string",
+        "avoid": "string",
+        "success_metric": "string"
       }
     ],
     "execution_updates": [
@@ -253,34 +551,27 @@ OUTPUT FORMAT (strict JSON only, no markdown, no explanation text):
       "playbook_id": "string",
       "playbook_name": "string",
       "grade": "A|B|C|D|F",
-      "key_strength": "string - citing specific data",
-      "key_weakness": "string - citing specific data",
-      "focus_rule": "string - which rule to focus on"
+      "key_strength": "string - from winner_loser_comparison data",
+      "key_weakness": "string - from winner_loser_comparison data",
+      "focus_rule": "string - specific rule from the playbook",
+      "sample_size": number
     }
   ],
   "edge_summary": {
-    "what_works": ["string - specific conditions with data, max 3 items"],
-    "what_fails": ["string - specific conditions with data, max 3 items"],
-    "primary_leak": "string - biggest R leak identified with numbers",
-    "primary_edge": "string - strongest edge identified with numbers"
+    "what_works": ["string - specific conditions with numbers"],
+    "what_fails": ["string - specific conditions with numbers"],
+    "primary_leak": "string - biggest execution leak with numbers",
+    "primary_edge": "string - strongest edge with numbers"
   },
-  "insufficient_data": ["string - any areas where data is missing"]
-}
+  "insufficient_data": ["string - areas where more data is needed"]
+}`;
 
-Rules:
-- Return ONLY valid JSON, no markdown code blocks
-- Provide exactly 3-5 mistakes ranked by total R lost
-- Provide exactly 3 rule updates and 3 execution updates
-- Grade each playbook that has data
-- Be specific: cite numbers from the data
-- If data is insufficient for any claim, include it in "insufficient_data"`;
-
-  const userPrompt = `Analyze this trading data and provide insights:
+  const userPrompt = `Analyze this trading behavioral data and provide execution-focused insights:
 
 ${JSON.stringify(aiContext, null, 2)}`;
 
   try {
-    console.log('[trade-analytics] Calling Lovable AI for analysis...');
+    console.log('[trade-analytics] Calling Lovable AI for behavioral analysis...');
     
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -604,13 +895,14 @@ serve(async (req) => {
       risk_distribution,
     };
 
-    // === AI ANALYSIS ===
-    // Prepare trades with playbook names for AI context
-    const tradesWithPlaybookNames = trades.map(t => ({
-      ...t,
-      playbook_name: playbookMap.get(t.playbook_id)?.name || 'Unassigned',
-    }));
+    // === BEHAVIORAL ANALYTICS ===
+    const behavioral_analytics = computeBehavioralAnalytics(trades, reviews, playbookMap);
+    console.log(`[trade-analytics] Behavioral analytics computed:`, {
+      checklist_trades: behavioral_analytics.sample_sizes.trades_with_checklist,
+      emotional_trades: behavioral_analytics.sample_sizes.trades_with_emotional_state,
+    });
 
+    // === AI ANALYSIS ===
     const ai_analysis = await generateAIAnalysis(
       playbooks || [],
       playbook_comparison,
@@ -619,7 +911,8 @@ serve(async (req) => {
       journal_insights,
       day_of_week,
       risk_analysis,
-      tradesWithPlaybookNames,
+      behavioral_analytics,
+      trades,
       reviews
     );
 
@@ -633,6 +926,7 @@ serve(async (req) => {
       journal_insights,
       day_of_week,
       risk_analysis,
+      behavioral_analytics,
       ai_analysis,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -278,9 +278,10 @@ const Analytics = React.forwardRef<HTMLDivElement, object>(
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[300px]">Mistake</TableHead>
+                    <TableHead className="w-[280px]">Mistake</TableHead>
                     <TableHead className="text-center">Frequency</TableHead>
                     <TableHead className="text-right">R Lost</TableHead>
+                    <TableHead className="text-center">Confidence</TableHead>
                     <TableHead>Skip Condition</TableHead>
                     <TableHead>Fix</TableHead>
                   </TableRow>
@@ -289,13 +290,32 @@ const Analytics = React.forwardRef<HTMLDivElement, object>(
                   {ai_analysis.mistake_mining.map((mistake, idx) => (
                     <TableRow key={idx}>
                       <TableCell className="font-medium">
-                        {mistake.definition}
+                        <div className="space-y-1">
+                          <span>{mistake.definition}</span>
+                          {mistake.sample_size && (
+                            <p className="text-xs text-muted-foreground">
+                              Based on {mistake.sample_size} trades
+                            </p>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-center">
                         <Badge variant="outline">{mistake.frequency}x</Badge>
                       </TableCell>
                       <TableCell className="text-right text-red-500 font-medium">
-                        {mistake.total_r_lost.toFixed(1)}R
+                        {typeof mistake.total_r_lost === 'number' ? mistake.total_r_lost.toFixed(1) : mistake.total_r_lost}R
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge 
+                          variant="outline" 
+                          className={cn(
+                            mistake.confidence_level === 'high' && 'bg-green-500/10 text-green-500 border-green-500/30',
+                            mistake.confidence_level === 'medium' && 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
+                            mistake.confidence_level === 'low' && 'bg-orange-500/10 text-orange-500 border-orange-500/30',
+                          )}
+                        >
+                          {mistake.confidence_level || 'medium'}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <code className="text-xs bg-muted px-2 py-1 rounded">
@@ -408,7 +428,12 @@ const Analytics = React.forwardRef<HTMLDivElement, object>(
                     className="p-4 rounded-lg border bg-card/50 space-y-3"
                   >
                     <div className="flex items-center justify-between">
-                      <h4 className="font-semibold text-foreground">{pg.playbook_name}</h4>
+                      <div>
+                        <h4 className="font-semibold text-foreground">{pg.playbook_name}</h4>
+                        {pg.sample_size && (
+                          <p className="text-xs text-muted-foreground">{pg.sample_size} trades</p>
+                        )}
+                      </div>
                       <Badge variant="outline" className={getGradeColor(pg.grade)}>
                         {pg.grade}
                       </Badge>
