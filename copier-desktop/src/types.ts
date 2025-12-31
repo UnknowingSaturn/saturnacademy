@@ -32,6 +32,7 @@ export interface Mt5Terminal {
   has_mql5: boolean;
   master_installed: boolean;
   receiver_installed: boolean;
+  account_info?: AccountInfo | null;
 }
 
 export interface AccountInfo {
@@ -44,4 +45,21 @@ export interface AccountInfo {
   leverage: number;
   currency: string;
   server: string;
+}
+
+export type CopierRole = 'master' | 'receiver' | 'independent';
+
+export interface WizardState {
+  step: number;
+  terminals: Mt5Terminal[];
+  masterTerminal: Mt5Terminal | null;
+  receiverTerminals: Mt5Terminal[];
+  setupComplete: boolean;
+}
+
+export interface SetupTokenResponse {
+  token: string;
+  expires_at: string;
+  role: CopierRole;
+  master_account_id: string | null;
 }

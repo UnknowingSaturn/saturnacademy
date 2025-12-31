@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.copier-update-check]
 verify_jwt = false
+
+[functions.copier-setup-token]
+verify_jwt = false
