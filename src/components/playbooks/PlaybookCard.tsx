@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useNavigate } from "react-router-dom";
 import { Playbook } from "@/types/trading";
 import { PlaybookStats } from "@/hooks/usePlaybookStats";
@@ -16,7 +17,8 @@ interface PlaybookCardProps {
   onDelete: (id: string) => void;
 }
 
-export function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDuplicate, onDelete }: PlaybookCardProps) {
+export const PlaybookCard = React.forwardRef<HTMLDivElement, PlaybookCardProps>(
+  function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDuplicate, onDelete }, ref) {
   const navigate = useNavigate();
   
   const handleViewTrades = () => {
@@ -35,6 +37,7 @@ export function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDuplica
 
   return (
     <Card 
+      ref={ref}
       className={cn(
         "group relative border-border/50 hover:border-primary/50 transition-all cursor-pointer overflow-hidden",
         stats && stats.totalTrades > 0 && (isProfit ? "hover:shadow-profit/10" : "hover:shadow-destructive/10")
@@ -193,4 +196,6 @@ export function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDuplica
       </CardContent>
     </Card>
   );
-}
+});
+
+PlaybookCard.displayName = "PlaybookCard";
