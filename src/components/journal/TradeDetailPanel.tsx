@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Trade, TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep, TradeScreenshot } from "@/types/trading";
-import { usePlaybooks, usePlaybook } from "@/hooks/usePlaybooks";
+import { useState, useEffect, useCallback } from "react";
+import { TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep, TradeScreenshot } from "@/types/trading";
+import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useUpsertTradeReview, useTrade } from "@/hooks/useTrades";
 import { useAIAnalysis } from "@/hooks/useAIAnalysis";
-import { aiReviewToDisplayFormat, hasAIAnalysis } from "@/lib/aiAnalysisUtils";
+import { aiReviewToDisplayFormat } from "@/lib/aiAnalysisUtils";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { SaveStatusIndicator } from "./SaveStatusIndicator";
 
