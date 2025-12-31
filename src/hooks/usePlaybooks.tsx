@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Playbook, ChecklistQuestion, SessionType, RegimeType, EntryZoneRules } from '@/types/trading';
+import { Playbook, ChecklistQuestion, SessionType, RegimeType, EntryZoneRules, TradeScreenshot } from '@/types/trading';
 import { useToast } from '@/hooks/use-toast';
 import { Json } from '@/integrations/supabase/types';
 
@@ -20,6 +20,7 @@ function transformPlaybook(row: any): Playbook {
     max_r_per_trade: row.max_r_per_trade ?? null,
     max_daily_loss_r: row.max_daily_loss_r ?? null,
     max_trades_per_session: row.max_trades_per_session ?? null,
+    screenshots: (row.screenshots as TradeScreenshot[]) || [],
   };
 }
 
@@ -80,6 +81,7 @@ export function useCreatePlaybook() {
           max_r_per_trade: playbook.max_r_per_trade ?? null,
           max_daily_loss_r: playbook.max_daily_loss_r ?? null,
           max_trades_per_session: playbook.max_trades_per_session ?? null,
+          screenshots: (playbook.screenshots || []) as unknown as Json,
         })
         .select()
         .single();
@@ -126,6 +128,9 @@ export function useUpdatePlaybook() {
       if (updates.max_r_per_trade !== undefined) updateData.max_r_per_trade = updates.max_r_per_trade;
       if (updates.max_daily_loss_r !== undefined) updateData.max_daily_loss_r = updates.max_daily_loss_r;
       if (updates.max_trades_per_session !== undefined) updateData.max_trades_per_session = updates.max_trades_per_session;
+      if (updates.screenshots !== undefined) {
+        updateData.screenshots = updates.screenshots as unknown as Json;
+      }
       
       const { data, error } = await supabase.from('playbooks').update(updateData).eq('id', id).select().single();
       if (error) throw error;

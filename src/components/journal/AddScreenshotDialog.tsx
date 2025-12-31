@@ -24,7 +24,8 @@ import { cn } from "@/lib/utils";
 interface AddScreenshotDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  tradeId: string;
+  contextId: string;
+  contextType?: 'trade' | 'playbook';
   onAdd: (screenshot: TradeScreenshot) => void;
 }
 
@@ -43,7 +44,8 @@ const TIMEFRAME_OPTIONS: { value: ChartTimeframe; label: string }[] = [
 export function AddScreenshotDialog({
   open,
   onOpenChange,
-  tradeId,
+  contextId,
+  contextType = 'trade',
   onAdd,
 }: AddScreenshotDialogProps) {
   const [timeframe, setTimeframe] = useState<ChartTimeframe>("15m");
@@ -78,7 +80,7 @@ export function AddScreenshotDialog({
 
     setIsUploading(true);
     try {
-      const url = await uploadScreenshot(selectedFile, tradeId);
+      const url = await uploadScreenshot(selectedFile, contextId, contextType);
       if (url) {
         const screenshot: TradeScreenshot = {
           id: crypto.randomUUID(),

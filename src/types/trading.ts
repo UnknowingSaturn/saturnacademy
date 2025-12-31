@@ -163,6 +163,8 @@ export interface Playbook {
   max_r_per_trade: number | null;
   max_daily_loss_r: number | null;
   max_trades_per_session: number | null;
+  // Setup example screenshots
+  screenshots: TradeScreenshot[];
   is_active: boolean;
   created_at: string;
   updated_at: string;

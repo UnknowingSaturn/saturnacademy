@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { usePlaybooks, useCreatePlaybook, useUpdatePlaybook, useDeletePlaybook } from "@/hooks/usePlaybooks";
 import { usePlaybookStats } from "@/hooks/usePlaybookStats";
-import { Playbook, ChecklistQuestion, SessionType, RegimeType, EntryZoneRules } from "@/types/trading";
+import { Playbook, ChecklistQuestion, SessionType, RegimeType, EntryZoneRules, TradeScreenshot } from "@/types/trading";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,6 +23,7 @@ import { CollapsibleRuleSection } from "@/components/playbooks/CollapsibleRuleSe
 import { EditableRuleItem } from "@/components/playbooks/EditableRuleItem";
 import { PlaybookCard } from "@/components/playbooks/PlaybookCard";
 import { PlaybookDetailSheet } from "@/components/playbooks/PlaybookDetailSheet";
+import { PlaybookScreenshotGallery } from "@/components/playbooks/PlaybookScreenshotGallery";
 
 const SESSIONS: { value: SessionType; label: string }[] = [
   { value: "new_york_am", label: "New York AM" },
@@ -82,6 +83,9 @@ export default function Playbooks() {
   const [managementRules, setManagementRules] = useState<string[]>([]);
   const [failureModes, setFailureModes] = useState<string[]>([]);
 
+  // Screenshots
+  const [screenshots, setScreenshots] = useState<TradeScreenshot[]>([]);
+
   // Risk limit state
   const [maxRPerTrade, setMaxRPerTrade] = useState<number | null>(null);
   const [maxDailyLossR, setMaxDailyLossR] = useState<number | null>(null);
@@ -107,6 +111,7 @@ export default function Playbooks() {
     setInvalidationRules([]);
     setManagementRules([]);
     setFailureModes([]);
+    setScreenshots([]);
     setMaxRPerTrade(null);
     setMaxDailyLossR(null);
     setMaxTradesPerSession(null);
@@ -135,6 +140,7 @@ export default function Playbooks() {
     setInvalidationRules(playbook.invalidation_rules || []);
     setManagementRules(playbook.management_rules || []);
     setFailureModes(playbook.failure_modes || []);
+    setScreenshots(playbook.screenshots || []);
     
     setMaxRPerTrade(playbook.max_r_per_trade);
     setMaxDailyLossR(playbook.max_daily_loss_r);
@@ -167,6 +173,7 @@ export default function Playbooks() {
     setInvalidationRules(playbook.invalidation_rules || []);
     setManagementRules(playbook.management_rules || []);
     setFailureModes(playbook.failure_modes || []);
+    setScreenshots(playbook.screenshots || []);
     
     setMaxRPerTrade(playbook.max_r_per_trade);
     setMaxDailyLossR(playbook.max_daily_loss_r);
@@ -314,6 +321,7 @@ export default function Playbooks() {
       max_r_per_trade: maxRPerTrade,
       max_daily_loss_r: maxDailyLossR,
       max_trades_per_session: maxTradesPerSession,
+      screenshots,
     };
 
     if (editingPlaybook) {
@@ -703,6 +711,20 @@ export default function Playbooks() {
                           onRulesChange={setManagementRules}
                           placeholder="e.g., Move SL to BE after 1R"
                         />
+
+                        {/* Setup Examples Screenshots */}
+                        {editingPlaybook && (
+                          <PlaybookScreenshotGallery
+                            playbookId={editingPlaybook.id}
+                            screenshots={screenshots}
+                            onScreenshotsChange={setScreenshots}
+                          />
+                        )}
+                        {!editingPlaybook && (
+                          <div className="border border-dashed border-border/50 rounded-lg p-4 text-center text-muted-foreground text-sm">
+                            Save the playbook first to add setup example screenshots
+                          </div>
+                        )}
                       </TabsContent>
 
                       {/* Failure Modes Tab */}
