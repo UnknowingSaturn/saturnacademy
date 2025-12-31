@@ -78,6 +78,50 @@ export interface RiskAnalysis {
   risk_distribution: { bucket: string; count: number }[];
 }
 
+// AI Analysis Types
+export interface MistakeMining {
+  definition: string;
+  frequency: number;
+  total_r_lost: number;
+  expectancy_impact: number;
+  rule_change: string;
+  skip_condition: string;
+}
+
+export interface Recommendation {
+  trigger_condition: string;
+  action: string;
+  avoid: string;
+  success_metric: string;
+}
+
+export interface PlaybookGrade {
+  playbook_id: string;
+  playbook_name: string;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  key_strength: string;
+  key_weakness: string;
+  focus_rule: string;
+}
+
+export interface EdgeSummary {
+  what_works: string[];
+  what_fails: string[];
+  primary_leak: string;
+  primary_edge: string;
+}
+
+export interface AIAnalysis {
+  mistake_mining: MistakeMining[];
+  recommendations: {
+    rule_updates: Recommendation[];
+    execution_updates: Recommendation[];
+  };
+  playbook_grades: PlaybookGrade[];
+  edge_summary: EdgeSummary;
+  insufficient_data: string[];
+}
+
 export interface TradeAnalytics {
   overview: AnalyticsOverview;
   playbook_comparison: PlaybookPerformance[];
@@ -86,4 +130,5 @@ export interface TradeAnalytics {
   journal_insights: JournalInsights;
   day_of_week: DayPerformance[];
   risk_analysis: RiskAnalysis;
+  ai_analysis?: AIAnalysis;
 }

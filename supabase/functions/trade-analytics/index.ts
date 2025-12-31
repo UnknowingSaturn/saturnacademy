@@ -155,6 +155,190 @@ function calculateStdDev(values: number[]): number {
   return Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / values.length);
 }
 
+async function generateAIAnalysis(
+  playbooks: any[],
+  playbookComparison: PlaybookPerformance[],
+  symbolPerformance: SymbolPerformance[],
+  sessionMatrix: SessionMatrixEntry[],
+  journalInsights: JournalInsights,
+  dayOfWeek: DayPerformance[],
+  riskAnalysis: RiskAnalysis,
+  recentTrades: any[],
+  reviews: any[]
+): Promise<any> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    console.log('[trade-analytics] LOVABLE_API_KEY not configured, skipping AI analysis');
+    return null;
+  }
+
+  // Prepare context for AI
+  const aiContext = {
+    playbooks: playbooks.map(p => ({
+      id: p.id,
+      name: p.name,
+      checklist_questions: p.checklist_questions,
+      confirmation_rules: p.confirmation_rules,
+      invalidation_rules: p.invalidation_rules,
+      management_rules: p.management_rules,
+      failure_modes: p.failure_modes,
+      valid_regimes: p.valid_regimes,
+    })),
+    metrics: {
+      by_playbook: playbookComparison,
+      by_symbol: symbolPerformance,
+      by_session_direction: sessionMatrix,
+      by_day: dayOfWeek,
+    },
+    risk_metrics: riskAnalysis,
+    journal_aggregates: journalInsights,
+    recent_trades: recentTrades.slice(0, 30).map(t => ({
+      symbol: t.symbol,
+      direction: t.direction,
+      session: t.session,
+      r_multiple: t.r_multiple_actual,
+      net_pnl: t.net_pnl,
+      playbook_name: t.playbook_name,
+      entry_time: t.entry_time,
+    })),
+    review_data: reviews.slice(0, 30).map(r => ({
+      mistakes: r.mistakes,
+      did_well: r.did_well,
+      to_improve: r.to_improve,
+      regime: r.regime,
+      checklist_answers: r.checklist_answers,
+    })),
+  };
+
+  const systemPrompt = `You are a trade journal analyst engine. Do NOT give generic advice.
+
+You must ground every recommendation in:
+(1) the user's Playbook rules (provided as structured JSON),
+(2) the user's historical trades (provided in metrics),
+(3) computed metrics provided (expectancy, win rate, R-multiple distributions).
+
+OUTPUT FORMAT (strict JSON only, no markdown, no explanation text):
+
+{
+  "mistake_mining": [
+    {
+      "definition": "string - operational, measurable definition of the mistake",
+      "frequency": number,
+      "total_r_lost": number,
+      "expectancy_impact": number,
+      "rule_change": "string - specific rule change to reduce this mistake",
+      "skip_condition": "string - binary, testable condition to avoid this"
+    }
+  ],
+  "recommendations": {
+    "rule_updates": [
+      {
+        "trigger_condition": "string - when this applies",
+        "action": "string - what to do",
+        "avoid": "string - what NOT to do",
+        "success_metric": "string - how to measure if this works"
+      }
+    ],
+    "execution_updates": [
+      {
+        "trigger_condition": "string",
+        "action": "string",
+        "avoid": "string",
+        "success_metric": "string"
+      }
+    ]
+  },
+  "playbook_grades": [
+    {
+      "playbook_id": "string",
+      "playbook_name": "string",
+      "grade": "A|B|C|D|F",
+      "key_strength": "string - citing specific data",
+      "key_weakness": "string - citing specific data",
+      "focus_rule": "string - which rule to focus on"
+    }
+  ],
+  "edge_summary": {
+    "what_works": ["string - specific conditions with data, max 3 items"],
+    "what_fails": ["string - specific conditions with data, max 3 items"],
+    "primary_leak": "string - biggest R leak identified with numbers",
+    "primary_edge": "string - strongest edge identified with numbers"
+  },
+  "insufficient_data": ["string - any areas where data is missing"]
+}
+
+Rules:
+- Return ONLY valid JSON, no markdown code blocks
+- Provide exactly 3-5 mistakes ranked by total R lost
+- Provide exactly 3 rule updates and 3 execution updates
+- Grade each playbook that has data
+- Be specific: cite numbers from the data
+- If data is insufficient for any claim, include it in "insufficient_data"`;
+
+  const userPrompt = `Analyze this trading data and provide insights:
+
+${JSON.stringify(aiContext, null, 2)}`;
+
+  try {
+    console.log('[trade-analytics] Calling Lovable AI for analysis...');
+    
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[trade-analytics] AI Gateway error:', response.status, errorText);
+      return null;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    
+    if (!content) {
+      console.error('[trade-analytics] No content in AI response');
+      return null;
+    }
+
+    // Parse the JSON response
+    try {
+      // Remove markdown code blocks if present
+      let jsonContent = content.trim();
+      if (jsonContent.startsWith('```json')) {
+        jsonContent = jsonContent.slice(7);
+      }
+      if (jsonContent.startsWith('```')) {
+        jsonContent = jsonContent.slice(3);
+      }
+      if (jsonContent.endsWith('```')) {
+        jsonContent = jsonContent.slice(0, -3);
+      }
+      
+      const parsed = JSON.parse(jsonContent.trim());
+      console.log('[trade-analytics] AI analysis parsed successfully');
+      return parsed;
+    } catch (parseError) {
+      console.error('[trade-analytics] Failed to parse AI response:', parseError);
+      console.error('[trade-analytics] Raw content:', content.substring(0, 500));
+      return null;
+    }
+  } catch (error) {
+    console.error('[trade-analytics] AI analysis error:', error);
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -197,10 +381,10 @@ serve(async (req) => {
     const { data: trades, error: tradesError } = await tradesQuery;
     if (tradesError) throw tradesError;
 
-    // Fetch playbooks for names
+    // Fetch playbooks for names and rules
     const { data: playbooks } = await supabaseClient
       .from('playbooks')
-      .select('id, name, color')
+      .select('*')
       .eq('user_id', user.id);
 
     const playbookMap = new Map(playbooks?.map(p => [p.id, p]) || []);
@@ -420,7 +604,26 @@ serve(async (req) => {
       risk_distribution,
     };
 
-    console.log(`[trade-analytics] Analysis complete`);
+    // === AI ANALYSIS ===
+    // Prepare trades with playbook names for AI context
+    const tradesWithPlaybookNames = trades.map(t => ({
+      ...t,
+      playbook_name: playbookMap.get(t.playbook_id)?.name || 'Unassigned',
+    }));
+
+    const ai_analysis = await generateAIAnalysis(
+      playbooks || [],
+      playbook_comparison,
+      symbol_performance,
+      session_matrix,
+      journal_insights,
+      day_of_week,
+      risk_analysis,
+      tradesWithPlaybookNames,
+      reviews
+    );
+
+    console.log(`[trade-analytics] Analysis complete, AI analysis: ${ai_analysis ? 'success' : 'skipped/failed'}`);
 
     return new Response(JSON.stringify({
       overview,
@@ -430,6 +633,7 @@ serve(async (req) => {
       journal_insights,
       day_of_week,
       risk_analysis,
+      ai_analysis,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
