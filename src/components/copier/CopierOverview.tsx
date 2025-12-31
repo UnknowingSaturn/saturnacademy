@@ -1,8 +1,20 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Download, MonitorSmartphone, ArrowRight, Crown, Radio } from 'lucide-react';
-import { useCopierAccounts } from '@/hooks/useCopier';
+import { Separator } from '@/components/ui/separator';
+import { 
+  Download, 
+  MonitorSmartphone, 
+  ArrowRight, 
+  Crown, 
+  Radio, 
+  Shield,
+  ArrowLeftRight,
+  Monitor,
+  Settings
+} from 'lucide-react';
+import { useCopierAccounts, useReceiverSettings, useSymbolMappings } from '@/hooks/useCopier';
 
 export function CopierOverview() {
   const { data: accounts, isLoading } = useCopierAccounts();
@@ -15,6 +27,11 @@ export function CopierOverview() {
     a.copier_role === 'receiver' && a.ea_type === 'receiver'
   ) || [];
   const hasCopierSetup = masterAccount || receiverAccounts.length > 0;
+
+  // Fetch settings for read-only display
+  const { data: symbolMappings } = useSymbolMappings(masterAccount?.id);
+  const enabledMappingsCount = symbolMappings?.filter(m => m.is_enabled).length || 0;
+  const totalMappingsCount = symbolMappings?.length || 0;
 
   if (isLoading) {
     return (
@@ -36,7 +53,7 @@ export function CopierOverview() {
               <h3 className="text-xl font-semibold mb-2">Get Started with Trade Copier</h3>
               <p className="text-muted-foreground mb-6 max-w-md mx-auto">
                 Download the Saturn Desktop App to set up your master and receiver accounts. 
-                The app will guide you through the setup process.
+                The app will guide you through the complete setup process including risk settings and symbol mappings.
               </p>
               <div className="flex justify-center gap-3">
                 <Button asChild>
@@ -58,7 +75,8 @@ export function CopierOverview() {
               <li>Download and install the Saturn Desktop App</li>
               <li>Open all MT5 terminals you want to use</li>
               <li>Follow the wizard to select Master and Receiver accounts</li>
-              <li>The app will automatically install EAs and configure everything</li>
+              <li>Configure risk settings and symbol mappings in the wizard</li>
+              <li>The app will automatically install EAs and start copying</li>
             </ol>
           </AlertDescription>
         </Alert>
@@ -106,19 +124,7 @@ export function CopierOverview() {
             {receiverAccounts.length > 0 ? (
               <div className="w-full max-w-sm space-y-2">
                 {receiverAccounts.map((receiver) => (
-                  <div
-                    key={receiver.id}
-                    className="p-4 bg-purple-500/10 border-2 border-purple-500 rounded-lg text-center"
-                  >
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                      <Radio className="w-4 h-4 text-purple-500" />
-                      <span className="text-xs font-medium text-purple-600 uppercase">Receiver</span>
-                    </div>
-                    <p className="font-medium">{receiver.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {receiver.broker} • {receiver.account_number}
-                    </p>
-                  </div>
+                  <ReceiverCard key={receiver.id} receiver={receiver} />
                 ))}
               </div>
             ) : masterAccount ? (
@@ -132,6 +138,109 @@ export function CopierOverview() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Configuration Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Symbol Mappings Summary */}
+        <Card className="bg-muted/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ArrowLeftRight className="h-4 w-4" />
+              Symbol Mappings
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-2xl font-bold">{enabledMappingsCount}</p>
+                <p className="text-xs text-muted-foreground">
+                  of {totalMappingsCount} mappings enabled
+                </p>
+              </div>
+              <Badge variant="outline" className="gap-1">
+                <Monitor className="h-3 w-3" />
+                Edit in Desktop App
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Risk Settings Summary */}
+        <Card className="bg-muted/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Shield className="h-4 w-4" />
+              Risk Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-2xl font-bold">{receiverAccounts.length}</p>
+                <p className="text-xs text-muted-foreground">
+                  receiver{receiverAccounts.length !== 1 ? 's' : ''} configured
+                </p>
+              </div>
+              <Badge variant="outline" className="gap-1">
+                <Monitor className="h-3 w-3" />
+                Edit in Desktop App
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Desktop App Prompt */}
+      <Alert className="border-primary/30 bg-primary/5">
+        <Settings className="h-4 w-4" />
+        <AlertTitle>Configuration via Desktop App</AlertTitle>
+        <AlertDescription>
+          Risk settings and symbol mappings are configured through the Saturn Desktop App for a 
+          streamlined experience. The settings sync automatically to your accounts.
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
+// Sub-component for receiver cards with risk settings summary
+function ReceiverCard({ receiver }: { receiver: any }) {
+  const { data: settingsArray } = useReceiverSettings(receiver.id);
+  const settings = settingsArray?.[0]; // Get the first (and only) settings for this receiver
+  
+  const riskModeLabels: Record<string, string> = {
+    balance_multiplier: 'Balance Mult',
+    fixed_lot: 'Fixed Lot',
+    lot_multiplier: 'Lot Mult',
+    risk_percent: 'Risk %',
+    risk_usd: 'Risk $',
+  };
+
+  return (
+    <div className="p-4 bg-purple-500/10 border-2 border-purple-500 rounded-lg">
+      <div className="flex items-center justify-center gap-2 mb-2">
+        <Radio className="w-4 h-4 text-purple-500" />
+        <span className="text-xs font-medium text-purple-600 uppercase">Receiver</span>
+      </div>
+      <p className="font-medium text-center">{receiver.name}</p>
+      <p className="text-xs text-muted-foreground text-center">
+        {receiver.broker} • {receiver.account_number}
+      </p>
+      
+      {settings && (
+        <div className="mt-3 pt-3 border-t border-purple-500/30">
+          <div className="flex flex-wrap gap-1 justify-center">
+            <Badge variant="secondary" className="text-xs">
+              {riskModeLabels[settings.risk_mode] || settings.risk_mode}: {settings.risk_value}
+            </Badge>
+            {settings.prop_firm_safe_mode && (
+              <Badge variant="secondary" className="text-xs bg-yellow-500/20 text-yellow-700">
+                Prop Safe
+              </Badge>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

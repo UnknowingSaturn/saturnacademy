@@ -1,13 +1,10 @@
 import * as React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeftRight, Shield, Download, Activity, Monitor, LayoutDashboard } from 'lucide-react';
-import { SymbolMappingsPanel } from '@/components/copier/SymbolMappingsPanel';
-import { RiskSettingsPanel } from '@/components/copier/RiskSettingsPanel';
+import { LayoutDashboard, BookOpen, Activity } from 'lucide-react';
 import { CopierDashboard } from '@/components/copier/CopierDashboard';
-import { ExecutionHistory } from '@/components/copier/ExecutionHistory';
-import { DesktopAppPanel } from '@/components/copier/DesktopAppPanel';
 import { CopierOverview } from '@/components/copier/CopierOverview';
+import { SetupGuide } from '@/components/copier/SetupGuide';
+import { ExecutionHistory } from '@/components/copier/ExecutionHistory';
 import { useCopierAccounts } from '@/hooks/useCopier';
 
 export default function Copier() {
@@ -37,22 +34,14 @@ export default function Copier() {
       
       {/* Main Configuration */}
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview" className="gap-2">
             <LayoutDashboard className="h-4 w-4" />
             <span className="hidden sm:inline">Overview</span>
           </TabsTrigger>
-          <TabsTrigger value="desktop" className="gap-2">
-            <Monitor className="h-4 w-4" />
-            <span className="hidden sm:inline">Desktop</span>
-          </TabsTrigger>
-          <TabsTrigger value="symbols" className="gap-2" disabled={!hasCopierSetup}>
-            <ArrowLeftRight className="h-4 w-4" />
-            <span className="hidden sm:inline">Symbols</span>
-          </TabsTrigger>
-          <TabsTrigger value="risk" className="gap-2" disabled={!hasCopierSetup}>
-            <Shield className="h-4 w-4" />
-            <span className="hidden sm:inline">Risk</span>
+          <TabsTrigger value="setup" className="gap-2">
+            <BookOpen className="h-4 w-4" />
+            <span className="hidden sm:inline">Setup Guide</span>
           </TabsTrigger>
           <TabsTrigger value="activity" className="gap-2" disabled={!hasCopierSetup}>
             <Activity className="h-4 w-4" />
@@ -65,60 +54,17 @@ export default function Copier() {
           <CopierOverview />
         </TabsContent>
 
-        {/* Desktop App Tab */}
-        <TabsContent value="desktop">
-          <DesktopAppPanel 
+        {/* Setup Guide Tab */}
+        <TabsContent value="setup">
+          <SetupGuide 
             masterAccount={masterAccount}
             receiverAccounts={receiverAccounts}
           />
         </TabsContent>
         
-        {/* Symbols Tab */}
-        <TabsContent value="symbols">
-          <Card>
-            <CardHeader>
-              <CardTitle>Symbol Mappings</CardTitle>
-              <CardDescription>
-                Map symbols between master and receiver accounts for proper trade copying
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <SymbolMappingsPanel 
-                masterAccount={masterAccount}
-                receiverAccounts={receiverAccounts}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        {/* Risk Tab */}
-        <TabsContent value="risk">
-          <Card>
-            <CardHeader>
-              <CardTitle>Risk & Safety Settings</CardTitle>
-              <CardDescription>
-                Configure risk calculation and safety controls for each receiver
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <RiskSettingsPanel receiverAccounts={receiverAccounts} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
         {/* Activity Tab */}
         <TabsContent value="activity">
-          <Card>
-            <CardHeader>
-              <CardTitle>Execution History</CardTitle>
-              <CardDescription>
-                View recent copy executions and their status
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ExecutionHistory />
-            </CardContent>
-          </Card>
+          <ExecutionHistory />
         </TabsContent>
       </Tabs>
     </div>
