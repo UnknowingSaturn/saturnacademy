@@ -1,9 +1,8 @@
 import * as React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { LayoutDashboard, BookOpen, Activity } from 'lucide-react';
+import { LayoutDashboard, Activity } from 'lucide-react';
 import { CopierDashboard } from '@/components/copier/CopierDashboard';
-import { CopierOverview } from '@/components/copier/CopierOverview';
-import { SetupGuide } from '@/components/copier/SetupGuide';
+import { CopierDashboardView } from '@/components/copier/CopierDashboardView';
 import { ExecutionHistory } from '@/components/copier/ExecutionHistory';
 import { useCopierAccounts } from '@/hooks/useCopier';
 
@@ -32,16 +31,12 @@ export default function Copier() {
       {/* Quick Stats - only show if setup exists */}
       {hasCopierSetup && <CopierDashboard />}
       
-      {/* Main Configuration */}
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
-          <TabsTrigger value="overview" className="gap-2">
+      {/* Main Content */}
+      <Tabs defaultValue="dashboard" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-2 lg:w-auto lg:inline-grid">
+          <TabsTrigger value="dashboard" className="gap-2">
             <LayoutDashboard className="h-4 w-4" />
-            <span className="hidden sm:inline">Overview</span>
-          </TabsTrigger>
-          <TabsTrigger value="setup" className="gap-2">
-            <BookOpen className="h-4 w-4" />
-            <span className="hidden sm:inline">Setup Guide</span>
+            <span className="hidden sm:inline">Dashboard</span>
           </TabsTrigger>
           <TabsTrigger value="activity" className="gap-2" disabled={!hasCopierSetup}>
             <Activity className="h-4 w-4" />
@@ -49,17 +44,9 @@ export default function Copier() {
           </TabsTrigger>
         </TabsList>
         
-        {/* Overview Tab */}
-        <TabsContent value="overview">
-          <CopierOverview />
-        </TabsContent>
-
-        {/* Setup Guide Tab */}
-        <TabsContent value="setup">
-          <SetupGuide 
-            masterAccount={masterAccount}
-            receiverAccounts={receiverAccounts}
-          />
+        {/* Dashboard Tab */}
+        <TabsContent value="dashboard">
+          <CopierDashboardView />
         </TabsContent>
         
         {/* Activity Tab */}
