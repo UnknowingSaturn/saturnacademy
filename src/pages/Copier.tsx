@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, ArrowLeftRight, Shield, Download, Activity, Monitor } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Users, ArrowLeftRight, Shield, Download, Activity, Monitor, BookOpen, Info } from 'lucide-react';
 import { AccountRoleManager } from '@/components/copier/AccountRoleManager';
 import { SymbolMappingsPanel } from '@/components/copier/SymbolMappingsPanel';
 import { RiskSettingsPanel } from '@/components/copier/RiskSettingsPanel';
@@ -9,6 +10,7 @@ import { ConfigExportPanel } from '@/components/copier/ConfigExportPanel';
 import { CopierDashboard } from '@/components/copier/CopierDashboard';
 import { ExecutionHistory } from '@/components/copier/ExecutionHistory';
 import { DesktopAppPanel } from '@/components/copier/DesktopAppPanel';
+import { EASetupGuide } from '@/components/copier/EASetupGuide';
 import { useCopierAccounts } from '@/hooks/useCopier';
 
 export default function Copier() {
@@ -23,16 +25,26 @@ export default function Copier() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Trade Copier</h1>
         <p className="text-muted-foreground">
-          Configure local trade copying between your accounts
+          Copy trades from your master account to receiver accounts with automatic journaling
         </p>
       </div>
+
+      {/* Architecture Info */}
+      <Alert className="border-primary/30 bg-primary/5">
+        <Info className="h-4 w-4" />
+        <AlertTitle>All EAs Include Cloud Journaling</AlertTitle>
+        <AlertDescription>
+          <strong>Master EA</strong> journals trades and writes to the copier queue. <strong>Receiver EA</strong> executes trades and journals them automatically. 
+          No need for TradeJournalBridge on copier accounts.
+        </AlertDescription>
+      </Alert>
       
       {/* Quick Stats */}
       <CopierDashboard />
       
       {/* Main Configuration */}
       <Tabs defaultValue="accounts" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-6 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-7 lg:w-auto lg:inline-grid">
           <TabsTrigger value="accounts" className="gap-2">
             <Users className="h-4 w-4" />
             <span className="hidden sm:inline">Accounts</span>
@@ -48,6 +60,10 @@ export default function Copier() {
           <TabsTrigger value="export" className="gap-2">
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">Export</span>
+          </TabsTrigger>
+          <TabsTrigger value="guide" className="gap-2">
+            <BookOpen className="h-4 w-4" />
+            <span className="hidden sm:inline">Guide</span>
           </TabsTrigger>
           <TabsTrigger value="desktop" className="gap-2">
             <Monitor className="h-4 w-4" />
@@ -128,6 +144,11 @@ export default function Copier() {
           </Card>
         </TabsContent>
         
+        {/* Guide Tab */}
+        <TabsContent value="guide">
+          <EASetupGuide />
+        </TabsContent>
+
         {/* Desktop App Tab */}
         <TabsContent value="desktop">
           <DesktopAppPanel 

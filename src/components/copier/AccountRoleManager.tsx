@@ -62,10 +62,19 @@ export function AccountRoleManager({ accounts, isLoading }: AccountRoleManagerPr
       {/* Instructions */}
       <div className="bg-muted/50 rounded-lg p-4 text-sm">
         <h4 className="font-medium mb-2">How it works:</h4>
-        <ul className="space-y-1 text-muted-foreground">
-          <li>• <strong>Master</strong>: The account you trade on. Trades are copied FROM this account.</li>
-          <li>• <strong>Receiver</strong>: Accounts that receive copied trades. Can be prop firm accounts.</li>
-          <li>• <strong>Independent</strong>: Not part of the copier system.</li>
+        <ul className="space-y-2 text-muted-foreground">
+          <li className="flex items-start gap-2">
+            <Crown className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+            <span><strong>Master</strong>: Your main trading account. Uses <code className="bg-muted px-1 rounded text-xs">TradeCopierMaster.mq5</code> (journals + writes queue)</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <Radio className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+            <span><strong>Receiver</strong>: Accounts that copy trades. Uses <code className="bg-muted px-1 rounded text-xs">TradeCopierReceiver.mq5</code> (executes + journals)</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <Minus className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <span><strong>Independent</strong>: Journal-only mode. Uses <code className="bg-muted px-1 rounded text-xs">TradeJournalBridge.mq5</code></span>
+          </li>
         </ul>
       </div>
       
