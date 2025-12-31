@@ -115,8 +115,6 @@ export default function WizardView({ onComplete }: WizardViewProps) {
 
           {state.step === 4 && (
             <SymbolMappingStep
-              masterTerminal={state.masterTerminal}
-              receiverTerminals={state.receiverTerminals}
               symbolMappings={state.symbolMappings}
               onMappingsChange={handleSymbolMappingsChange}
               onContinue={() => goToStep(5)}
