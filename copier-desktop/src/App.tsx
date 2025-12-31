@@ -3,12 +3,13 @@ import { invoke } from "@tauri-apps/api/tauri";
 import StatusPanel from "./components/StatusPanel";
 import ExecutionLog from "./components/ExecutionLog";
 import Settings from "./components/Settings";
+import TerminalManager from "./components/TerminalManager";
 import { CopierStatus, Execution } from "./types";
 
-type Tab = "status" | "log" | "settings";
+type Tab = "terminals" | "status" | "log" | "settings";
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("status");
+  const [activeTab, setActiveTab] = useState<Tab>("terminals");
   const [status, setStatus] = useState<CopierStatus | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
 
@@ -51,6 +52,12 @@ function App() {
       {/* Tab Navigation */}
       <nav className="flex border-b border-border bg-card/50">
         <TabButton
+          active={activeTab === "terminals"}
+          onClick={() => setActiveTab("terminals")}
+        >
+          Terminals
+        </TabButton>
+        <TabButton
           active={activeTab === "status"}
           onClick={() => setActiveTab("status")}
         >
@@ -72,6 +79,7 @@ function App() {
 
       {/* Content */}
       <main className="flex-1 overflow-hidden">
+        {activeTab === "terminals" && <TerminalManager />}
         {activeTab === "status" && <StatusPanel status={status} />}
         {activeTab === "log" && <ExecutionLog executions={executions} />}
         {activeTab === "settings" && <Settings status={status} />}

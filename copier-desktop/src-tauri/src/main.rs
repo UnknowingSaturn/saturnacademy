@@ -101,6 +101,43 @@ fn set_mt5_path(path: String, state: tauri::State<AppState>) -> Result<(), Strin
     Ok(())
 }
 
+#[tauri::command]
+fn find_terminals() -> Vec<mt5::bridge::Mt5Terminal> {
+    mt5::bridge::find_mt5_terminals()
+}
+
+#[tauri::command]
+fn install_ea(
+    terminal_id: String,
+    ea_type: String,
+    app_handle: tauri::AppHandle,
+) -> Result<String, String> {
+    // Get EA content from bundled resources
+    let ea_filename = match ea_type.as_str() {
+        "master" => "TradeCopierMaster.mq5",
+        "receiver" => "TradeCopierReceiver.mq5",
+        _ => return Err(format!("Invalid EA type: {}", ea_type)),
+    };
+
+    // Resolve resource path
+    let resource_path = app_handle
+        .path_resolver()
+        .resolve_resource(format!("resources/{}", ea_filename))
+        .ok_or_else(|| format!("EA file {} not found in resources", ea_filename))?;
+
+    // Read EA content
+    let ea_content = std::fs::read(&resource_path)
+        .map_err(|e| format!("Failed to read EA file: {}", e))?;
+
+    // Install to terminal
+    mt5::bridge::install_ea_to_terminal(&terminal_id, &ea_type, &ea_content)
+}
+
+#[tauri::command]
+fn get_terminal_account_info(terminal_id: String) -> Option<mt5::bridge::AccountInfo> {
+    mt5::bridge::get_account_info(&terminal_id)
+}
+
 fn create_system_tray() -> SystemTray {
     let show = CustomMenuItem::new("show".to_string(), "Show Dashboard");
     let sync = CustomMenuItem::new("sync".to_string(), "Sync Config");
@@ -196,6 +233,9 @@ fn main() {
             stop_copier,
             get_recent_executions,
             set_mt5_path,
+            find_terminals,
+            install_ea,
+            get_terminal_account_info,
         ])
         .setup(|app| {
             let state = app.state::<AppState>();

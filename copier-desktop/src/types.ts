@@ -24,3 +24,24 @@ export interface Execution {
   error_message: string | null;
   receiver_account: string;
 }
+
+export interface Mt5Terminal {
+  terminal_id: string;
+  path: string;
+  broker: string | null;
+  has_mql5: boolean;
+  master_installed: boolean;
+  receiver_installed: boolean;
+}
+
+export interface AccountInfo {
+  account_number: string;
+  broker: string;
+  balance: number;
+  equity: number;
+  margin: number;
+  free_margin: number;
+  leverage: number;
+  currency: string;
+  server: string;
+}
