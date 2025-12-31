@@ -185,7 +185,7 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
 
       {/* Charts Row */}
       <div className="grid gap-4 lg:grid-cols-3">
-      <EquityCurve 
+        <EquityCurve 
           trades={filteredTrades} 
           startingBalance={periodStartingBalance} 
           previousPeriodPnl={previousMetrics.totalPnl}
@@ -194,9 +194,12 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
         <SessionBreakdown bySession={dashboardMetrics.bySession} />
       </div>
 
+      {/* Pattern Insights - Full Width */}
+      <PatternInsights accountId={selectedAccountId} />
+
       {/* Main Content */}
-      <div className="grid lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-3 space-y-6">
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
           {/* Trade Highlights */}
           <TradeHighlights metrics={metrics} />
 
@@ -206,7 +209,6 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
 
         {/* Sidebar - Export Controls & Compliance */}
         <div className="space-y-4">
-          <PatternInsights accountId={selectedAccountId} />
           <PlaybookCompliance />
           <ExportControls
             trades={trades}
