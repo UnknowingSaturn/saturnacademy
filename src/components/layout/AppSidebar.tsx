@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils";
 
 const mainItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "Analytics", url: "/analytics", icon: TrendingUp },
   { title: "Trade Journal", url: "/journal", icon: BookOpen },
   { title: "Live Trades", url: "/live-trades", icon: Activity },
   { title: "Playbooks", url: "/playbooks", icon: FileText },
