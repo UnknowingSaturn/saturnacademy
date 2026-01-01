@@ -233,6 +233,8 @@ export default function Dashboard({
               </p>
             </div>
           )}
+        </div>
+      </div>
 
       {/* Receiver Health Grid */}
       <div className="bg-card rounded-xl border border-border p-5">
