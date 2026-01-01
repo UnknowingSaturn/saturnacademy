@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/tauri";
 import { checkUpdate, installUpdate } from "@tauri-apps/api/updater";
 import { relaunch } from "@tauri-apps/api/process";
-import { useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+import { useState, useEffect } from "react";
 import { Check, Download, Eye, EyeOff, FolderOpen, Key, Loader2, RefreshCw, Save } from "lucide-react";
 import { CopierStatus } from "../types";
 
@@ -22,6 +23,12 @@ export default function Settings({ status }: SettingsProps) {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [appVersion, setAppVersion] = useState<string>("...");
+
+  // Fetch app version on mount
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
+  }, []);
 
   const handleSaveApiKey = async () => {
     if (!apiKey.trim()) return;
@@ -264,7 +271,7 @@ export default function Settings({ status }: SettingsProps) {
 
       {/* App Info */}
       <div className="text-center text-xs text-muted-foreground pt-4">
-        <p>Saturn Trade Copier v1.0.0</p>
+        <p>Saturn Trade Copier v{appVersion}</p>
         <p className="mt-1">© 2024 Saturn Trading</p>
       </div>
     </div>

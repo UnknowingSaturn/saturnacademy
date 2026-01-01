@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
+import { checkUpdate } from "@tauri-apps/api/updater";
 import Sidebar, { NavItem } from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import ExecutionLog from "./components/ExecutionLog";
@@ -10,6 +11,7 @@ import PositionsPanel from "./components/PositionsPanel";
 import ReceiverGrid from "./components/ReceiverGrid";
 import PositionSyncDialog from "./components/PositionSyncDialog";
 import Configuration from "./components/Configuration";
+import UpdateNotification from "./components/UpdateNotification";
 import { CopierStatus, Execution, Mt5Terminal, MasterHeartbeat } from "./types";
 
 type AppMode = "wizard" | "dashboard";
@@ -24,6 +26,27 @@ function App() {
   const [receiverTerminalIds, setReceiverTerminalIds] = useState<string[]>([]);
   const [masterHeartbeat, setMasterHeartbeat] = useState<MasterHeartbeat | null>(null);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateVersion, setUpdateVersion] = useState<string>("");
+
+  // Check for updates on startup
+  useEffect(() => {
+    const checkForUpdates = async () => {
+      try {
+        const { shouldUpdate, manifest } = await checkUpdate();
+        if (shouldUpdate && manifest) {
+          setUpdateAvailable(true);
+          setUpdateVersion(manifest.version);
+        }
+      } catch (e) {
+        console.log("Update check skipped:", e);
+      }
+    };
+    
+    // Delay to not block startup
+    const timeout = setTimeout(checkForUpdates, 3000);
+    return () => clearTimeout(timeout);
+  }, []);
 
   // Check if setup is complete on mount
   useEffect(() => {
@@ -220,6 +243,14 @@ function App() {
         isOpen={showSyncDialog}
         onClose={() => setShowSyncDialog(false)}
       />
+
+      {/* Update Notification */}
+      {updateAvailable && (
+        <UpdateNotification
+          version={updateVersion}
+          onDismiss={() => setUpdateAvailable(false)}
+        />
+      )}
     </div>
   );
 }
