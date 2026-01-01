@@ -444,10 +444,28 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
    json += "  \"lot_size\": " + DoubleToString(volume, 2) + ",\n";
    json += "  \"price\": " + DoubleToString(price, digits) + ",\n";
    
+   // Calculate SL/TP distances for relative pricing (indices support)
+   double slDistance = 0;
+   double tpDistance = 0;
+   double pointValue = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   if(pointValue > 0)
+   {
+      if(sl > 0)
+         slDistance = MathAbs(price - sl) / pointValue;
+      if(tp > 0)
+         tpDistance = MathAbs(tp - price) / pointValue;
+   }
+   
    if(sl > 0)
+   {
       json += "  \"sl\": " + DoubleToString(sl, digits) + ",\n";
+      json += "  \"sl_distance_points\": " + DoubleToString(slDistance, 1) + ",\n";
+   }
    if(tp > 0)
+   {
       json += "  \"tp\": " + DoubleToString(tp, digits) + ",\n";
+      json += "  \"tp_distance_points\": " + DoubleToString(tpDistance, 1) + ",\n";
+   }
    
    json += "  \"commission\": " + DoubleToString(commission, 2) + ",\n";
    json += "  \"swap\": " + DoubleToString(swap, 2) + ",\n";
@@ -548,6 +566,18 @@ void WriteOpenPositions()
          ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
          string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
          
+         // Calculate SL/TP distances for relative pricing
+         double pointValue = SymbolInfoDouble(symbol, SYMBOL_POINT);
+         double slDistance = 0;
+         double tpDistance = 0;
+         if(pointValue > 0)
+         {
+            if(sl > 0)
+               slDistance = MathAbs(openPrice - sl) / pointValue;
+            if(tp > 0)
+               tpDistance = MathAbs(tp - openPrice) / pointValue;
+         }
+         
          if(i > 0) json += ",\n";
          json += "    {\n";
          json += "      \"position_id\": " + IntegerToString(posId) + ",\n";
@@ -556,7 +586,9 @@ void WriteOpenPositions()
          json += "      \"volume\": " + DoubleToString(volume, 2) + ",\n";
          json += "      \"open_price\": " + DoubleToString(openPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",\n";
          json += "      \"sl\": " + DoubleToString(sl, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",\n";
-         json += "      \"tp\": " + DoubleToString(tp, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + "\n";
+         json += "      \"tp\": " + DoubleToString(tp, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",\n";
+         json += "      \"sl_distance_points\": " + DoubleToString(slDistance, 1) + ",\n";
+         json += "      \"tp_distance_points\": " + DoubleToString(tpDistance, 1) + "\n";
          json += "    }";
       }
       

@@ -16,6 +16,11 @@ pub struct MasterPosition {
     pub open_price: f64,
     pub sl: f64,
     pub tp: f64,
+    // Additional fields for relative pricing
+    #[serde(default)]
+    pub sl_distance_points: Option<f64>,
+    #[serde(default)]
+    pub tp_distance_points: Option<f64>,
 }
 
 /// Open positions file structure
@@ -41,6 +46,10 @@ pub struct ReceiverPosition {
     pub symbol: String,
     pub direction: String,
     pub volume: f64,
+    #[serde(default)]
+    pub sl: Option<f64>,
+    #[serde(default)]
+    pub tp: Option<f64>,
 }
 
 /// Discrepancy between master and receiver
@@ -59,6 +68,8 @@ pub enum DiscrepancyType {
     OrphanedOnReceiver,  // Position exists on receiver but not on master
     VolumeMismatch,      // Position exists on both but volumes don't match
     DirectionMismatch,   // Position exists on both but directions don't match
+    SLMismatch,          // Stop loss doesn't match (outside tolerance)
+    TPMismatch,          // Take profit doesn't match (outside tolerance)
 }
 
 /// Read open positions from master's queue folder
@@ -134,6 +145,9 @@ pub fn find_discrepancies(
 ) -> Vec<PositionDiscrepancy> {
     let mut discrepancies = vec![];
     
+    // Tolerance for SL/TP comparison (in price points)
+    const SL_TP_TOLERANCE: f64 = 0.0001; // ~1 pip for forex
+    
     // Check for positions on master that are missing on receiver
     for master_pos in master_positions {
         let receiver_pos = receiver_positions.iter()
@@ -177,6 +191,68 @@ pub fn find_discrepancies(
                         receiver_position: Some(recv.clone()),
                         suggested_action: "Close receiver position and re-open with correct direction".to_string(),
                     });
+                }
+                
+                // Check for SL mismatch
+                if master_pos.sl > 0.0 {
+                    if let Some(recv_sl) = recv.sl {
+                        let sl_diff = (master_pos.sl - recv_sl).abs();
+                        if sl_diff > SL_TP_TOLERANCE {
+                            discrepancies.push(PositionDiscrepancy {
+                                discrepancy_type: DiscrepancyType::SLMismatch,
+                                master_position: Some(master_pos.clone()),
+                                receiver_id: receiver_id.to_string(),
+                                receiver_position: Some(recv.clone()),
+                                suggested_action: format!(
+                                    "Update receiver SL from {} to {}",
+                                    recv_sl, master_pos.sl
+                                ),
+                            });
+                        }
+                    } else {
+                        // Master has SL but receiver doesn't
+                        discrepancies.push(PositionDiscrepancy {
+                            discrepancy_type: DiscrepancyType::SLMismatch,
+                            master_position: Some(master_pos.clone()),
+                            receiver_id: receiver_id.to_string(),
+                            receiver_position: Some(recv.clone()),
+                            suggested_action: format!(
+                                "Set receiver SL to {}",
+                                master_pos.sl
+                            ),
+                        });
+                    }
+                }
+                
+                // Check for TP mismatch
+                if master_pos.tp > 0.0 {
+                    if let Some(recv_tp) = recv.tp {
+                        let tp_diff = (master_pos.tp - recv_tp).abs();
+                        if tp_diff > SL_TP_TOLERANCE {
+                            discrepancies.push(PositionDiscrepancy {
+                                discrepancy_type: DiscrepancyType::TPMismatch,
+                                master_position: Some(master_pos.clone()),
+                                receiver_id: receiver_id.to_string(),
+                                receiver_position: Some(recv.clone()),
+                                suggested_action: format!(
+                                    "Update receiver TP from {} to {}",
+                                    recv_tp, master_pos.tp
+                                ),
+                            });
+                        }
+                    } else {
+                        // Master has TP but receiver doesn't
+                        discrepancies.push(PositionDiscrepancy {
+                            discrepancy_type: DiscrepancyType::TPMismatch,
+                            master_position: Some(master_pos.clone()),
+                            receiver_id: receiver_id.to_string(),
+                            receiver_position: Some(recv.clone()),
+                            suggested_action: format!(
+                                "Set receiver TP to {}",
+                                master_pos.tp
+                            ),
+                        });
+                    }
                 }
             }
         }
@@ -314,6 +390,20 @@ impl SyncCommand {
             volume: None,
             sl: None,
             tp: None,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+    
+    pub fn modify_sl_tp(receiver_position_id: i64, sl: Option<f64>, tp: Option<f64>) -> Self {
+        Self {
+            command_type: "modify_sl_tp".to_string(),
+            position_id: Some(receiver_position_id),
+            master_position_id: None,
+            symbol: None,
+            direction: None,
+            volume: None,
+            sl,
+            tp,
             timestamp: chrono::Utc::now().to_rfc3339(),
         }
     }

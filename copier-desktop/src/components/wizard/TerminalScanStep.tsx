@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
+import { open } from "@tauri-apps/api/dialog";
+import { FolderOpen } from "lucide-react";
 import { Mt5Terminal } from "../../types";
 
 interface TerminalScanStepProps {
@@ -15,6 +17,7 @@ export default function TerminalScanStep({
 }: TerminalScanStepProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [addingManual, setAddingManual] = useState(false);
 
   const scanTerminals = async () => {
     setLoading(true);
@@ -26,6 +29,35 @@ export default function TerminalScanStep({
       setError(`Failed to scan: ${err}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAddManualPath = async () => {
+    setAddingManual(true);
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select MT5 Terminal Folder (containing terminal64.exe)",
+      });
+      
+      if (selected && typeof selected === "string") {
+        // Call backend to validate and add this terminal
+        const terminal = await invoke<Mt5Terminal | null>("add_terminal_path", { 
+          path: selected 
+        });
+        
+        if (terminal) {
+          // Add to existing terminals list
+          onTerminalsFound([...terminals, terminal]);
+        } else {
+          setError("Selected folder is not a valid MT5 terminal. Make sure it contains terminal64.exe");
+        }
+      }
+    } catch (err) {
+      setError(`Failed to add terminal: ${err}`);
+    } finally {
+      setAddingManual(false);
     }
   };
 
@@ -65,7 +97,7 @@ export default function TerminalScanStep({
           <div className="text-4xl mb-3">🔍</div>
           <p className="text-sm font-medium">No MT5 terminals found</p>
           <p className="text-xs text-muted-foreground mt-2">
-            Make sure MT5 is installed and try again
+            Make sure MT5 is installed and try again, or add manually
           </p>
         </div>
       ) : (
@@ -92,6 +124,21 @@ export default function TerminalScanStep({
           ))}
         </div>
       )}
+
+      {/* Manual Add Section */}
+      <div className="border-t border-border pt-4">
+        <button
+          onClick={handleAddManualPath}
+          disabled={addingManual}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm border border-dashed border-border rounded-lg hover:bg-accent disabled:opacity-50 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <FolderOpen className="w-4 h-4" />
+          {addingManual ? "Selecting..." : "Add Terminal Manually"}
+        </button>
+        <p className="text-xs text-muted-foreground text-center mt-2">
+          Use this if your terminal wasn't auto-detected (e.g., portable installs)
+        </p>
+      </div>
 
       <div className="flex gap-3 pt-4">
         <button
