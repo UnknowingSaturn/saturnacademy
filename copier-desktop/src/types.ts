@@ -78,10 +78,16 @@ export interface SafetyConfig {
   max_daily_loss_r: number;
   max_drawdown_percent?: number;
   trailing_drawdown_enabled: boolean;
+  trailing_drawdown?: boolean; // Alias for compatibility
   min_equity?: number;
   manual_confirm_mode: boolean;
   prop_firm_safe_mode: boolean;
   poll_interval_ms: number;
+  // Relative pricing for indices (US100, NAS100, etc.)
+  use_relative_sl_tp?: boolean;
+  // Execution retry settings
+  enable_retry?: boolean;
+  max_retry_attempts?: number;
 }
 
 // Symbol mapping
@@ -93,8 +99,10 @@ export interface SymbolMapping {
 
 // Per-symbol override
 export interface SymbolOverride {
+  symbol: string;
   lot_multiplier?: number;
   max_lots?: number;
+  risk_percent?: number; // Per-symbol risk override
   enabled: boolean;
 }
 
@@ -156,7 +164,9 @@ export type DiscrepancyType =
   | 'MissingOnReceiver' 
   | 'OrphanedOnReceiver' 
   | 'VolumeMismatch' 
-  | 'DirectionMismatch';
+  | 'DirectionMismatch'
+  | 'SLMismatch'
+  | 'TPMismatch';
 
 export interface PositionDiscrepancy {
   discrepancy_type: DiscrepancyType;
@@ -210,6 +220,9 @@ export const DEFAULT_SAFETY_CONFIG: SafetyConfig = {
   manual_confirm_mode: false,
   prop_firm_safe_mode: false,
   poll_interval_ms: 1000,
+  use_relative_sl_tp: false,
+  enable_retry: true,
+  max_retry_attempts: 3,
 };
 
 export const PROP_FIRM_SAFETY_PRESET: SafetyConfig = {
@@ -221,4 +234,7 @@ export const PROP_FIRM_SAFETY_PRESET: SafetyConfig = {
   manual_confirm_mode: false,
   prop_firm_safe_mode: true,
   poll_interval_ms: 500,
+  use_relative_sl_tp: true, // Recommended for indices
+  enable_retry: true,
+  max_retry_attempts: 5,
 };

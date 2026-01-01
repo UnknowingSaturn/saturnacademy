@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Shield, AlertTriangle, Clock, TrendingDown, Pause } from "lucide-react";
+import { Shield, AlertTriangle, Clock, TrendingDown, Pause, Ruler, RotateCw } from "lucide-react";
 import { SafetyConfig } from "../../types";
 
 interface SafetySettingsPanelProps {
@@ -15,6 +15,9 @@ const PROP_FIRM_PRESET: Partial<SafetyConfig> = {
   max_drawdown_percent: 4.0,
   trailing_drawdown: true,
   prop_firm_safe_mode: true,
+  use_relative_sl_tp: true,
+  enable_retry: true,
+  max_retry_attempts: 5,
 };
 
 export function SafetySettingsPanel({ config, onChange, onUseGlobal, isUsingGlobal }: SafetySettingsPanelProps) {
@@ -213,6 +216,58 @@ export function SafetySettingsPanel({ config, onChange, onUseGlobal, isUsingGlob
             <span
               className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
                 localConfig.manual_confirm_mode ? "left-7" : "left-1"
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Relative SL/TP Mode (for Indices) */}
+        <div className="glass-card p-4 flex items-center justify-between border-blue-500/20">
+          <div className="flex items-center gap-3">
+            <Ruler className="w-4 h-4 text-blue-400" />
+            <div>
+              <span className="text-sm font-medium">Relative SL/TP (Indices)</span>
+              <p className="text-xs text-muted-foreground">
+                Copy SL/TP as distance from entry, not absolute price. Required for US100, NAS100, etc.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleChange("use_relative_sl_tp", !localConfig.use_relative_sl_tp)}
+            disabled={isUsingGlobal}
+            className={`relative w-12 h-6 rounded-full transition-colors ${
+              localConfig.use_relative_sl_tp ? "bg-blue-500" : "bg-muted"
+            } disabled:opacity-50`}
+          >
+            <span
+              className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                localConfig.use_relative_sl_tp ? "left-7" : "left-1"
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Execution Retry */}
+        <div className="glass-card p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <RotateCw className="w-4 h-4 text-muted-foreground" />
+            <div>
+              <span className="text-sm font-medium">Execution Retry</span>
+              <p className="text-xs text-muted-foreground">
+                Automatically retry failed orders with exponential backoff
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleChange("enable_retry", !localConfig.enable_retry)}
+            disabled={isUsingGlobal}
+            className={`relative w-12 h-6 rounded-full transition-colors ${
+              localConfig.enable_retry ? "bg-primary" : "bg-muted"
+            } disabled:opacity-50`}
+          >
+            <span
+              className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                localConfig.enable_retry ? "left-7" : "left-1"
               }`}
             />
           </button>

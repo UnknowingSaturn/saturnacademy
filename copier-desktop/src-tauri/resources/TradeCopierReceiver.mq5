@@ -57,6 +57,9 @@ struct ReceiverConfig
    bool     manual_confirm_mode;
    bool     prop_firm_safe_mode;
    int      poll_interval_ms;
+   bool     use_relative_sl_tp;      // Use distance-based SL/TP for indices
+   bool     enable_retry;            // Enable execution retry
+   int      max_retry_attempts;      // Max retry attempts
 };
 
 struct SymbolMapping
@@ -956,10 +959,36 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
    request.magic = 12345;
    request.comment = "Copier:" + IntegerToString(masterPosId);
    
-   if(masterSL > 0)
+   // Apply SL/TP - use relative mode for indices if enabled
+   if(g_config.use_relative_sl_tp && masterSL > 0)
+   {
+      // Calculate SL as distance from entry
+      double slDistance = MathAbs(request.price - masterSL);
+      if(direction == "buy")
+         request.sl = request.price - slDistance;
+      else
+         request.sl = request.price + slDistance;
+   }
+   else if(masterSL > 0)
+   {
       request.sl = masterSL;
-   if(masterTP > 0)
+   }
+   
+   if(g_config.use_relative_sl_tp && masterTP > 0)
+   {
+      // Calculate TP as distance from entry
+      double tpDistance = MathAbs(masterTP - request.price);
+      if(direction == "buy")
+         request.tp = request.price + tpDistance;
+      else
+         request.tp = request.price - tpDistance;
+   }
+   else if(masterTP > 0)
+   {
       request.tp = masterTP;
+   }
+   
+   request.type_filling = ORDER_FILLING_IOC;
    
    request.type_filling = ORDER_FILLING_IOC;
    

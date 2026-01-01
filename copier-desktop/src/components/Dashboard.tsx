@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import {
   Activity,
@@ -13,6 +14,7 @@ import {
   Square,
   TrendingUp,
   XCircle,
+  TestTube2,
 } from "lucide-react";
 import { CopierStatus, Execution, Mt5Terminal, MasterHeartbeat } from "../types";
 
@@ -33,6 +35,9 @@ export default function Dashboard({
   onPauseReceiver,
   onResumeReceiver,
 }: DashboardProps) {
+  const [testingCopy, setTestingCopy] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
   const handleSync = async () => {
     try {
       await invoke("sync_config");
@@ -56,6 +61,24 @@ export default function Dashboard({
       console.error("Stop failed:", error);
     }
   };
+
+  const handleTestCopy = async () => {
+    setTestingCopy(true);
+    setTestResult(null);
+    try {
+      const result = await invoke<{ success: boolean; message: string }>("test_copy");
+      setTestResult(result);
+    } catch (error) {
+      setTestResult({ success: false, message: `Test failed: ${error}` });
+    } finally {
+      setTestingCopy(false);
+    }
+  };
+
+  // Check if we have any demo accounts (for test copy feature)
+  const hasDemoAccount = receiverTerminals.some(
+    (t) => t.account_info?.account_number?.toString().startsWith("5") // Demo accounts often start with 5
+  );
 
   const getHeartbeatAge = () => {
     if (!masterHeartbeat?.timestamp_utc) return null;
@@ -147,6 +170,22 @@ export default function Dashboard({
               <span className="text-sm text-red-400">{status.last_error}</span>
             </div>
           )}
+
+          {/* Test Copy Result */}
+          {testResult && (
+            <div className={`flex items-start gap-2 mt-4 p-3 rounded-lg ${
+              testResult.success ? "bg-green-500/10" : "bg-red-500/10"
+            }`}>
+              {testResult.success ? (
+                <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              )}
+              <span className={`text-sm ${testResult.success ? "text-green-400" : "text-red-400"}`}>
+                {testResult.message}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Quick Stats */}
@@ -177,8 +216,23 @@ export default function Dashboard({
               <span className="text-lg font-semibold">{status?.open_positions ?? 0}</span>
             </div>
           </div>
-        </div>
-      </div>
+
+          {/* Test Copy Button */}
+          {hasDemoAccount && (
+            <div className="mt-4 pt-3 border-t border-border">
+              <button
+                onClick={handleTestCopy}
+                disabled={testingCopy || !status?.is_running}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm bg-secondary/50 text-foreground rounded-lg hover:bg-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <TestTube2 className="w-4 h-4" />
+                {testingCopy ? "Testing..." : "Test Copy (Demo)"}
+              </button>
+              <p className="text-[10px] text-muted-foreground text-center mt-1.5">
+                Opens &amp; closes 0.01 lot test trade
+              </p>
+            </div>
+          )}
 
       {/* Receiver Health Grid */}
       <div className="bg-card rounded-xl border border-border p-5">
