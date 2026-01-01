@@ -1,6 +1,6 @@
 [package]
 name = "saturn-trade-copier"
-version = "1.0.0"
+version = "2.1.0"
 description = "Saturn Trade Copier - Low-latency MT5 trade copying"
 authors = ["Saturn Trading"]
 license = "MIT"
