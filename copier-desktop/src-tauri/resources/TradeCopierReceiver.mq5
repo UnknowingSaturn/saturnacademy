@@ -30,6 +30,8 @@ input group "=== Safety Overrides ==="
 input bool     InpEnableKillSwitch   = false;                      // Emergency stop all copying
 input double   InpSlippageOverride   = 0;                          // Override max slippage (0 = use config)
 input double   InpDailyLossOverride  = 0;                          // Override daily loss limit (0 = use config)
+input double   InpMinEquity          = 0;                          // Minimum equity to continue copying (0 = disabled)
+input double   InpMaxDrawdownPct     = 0;                          // Max drawdown % from high water mark (0 = disabled)
 
 input group "=== Logging ==="
 input bool     InpEnableLogging      = true;                       // Enable file logging
@@ -100,6 +102,10 @@ double         g_dailyPnL            = 0;
 datetime       g_dailyPnLDate        = 0;
 bool           g_configLoaded        = false;
 int            g_configVersion       = 0;
+double         g_startingEquity      = 0;
+double         g_highWaterMark       = 0;
+string         g_commandsFolder      = "";
+bool           g_isPaused            = false;
 
 // Journaling variables
 string         g_terminalId          = "";
@@ -116,10 +122,22 @@ int OnInit()
    // Setup folder paths
    g_pendingFolder = InpQueuePath + "\\pending";
    g_executedFolder = InpQueuePath + "\\executed";
+   g_commandsFolder = "CopierCommands";
+   
+   // Create commands folder
+   if(!FolderCreate(g_commandsFolder))
+   {
+      if(GetLastError() != 5020) // Already exists
+         Print("Warning: Could not create commands folder");
+   }
    
    // Generate terminal ID for journaling
    g_terminalId = "MT5_RCV_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "_" + 
                   StringSubstr(AccountInfoString(ACCOUNT_SERVER), 0, 10);
+   
+   // Initialize equity tracking
+   g_startingEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+   g_highWaterMark = g_startingEquity;
    
    // Initialize logging
    if(InpEnableLogging)
@@ -209,6 +227,24 @@ void OnTimer()
       return;
    }
    
+   // Check for emergency commands from desktop app
+   CheckEmergencyCommands();
+   
+   // Check if paused
+   if(g_isPaused)
+   {
+      if(InpVerboseMode)
+         Print("Copying paused - skipping poll");
+      return;
+   }
+   
+   // Check equity protection
+   if(!CheckEquityProtection())
+   {
+      LogMessage("Equity protection triggered - stopping");
+      return;
+   }
+   
    // Check heartbeat (master alive?)
    if(!CheckMasterHeartbeat())
    {
@@ -230,6 +266,11 @@ void OnTimer()
       return;
    }
    
+   // Update high water mark
+   double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+   if(currentEquity > g_highWaterMark)
+      g_highWaterMark = currentEquity;
+   
    // Process pending events
    ProcessPendingEvents();
    
@@ -238,6 +279,189 @@ void OnTimer()
    {
       ProcessJournalQueue();
    }
+}
+
+//+------------------------------------------------------------------+
+//| Check Equity Protection                                           |
+//+------------------------------------------------------------------+
+bool CheckEquityProtection()
+{
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   
+   // Minimum equity check
+   if(InpMinEquity > 0 && equity < InpMinEquity)
+   {
+      Print("Equity below minimum: ", equity, " < ", InpMinEquity);
+      return false;
+   }
+   
+   // Drawdown from high water mark check
+   if(InpMaxDrawdownPct > 0 && g_highWaterMark > 0)
+   {
+      double drawdownPct = ((g_highWaterMark - equity) / g_highWaterMark) * 100.0;
+      if(drawdownPct > InpMaxDrawdownPct)
+      {
+         Print("Drawdown exceeded: ", DoubleToString(drawdownPct, 2), "% > ", InpMaxDrawdownPct, "%");
+         return false;
+      }
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Check for Emergency Commands from Desktop App                     |
+//+------------------------------------------------------------------+
+void CheckEmergencyCommands()
+{
+   string searchPattern = g_commandsFolder + "\\*.json";
+   string filename;
+   
+   long handle = FileFindFirst(searchPattern, filename);
+   if(handle != INVALID_HANDLE)
+   {
+      do
+      {
+         string fullPath = g_commandsFolder + "\\" + filename;
+         ProcessEmergencyCommand(fullPath, filename);
+      }
+      while(FileFindNext(handle, filename));
+      
+      FileFindClose(handle);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Process Emergency Command File                                    |
+//+------------------------------------------------------------------+
+void ProcessEmergencyCommand(string fullPath, string filename)
+{
+   int fHandle = FileOpen(fullPath, FILE_READ|FILE_TXT|FILE_ANSI);
+   if(fHandle == INVALID_HANDLE)
+      return;
+   
+   string content = "";
+   while(!FileIsEnding(fHandle))
+   {
+      content += FileReadString(fHandle) + "\n";
+   }
+   FileClose(fHandle);
+   
+   // Parse command type
+   string commandType = ExtractJsonString(content, "command_type");
+   
+   if(commandType == "close_all")
+   {
+      LogMessage("EMERGENCY: Close all positions command received");
+      CloseAllCopierPositions();
+   }
+   else if(commandType == "pause_copying")
+   {
+      LogMessage("Pause copying command received");
+      g_isPaused = true;
+   }
+   else if(commandType == "resume_copying")
+   {
+      LogMessage("Resume copying command received");
+      g_isPaused = false;
+   }
+   else if(commandType == "open")
+   {
+      // Sync command - open position
+      string symbol = ExtractJsonString(content, "symbol");
+      string direction = ExtractJsonString(content, "direction");
+      double volume = ExtractJsonNumber(content, "volume");
+      double sl = ExtractJsonNumber(content, "sl");
+      double tp = ExtractJsonNumber(content, "tp");
+      long masterPosId = (long)ExtractJsonNumber(content, "master_position_id");
+      
+      symbol = MapSymbol(symbol);
+      if(StringLen(symbol) > 0)
+      {
+         long receiverPosId = 0;
+         if(ExecuteEntry(symbol, direction, volume, sl, tp, masterPosId, receiverPosId))
+         {
+            LogMessage("Sync open successful: " + symbol);
+         }
+      }
+   }
+   else if(commandType == "close")
+   {
+      // Sync command - close position
+      long positionId = (long)ExtractJsonNumber(content, "position_id");
+      if(PositionSelectByTicket((ulong)positionId))
+      {
+         string symbol = PositionGetString(POSITION_SYMBOL);
+         double volume = PositionGetDouble(POSITION_VOLUME);
+         ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+         
+         MqlTradeRequest request = {};
+         MqlTradeResult result = {};
+         
+         request.action = TRADE_ACTION_DEAL;
+         request.symbol = symbol;
+         request.volume = volume;
+         request.type = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+         request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
+         request.position = (ulong)positionId;
+         request.deviation = 50;
+         request.type_filling = ORDER_FILLING_IOC;
+         
+         if(OrderSend(request, result))
+         {
+            LogMessage("Sync close successful: position " + IntegerToString(positionId));
+         }
+      }
+   }
+   
+   // Delete the command file after processing
+   FileDelete(fullPath);
+}
+
+//+------------------------------------------------------------------+
+//| Close All Copier Positions                                        |
+//+------------------------------------------------------------------+
+void CloseAllCopierPositions()
+{
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      
+      // Only close copier positions (magic 12345)
+      if(PositionGetInteger(POSITION_MAGIC) != 12345)
+         continue;
+      
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      double volume = PositionGetDouble(POSITION_VOLUME);
+      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      
+      MqlTradeRequest request = {};
+      MqlTradeResult result = {};
+      
+      request.action = TRADE_ACTION_DEAL;
+      request.symbol = symbol;
+      request.volume = volume;
+      request.type = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+      request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
+      request.position = ticket;
+      request.deviation = 50;
+      request.type_filling = ORDER_FILLING_IOC;
+      
+      if(OrderSend(request, result))
+      {
+         Print("Closed position: ", ticket);
+      }
+      else
+      {
+         Print("Failed to close position: ", ticket, " Error: ", result.retcode);
+      }
+   }
+   
+   // Clear position maps
+   ArrayResize(g_positionMaps, 0);
+   SavePositionMaps();
 }
 
 //+------------------------------------------------------------------+
@@ -686,6 +910,15 @@ void ProcessEventFile(string fullPath, string filename)
    {
       success = ExecuteExit(masterPositionId, receiverPositionId);
    }
+   else if(eventType == "partial_close")
+   {
+      success = ExecutePartialClose(content, masterPositionId, receiverPositionId);
+   }
+   else if(eventType == "modify")
+   {
+      success = ExecuteModify(content, masterPositionId);
+      receiverPositionId = GetReceiverPositionId(masterPositionId);
+   }
    
    double actualSlippage = 0;
    if(success && receiverPositionId > 0)
@@ -830,6 +1063,169 @@ bool ExecuteExit(long masterPosId, long &receiverPosId)
 }
 
 //+------------------------------------------------------------------+
+//| Execute Partial Close                                             |
+//+------------------------------------------------------------------+
+bool ExecutePartialClose(string eventJson, long masterPosId, long &receiverPosId)
+{
+   receiverPosId = GetReceiverPositionId(masterPosId);
+   if(receiverPosId == 0)
+   {
+      Print("No receiver position found for master: ", masterPosId);
+      return false;
+   }
+   
+   if(!PositionSelectByTicket((ulong)receiverPosId))
+   {
+      Print("Position not found: ", receiverPosId);
+      RemovePositionMap(masterPosId);
+      return false;
+   }
+   
+   string symbol = PositionGetString(POSITION_SYMBOL);
+   double currentVolume = PositionGetDouble(POSITION_VOLUME);
+   ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   
+   // Get closed volume from event
+   double closedVolume = ExtractJsonNumber(eventJson, "closed_volume");
+   double remainingVolume = ExtractJsonNumber(eventJson, "remaining_volume");
+   
+   // Calculate proportional close volume
+   double closeVolume = closedVolume;
+   
+   // If we're using risk scaling, calculate proportionally
+   if(g_config.risk_mode != "fixed_lot")
+   {
+      // Get the position map to find original receiver lots
+      for(int i = 0; i < ArraySize(g_positionMaps); i++)
+      {
+         if(g_positionMaps[i].master_position_id == masterPosId)
+         {
+            double originalMasterLots = closedVolume + remainingVolume;
+            if(originalMasterLots > 0)
+            {
+               double ratio = closedVolume / originalMasterLots;
+               closeVolume = currentVolume * ratio;
+            }
+            break;
+         }
+      }
+   }
+   
+   // Normalize volume
+   double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+   closeVolume = MathMax(minLot, closeVolume);
+   closeVolume = MathFloor(closeVolume / lotStep) * lotStep;
+   closeVolume = NormalizeDouble(closeVolume, 2);
+   
+   // Don't close more than we have
+   if(closeVolume >= currentVolume)
+   {
+      closeVolume = currentVolume;
+   }
+   
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   request.action = TRADE_ACTION_DEAL;
+   request.symbol = symbol;
+   request.volume = closeVolume;
+   request.type = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+   request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
+   request.position = (ulong)receiverPosId;
+   request.deviation = (ulong)(g_config.max_slippage_pips * 10);
+   request.type_filling = ORDER_FILLING_IOC;
+   
+   if(!OrderSend(request, result))
+   {
+      Print("Partial close failed: ", result.retcode);
+      return false;
+   }
+   
+   if(result.retcode != TRADE_RETCODE_DONE)
+   {
+      Print("Partial close not filled: ", result.retcode);
+      return false;
+   }
+   
+   // Update position map with remaining volume
+   for(int i = 0; i < ArraySize(g_positionMaps); i++)
+   {
+      if(g_positionMaps[i].master_position_id == masterPosId)
+      {
+         g_positionMaps[i].lots -= closeVolume;
+         if(g_positionMaps[i].lots <= 0)
+         {
+            RemovePositionMap(masterPosId);
+         }
+         break;
+      }
+   }
+   SavePositionMaps();
+   
+   Print("Partial close executed: ", closeVolume, " lots closed, position ", receiverPosId);
+   
+   // Journal the partial close
+   if(InpEnableJournaling && StringLen(InpApiKey) > 0)
+   {
+      string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
+      JournalCopiedTrade((ulong)result.deal, "partial_close", direction, symbol, closeVolume, request.price, 0, 0);
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Execute SL/TP Modification                                        |
+//+------------------------------------------------------------------+
+bool ExecuteModify(string eventJson, long masterPosId)
+{
+   long receiverPosId = GetReceiverPositionId(masterPosId);
+   if(receiverPosId == 0)
+   {
+      Print("No receiver position found for master: ", masterPosId);
+      return false;
+   }
+   
+   if(!PositionSelectByTicket((ulong)receiverPosId))
+   {
+      Print("Position not found: ", receiverPosId);
+      RemovePositionMap(masterPosId);
+      return false;
+   }
+   
+   string symbol = PositionGetString(POSITION_SYMBOL);
+   double newSL = ExtractJsonNumber(eventJson, "sl");
+   double newTP = ExtractJsonNumber(eventJson, "tp");
+   
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   request.action = TRADE_ACTION_SLTP;
+   request.symbol = symbol;
+   request.position = (ulong)receiverPosId;
+   request.sl = newSL;
+   request.tp = newTP;
+   
+   if(!OrderSend(request, result))
+   {
+      Print("Modify SL/TP failed: ", result.retcode);
+      return false;
+   }
+   
+   if(result.retcode != TRADE_RETCODE_DONE)
+   {
+      Print("Modify SL/TP not completed: ", result.retcode);
+      return false;
+   }
+   
+   Print("SL/TP modified for position ", receiverPosId, ": SL=", newSL, " TP=", newTP);
+   LogMessage("Modified SL/TP for position " + IntegerToString(receiverPosId));
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
 //| Journal a Copied Trade to Cloud                                   |
 //+------------------------------------------------------------------+
 void JournalCopiedTrade(ulong dealTicket, string eventType, string direction, string symbol, double lots, double price, double sl, double tp)
@@ -887,7 +1283,7 @@ string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string 
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
-   json += "\"ea_type\":\"receiver\",";
+   json += "\"ea_type\":\"receiver\",";  // Identify this as the receiver EA
    json += "\"event_type\":\"" + eventType + "\",";
    json += "\"position_id\":" + IntegerToString(dealTicket) + ",";
    json += "\"deal_id\":" + IntegerToString(dealTicket) + ",";
@@ -971,7 +1367,7 @@ string BuildJournalPayload(ulong dealTicket, string eventType, string direction)
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
-   json += "\"ea_type\":\"receiver\",";
+   json += "\"ea_type\":\"receiver\",";  // Identify this as the receiver EA
    json += "\"event_type\":\"" + eventType + "\",";
    json += "\"position_id\":" + IntegerToString(positionId) + ",";
    json += "\"deal_id\":" + IntegerToString(dealTicket) + ",";
