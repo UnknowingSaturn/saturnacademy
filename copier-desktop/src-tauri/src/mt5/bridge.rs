@@ -125,6 +125,7 @@ pub fn get_account_info(terminal_id: &str) -> Option<AccountInfo> {
 }
 
 /// Ensure the CopierQueue and CopierCommands folders exist
+#[allow(dead_code)]
 pub fn ensure_copier_folders(terminal_id: &str) -> Result<(), std::io::Error> {
     let appdata = std::env::var("APPDATA")
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()))?;

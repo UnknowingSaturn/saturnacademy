@@ -274,6 +274,7 @@ pub struct SyncCommand {
     pub timestamp: String,
 }
 
+#[allow(dead_code)]
 impl SyncCommand {
     pub fn close_all() -> Self {
         Self {

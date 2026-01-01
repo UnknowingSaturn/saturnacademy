@@ -10,7 +10,7 @@ mod sync;
 use copier::CopierState;
 use copier::config_generator::{
     build_config_file, ensure_copier_folders, save_config_to_terminal,
-    CopierConfigFile, ReceiverConfigFile, RiskConfig, SafetyConfig,
+    ReceiverConfigFile, RiskConfig, SafetyConfig,
 };
 use copier::position_sync::{
     generate_sync_report, PositionSyncStatus, SyncCommand, write_sync_command,
