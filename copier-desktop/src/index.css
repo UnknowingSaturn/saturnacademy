@@ -3,29 +3,39 @@
 @tailwind utilities;
 
 :root {
-  --background: 222.2 84% 4.9%;
-  --foreground: 210 40% 98%;
-  --card: 222.2 84% 6%;
-  --card-foreground: 210 40% 98%;
-  --popover: 222.2 84% 4.9%;
-  --popover-foreground: 210 40% 98%;
-  --primary: 47 100% 50%;
-  --primary-foreground: 222.2 84% 4.9%;
-  --secondary: 217.2 32.6% 12%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
-  --accent: 217.2 32.6% 17.5%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 217.2 32.6% 14%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 47 100% 50%;
+  /* OLED Black Theme - Matching Web App */
+  --background: 0 0% 0%;
+  --foreground: 0 0% 95%;
+  --card: 0 0% 4%;
+  --card-foreground: 0 0% 95%;
+  --popover: 0 0% 4%;
+  --popover-foreground: 0 0% 95%;
+  --primary: 217 100% 60%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 8%;
+  --secondary-foreground: 0 0% 95%;
+  --muted: 0 0% 10%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 12%;
+  --accent-foreground: 0 0% 95%;
+  --destructive: 0 85% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 12%;
+  --input: 0 0% 12%;
+  --ring: 217 100% 60%;
   --radius: 0.5rem;
   
-  --profit: 142.1 76.2% 36.3%;
-  --loss: 0 84.2% 60.2%;
+  /* Trading Colors */
+  --profit: 152 95% 45%;
+  --profit-foreground: 0 0% 0%;
+  --loss: 0 85% 58%;
+  --loss-foreground: 0 0% 100%;
+  --breakeven: 45 95% 55%;
+  --breakeven-foreground: 0 0% 0%;
+  
+  /* Glassmorphism */
+  --glass-bg: 0 0% 5%;
+  --glass-border: 0 0% 100%;
 }
 
 * {
@@ -62,45 +72,178 @@ body {
   background: hsl(var(--muted-foreground) / 0.5);
 }
 
-/* Animations */
-@keyframes pulse-subtle {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
+/* ============================================
+   GLASS CARD EFFECT
+   ============================================ */
+.glass-card {
+  background: hsl(var(--glass-bg) / 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid hsl(var(--glass-border) / 0.08);
+  position: relative;
+  overflow: hidden;
 }
 
-.animate-pulse-subtle {
-  animation: pulse-subtle 2s ease-in-out infinite;
+.glass-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    hsl(var(--primary) / 0.03) 0%,
+    transparent 50%,
+    hsl(var(--primary) / 0.02) 100%
+  );
+  pointer-events: none;
 }
 
-/* Card hover effects */
-.card-interactive {
-  @apply transition-all duration-200 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5;
+/* ============================================
+   METRIC CARDS WITH GLOW
+   ============================================ */
+.metric-card {
+  @apply relative rounded-xl p-4 transition-all duration-300;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
 }
 
-/* Status indicators */
+.metric-card:hover {
+  border-color: hsl(var(--primary) / 0.3);
+  box-shadow: 0 0 20px hsl(var(--primary) / 0.1);
+}
+
+.metric-card-profit {
+  @apply metric-card;
+}
+
+.metric-card-profit:hover {
+  border-color: hsl(var(--profit) / 0.4);
+  box-shadow: 0 0 20px hsl(var(--profit) / 0.15);
+}
+
+.metric-card-loss {
+  @apply metric-card;
+}
+
+.metric-card-loss:hover {
+  border-color: hsl(var(--loss) / 0.4);
+  box-shadow: 0 0 20px hsl(var(--loss) / 0.15);
+}
+
+/* ============================================
+   GLOW UTILITIES
+   ============================================ */
+.glow-profit {
+  box-shadow: 0 0 15px hsl(var(--profit) / 0.4);
+}
+
+.glow-loss {
+  box-shadow: 0 0 15px hsl(var(--loss) / 0.4);
+}
+
+.glow-primary {
+  box-shadow: 0 0 15px hsl(var(--primary) / 0.4);
+}
+
+/* ============================================
+   TEXT GLOW EFFECTS
+   ============================================ */
+.text-glow-profit {
+  text-shadow: 0 0 10px hsl(var(--profit) / 0.5);
+}
+
+.text-glow-loss {
+  text-shadow: 0 0 10px hsl(var(--loss) / 0.5);
+}
+
+.text-glow-primary {
+  text-shadow: 0 0 10px hsl(var(--primary) / 0.5);
+}
+
+/* ============================================
+   STAT VALUE DISPLAY
+   ============================================ */
+.stat-value {
+  @apply text-2xl font-bold tracking-tight;
+  color: hsl(var(--foreground));
+}
+
+.stat-value-profit {
+  @apply stat-value;
+  color: hsl(var(--profit));
+  text-shadow: 0 0 12px hsl(var(--profit) / 0.4);
+}
+
+.stat-value-loss {
+  @apply stat-value;
+  color: hsl(var(--loss));
+  text-shadow: 0 0 12px hsl(var(--loss) / 0.4);
+}
+
+/* ============================================
+   PREMIUM BUTTON
+   ============================================ */
+.btn-premium {
+  @apply relative inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200;
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(217 100% 50%) 100%);
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 4px 15px hsl(var(--primary) / 0.3);
+}
+
+.btn-premium:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px hsl(var(--primary) / 0.4);
+}
+
+.btn-premium:active {
+  transform: translateY(0);
+}
+
+/* ============================================
+   STATUS INDICATORS WITH GLOW
+   ============================================ */
 .status-online {
-  @apply bg-green-500 shadow-lg shadow-green-500/50;
+  @apply bg-green-500;
+  box-shadow: 0 0 12px hsl(152 95% 45% / 0.6);
 }
 
 .status-offline {
-  @apply bg-red-500 shadow-lg shadow-red-500/50;
+  @apply bg-red-500;
+  box-shadow: 0 0 12px hsl(0 85% 58% / 0.6);
 }
 
 .status-warning {
-  @apply bg-yellow-500 shadow-lg shadow-yellow-500/50;
+  @apply bg-yellow-500;
+  box-shadow: 0 0 12px hsl(45 95% 55% / 0.6);
 }
 
-/* Button base styles */
+/* ============================================
+   CARD HOVER EFFECTS
+   ============================================ */
+.card-interactive {
+  @apply transition-all duration-300;
+  border: 1px solid hsl(var(--border));
+}
+
+.card-interactive:hover {
+  border-color: hsl(var(--primary) / 0.3);
+  box-shadow: 0 8px 30px hsl(var(--primary) / 0.1);
+  transform: translateY(-2px);
+}
+
+/* ============================================
+   BUTTON BASE STYLES
+   ============================================ */
 .btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  @apply inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
 }
 
 .btn-primary {
   @apply bg-primary text-primary-foreground hover:bg-primary/90;
+  box-shadow: 0 2px 10px hsl(var(--primary) / 0.2);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 4px 15px hsl(var(--primary) / 0.3);
 }
 
 .btn-secondary {
@@ -115,13 +258,189 @@ body {
   @apply hover:bg-accent hover:text-accent-foreground;
 }
 
-/* Smooth transitions for sidebar */
+/* ============================================
+   SIDEBAR TRANSITIONS
+   ============================================ */
 aside {
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Focus visible styles */
+/* ============================================
+   FOCUS STATES
+   ============================================ */
 button:focus-visible,
 a:focus-visible {
   @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-background;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(var(--muted-foreground) / 0.1) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out forwards;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.5);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ============================================
+   GRADIENT UTILITIES
+   ============================================ */
+.gradient-border {
+  position: relative;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, hsl(var(--primary) / 0.5), transparent, hsl(var(--primary) / 0.3));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ============================================
+   TRADING ROW STYLES
+   ============================================ */
+.trade-row {
+  @apply transition-colors duration-150;
+}
+
+.trade-row:hover {
+  background: hsl(var(--muted) / 0.5);
+}
+
+.trade-row-profit {
+  @apply trade-row;
+  border-left: 3px solid hsl(var(--profit));
+}
+
+.trade-row-loss {
+  @apply trade-row;
+  border-left: 3px solid hsl(var(--loss));
+}
+
+/* ============================================
+   DIRECTION BADGES
+   ============================================ */
+.direction-buy {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium;
+  background: hsl(var(--profit) / 0.15);
+  color: hsl(var(--profit));
+}
+
+.direction-sell {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium;
+  background: hsl(var(--loss) / 0.15);
+  color: hsl(var(--loss));
+}
+
+/* ============================================
+   EXECUTION STATUS
+   ============================================ */
+.execution-success {
+  @apply inline-flex items-center gap-1 text-xs font-medium;
+  color: hsl(var(--profit));
+}
+
+.execution-failed {
+  @apply inline-flex items-center gap-1 text-xs font-medium;
+  color: hsl(var(--loss));
+}
+
+/* ============================================
+   RECEIVER CARD STATES
+   ============================================ */
+.receiver-card {
+  @apply relative rounded-lg p-4 transition-all duration-300;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+}
+
+.receiver-card-active {
+  @apply receiver-card;
+  border-color: hsl(var(--profit) / 0.3);
+}
+
+.receiver-card-paused {
+  @apply receiver-card;
+  border-color: hsl(var(--breakeven) / 0.3);
+}
+
+.receiver-card-error {
+  @apply receiver-card;
+  border-color: hsl(var(--loss) / 0.3);
 }
