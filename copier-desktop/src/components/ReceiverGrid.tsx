@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
-import { ReceiverHealth, Mt5Terminal } from "../types";
+import { Mt5Terminal } from "../types";
 
 interface ReceiverGridProps {
   receiverTerminals: Mt5Terminal[];
