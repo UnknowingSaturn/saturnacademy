@@ -74,6 +74,7 @@ struct TradeResponse {
     executed_price: f64,
     slippage_pips: f64,
     error: Option<String>,
+    #[allow(dead_code)]
     timestamp: i64,
 }
 

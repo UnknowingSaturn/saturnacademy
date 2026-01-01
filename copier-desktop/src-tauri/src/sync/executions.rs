@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::copier::Execution;
 
 const API_BASE_URL: &str = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1";

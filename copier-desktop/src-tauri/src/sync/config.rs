@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::copier::CopierConfig;
 use std::path::PathBuf;
 
