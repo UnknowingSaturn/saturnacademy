@@ -1,11 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
-import {
-  MasterPosition,
-  PositionDiscrepancy,
-  PositionSyncStatus,
-  ReceiverPosition,
-} from "../types";
+import { PositionDiscrepancy, PositionSyncStatus } from "../types";
 
 interface PositionSyncDialogProps {
   masterTerminalId: string;
