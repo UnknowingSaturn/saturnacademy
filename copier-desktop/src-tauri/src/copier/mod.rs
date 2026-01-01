@@ -1,6 +1,9 @@
+pub mod commands;
+pub mod config_generator;
 pub mod event_processor;
 pub mod file_watcher;
 pub mod lot_calculator;
+pub mod position_sync;
 pub mod trade_executor;
 
 use serde::{Deserialize, Serialize};

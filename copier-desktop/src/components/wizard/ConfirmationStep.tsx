@@ -1,8 +1,20 @@
-import { Mt5Terminal } from "../../types";
+import { useState } from "react";
+import { invoke } from "@tauri-apps/api/tauri";
+import {
+  Mt5Terminal,
+  RiskConfig,
+  SafetyConfig,
+  SymbolMapping,
+  DEFAULT_RISK_CONFIG,
+  DEFAULT_SAFETY_CONFIG,
+} from "../../types";
 
 interface ConfirmationStepProps {
   masterTerminal: Mt5Terminal | null;
   receiverTerminals: Mt5Terminal[];
+  riskConfig?: RiskConfig;
+  safetyConfig?: SafetyConfig;
+  symbolMappings?: SymbolMapping[];
   onComplete: () => void;
   onBack: () => void;
   onAddMoreReceivers: () => void;
@@ -11,17 +23,84 @@ interface ConfirmationStepProps {
 export default function ConfirmationStep({
   masterTerminal,
   receiverTerminals,
+  riskConfig = DEFAULT_RISK_CONFIG,
+  safetyConfig = DEFAULT_SAFETY_CONFIG,
+  symbolMappings = [],
   onComplete,
   onBack,
   onAddMoreReceivers,
 }: ConfirmationStepProps) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const handleSaveAndComplete = async () => {
+    if (!masterTerminal) {
+      setError("No master terminal selected");
+      return;
+    }
+
+    if (receiverTerminals.length === 0) {
+      setError("No receiver terminals selected");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      // Build symbol mappings object
+      const symbolMappingsObj: Record<string, string> = {};
+      symbolMappings.forEach((m) => {
+        if (m.enabled) {
+          symbolMappingsObj[m.master_symbol] = m.receiver_symbol;
+        }
+      });
+
+      // Build receiver configs
+      const receivers = receiverTerminals.map((terminal) => ({
+        terminal_id: terminal.terminal_id,
+        account_number: terminal.account_info?.account_number || "",
+        broker: terminal.broker || terminal.account_info?.broker || "",
+        risk: riskConfig,
+        safety: safetyConfig,
+        symbol_mappings: symbolMappingsObj,
+      }));
+
+      // Save config to all receiver terminals
+      const configHash = await invoke<string>("save_copier_config", {
+        masterTerminalId: masterTerminal.terminal_id,
+        masterAccountNumber: masterTerminal.account_info?.account_number || "",
+        masterBroker: masterTerminal.broker || masterTerminal.account_info?.broker || "",
+        receivers,
+      });
+
+      console.log("Config saved with hash:", configHash);
+      setSaved(true);
+
+      // Wait a moment then complete
+      setTimeout(() => {
+        onComplete();
+      }, 1500);
+    } catch (err) {
+      console.error("Failed to save config:", err);
+      setError(err as string);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <div className="text-4xl mb-3">🎉</div>
-        <h2 className="text-xl font-semibold mb-2">Setup Complete!</h2>
+        <div className="text-4xl mb-3">{saved ? "✅" : "🎉"}</div>
+        <h2 className="text-xl font-semibold mb-2">
+          {saved ? "Configuration Saved!" : "Setup Complete!"}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Your trade copier is configured and ready to use.
+          {saved
+            ? "Your copier configuration has been saved to all terminals."
+            : "Review your configuration and save to start copying trades."}
         </p>
       </div>
 
@@ -79,6 +158,31 @@ export default function ConfirmationStep({
         </div>
       </div>
 
+      {/* Configuration Summary */}
+      <div className="p-4 bg-muted/50 rounded-lg space-y-3">
+        <p className="text-sm font-medium">Configuration Summary</p>
+        
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="text-muted-foreground">Risk Mode:</div>
+          <div className="font-medium capitalize">{riskConfig.mode.replace('_', ' ')}</div>
+          
+          <div className="text-muted-foreground">Risk Value:</div>
+          <div className="font-medium">{riskConfig.value}</div>
+          
+          <div className="text-muted-foreground">Max Slippage:</div>
+          <div className="font-medium">{safetyConfig.max_slippage_pips} pips</div>
+          
+          <div className="text-muted-foreground">Daily Loss Limit:</div>
+          <div className="font-medium">{safetyConfig.max_daily_loss_r}R</div>
+          
+          <div className="text-muted-foreground">Prop Firm Mode:</div>
+          <div className="font-medium">{safetyConfig.prop_firm_safe_mode ? "Enabled" : "Disabled"}</div>
+          
+          <div className="text-muted-foreground">Symbol Mappings:</div>
+          <div className="font-medium">{symbolMappings.filter(m => m.enabled).length} active</div>
+        </div>
+      </div>
+
       {/* Next Steps */}
       <div className="p-4 bg-muted/50 rounded-lg">
         <p className="text-sm font-medium mb-2">Next steps:</p>
@@ -91,18 +195,38 @@ export default function ConfirmationStep({
         </ol>
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+          <p className="text-sm text-red-500">{error}</p>
+        </div>
+      )}
+
       <div className="flex gap-3 pt-4">
         <button
           onClick={onBack}
-          className="px-4 py-2.5 text-sm border border-border rounded-lg hover:bg-accent"
+          disabled={saving}
+          className="px-4 py-2.5 text-sm border border-border rounded-lg hover:bg-accent disabled:opacity-50"
         >
           Back
         </button>
         <button
-          onClick={onComplete}
-          className="flex-1 px-4 py-2.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600"
+          onClick={handleSaveAndComplete}
+          disabled={saving || saved}
+          className="flex-1 px-4 py-2.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          Start Copying Trades
+          {saving ? (
+            <>
+              <span className="animate-spin">⏳</span>
+              Saving Configuration...
+            </>
+          ) : saved ? (
+            <>
+              ✓ Configuration Saved
+            </>
+          ) : (
+            "Save Config & Start Copying"
+          )}
         </button>
       </div>
     </div>
