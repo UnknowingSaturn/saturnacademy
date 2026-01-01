@@ -180,6 +180,13 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
                         const MqlTradeRequest& request,
                         const MqlTradeResult& result)
 {
+   // Handle position modifications (SL/TP changes)
+   if(trans.type == TRADE_TRANSACTION_POSITION && InpEnableCopier)
+   {
+      HandlePositionModify(trans);
+      return;
+   }
+   
    // Only process DEAL transactions
    if(trans.type != TRADE_TRANSACTION_DEAL_ADD)
       return;
@@ -228,7 +235,9 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    else
       return;
    
-   string eventType = DetermineEventType(dealEntry);
+   // Check for partial close
+   long positionId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+   string eventType = DetermineEventType(dealEntry, dealTicket, positionId);
    if(eventType == "")
       return;
    
@@ -241,6 +250,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    if(InpEnableCopier)
    {
       WriteCopierEvent(dealTicket, eventType, direction);
+      WriteOpenPositions(); // Update open positions after any change
    }
    
    // Send to cloud if API key configured
@@ -254,6 +264,73 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    }
    
    MarkDealProcessed(dealTicket);
+}
+
+//+------------------------------------------------------------------+
+//| Handle Position Modification (SL/TP Changes)                      |
+//+------------------------------------------------------------------+
+void HandlePositionModify(const MqlTradeTransaction& trans)
+{
+   if(trans.position == 0) return;
+   
+   // Select the position to get details
+   if(!PositionSelectByTicket(trans.position))
+      return;
+   
+   string symbol = PositionGetString(POSITION_SYMBOL);
+   
+   // Apply filters
+   if(StringLen(InpSymbolFilter) > 0 && symbol != InpSymbolFilter)
+      return;
+   
+   long posId = PositionGetInteger(POSITION_IDENTIFIER);
+   double sl = PositionGetDouble(POSITION_SL);
+   double tp = PositionGetDouble(POSITION_TP);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+   ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
+   
+   // Generate modify event
+   string idempotencyKey = g_terminalId + "_modify_" + IntegerToString(posId) + "_" + 
+                           IntegerToString(TimeCurrent());
+   
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(digits <= 0) digits = 5;
+   
+   string json = "{\n";
+   json += "  \"idempotency_key\": \"" + idempotencyKey + "\",\n";
+   json += "  \"ea_type\": \"master\",\n";
+   json += "  \"event_type\": \"modify\",\n";
+   json += "  \"position_id\": " + IntegerToString(posId) + ",\n";
+   json += "  \"symbol\": \"" + symbol + "\",\n";
+   json += "  \"direction\": \"" + direction + "\",\n";
+   json += "  \"lot_size\": " + DoubleToString(volume, 2) + ",\n";
+   if(sl > 0)
+      json += "  \"sl\": " + DoubleToString(sl, digits) + ",\n";
+   if(tp > 0)
+      json += "  \"tp\": " + DoubleToString(tp, digits) + ",\n";
+   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
+   json += "}";
+   
+   // Write to pending folder
+   string filename = g_pendingFolder + "\\" + 
+                     TimeToString(TimeCurrent(), TIME_DATE) + "_" +
+                     IntegerToString(posId) + "_modify.json";
+   
+   int handle = FileOpen(filename + ".tmp", FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle != INVALID_HANDLE)
+   {
+      FileWriteString(handle, json);
+      FileClose(handle);
+      FileMove(filename + ".tmp", 0, filename, FILE_REWRITE);
+      
+      if(InpVerboseMode)
+         Print("SL/TP modify event written for position ", posId);
+      LogMessage("Modify event written for position " + IntegerToString(posId));
+   }
+   
+   // Update open positions file
+   WriteOpenPositions();
 }
 
 //+------------------------------------------------------------------+
@@ -358,7 +435,7 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
    // Build JSON
    string json = "{\n";
    json += "  \"idempotency_key\": \"" + idempotencyKey + "\",\n";
-   json += "  \"ea_type\": \"master\",\n";  // Identify this as the master EA
+   json += "  \"ea_type\": \"master\",\n";
    json += "  \"event_type\": \"" + eventType + "\",\n";
    json += "  \"position_id\": " + IntegerToString(positionId) + ",\n";
    json += "  \"deal_id\": " + IntegerToString(dealTicket) + ",\n";
@@ -395,6 +472,20 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
       json += "    \"contract_size\": " + DoubleToString(contractSize, 2) + ",\n";
       json += "    \"pip_value\": " + DoubleToString(pipValue, digits) + ",\n";
       json += "    \"risk_pips\": " + DoubleToString(riskPips, 1) + "\n";
+      json += "  },\n";
+   }
+   
+   // Partial close data - include remaining volume
+   if(eventType == "partial_close")
+   {
+      double remainingVolume = 0;
+      if(PositionSelectByTicket((ulong)positionId))
+      {
+         remainingVolume = PositionGetDouble(POSITION_VOLUME);
+      }
+      json += "  \"partial_close_data\": {\n";
+      json += "    \"closed_volume\": " + DoubleToString(volume, 2) + ",\n";
+      json += "    \"remaining_volume\": " + DoubleToString(remainingVolume, 2) + "\n";
       json += "  },\n";
    }
    
@@ -510,14 +601,22 @@ void CleanupExecutedEvents()
 }
 
 //+------------------------------------------------------------------+
-//| Determine Event Type                                              |
+//| Determine Event Type (with partial close detection)               |
 //+------------------------------------------------------------------+
-string DetermineEventType(ENUM_DEAL_ENTRY dealEntry)
+string DetermineEventType(ENUM_DEAL_ENTRY dealEntry, ulong dealTicket, long positionId)
 {
    if(dealEntry == DEAL_ENTRY_IN)
       return "entry";
    else if(dealEntry == DEAL_ENTRY_OUT || dealEntry == DEAL_ENTRY_INOUT)
+   {
+      // Check if position still exists (partial close) or fully closed
+      if(PositionSelectByTicket((ulong)positionId))
+      {
+         // Position still exists = partial close
+         return "partial_close";
+      }
       return "exit";
+   }
    return "";
 }
 
