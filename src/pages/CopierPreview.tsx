@@ -17,6 +17,7 @@ import { PreviewSettings } from "@/components/copier-preview/PreviewSettings";
 import { PreviewTerminals } from "@/components/copier-preview/PreviewTerminals";
 import { PreviewPositions } from "@/components/copier-preview/PreviewPositions";
 import { PreviewControls } from "@/components/copier-preview/PreviewControls";
+import { PreviewConfiguration } from "@/components/copier-preview/PreviewConfiguration";
 import { toast } from "sonner";
 
 export default function CopierPreview() {
@@ -98,6 +99,8 @@ export default function CopierPreview() {
             onResumeReceiver={handleResumeReceiver}
           />
         );
+      case "configuration":
+        return <PreviewConfiguration />;
       case "activity":
         return <PreviewExecutionLog executions={executions} />;
       case "terminals":

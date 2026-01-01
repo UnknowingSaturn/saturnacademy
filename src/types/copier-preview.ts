@@ -68,7 +68,7 @@ export interface MasterPosition {
   tp: number;
 }
 
-export type NavItem = 'dashboard' | 'positions' | 'receivers' | 'activity' | 'terminals' | 'settings';
+export type NavItem = 'dashboard' | 'positions' | 'receivers' | 'configuration' | 'activity' | 'terminals' | 'settings';
 
 // Preview state for controlling the mock data
 export interface PreviewState {
