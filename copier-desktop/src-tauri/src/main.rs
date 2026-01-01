@@ -8,7 +8,19 @@ mod mt5;
 mod sync;
 
 use copier::CopierState;
+use copier::config_generator::{
+    build_config_file, ensure_copier_folders, save_config_to_terminal,
+    CopierConfigFile, ReceiverConfigFile, RiskConfig, SafetyConfig,
+};
+use copier::position_sync::{
+    generate_sync_report, PositionSyncStatus, SyncCommand, write_sync_command,
+};
+use copier::commands::{
+    close_all_positions, pause_all_receivers, resume_all_receivers,
+    read_master_heartbeat, is_master_online, Heartbeat,
+};
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{
     CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem,
@@ -138,6 +150,139 @@ fn get_terminal_account_info(terminal_id: String) -> Option<mt5::bridge::Account
     mt5::bridge::get_account_info(&terminal_id)
 }
 
+// ==================== NEW COMMANDS ====================
+
+#[tauri::command]
+fn save_copier_config(
+    master_terminal_id: String,
+    master_account_number: String,
+    master_broker: String,
+    receivers: Vec<serde_json::Value>,
+) -> Result<String, String> {
+    // Convert receivers from JSON to ReceiverConfigFile
+    let receiver_configs: Vec<ReceiverConfigFile> = receivers
+        .into_iter()
+        .enumerate()
+        .map(|(idx, r)| {
+            let terminal_id = r["terminal_id"].as_str().unwrap_or("").to_string();
+            let account_number = r["account_number"].as_str().unwrap_or("").to_string();
+            let broker = r["broker"].as_str().unwrap_or("").to_string();
+            
+            // Parse risk config
+            let risk = RiskConfig {
+                mode: r["risk"]["mode"].as_str().unwrap_or("balance_multiplier").to_string(),
+                value: r["risk"]["value"].as_f64().unwrap_or(1.0),
+            };
+            
+            // Parse safety config
+            let safety = SafetyConfig {
+                max_slippage_pips: r["safety"]["max_slippage_pips"].as_f64().unwrap_or(3.0),
+                max_daily_loss_r: r["safety"]["max_daily_loss_r"].as_f64().unwrap_or(3.0),
+                max_drawdown_percent: r["safety"]["max_drawdown_percent"].as_f64(),
+                trailing_drawdown_enabled: r["safety"]["trailing_drawdown_enabled"].as_bool().unwrap_or(false),
+                min_equity: r["safety"]["min_equity"].as_f64(),
+                manual_confirm_mode: r["safety"]["manual_confirm_mode"].as_bool().unwrap_or(false),
+                prop_firm_safe_mode: r["safety"]["prop_firm_safe_mode"].as_bool().unwrap_or(false),
+                poll_interval_ms: r["safety"]["poll_interval_ms"].as_i64().unwrap_or(1000) as i32,
+            };
+            
+            // Parse symbol mappings
+            let mut symbol_mappings: HashMap<String, String> = HashMap::new();
+            if let Some(mappings) = r["symbol_mappings"].as_object() {
+                for (k, v) in mappings {
+                    if let Some(val) = v.as_str() {
+                        symbol_mappings.insert(k.clone(), val.to_string());
+                    }
+                }
+            }
+            
+            ReceiverConfigFile {
+                receiver_id: format!("receiver_{}", idx),
+                account_name: format!("{} - {}", broker, account_number),
+                account_number,
+                broker,
+                terminal_id: terminal_id.clone(),
+                risk,
+                safety,
+                symbol_mappings,
+                symbol_overrides: None,
+            }
+        })
+        .collect();
+    
+    // Build the config file
+    let config = build_config_file(
+        &master_terminal_id,
+        &master_account_number,
+        &master_broker,
+        receiver_configs.clone(),
+    );
+    
+    // Ensure copier folders exist for master
+    ensure_copier_folders(&master_terminal_id)?;
+    
+    // Save config to each receiver terminal
+    for receiver in &receiver_configs {
+        ensure_copier_folders(&receiver.terminal_id)?;
+        save_config_to_terminal(&receiver.terminal_id, &config)?;
+    }
+    
+    Ok(config.config_hash)
+}
+
+#[tauri::command]
+fn get_position_sync_status(
+    master_terminal_id: String,
+    receiver_terminal_ids: Vec<String>,
+) -> Result<PositionSyncStatus, String> {
+    generate_sync_report(&master_terminal_id, &receiver_terminal_ids)
+}
+
+#[tauri::command]
+fn sync_position_to_receiver(
+    receiver_terminal_id: String,
+    command: serde_json::Value,
+) -> Result<(), String> {
+    let sync_command = SyncCommand {
+        command_type: command["command_type"].as_str().unwrap_or("open").to_string(),
+        position_id: command["position_id"].as_i64(),
+        master_position_id: command["master_position_id"].as_i64(),
+        symbol: command["symbol"].as_str().map(String::from),
+        direction: command["direction"].as_str().map(String::from),
+        volume: command["volume"].as_f64(),
+        sl: command["sl"].as_f64(),
+        tp: command["tp"].as_f64(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+    
+    write_sync_command(&receiver_terminal_id, &sync_command)
+}
+
+#[tauri::command]
+fn emergency_close_all(receiver_terminal_ids: Vec<String>, reason: Option<String>) -> Result<(), String> {
+    close_all_positions(&receiver_terminal_ids, reason)
+}
+
+#[tauri::command]
+fn pause_receivers(receiver_terminal_ids: Vec<String>) -> Result<(), String> {
+    pause_all_receivers(&receiver_terminal_ids)
+}
+
+#[tauri::command]
+fn resume_receivers(receiver_terminal_ids: Vec<String>) -> Result<(), String> {
+    resume_all_receivers(&receiver_terminal_ids)
+}
+
+#[tauri::command]
+fn get_master_heartbeat(terminal_id: String) -> Result<Heartbeat, String> {
+    read_master_heartbeat(&terminal_id)
+}
+
+#[tauri::command]
+fn check_master_online(terminal_id: String) -> bool {
+    is_master_online(&terminal_id)
+}
+
 fn create_system_tray() -> SystemTray {
     let show = CustomMenuItem::new("show".to_string(), "Show Dashboard");
     let sync = CustomMenuItem::new("sync".to_string(), "Sync Config");
@@ -236,6 +381,15 @@ fn main() {
             find_terminals,
             install_ea,
             get_terminal_account_info,
+            // New commands
+            save_copier_config,
+            get_position_sync_status,
+            sync_position_to_receiver,
+            emergency_close_all,
+            pause_receivers,
+            resume_receivers,
+            get_master_heartbeat,
+            check_master_online,
         ])
         .setup(|app| {
             let state = app.state::<AppState>();
