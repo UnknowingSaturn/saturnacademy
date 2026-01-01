@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
-import StatusPanel from "./components/StatusPanel";
+import Sidebar, { NavItem } from "./components/Sidebar";
+import Dashboard from "./components/Dashboard";
 import ExecutionLog from "./components/ExecutionLog";
 import Settings from "./components/Settings";
 import TerminalManager from "./components/TerminalManager";
@@ -8,27 +9,28 @@ import WizardView from "./components/WizardView";
 import PositionsPanel from "./components/PositionsPanel";
 import ReceiverGrid from "./components/ReceiverGrid";
 import PositionSyncDialog from "./components/PositionSyncDialog";
-import { CopierStatus, Execution, Mt5Terminal } from "./types";
+import { CopierStatus, Execution, Mt5Terminal, MasterHeartbeat } from "./types";
 
-type Tab = "status" | "positions" | "receivers" | "log" | "terminals" | "settings";
 type AppMode = "wizard" | "dashboard";
 
 function App() {
   const [mode, setMode] = useState<AppMode>("wizard");
-  const [activeTab, setActiveTab] = useState<Tab>("status");
+  const [activeNav, setActiveNav] = useState<NavItem>("dashboard");
   const [status, setStatus] = useState<CopierStatus | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [terminals, setTerminals] = useState<Mt5Terminal[]>([]);
   const [masterTerminalId, setMasterTerminalId] = useState<string>("");
   const [receiverTerminalIds, setReceiverTerminalIds] = useState<string[]>([]);
+  const [masterHeartbeat, setMasterHeartbeat] = useState<MasterHeartbeat | null>(null);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
 
   // Check if setup is complete on mount
   useEffect(() => {
     const checkSetup = async () => {
       try {
-        const status = await invoke<CopierStatus>("get_copier_status");
-        if (status.is_connected || status.is_running) {
+        const statusResult = await invoke<CopierStatus>("get_copier_status");
+        setStatus(statusResult);
+        if (statusResult.is_connected || statusResult.is_running) {
           setMode("dashboard");
         }
         
@@ -45,29 +47,43 @@ function App() {
         }
         setReceiverTerminalIds(receivers.map(r => r.terminal_id));
       } catch (error) {
-        console.log("Initial setup needed");
+        console.log("Initial setup needed:", error);
       }
     };
     checkSetup();
   }, []);
 
+  // Poll for status and heartbeat when in dashboard mode
   useEffect(() => {
     if (mode !== "dashboard") return;
 
-    const interval = setInterval(async () => {
+    const fetchData = async () => {
       try {
         const result = await invoke<CopierStatus>("get_copier_status");
         setStatus(result);
 
         const execs = await invoke<Execution[]>("get_recent_executions");
         setExecutions(execs);
+
+        // Try to get master heartbeat
+        if (masterTerminalId) {
+          try {
+            const heartbeat = await invoke<MasterHeartbeat | null>("get_master_heartbeat", { terminalId: masterTerminalId });
+            setMasterHeartbeat(heartbeat);
+          } catch {
+            // Heartbeat not available
+          }
+        }
       } catch (error) {
         console.error("Failed to get status:", error);
       }
-    }, 1000);
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 1000);
 
     return () => clearInterval(interval);
-  }, [mode]);
+  }, [mode, masterTerminalId]);
 
   const handleWizardComplete = () => {
     setMode("dashboard");
@@ -77,12 +93,22 @@ function App() {
     setMode("wizard");
   };
 
-  const handlePauseReceiver = (terminalId: string) => {
-    console.log("Paused receiver:", terminalId);
+  const handlePauseReceiver = async (terminalId: string) => {
+    try {
+      await invoke("pause_receiver", { terminalId });
+      console.log("Paused receiver:", terminalId);
+    } catch (error) {
+      console.error("Failed to pause receiver:", error);
+    }
   };
 
-  const handleResumeReceiver = (terminalId: string) => {
-    console.log("Resumed receiver:", terminalId);
+  const handleResumeReceiver = async (terminalId: string) => {
+    try {
+      await invoke("resume_receiver", { terminalId });
+      console.log("Resumed receiver:", terminalId);
+    } catch (error) {
+      console.error("Failed to resume receiver:", error);
+    }
   };
 
   const receiverTerminals = terminals.filter(t => t.receiver_installed);
@@ -90,13 +116,19 @@ function App() {
   if (mode === "wizard") {
     return (
       <div className="h-screen flex flex-col bg-background">
-        <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm">Saturn Trade Copier - Setup</span>
+        <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-card">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
+              <span className="text-primary font-bold text-sm">S</span>
+            </div>
+            <div>
+              <span className="font-semibold">Saturn Trade Copier</span>
+              <span className="text-xs text-muted-foreground ml-2">Setup Wizard</span>
+            </div>
           </div>
           <button
             onClick={() => setMode("dashboard")}
-            className="text-xs text-muted-foreground hover:text-foreground"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             Skip to Dashboard →
           </button>
@@ -110,82 +142,74 @@ function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-background">
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
-        <div className="flex items-center gap-2">
-          <div
-            className={`w-2.5 h-2.5 rounded-full ${
-              status?.is_running
-                ? "bg-green-500"
-                : status?.is_connected
-                ? "bg-yellow-500"
-                : "bg-red-500"
-            }`}
-          />
-          <span className="font-semibold text-sm">Saturn Trade Copier</span>
-        </div>
-        <div className="flex items-center gap-3">
-          {masterTerminalId && (
-            <button
-              onClick={() => setShowSyncDialog(true)}
-              className="px-2 py-1 text-xs bg-primary/10 text-primary rounded hover:bg-primary/20"
-            >
-              Sync Positions
-            </button>
+    <div className="h-screen flex bg-background">
+      {/* Sidebar */}
+      <Sidebar
+        activeItem={activeNav}
+        onNavigate={setActiveNav}
+        onShowWizard={handleShowWizard}
+        status={status}
+        masterHeartbeat={masterHeartbeat?.timestamp_utc}
+      />
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <header className="flex items-center justify-between px-6 py-3 border-b border-border bg-card">
+          <div className="flex items-center gap-4">
+            <h1 className="text-lg font-semibold capitalize">{activeNav}</h1>
+            {activeNav === "dashboard" && status?.is_running && (
+              <span className="flex items-center gap-1.5 text-xs text-green-500 bg-green-500/10 px-2 py-1 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                Copying Active
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {masterTerminalId && (
+              <button
+                onClick={() => setShowSyncDialog(true)}
+                className="px-3 py-1.5 text-sm bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors"
+              >
+                Sync Positions
+              </button>
+            )}
+            <span className="text-xs text-muted-foreground">
+              Config v{status?.config_version ?? 0}
+            </span>
+          </div>
+        </header>
+
+        {/* Content Area */}
+        <main className="flex-1 overflow-hidden">
+          {activeNav === "dashboard" && (
+            <Dashboard
+              status={status}
+              executions={executions}
+              masterHeartbeat={masterHeartbeat}
+              receiverTerminals={receiverTerminals}
+              onPauseReceiver={handlePauseReceiver}
+              onResumeReceiver={handleResumeReceiver}
+            />
           )}
-          <button
-            onClick={handleShowWizard}
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            Run Setup
-          </button>
-          <span className="text-xs text-muted-foreground">v2.0.0</span>
-        </div>
-      </header>
-
-      {/* Tab Navigation */}
-      <nav className="flex border-b border-border bg-card/50 overflow-x-auto">
-        <TabButton active={activeTab === "status"} onClick={() => setActiveTab("status")}>
-          Status
-        </TabButton>
-        <TabButton active={activeTab === "positions"} onClick={() => setActiveTab("positions")}>
-          Positions
-        </TabButton>
-        <TabButton active={activeTab === "receivers"} onClick={() => setActiveTab("receivers")}>
-          Receivers
-        </TabButton>
-        <TabButton active={activeTab === "log"} onClick={() => setActiveTab("log")}>
-          Activity
-        </TabButton>
-        <TabButton active={activeTab === "terminals"} onClick={() => setActiveTab("terminals")}>
-          Terminals
-        </TabButton>
-        <TabButton active={activeTab === "settings"} onClick={() => setActiveTab("settings")}>
-          Settings
-        </TabButton>
-      </nav>
-
-      {/* Content */}
-      <main className="flex-1 overflow-auto">
-        {activeTab === "status" && <StatusPanel status={status} />}
-        {activeTab === "positions" && (
-          <PositionsPanel
-            masterTerminalId={masterTerminalId}
-            receiverTerminalIds={receiverTerminalIds}
-          />
-        )}
-        {activeTab === "receivers" && (
-          <ReceiverGrid
-            receiverTerminals={receiverTerminals}
-            onPauseReceiver={handlePauseReceiver}
-            onResumeReceiver={handleResumeReceiver}
-          />
-        )}
-        {activeTab === "log" && <ExecutionLog executions={executions} />}
-        {activeTab === "terminals" && <TerminalManager />}
-        {activeTab === "settings" && <Settings status={status} />}
-      </main>
+          {activeNav === "positions" && (
+            <PositionsPanel
+              masterTerminalId={masterTerminalId}
+              receiverTerminalIds={receiverTerminalIds}
+            />
+          )}
+          {activeNav === "receivers" && (
+            <ReceiverGrid
+              receiverTerminals={receiverTerminals}
+              onPauseReceiver={handlePauseReceiver}
+              onResumeReceiver={handleResumeReceiver}
+            />
+          )}
+          {activeNav === "activity" && <ExecutionLog executions={executions} />}
+          {activeNav === "terminals" && <TerminalManager />}
+          {activeNav === "settings" && <Settings status={status} />}
+        </main>
+      </div>
 
       {/* Position Sync Dialog */}
       <PositionSyncDialog
@@ -195,29 +219,6 @@ function App() {
         onClose={() => setShowSyncDialog(false)}
       />
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
-        active
-          ? "text-primary border-b-2 border-primary"
-          : "text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 
