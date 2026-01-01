@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   List,
   Settings,
+  Sliders,
   Users,
   Wand2,
   Wifi,
@@ -164,6 +165,13 @@ export function PreviewSidebar({ activeItem, onNavigate, status, masterHeartbeat
           active={activeItem === "receivers"}
           collapsed={collapsed}
           onClick={() => onNavigate("receivers")}
+        />
+        <NavButton
+          icon={Sliders}
+          label="Configuration"
+          active={activeItem === "configuration"}
+          collapsed={collapsed}
+          onClick={() => onNavigate("configuration")}
         />
         <NavButton
           icon={Activity}
