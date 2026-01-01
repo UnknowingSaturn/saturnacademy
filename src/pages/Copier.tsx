@@ -1,6 +1,8 @@
 import * as React from 'react';
+import { Link } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { LayoutDashboard, Activity } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { LayoutDashboard, Activity, Monitor } from 'lucide-react';
 import { CopierDashboard } from '@/components/copier/CopierDashboard';
 import { CopierDashboardView } from '@/components/copier/CopierDashboardView';
 import { ExecutionHistory } from '@/components/copier/ExecutionHistory';
@@ -21,11 +23,19 @@ export default function Copier() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Trade Copier</h1>
-        <p className="text-muted-foreground">
-          Copy trades from your master account to receiver accounts with automatic journaling
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Trade Copier</h1>
+          <p className="text-muted-foreground">
+            Copy trades from your master account to receiver accounts with automatic journaling
+          </p>
+        </div>
+        <Link to="/copier-preview">
+          <Button variant="outline" size="sm" className="gap-2">
+            <Monitor className="h-4 w-4" />
+            Preview Desktop App
+          </Button>
+        </Link>
       </div>
 
       {/* Quick Stats - only show if setup exists */}
