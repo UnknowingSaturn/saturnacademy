@@ -5,13 +5,13 @@
 :root {
   --background: 222.2 84% 4.9%;
   --foreground: 210 40% 98%;
-  --card: 222.2 84% 4.9%;
+  --card: 222.2 84% 6%;
   --card-foreground: 210 40% 98%;
   --popover: 222.2 84% 4.9%;
   --popover-foreground: 210 40% 98%;
   --primary: 47 100% 50%;
   --primary-foreground: 222.2 84% 4.9%;
-  --secondary: 217.2 32.6% 17.5%;
+  --secondary: 217.2 32.6% 12%;
   --secondary-foreground: 210 40% 98%;
   --muted: 217.2 32.6% 17.5%;
   --muted-foreground: 215 20.2% 65.1%;
@@ -19,7 +19,7 @@
   --accent-foreground: 210 40% 98%;
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 210 40% 98%;
-  --border: 217.2 32.6% 17.5%;
+  --border: 217.2 32.6% 14%;
   --input: 217.2 32.6% 17.5%;
   --ring: 47 100% 50%;
   --radius: 0.5rem;
@@ -45,10 +45,12 @@ body {
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
   background: hsl(var(--secondary));
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -58,4 +60,68 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Animations */
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+/* Card hover effects */
+.card-interactive {
+  @apply transition-all duration-200 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5;
+}
+
+/* Status indicators */
+.status-online {
+  @apply bg-green-500 shadow-lg shadow-green-500/50;
+}
+
+.status-offline {
+  @apply bg-red-500 shadow-lg shadow-red-500/50;
+}
+
+.status-warning {
+  @apply bg-yellow-500 shadow-lg shadow-yellow-500/50;
+}
+
+/* Button base styles */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+}
+
+.btn-primary {
+  @apply bg-primary text-primary-foreground hover:bg-primary/90;
+}
+
+.btn-secondary {
+  @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+}
+
+.btn-destructive {
+  @apply bg-destructive text-destructive-foreground hover:bg-destructive/90;
+}
+
+.btn-ghost {
+  @apply hover:bg-accent hover:text-accent-foreground;
+}
+
+/* Smooth transitions for sidebar */
+aside {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Focus visible styles */
+button:focus-visible,
+a:focus-visible {
+  @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-background;
 }
