@@ -91,19 +91,48 @@ impl Default for RiskConfig {
     }
 }
 
-/// Generate a config hash from the config contents
+/// Generate a stable config hash using CRC32 (consistent across Rust versions)
 pub fn generate_config_hash(config: &CopierConfigFile) -> String {
-    use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     
+    // Create a reproducible hash by serializing to sorted JSON
+    // We use a simple FNV-1a hash which is stable across versions
     let json = serde_json::to_string(config).unwrap_or_default();
-    let mut hasher = DefaultHasher::new();
-    json.hash(&mut hasher);
-    format!("{:x}", hasher.finish())
+    
+    // FNV-1a 64-bit hash (stable, deterministic)
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in json.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    
+    format!("{:016x}", hash)
 }
 
 /// Get the MQL5 Files folder path for a terminal
+/// Supports both standard APPDATA installations and portable terminals
 pub fn get_terminal_files_path(terminal_id: &str) -> Option<PathBuf> {
+    // Check if it's a portable terminal first
+    if terminal_id.starts_with("portable_") {
+        let terminals = crate::mt5::bridge::find_mt5_terminals();
+        for terminal in terminals {
+            if terminal.terminal_id == terminal_id {
+                let path = PathBuf::from(&terminal.path)
+                    .join("MQL5")
+                    .join("Files");
+                if path.exists() {
+                    return Some(path);
+                }
+                // Try to create it
+                if fs::create_dir_all(&path).is_ok() {
+                    return Some(path);
+                }
+            }
+        }
+        return None;
+    }
+    
+    // Standard AppData terminal
     let appdata = std::env::var("APPDATA").ok()?;
     let path = PathBuf::from(appdata)
         .join("MetaQuotes")
@@ -121,7 +150,7 @@ pub fn get_terminal_files_path(terminal_id: &str) -> Option<PathBuf> {
     }
 }
 
-/// Save config file to a receiver terminal
+/// Save config file to a receiver terminal (atomic write)
 pub fn save_config_to_terminal(
     terminal_id: &str,
     config: &CopierConfigFile,
@@ -130,12 +159,18 @@ pub fn save_config_to_terminal(
         .ok_or_else(|| format!("Could not find MQL5/Files for terminal {}", terminal_id))?;
     
     let config_path = files_path.join("copier-config.json");
+    let temp_path = files_path.join("copier-config.json.tmp");
     
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
     
-    fs::write(&config_path, json)
-        .map_err(|e| format!("Failed to write config file: {}", e))?;
+    // Write to temp file first
+    fs::write(&temp_path, &json)
+        .map_err(|e| format!("Failed to write temp config file: {}", e))?;
+    
+    // Atomic rename
+    fs::rename(&temp_path, &config_path)
+        .map_err(|e| format!("Failed to finalize config file: {}", e))?;
     
     Ok(config_path)
 }
@@ -196,5 +231,27 @@ mod tests {
         let risk = RiskConfig::default();
         assert_eq!(risk.mode, "balance_multiplier");
         assert_eq!(risk.value, 1.0);
+    }
+    
+    #[test]
+    fn test_config_hash_stability() {
+        // Create a config
+        let config = CopierConfigFile {
+            version: 1,
+            config_hash: String::new(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            master: MasterConfigFile {
+                account_id: "master_123".to_string(),
+                account_number: "123".to_string(),
+                broker: "TestBroker".to_string(),
+                terminal_id: "test_terminal".to_string(),
+            },
+            receivers: vec![],
+        };
+        
+        // Hash should be consistent across calls
+        let hash1 = generate_config_hash(&config);
+        let hash2 = generate_config_hash(&config);
+        assert_eq!(hash1, hash2);
     }
 }

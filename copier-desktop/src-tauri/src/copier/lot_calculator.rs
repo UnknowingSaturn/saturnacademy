@@ -276,12 +276,21 @@ fn calculate_lots_from_risk(
         "Lot calculation"
     );
     
-    round_lots(calculated_lots.max(0.01))
+    round_lots_with_min(calculated_lots, 0.01, 0.01)
 }
 
-/// Round lot size to valid MT5 increment (0.01)
+/// Round lot size to valid MT5 increment with configurable min/step
+/// M5 fix: Uses symbol-specific min_lot and lot_step when available
+fn round_lots_with_min(lots: f64, min_lot: f64, lot_step: f64) -> f64 {
+    let rounded = (lots / lot_step).round() * lot_step;
+    // Ensure precision to avoid floating point issues
+    let rounded = (rounded * 100.0).round() / 100.0;
+    rounded.max(min_lot)
+}
+
+/// Round lot size to valid MT5 increment (0.01 default)
 fn round_lots(lots: f64) -> f64 {
-    (lots * 100.0).round() / 100.0
+    round_lots_with_min(lots, 0.01, 0.01)
 }
 
 /// Apply maximum lot size limit

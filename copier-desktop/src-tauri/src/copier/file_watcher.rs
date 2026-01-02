@@ -1,11 +1,12 @@
 //! File watcher for monitoring trade event files from Master EA
 //! 
 //! This module watches the CopierQueue/pending folder for JSON event files.
-//! Includes safety measures like file stability checks and idempotency.
+//! Includes safety measures like file stability checks, idempotency, and graceful shutdown.
 
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn, error, debug};
@@ -22,10 +23,29 @@ const MAX_READ_RETRIES: u32 = 3;
 /// Delay between read retries
 const RETRY_DELAY_MS: u64 = 100;
 
+/// Global shutdown flag for graceful termination
+static SHUTDOWN_FLAG: AtomicBool = AtomicBool::new(false);
+
+/// Request the file watcher to shut down gracefully
+pub fn request_shutdown() {
+    info!("Shutdown requested for file watcher");
+    SHUTDOWN_FLAG.store(true, Ordering::SeqCst);
+}
+
+/// Check if shutdown has been requested
+pub fn is_shutdown_requested() -> bool {
+    SHUTDOWN_FLAG.load(Ordering::SeqCst)
+}
+
+/// Reset shutdown flag (for restart scenarios)
+pub fn reset_shutdown() {
+    SHUTDOWN_FLAG.store(false, Ordering::SeqCst);
+}
+
 pub fn start_watching(state: Arc<Mutex<CopierState>>) {
     info!("Starting file watcher...");
 
-    loop {
+    while !is_shutdown_requested() {
         // Try to find master terminal path from config or auto-detect
         let queue_path = find_master_queue_path(&state);
         
@@ -51,6 +71,10 @@ pub fn start_watching(state: Arc<Mutex<CopierState>>) {
                 }
                 
                 if let Err(e) = watch_folder(&pending_path, state.clone()) {
+                    if is_shutdown_requested() {
+                        info!("File watcher shutting down gracefully");
+                        break;
+                    }
                     error!("File watcher error: {}", e);
                     let mut copier = state.lock();
                     copier.last_error = Some(format!("Watcher error: {}", e));
@@ -62,9 +86,17 @@ pub fn start_watching(state: Arc<Mutex<CopierState>>) {
             debug!("No master terminal found, waiting...");
         }
 
-        // Wait before retrying
-        std::thread::sleep(Duration::from_secs(5));
+        // Check shutdown flag during wait
+        for _ in 0..50 {
+            if is_shutdown_requested() {
+                info!("File watcher received shutdown signal");
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
     }
+    
+    info!("File watcher stopped");
 }
 
 /// Find the queue path from the master terminal
@@ -150,26 +182,43 @@ fn watch_folder(path: &str, state: Arc<Mutex<CopierState>>) -> Result<(), Box<dy
     // Also process any existing files
     process_existing_files(path, state.clone())?;
 
-    // Process new files as they arrive
-    for event in rx {
-        if let notify::EventKind::Create(_) = event.kind {
-            for file_path in event.paths {
-                if file_path.extension().map(|e| e == "json").unwrap_or(false) {
-                    // Wait for file to be fully written before processing
-                    std::thread::sleep(Duration::from_millis(FILE_STABILITY_DELAY_MS));
-                    
-                    // Verify file stability (size not changing)
-                    if is_file_stable(&file_path) {
-                        process_event_file(&file_path, state.clone());
-                    } else {
-                        warn!("File not stable, skipping: {:?}", file_path);
+    // Process new files as they arrive with shutdown check
+    loop {
+        // Check for shutdown
+        if is_shutdown_requested() {
+            info!("File watcher received shutdown signal during event loop");
+            return Ok(());
+        }
+        
+        // Use recv_timeout to allow periodic shutdown checks
+        match rx.recv_timeout(Duration::from_millis(500)) {
+            Ok(event) => {
+                if let notify::EventKind::Create(_) = event.kind {
+                    for file_path in event.paths {
+                        if file_path.extension().map(|e| e == "json").unwrap_or(false) {
+                            // Wait for file to be fully written before processing
+                            std::thread::sleep(Duration::from_millis(FILE_STABILITY_DELAY_MS));
+                            
+                            // Verify file stability (size not changing)
+                            if is_file_stable(&file_path) {
+                                process_event_file(&file_path, state.clone());
+                            } else {
+                                warn!("File not stable, skipping: {:?}", file_path);
+                            }
+                        }
                     }
                 }
             }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Continue loop, will check shutdown flag
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                error!("File watcher channel disconnected");
+                return Err("Channel disconnected".into());
+            }
         }
     }
-
-    Ok(())
 }
 
 /// Check if a file is stable (not being written to)

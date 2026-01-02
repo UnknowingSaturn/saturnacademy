@@ -493,10 +493,11 @@ void ProcessDesktopCommand(string fullPath, string filename)
 }
 
 //+------------------------------------------------------------------+
-//| Write Response File for Desktop App                               |
+//| Write Response File for Desktop App (Atomic Write - m2 fix)       |
 //+------------------------------------------------------------------+
 void WriteCommandResponse(long timestamp, bool success, double price, double slippage, long posId, string error)
 {
+   string tempFilename = g_commandsFolder + "\\resp_" + IntegerToString(timestamp) + ".tmp";
    string respFilename = g_commandsFolder + "\\resp_" + IntegerToString(timestamp) + ".json";
    
    string json = "{\n";
@@ -509,11 +510,13 @@ void WriteCommandResponse(long timestamp, bool success, double price, double sli
    json += "  \"timestamp\": " + IntegerToString(TimeCurrent()) + "\n";
    json += "}";
    
-   int handle = FileOpen(respFilename, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   // Write to temp file first, then rename (atomic)
+   int handle = FileOpen(tempFilename, FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(handle != INVALID_HANDLE)
    {
       FileWriteString(handle, json);
       FileClose(handle);
+      FileMove(tempFilename, 0, respFilename, FILE_REWRITE);
    }
 }
 
@@ -633,7 +636,7 @@ void CloseAllCopierPositions()
       request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
       request.position = ticket;
       request.deviation = 50;
-      request.type_filling = ORDER_FILLING_IOC;
+      request.type_filling = GetOptimalFillingMode(symbol);  // m4 fix: use dynamic fill mode
       
       if(OrderSend(request, result))
       {
