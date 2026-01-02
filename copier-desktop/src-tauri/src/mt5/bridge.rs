@@ -94,43 +94,41 @@ fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
     // Try to get account info first - this has the most accurate broker info
     let account_info = get_account_info_internal(&files_path);
     
-    // Build broker name with multiple fallbacks
+    // Build broker name with improved fallback chain
     let mut broker: Option<String> = None;
     
-    // Method 1: Get broker from CopierAccountInfo.json if available
+    // Priority 1: CopierAccountInfo.json (most accurate, from EA)
     if let Some(ref info) = account_info {
         if !info.broker.is_empty() {
             broker = Some(info.broker.clone());
         }
     }
     
-    // Method 2: Try to find installation path from origin.txt and read terminal.ini there
+    // Priority 2: Read terminal.ini from installation folder via origin.txt
     if broker.is_none() {
         let origin_file = path.join("origin.txt");
         if origin_file.exists() {
-            if let Ok(install_path) = std::fs::read_to_string(&origin_file) {
-                let install_path = install_path.trim();
-                if !install_path.is_empty() {
-                    let terminal_ini = std::path::Path::new(install_path).join("config").join("terminal.ini");
-                    if let Some(b) = read_broker_from_ini(&terminal_ini) {
-                        broker = Some(b);
-                    } else {
-                        // Try direct terminal.ini
-                        let terminal_ini_direct = std::path::Path::new(install_path).join("terminal.ini");
-                        broker = read_broker_from_ini(&terminal_ini_direct);
-                    }
+            if let Ok(install_path_str) = std::fs::read_to_string(&origin_file) {
+                let install_path = std::path::Path::new(install_path_str.trim());
+                
+                // Read terminal.ini from installation ROOT (not config subfolder)
+                let terminal_ini = install_path.join("terminal.ini");
+                if let Some(b) = read_broker_from_ini(&terminal_ini) {
+                    broker = Some(b);
+                } else {
+                    // Priority 3: Extract broker from installation folder name
+                    broker = extract_broker_from_folder_name(install_path);
                 }
             }
         }
     }
     
-    // Method 3: Try terminal.ini in data folder itself
+    // Priority 4: Parse .srv files from config directory
     if broker.is_none() {
-        let terminal_ini = path.join("terminal.ini");
-        broker = read_broker_from_ini(&terminal_ini);
+        broker = read_broker_from_srv_files(path);
     }
     
-    // Method 4: Try community folder for server info files
+    // Priority 5: Try community folder for server info files (legacy)
     if broker.is_none() {
         broker = detect_broker_from_community_folder(path);
     }
@@ -151,6 +149,78 @@ fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
         receiver_installed,
         account_info,
     })
+}
+
+/// Extract broker name from installation folder path
+/// E.g., "C:\Program Files\Vantage International MT5" -> "Vantage International"
+fn extract_broker_from_folder_name(install_path: &Path) -> Option<String> {
+    let folder_name = install_path.file_name()?.to_str()?;
+    
+    // Remove common suffixes
+    let cleaned = folder_name
+        .replace(" MetaTrader 5", "")
+        .replace(" MetaTrader5", "")
+        .replace(" MT5", "")
+        .replace("MT5", "")
+        .replace(" Terminal", "")
+        .replace("MetaTrader 5", "")
+        .replace("MetaTrader5", "")
+        .trim()
+        .to_string();
+    
+    if cleaned.is_empty() || cleaned == "Program Files" || cleaned == "Program Files (x86)" {
+        return None;
+    }
+    Some(cleaned)
+}
+
+/// Read broker from .srv files in config directory
+/// E.g., "VantageInt-Live01.srv" -> "Vantage International"
+fn read_broker_from_srv_files(data_path: &Path) -> Option<String> {
+    let config_path = data_path.join("config");
+    if !config_path.exists() {
+        return None;
+    }
+    
+    if let Ok(entries) = std::fs::read_dir(&config_path) {
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if entry_path.extension().map(|e| e == "srv").unwrap_or(false) {
+                if let Some(stem) = entry_path.file_stem() {
+                    let name = stem.to_string_lossy();
+                    // Extract first part before "-" (broker name)
+                    // E.g., "VantageInt-Live01" -> "VantageInt"
+                    if let Some(first_part) = name.split('-').next() {
+                        if !first_part.is_empty() {
+                            return Some(expand_broker_abbreviation(first_part));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Expand common broker abbreviations to full names
+fn expand_broker_abbreviation(abbr: &str) -> String {
+    match abbr {
+        "VantageInt" | "VantageInternational" => "Vantage International".to_string(),
+        "ICMarkets" | "ICM" => "IC Markets".to_string(),
+        "FTMO" | "FTMOGlobal" => "FTMO".to_string(),
+        "FundedNext" | "FN" => "FundedNext".to_string(),
+        "Pepperstone" | "PepperstoneGroup" => "Pepperstone".to_string(),
+        "XM" | "XMGroup" => "XM Group".to_string(),
+        "OANDA" | "OandaCorporation" => "OANDA".to_string(),
+        "FXCM" | "FXCMGroup" => "FXCM".to_string(),
+        "IG" | "IGGroup" => "IG Markets".to_string(),
+        "Exness" | "ExnessGroup" => "Exness".to_string(),
+        "Admirals" | "AdmiralMarkets" => "Admirals".to_string(),
+        "RoboForex" | "RoboMarkets" => "RoboForex".to_string(),
+        "FBS" | "FBSMarkets" => "FBS".to_string(),
+        "XTB" | "XTBGroup" => "XTB".to_string(),
+        other => other.to_string(),
+    }
 }
 
 fn read_broker_from_ini(ini_path: &Path) -> Option<String> {
@@ -238,36 +308,37 @@ fn detect_portable_terminal(path: &Path) -> Option<Mt5Terminal> {
     // Try to get account info first - this has the most accurate broker info
     let account_info = get_account_info_internal(&files_path);
     
-    // Build broker name with multiple fallbacks
+    // Build broker name with improved fallback chain
     let mut broker: Option<String> = None;
     
-    // Method 1: Get broker from CopierAccountInfo.json if available
+    // Priority 1: CopierAccountInfo.json (most accurate, from EA)
     if let Some(ref info) = account_info {
         if !info.broker.is_empty() {
             broker = Some(info.broker.clone());
         }
     }
     
-    // Method 2: Try terminal.ini in portable folder (portable installs have it directly)
+    // Priority 2: terminal.ini in installation root
     if broker.is_none() {
-        let terminal_ini = path.join("config").join("terminal.ini");
-        if let Some(b) = read_broker_from_ini(&terminal_ini) {
-            broker = Some(b);
-        } else {
-            // Try direct terminal.ini
-            let terminal_ini_direct = path.join("terminal.ini");
-            broker = read_broker_from_ini(&terminal_ini_direct);
-        }
+        let terminal_ini = path.join("terminal.ini");
+        broker = read_broker_from_ini(&terminal_ini);
     }
     
-    // Method 3: Try community/server files
+    // Priority 3: Parse .srv files from config directory
     if broker.is_none() {
-        broker = detect_broker_from_community_folder(path);
+        broker = read_broker_from_srv_files(path);
     }
     
-    // Method 4: Fallback to folder name
+    // Priority 4: Extract broker from folder name (always works for portable)
     if broker.is_none() {
-        broker = Some(path.file_name()?.to_str()?.to_string());
+        broker = extract_broker_from_folder_name(path);
+    }
+    
+    // Priority 5: Raw folder name as last resort
+    if broker.is_none() {
+        broker = path.file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string());
     }
 
     // Check which EAs are installed
