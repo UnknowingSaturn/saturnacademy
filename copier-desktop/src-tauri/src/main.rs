@@ -385,11 +385,6 @@ fn main() {
                                 info!("Config synced successfully");
                             }
                         });
-                                let mut copier = state_clone.lock();
-                                copier.config = Some(config);
-                                copier.last_sync = Some(chrono::Utc::now().to_rfc3339());
-                            }
-                        });
                     }
                 }
                 "start" => {

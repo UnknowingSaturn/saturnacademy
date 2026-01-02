@@ -111,7 +111,7 @@ pub fn mark_event_processed(idempotency_key: &str) {
     
     // Persist to disk (best effort)
     if let Err(e) = save_processed_keys(&keys) {
-        log::warn!("Failed to persist idempotency keys: {}", e);
+        tracing::warn!("Failed to persist idempotency keys: {}", e);
     }
 }
 
@@ -145,7 +145,7 @@ pub fn clear_processed_keys() {
     let mut keys = PROCESSED_KEYS.lock();
     keys.clear();
     if let Err(e) = save_processed_keys(&keys) {
-        log::warn!("Failed to clear idempotency keys: {}", e);
+        tracing::warn!("Failed to clear idempotency keys: {}", e);
     }
 }
 

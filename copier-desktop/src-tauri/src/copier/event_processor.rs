@@ -4,12 +4,13 @@
 
 use parking_lot::Mutex;
 use std::sync::Arc;
+use tracing::{info, warn, error};
 use uuid::Uuid;
 
 use super::{lot_calculator, safety, trade_executor, CopierConfig, CopierState, Execution, TradeEvent};
 
 pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex<CopierState>>) {
-    log::info!(
+    info!(
         "Processing {} event for {} {} @ {} (ticket: {})",
         event.event_type,
         event.direction,
@@ -18,14 +19,16 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
         event.ticket
     );
 
-    // Build symbol info from event if available
+    // Build symbol info from event if available, detecting symbol type
     let symbol_info = if event.tick_value.is_some() {
+        let symbol_type = lot_calculator::SymbolInfo::detect_symbol_type(&event.symbol);
         Some(lot_calculator::SymbolInfo {
             tick_value: event.tick_value.unwrap_or(10.0),
             tick_size: event.point.unwrap_or(0.00001),
             contract_size: event.contract_size.unwrap_or(100000.0),
             digits: event.digits.unwrap_or(5),
             point: event.point.unwrap_or(0.00001),
+            symbol_type,
         })
     } else {
         None
@@ -46,12 +49,12 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
         
         match safety::check_trade_safety(&receiver.account_number, &safety_config, starting_balance) {
             safety::SafetyCheckResult::Blocked(reason) => {
-                log::warn!("Trade blocked for {}: {}", receiver.account_number, reason);
+                warn!("Trade blocked for {}: {}", receiver.account_number, reason);
                 record_blocked_execution(event, receiver, &reason, state.clone());
                 continue;
             }
             safety::SafetyCheckResult::Warning(warning) => {
-                log::warn!("Safety warning for {}: {}", receiver.account_number, warning);
+                warn!("Safety warning for {}: {}", receiver.account_number, warning);
                 // Continue with trade but log warning
             }
             safety::SafetyCheckResult::Allowed => {
@@ -96,7 +99,7 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             receiver_account: receiver.account_number.clone(),
         };
 
-        log::info!(
+        info!(
             "Executing {} {} {} -> {} lots on {}",
             event.direction, mapped_symbol, event.lots, receiver_lots, receiver.account_number
         );
@@ -124,7 +127,7 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
                 let mut copier = state.lock();
                 copier.trades_today += 1;
                 
-                log::info!(
+                info!(
                     "Trade executed: {} @ {} (slippage: {} pips)",
                     mapped_symbol, price, slippage
                 );
@@ -136,7 +139,7 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
                 let mut copier = state.lock();
                 copier.last_error = Some(e.to_string());
                 
-                log::error!("Trade execution failed: {}", e);
+                error!("Trade execution failed: {}", e);
             }
         }
 
