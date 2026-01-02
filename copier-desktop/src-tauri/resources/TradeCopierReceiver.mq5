@@ -677,10 +677,10 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
          return;
    }
    
-   // Check if this is a copier trade (magic number check)
-   long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
-   if(magic == 12345) // Copier magic - already handled by ExecuteEntry/ExecuteExit
-      return;
+    // Check if this is a copier trade (magic number check)
+    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+    if(magic == g_magicNumber) // Copier magic - already handled by ExecuteEntry/ExecuteExit
+       return;
    
    // Check if already processed
    if(IsDealProcessed(dealTicket))
@@ -2148,19 +2148,31 @@ bool CheckSessionFilter()
    if(sessionCount == 0)
       return true;
    
+   // Get current broker time and convert to UTC
    MqlDateTime now;
    TimeCurrent(now);
-   int currentHour = now.hour;
+   
+   // Adjust for broker UTC offset to get actual UTC hour
+   int utcHour = now.hour - InpBrokerUTCOffset;
+   if(utcHour < 0) utcHour += 24;
+   if(utcHour >= 24) utcHour -= 24;
    
    for(int i = 0; i < sessionCount; i++)
    {
       string session = g_config.allowed_sessions[i];
       
-      if(session == "tokyo" && currentHour >= 0 && currentHour < 9)
+      // Session times in UTC
+      if(session == "tokyo" && utcHour >= 0 && utcHour < 9)
          return true;
-      if(session == "london" && currentHour >= 8 && currentHour < 17)
+      if(session == "london" && utcHour >= 7 && utcHour < 16)
          return true;
-      if(session == "new_york" && currentHour >= 13 && currentHour < 22)
+      if(session == "new_york" && utcHour >= 12 && utcHour < 21)
+         return true;
+      if(session == "new_york_am" && utcHour >= 12 && utcHour < 17)
+         return true;
+      if(session == "new_york_pm" && utcHour >= 17 && utcHour < 21)
+         return true;
+      if(session == "overlap_london_ny" && utcHour >= 12 && utcHour < 16)
          return true;
    }
    
@@ -2201,6 +2213,29 @@ bool IsEventExecuted(string idempotencyKey)
 //+------------------------------------------------------------------+
 void MarkEventExecuted(string idempotencyKey, long receiverPosId, double slippage)
 {
+   // Prune old events if array is too large (keep last 500)
+   if(ArraySize(g_executedEvents) > 1000)
+   {
+      int keepCount = 500;
+      ExecutedEvent tempEvents[];
+      ArrayResize(tempEvents, keepCount);
+      
+      int startIdx = ArraySize(g_executedEvents) - keepCount;
+      for(int i = 0; i < keepCount; i++)
+      {
+         tempEvents[i] = g_executedEvents[startIdx + i];
+      }
+      
+      ArrayResize(g_executedEvents, keepCount);
+      for(int i = 0; i < keepCount; i++)
+      {
+         g_executedEvents[i] = tempEvents[i];
+      }
+      
+      if(InpVerboseMode)
+         Print("Pruned executed events array from 1000+ to ", keepCount);
+   }
+   
    int idx = ArraySize(g_executedEvents);
    ArrayResize(g_executedEvents, idx + 1);
    g_executedEvents[idx].idempotency_key = idempotencyKey;

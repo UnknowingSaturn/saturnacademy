@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use tracing::debug;
 
 /// Open position from master
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,19 +75,13 @@ pub enum DiscrepancyType {
 
 /// Read open positions from master's queue folder
 pub fn read_master_positions(terminal_id: &str) -> Result<Vec<MasterPosition>, String> {
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| "APPDATA environment variable not found")?;
-    
-    let positions_file = PathBuf::from(appdata)
-        .join("MetaQuotes")
-        .join("Terminal")
-        .join(terminal_id)
-        .join("MQL5")
-        .join("Files")
+    // Try to find terminal path using MT5 bridge for portable support
+    let positions_file = find_terminal_files_path(terminal_id)?
         .join("CopierQueue")
         .join("open_positions.json");
     
     if !positions_file.exists() {
+        debug!("Master positions file not found: {:?}", positions_file);
         return Ok(vec![]);
     }
     
@@ -101,18 +96,11 @@ pub fn read_master_positions(terminal_id: &str) -> Result<Vec<MasterPosition>, S
 
 /// Read receiver position mappings from copier-positions.json
 pub fn read_receiver_positions(terminal_id: &str) -> Result<Vec<ReceiverPosition>, String> {
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| "APPDATA environment variable not found")?;
-    
-    let positions_file = PathBuf::from(appdata)
-        .join("MetaQuotes")
-        .join("Terminal")
-        .join(terminal_id)
-        .join("MQL5")
-        .join("Files")
+    let positions_file = find_terminal_files_path(terminal_id)?
         .join("copier-positions.json");
     
     if !positions_file.exists() {
+        debug!("Receiver positions file not found: {:?}", positions_file);
         return Ok(vec![]);
     }
     
@@ -330,15 +318,7 @@ pub fn write_sync_command(
     receiver_terminal_id: &str,
     command: &SyncCommand,
 ) -> Result<(), String> {
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| "APPDATA environment variable not found")?;
-    
-    let commands_folder = PathBuf::from(appdata)
-        .join("MetaQuotes")
-        .join("Terminal")
-        .join(receiver_terminal_id)
-        .join("MQL5")
-        .join("Files")
+    let commands_folder = find_terminal_files_path(receiver_terminal_id)?
         .join("CopierCommands");
     
     fs::create_dir_all(&commands_folder)
@@ -354,6 +334,45 @@ pub fn write_sync_command(
         .map_err(|e| format!("Failed to write command file: {}", e))?;
     
     Ok(())
+}
+
+/// Find the MQL5/Files path for a terminal, supporting both standard and portable installations
+fn find_terminal_files_path(terminal_id: &str) -> Result<PathBuf, String> {
+    // Try portable terminal first via MT5 bridge
+    if terminal_id.starts_with("portable_") {
+        let terminals = crate::mt5::bridge::find_mt5_terminals();
+        for terminal in terminals {
+            if terminal.terminal_id == terminal_id {
+                return Ok(PathBuf::from(&terminal.path).join("MQL5").join("Files"));
+            }
+        }
+        return Err(format!("Portable terminal {} not found", terminal_id));
+    }
+    
+    // Standard AppData terminal path
+    let appdata = std::env::var("APPDATA")
+        .map_err(|_| "APPDATA environment variable not found")?;
+    
+    let files_path = PathBuf::from(&appdata)
+        .join("MetaQuotes")
+        .join("Terminal")
+        .join(terminal_id)
+        .join("MQL5")
+        .join("Files");
+    
+    if files_path.exists() {
+        return Ok(files_path);
+    }
+    
+    // Fallback: Check if MT5 bridge can find this terminal
+    let terminals = crate::mt5::bridge::find_mt5_terminals();
+    for terminal in terminals {
+        if terminal.terminal_id == terminal_id {
+            return Ok(PathBuf::from(&terminal.path).join("MQL5").join("Files"));
+        }
+    }
+    
+    Err(format!("Terminal {} not found in APPDATA or portable locations", terminal_id))
 }
 
 /// Sync command for receiver EA
