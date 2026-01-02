@@ -524,11 +524,13 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
 }
 
 //+------------------------------------------------------------------+
-//| Write Heartbeat File                                              |
+//| Write Heartbeat File (Atomic Write - C2 fix)                      |
 //+------------------------------------------------------------------+
 void WriteHeartbeat()
 {
-   int handle = FileOpen(g_heartbeatFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   string tempFile = g_heartbeatFile + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(handle != INVALID_HANDLE)
    {
       string json = "{\n";
@@ -542,6 +544,11 @@ void WriteHeartbeat()
       
       FileWriteString(handle, json);
       FileClose(handle);
+      
+      // Atomic rename
+      if(FileIsExist(g_heartbeatFile))
+         FileDelete(g_heartbeatFile);
+      FileMove(tempFile, 0, g_heartbeatFile, FILE_REWRITE);
    }
    
    // Also update account info for desktop app
@@ -584,12 +591,14 @@ void WriteAccountInfo()
 }
 
 //+------------------------------------------------------------------+
-//| Write Current Open Positions for Restart Recovery                 |
+//| Write Current Open Positions for Restart Recovery (Atomic - M1)   |
 //+------------------------------------------------------------------+
 void WriteOpenPositions()
 {
    string filename = InpCopierQueuePath + "\\open_positions.json";
-   int handle = FileOpen(filename, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   string tempFile = filename + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
    
    if(handle != INVALID_HANDLE)
    {
@@ -642,6 +651,11 @@ void WriteOpenPositions()
       
       FileWriteString(handle, json);
       FileClose(handle);
+      
+      // Atomic rename
+      if(FileIsExist(filename))
+         FileDelete(filename);
+      FileMove(tempFile, 0, filename, FILE_REWRITE);
    }
 }
 

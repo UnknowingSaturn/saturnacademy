@@ -331,7 +331,7 @@ pub fn generate_sync_report(
     })
 }
 
-/// Write a sync command file for a receiver to execute
+/// Write a sync command file for a receiver to execute (atomic write - M4 fix)
 pub fn write_sync_command(
     receiver_terminal_id: &str,
     command: &SyncCommand,
@@ -343,13 +343,17 @@ pub fn write_sync_command(
         .map_err(|e| format!("Failed to create commands folder: {}", e))?;
     
     let filename = format!("sync_{}.json", chrono::Utc::now().timestamp_millis());
-    let command_file = commands_folder.join(filename);
+    let command_file = commands_folder.join(&filename);
+    let temp_file = commands_folder.join(format!("{}.tmp", filename));
     
     let json = serde_json::to_string_pretty(command)
         .map_err(|e| format!("Failed to serialize command: {}", e))?;
     
-    fs::write(&command_file, json)
-        .map_err(|e| format!("Failed to write command file: {}", e))?;
+    // Atomic write: write to temp file first, then rename
+    fs::write(&temp_file, &json)
+        .map_err(|e| format!("Failed to write temp command file: {}", e))?;
+    fs::rename(&temp_file, &command_file)
+        .map_err(|e| format!("Failed to finalize command file: {}", e))?;
     
     Ok(())
 }

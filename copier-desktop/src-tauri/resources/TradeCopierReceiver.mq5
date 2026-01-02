@@ -594,7 +594,7 @@ void ProcessEmergencyCommand(string fullPath, string filename)
          request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
          request.position = (ulong)positionId;
          request.deviation = 50;
-         request.type_filling = ORDER_FILLING_IOC;
+         request.type_filling = GetOptimalFillingMode(symbol);  // m1 fix: use dynamic fill mode
          
          if(OrderSend(request, result))
          {

@@ -73,7 +73,7 @@ pub struct ExecutionResult {
 }
 
 /// Execute a trade on the receiver terminal via file-based communication
-/// This is the sync wrapper for backward compatibility
+/// Uses synchronous file operations to avoid runtime-within-runtime issues
 pub fn execute_trade(
     event_type: &str,
     symbol: &str,
@@ -83,37 +83,104 @@ pub fn execute_trade(
     tp: Option<f64>,
     receiver: &ReceiverConfig,
 ) -> Result<(f64, f64), TradeError> {
-    // Create a new runtime for sync execution
-    // This avoids blocking issues when called from a non-async context
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| TradeError::ConfigError(format!("Failed to create runtime: {}", e)))?;
-    
-    let result = rt.block_on(execute_trade_async(
-        event_type,
-        symbol,
-        direction,
+    // Use fully synchronous implementation to avoid block_on deadlock risk
+    execute_trade_sync(event_type, symbol, direction, lots, sl, tp, receiver, None, &RetryConfig::default())
+}
+
+/// Synchronous trade execution with retry mechanism
+/// Uses std::fs for all file operations - no async runtime required
+fn execute_trade_sync(
+    event_type: &str,
+    symbol: &str,
+    direction: &str,
+    lots: f64,
+    sl: Option<f64>,
+    tp: Option<f64>,
+    receiver: &ReceiverConfig,
+    master_position_id: Option<i64>,
+    retry_config: &RetryConfig,
+) -> Result<(f64, f64), TradeError> {
+    info!(
+        "Executing {} {} {} {} lots on {} (sync)",
+        event_type, direction, symbol, lots, receiver.account_number
+    );
+
+    let command = TradeCommand {
+        action: event_type.to_string(),
+        symbol: symbol.to_string(),
+        direction: direction.to_string(),
         lots,
         sl,
         tp,
-        receiver,
-        None,
-        &RetryConfig::default(),
-    ));
-    
-    match result {
-        Ok(exec_result) => {
-            if exec_result.success {
-                Ok((exec_result.executed_price, exec_result.slippage_pips))
-            } else {
-                Err(TradeError::ExecutionError(
-                    exec_result.error.unwrap_or_else(|| "Unknown error".to_string())
-                ))
+        max_slippage_pips: receiver.max_slippage_pips,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        master_position_id,
+    };
+
+    let mut last_error = None;
+
+    for attempt in 0..retry_config.max_attempts {
+        match execute_single_attempt_sync(&command, receiver) {
+            Ok(response) => {
+                if response.success {
+                    info!(
+                        "Trade executed successfully on attempt {}: {} @ {} (slippage: {} pips)",
+                        attempt + 1, symbol, response.executed_price, response.slippage_pips
+                    );
+                    return Ok((response.executed_price, response.slippage_pips));
+                } else {
+                    let error_msg = response.error.clone().unwrap_or_else(|| "Unknown error".to_string());
+                    warn!("Trade failed on attempt {}: {}", attempt + 1, error_msg);
+                    
+                    if !is_retryable_error(&error_msg) {
+                        return Err(TradeError::ExecutionError(error_msg));
+                    }
+                    last_error = Some(error_msg);
+                }
+            }
+            Err(e) => {
+                warn!("Trade attempt {} failed with error: {}", attempt + 1, e);
+                if !matches!(e, TradeError::Timeout | TradeError::FileReadError(_) | TradeError::FileWriteError(_)) {
+                    return Err(e);
+                }
+                last_error = Some(e.to_string());
             }
         }
-        Err(e) => Err(e),
+
+        // Calculate delay with exponential backoff
+        if attempt + 1 < retry_config.max_attempts {
+            let delay_ms = calculate_backoff_delay(attempt, retry_config);
+            info!("Retrying in {}ms...", delay_ms);
+            std::thread::sleep(Duration::from_millis(delay_ms));
+        }
     }
+
+    error!("Trade execution failed after {} attempts: {:?}", retry_config.max_attempts, last_error);
+    Err(TradeError::ExecutionError(last_error.unwrap_or_else(|| "Max retries exceeded".to_string())))
+}
+
+/// Execute a single trade attempt using synchronous file I/O
+fn execute_single_attempt_sync(
+    command: &TradeCommand,
+    receiver: &ReceiverConfig,
+) -> Result<TradeResponse, TradeError> {
+    let command_json = serde_json::to_string_pretty(command)
+        .map_err(|e| TradeError::SerializationError(e.to_string()))?;
+
+    let command_folder = get_receiver_command_folder(&receiver.terminal_id)?;
+    let command_file = format!("{}\\cmd_{}.json", command_folder, command.timestamp);
+    let temp_file = format!("{}.tmp", command_file);
+
+    // Atomic write: temp file then rename
+    fs::write(&temp_file, &command_json)
+        .map_err(|e| TradeError::FileWriteError(e.to_string()))?;
+    fs::rename(&temp_file, &command_file)
+        .map_err(|e| TradeError::FileWriteError(e.to_string()))?;
+
+    info!("Command written to: {}", command_file);
+
+    // Wait for response synchronously
+    wait_for_response_sync(&command_folder, command.timestamp)
 }
 
 /// Execute a trade asynchronously with retry mechanism
@@ -262,10 +329,10 @@ async fn execute_single_attempt(
     Ok(response)
 }
 
-/// Wait for response asynchronously with proper timeout handling
-async fn wait_for_response_async(folder: &str, command_timestamp: i64) -> Result<TradeResponse, TradeError> {
+/// Wait for response synchronously with proper timeout handling
+fn wait_for_response_sync(folder: &str, command_timestamp: i64) -> Result<TradeResponse, TradeError> {
     let response_file = format!("{}\\resp_{}.json", folder, command_timestamp);
-    let timeout = Duration::from_secs(15); // Increased timeout for async
+    let timeout = Duration::from_secs(15);
     let poll_interval = Duration::from_millis(50);
     
     let start = std::time::Instant::now();
@@ -274,20 +341,73 @@ async fn wait_for_response_async(folder: &str, command_timestamp: i64) -> Result
         if start.elapsed() > timeout {
             // Clean up command file on timeout
             let command_file = format!("{}\\cmd_{}.json", folder, command_timestamp);
-            let _ = tokio::fs::remove_file(&command_file).await;
+            let _ = fs::remove_file(&command_file);
             return Err(TradeError::Timeout);
         }
 
         if Path::new(&response_file).exists() {
             // Wait a bit for file to be fully written
+            std::thread::sleep(Duration::from_millis(20));
+            
+            // Read response file with retry
+            let content = read_file_with_retry(&response_file)?;
+
+            // Delete response file
+            let _ = fs::remove_file(&response_file);
+
+            let response: TradeResponse = serde_json::from_str(&content)
+                .map_err(|e| TradeError::SerializationError(e.to_string()))?;
+
+            return Ok(response);
+        }
+
+        std::thread::sleep(poll_interval);
+    }
+}
+
+/// Read file with retry for robustness
+fn read_file_with_retry(path: &str) -> Result<String, TradeError> {
+    const MAX_RETRIES: u32 = 3;
+    const RETRY_DELAY_MS: u64 = 50;
+    
+    for attempt in 0..MAX_RETRIES {
+        match fs::read_to_string(path) {
+            Ok(content) => return Ok(content),
+            Err(e) => {
+                if attempt + 1 < MAX_RETRIES {
+                    std::thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
+                } else {
+                    return Err(TradeError::FileReadError(e.to_string()));
+                }
+            }
+        }
+    }
+    Err(TradeError::FileReadError("Max retries exceeded".to_string()))
+}
+
+/// Wait for response asynchronously with proper timeout handling (for async contexts)
+#[allow(dead_code)]
+async fn wait_for_response_async(folder: &str, command_timestamp: i64) -> Result<TradeResponse, TradeError> {
+    let response_file = format!("{}\\resp_{}.json", folder, command_timestamp);
+    let timeout = Duration::from_secs(15);
+    let poll_interval = Duration::from_millis(50);
+    
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > timeout {
+            let command_file = format!("{}\\cmd_{}.json", folder, command_timestamp);
+            let _ = tokio::fs::remove_file(&command_file).await;
+            return Err(TradeError::Timeout);
+        }
+
+        if Path::new(&response_file).exists() {
             sleep(Duration::from_millis(20)).await;
             
-            // Read response file
             let content = tokio::fs::read_to_string(&response_file)
                 .await
                 .map_err(|e| TradeError::FileReadError(e.to_string()))?;
 
-            // Delete response file
             let _ = tokio::fs::remove_file(&response_file).await;
 
             let response: TradeResponse = serde_json::from_str(&content)

@@ -24,25 +24,30 @@ pub fn find_mt5_terminals() -> Vec<Mt5Terminal> {
         }
     }
 
-    // Method 2: Check Program Files for portable installations
+    // Method 2: Check Program Files for portable installations (with debug logging - m2 fix)
     for program_files in &["C:\\Program Files", "C:\\Program Files (x86)", "D:\\Program Files"] {
-        if let Ok(entries) = std::fs::read_dir(program_files) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let name = path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
-                
-                // Check for MT5 installations
-                if name.to_lowercase().contains("metatrader") 
-                    || name.to_lowercase().contains("mt5") 
-                    || name.to_lowercase().contains("terminal") {
-                    if let Some(terminal) = detect_portable_terminal(&path) {
-                        if seen_ids.insert(terminal.terminal_id.clone()) {
-                            terminals.push(terminal);
+        match std::fs::read_dir(program_files) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("");
+                    
+                    // Check for MT5 installations
+                    if name.to_lowercase().contains("metatrader") 
+                        || name.to_lowercase().contains("mt5") 
+                        || name.to_lowercase().contains("terminal") {
+                        if let Some(terminal) = detect_portable_terminal(&path) {
+                            if seen_ids.insert(terminal.terminal_id.clone()) {
+                                terminals.push(terminal);
+                            }
                         }
                     }
                 }
+            }
+            Err(e) => {
+                tracing::debug!("Could not scan directory {}: {}", program_files, e);
             }
         }
     }
