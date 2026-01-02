@@ -106,10 +106,16 @@ export default function TerminalManager({ onTerminalSelect }: TerminalManagerPro
               <div className="flex items-center justify-between mb-2">
                 <div>
                   <p className="font-medium text-sm">
-                    {terminal.broker || "Unknown Broker"}
+                    {terminal.account_info?.broker || terminal.broker || "MT5 Terminal"}
+                    {terminal.account_info?.account_number && (
+                      <span className="text-muted-foreground font-normal"> - {terminal.account_info.account_number}</span>
+                    )}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     ID: {shortenId(terminal.terminal_id)}
+                    {!terminal.broker && !terminal.account_info?.broker && (
+                      <span className="ml-2 text-amber-500">(run EA to detect broker)</span>
+                    )}
                   </p>
                 </div>
                 <div className="flex gap-1">
