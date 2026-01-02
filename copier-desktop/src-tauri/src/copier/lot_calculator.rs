@@ -301,17 +301,6 @@ pub fn apply_min_lot_limit(lots: f64, min_lots: Option<f64>) -> f64 {
     }
 }
 
-/// Apply minimum lot size limit
-pub fn apply_min_lot_limit(lots: f64, min_lots: Option<f64>) -> f64 {
-    let min = min_lots.unwrap_or(0.01);
-    if lots < min {
-        log::info!("Lot size {} below min {}, using min", lots, min);
-        min
-    } else {
-        lots
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

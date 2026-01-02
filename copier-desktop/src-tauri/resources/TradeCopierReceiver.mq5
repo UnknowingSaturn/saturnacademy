@@ -602,6 +602,7 @@ void ProcessEmergencyCommand(string fullPath, string filename)
    
    // Delete the command file after processing
    FileDelete(fullPath);
+}
 
 //+------------------------------------------------------------------+
 //| Close All Copier Positions                                        |

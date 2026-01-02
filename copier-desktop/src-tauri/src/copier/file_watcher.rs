@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::{info, warn, error, debug};
 
 use super::{event_processor, idempotency, CopierState, TradeEvent};
 use crate::mt5::bridge;
@@ -22,7 +23,7 @@ const MAX_READ_RETRIES: u32 = 3;
 const RETRY_DELAY_MS: u64 = 100;
 
 pub fn start_watching(state: Arc<Mutex<CopierState>>) {
-    log::info!("Starting file watcher...");
+    info!("Starting file watcher...");
 
     loop {
         // Try to find master terminal path from config or auto-detect
@@ -38,7 +39,7 @@ pub fn start_watching(state: Arc<Mutex<CopierState>>) {
             }
             
             if Path::new(&pending_path).exists() {
-                log::info!("Watching queue folder: {}", pending_path);
+                info!("Watching queue folder: {}", pending_path);
                 
                 // Update state with the MT5 path for other modules
                 {
@@ -50,15 +51,15 @@ pub fn start_watching(state: Arc<Mutex<CopierState>>) {
                 }
                 
                 if let Err(e) = watch_folder(&pending_path, state.clone()) {
-                    log::error!("File watcher error: {}", e);
+                    error!("File watcher error: {}", e);
                     let mut copier = state.lock();
                     copier.last_error = Some(format!("Watcher error: {}", e));
                 }
             } else {
-                log::warn!("Pending folder does not exist: {}", pending_path);
+                warn!("Pending folder does not exist: {}", pending_path);
             }
         } else {
-            log::debug!("No master terminal found, waiting...");
+            debug!("No master terminal found, waiting...");
         }
 
         // Wait before retrying
@@ -92,7 +93,7 @@ fn find_master_queue_path(state: &Arc<Mutex<CopierState>>) -> Option<String> {
     for terminal in terminals {
         if terminal.master_installed {
             if let Some(path) = get_terminal_queue_path(&terminal.terminal_id) {
-                log::info!("Auto-detected master terminal: {}", terminal.terminal_id);
+                info!("Auto-detected master terminal: {}", terminal.terminal_id);
                 return Some(path);
             }
         }
@@ -161,7 +162,7 @@ fn watch_folder(path: &str, state: Arc<Mutex<CopierState>>) -> Result<(), Box<dy
                     if is_file_stable(&file_path) {
                         process_event_file(&file_path, state.clone());
                     } else {
-                        log::warn!("File not stable, skipping: {:?}", file_path);
+                        warn!("File not stable, skipping: {:?}", file_path);
                     }
                 }
             }
@@ -211,7 +212,7 @@ fn read_file_with_retry(path: &Path) -> Result<String, String> {
             Ok(content) => return Ok(content),
             Err(e) => {
                 last_error = e.to_string();
-                log::warn!(
+                warn!(
                     "Failed to read file {:?} (attempt {}/{}): {}",
                     path, attempt + 1, MAX_READ_RETRIES, e
                 );
@@ -227,13 +228,13 @@ fn read_file_with_retry(path: &Path) -> Result<String, String> {
 }
 
 fn process_event_file(path: &Path, state: Arc<Mutex<CopierState>>) {
-    log::info!("Processing event file: {:?}", path);
+    info!("Processing event file: {:?}", path);
 
     // Read the file with retry logic
     let content = match read_file_with_retry(path) {
         Ok(c) => c,
         Err(e) => {
-            log::error!("Failed to read event file after retries: {}", e);
+            error!("Failed to read event file after retries: {}", e);
             return;
         }
     };
@@ -242,10 +243,10 @@ fn process_event_file(path: &Path, state: Arc<Mutex<CopierState>>) {
     let event: TradeEvent = match serde_json::from_str(&content) {
         Ok(e) => e,
         Err(e) => {
-            log::error!("Failed to parse event file: {}", e);
+            error!("Failed to parse event file: {}", e);
             // Still delete malformed files to prevent infinite loops
             if let Err(del_err) = std::fs::remove_file(path) {
-                log::error!("Failed to delete malformed file: {}", del_err);
+                error!("Failed to delete malformed file: {}", del_err);
             }
             return;
         }
@@ -255,15 +256,16 @@ fn process_event_file(path: &Path, state: Arc<Mutex<CopierState>>) {
     let idempotency_key = idempotency::generate_idempotency_key(
         &event.event_type,
         event.ticket,
+        event.deal_id.unwrap_or(0),
         &event.symbol,
         &event.timestamp,
     );
     
     if idempotency::is_event_processed(&idempotency_key) {
-        log::info!("Skipping duplicate event: {}", idempotency_key);
+        info!("Skipping duplicate event: {}", idempotency_key);
         // Delete the duplicate file
         if let Err(e) = std::fs::remove_file(path) {
-            log::error!("Failed to delete duplicate file: {}", e);
+            error!("Failed to delete duplicate file: {}", e);
         }
         return;
     }
@@ -275,14 +277,14 @@ fn process_event_file(path: &Path, state: Arc<Mutex<CopierState>>) {
     };
 
     if !is_running {
-        log::info!("Copier is not running, skipping event");
+        info!("Copier is not running, skipping event");
         return;
     }
 
     let config = match config {
         Some(c) => c,
         None => {
-            log::warn!("No configuration loaded, skipping event");
+            warn!("No configuration loaded, skipping event");
             return;
         }
     };
@@ -295,6 +297,6 @@ fn process_event_file(path: &Path, state: Arc<Mutex<CopierState>>) {
 
     // Delete the processed file
     if let Err(e) = std::fs::remove_file(path) {
-        log::error!("Failed to delete processed file: {}", e);
+        error!("Failed to delete processed file: {}", e);
     }
 }
