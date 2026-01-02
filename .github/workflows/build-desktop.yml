@@ -40,6 +40,14 @@ jobs:
           # Generate Windows .ico from the RGBA icon
           magick icon.png -define icon:auto-resize=256,128,48,32,16 icon.ico
 
+      - name: Commit icon.ico if missing
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add copier-desktop/src-tauri/icons/icon.ico
+          git diff --cached --quiet || git commit -m "chore: add generated icon.ico for local builds"
+          git push origin HEAD:${{ github.event.repository.default_branch }} || echo "Push skipped (tag-only trigger)"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
