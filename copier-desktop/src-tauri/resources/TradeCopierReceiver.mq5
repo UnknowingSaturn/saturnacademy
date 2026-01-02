@@ -197,6 +197,9 @@ int OnInit()
    int pollMs = g_config.poll_interval_ms > 0 ? g_config.poll_interval_ms : InpPollIntervalMs;
    EventSetMillisecondTimer(pollMs);
    
+   // Write initial account info for desktop app detection
+   WriteAccountInfo();
+   
    Print("=================================================");
    Print("Trade Copier Receiver v2.00");
    Print("=================================================");
@@ -294,6 +297,14 @@ void OnTimer()
    
    // Process pending events
    ProcessPendingEvents();
+   
+   // Periodically update account info for desktop app (every 10 seconds)
+   static datetime lastAccountInfoUpdate = 0;
+   if(TimeCurrent() - lastAccountInfoUpdate >= 10)
+   {
+      WriteAccountInfo();
+      lastAccountInfoUpdate = TimeCurrent();
+   }
    
    // Process journal retry queue
    if(InpEnableJournaling && StringLen(InpApiKey) > 0)
