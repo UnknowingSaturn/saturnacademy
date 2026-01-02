@@ -23,6 +23,12 @@ const RISK_MODES: { mode: RiskMode; label: string; description: string; icon: Re
     icon: <Target className="w-4 h-4" />
   },
   { 
+    mode: "lot_multiplier", 
+    label: "Lot Multiplier", 
+    description: "Multiply master's lot size by a factor",
+    icon: <TrendingUp className="w-4 h-4" />
+  },
+  { 
     mode: "risk_percent", 
     label: "Risk Percent", 
     description: "Risk a percentage of account per trade",
@@ -53,6 +59,7 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
     const defaultValues: Record<RiskMode, number> = {
       balance_multiplier: 1.0,
       fixed_lot: 0.1,
+      lot_multiplier: 1.0,
       risk_percent: 1.0,
       risk_dollar: 100,
       intent: 1.0,
@@ -77,6 +84,7 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
     switch (localConfig.mode) {
       case "balance_multiplier": return "Multiplier";
       case "fixed_lot": return "Lot Size";
+      case "lot_multiplier": return "Lot Multiplier";
       case "risk_percent": return "Risk %";
       case "risk_dollar": return "Risk $";
       case "intent": return "R-Multiple";
@@ -88,6 +96,7 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
     switch (localConfig.mode) {
       case "balance_multiplier": return 0.1;
       case "fixed_lot": return 0.01;
+      case "lot_multiplier": return 0.1;
       case "risk_percent": return 0.25;
       case "risk_dollar": return 10;
       case "intent": return 0.1;
@@ -99,6 +108,7 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
     switch (localConfig.mode) {
       case "balance_multiplier": return "e.g., 1.0 = same lots as master";
       case "fixed_lot": return "e.g., 0.10";
+      case "lot_multiplier": return "e.g., 2.0 = double master's lots";
       case "risk_percent": return "e.g., 1.0%";
       case "risk_dollar": return "e.g., $100";
       case "intent": return "e.g., 1.0R";
@@ -190,6 +200,7 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
               {localConfig.mode === "risk_percent" && "%"}
               {localConfig.mode === "risk_dollar" && "USD"}
               {localConfig.mode === "balance_multiplier" && "×"}
+              {localConfig.mode === "lot_multiplier" && "×"}
               {localConfig.mode === "fixed_lot" && "lots"}
               {localConfig.mode === "intent" && "R"}
             </div>
@@ -209,6 +220,9 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
           )}
           {localConfig.mode === "fixed_lot" && (
             <>All trades will be copied at <span className="text-primary font-semibold">{localConfig.value.toFixed(2)} lots</span></>
+          )}
+          {localConfig.mode === "lot_multiplier" && (
+            <>If master trades 0.10 lots, receiver will trade <span className="text-primary font-semibold">{(0.1 * localConfig.value).toFixed(2)} lots</span></>
           )}
           {localConfig.mode === "risk_percent" && (
             <>Each trade will risk <span className="text-primary font-semibold">{localConfig.value}%</span> of account balance</>

@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Mt5Terminal, WizardState, SymbolMapping, RiskConfig, SafetyConfig, DEFAULT_RISK_CONFIG, DEFAULT_SAFETY_CONFIG } from "../types";
+import { Mt5Terminal, WizardState, SymbolMapping, DEFAULT_RISK_CONFIG, DEFAULT_SAFETY_CONFIG } from "../types";
 import WizardProgress from "./wizard/WizardProgress";
 import TerminalScanStep from "./wizard/TerminalScanStep";
 import MasterSelectionStep from "./wizard/MasterSelectionStep";

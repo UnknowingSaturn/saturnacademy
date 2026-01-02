@@ -70,7 +70,7 @@ export interface SetupTokenResponse {
 
 // Risk configuration
 export interface RiskConfig {
-  mode: 'balance_multiplier' | 'fixed_lot' | 'risk_percent' | 'risk_dollar' | 'intent';
+  mode: RiskMode;
   value: number;
 }
 
