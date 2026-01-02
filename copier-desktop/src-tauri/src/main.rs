@@ -119,6 +119,19 @@ fn find_terminals() -> Vec<mt5::bridge::Mt5Terminal> {
 }
 
 #[tauri::command]
+fn add_terminal_path(path: String) -> Option<mt5::bridge::Mt5Terminal> {
+    let path = std::path::Path::new(&path);
+    
+    // Validate it's a valid MT5 terminal (check for terminal executable)
+    if !path.join("terminal64.exe").exists() && !path.join("terminal.exe").exists() {
+        return None;
+    }
+    
+    // Use the portable detection logic
+    mt5::bridge::detect_terminal_at_path(path)
+}
+
+#[tauri::command]
 fn install_ea(
     terminal_id: String,
     ea_type: String,
@@ -404,6 +417,7 @@ fn main() {
             get_recent_executions,
             set_mt5_path,
             find_terminals,
+            add_terminal_path,
             install_ea,
             get_terminal_account_info,
             // New commands
@@ -418,6 +432,12 @@ fn main() {
             test_copy,
         ])
         .setup(|app| {
+            // Show main window on startup
+            if let Some(window) = app.get_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            
             let state = app.state::<AppState>();
             let copier = state.copier.clone();
             

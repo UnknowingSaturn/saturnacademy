@@ -103,25 +103,55 @@ export default function TerminalScanStep({
       ) : (
         <div className="space-y-3">
           <p className="text-sm font-medium">Found {terminals.length} terminal{terminals.length !== 1 ? 's' : ''}:</p>
-          {terminals.map((terminal) => (
-            <div
-              key={terminal.terminal_id}
-              className="p-4 bg-card border border-border rounded-lg flex items-center justify-between"
-            >
-              <div>
-                <p className="font-medium">{terminal.broker || "Unknown Broker"}</p>
-                <p className="text-xs text-muted-foreground">
-                  ID: {shortenId(terminal.terminal_id)}
-                </p>
-                {terminal.account_info && (
-                  <p className="text-xs text-muted-foreground">
-                    Account: {terminal.account_info.account_number}
+          {terminals.map((terminal) => {
+            const displayName = terminal.account_info?.broker || terminal.broker || "MT5 Terminal";
+            const accountNum = terminal.account_info?.account_number;
+            const balance = terminal.account_info?.balance;
+            
+            return (
+              <div
+                key={terminal.terminal_id}
+                className="p-4 bg-card border border-border rounded-lg flex items-center justify-between"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">
+                    {displayName}
+                    {accountNum && <span className="text-muted-foreground"> - {accountNum}</span>}
                   </p>
-                )}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                    <span>ID: {shortenId(terminal.terminal_id)}</span>
+                    {balance !== undefined && (
+                      <>
+                        <span>•</span>
+                        <span className="text-green-500 font-medium">
+                          ${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </>
+                    )}
+                    {terminal.master_installed && (
+                      <>
+                        <span>•</span>
+                        <span className="text-blue-500">Master EA</span>
+                      </>
+                    )}
+                    {terminal.receiver_installed && (
+                      <>
+                        <span>•</span>
+                        <span className="text-purple-500">Receiver EA</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 ml-2">
+                  {terminal.account_info ? (
+                    <div className="w-3 h-3 rounded-full bg-green-500" title="Connected" />
+                  ) : (
+                    <div className="w-3 h-3 rounded-full bg-yellow-500" title="EA not running" />
+                  )}
+                </div>
               </div>
-              <div className="w-3 h-3 rounded-full bg-green-500" title="Detected" />
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
