@@ -5,7 +5,7 @@
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::LazyLock;
-use chrono::{DateTime, Utc, NaiveDate};
+use chrono::{Utc, NaiveDate};
 
 /// Receiver safety state
 #[derive(Debug, Clone, Default)]

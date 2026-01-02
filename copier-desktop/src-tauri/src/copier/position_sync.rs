@@ -119,9 +119,27 @@ pub fn read_receiver_positions(terminal_id: &str) -> Result<Vec<ReceiverPosition
     let content = fs::read_to_string(&positions_file)
         .map_err(|e| format!("Failed to read receiver positions: {}", e))?;
     
-    // The file format is: master_pos_id|receiver_pos_id|symbol|direction|lots
+    // Try JSON format first (preferred format from EA)
+    if let Ok(positions) = serde_json::from_str::<Vec<ReceiverPosition>>(&content) {
+        return Ok(positions);
+    }
+    
+    // Try JSON with wrapper object (EA might write {"positions": [...]})
+    #[derive(Deserialize)]
+    struct PositionsWrapper {
+        positions: Vec<ReceiverPosition>,
+    }
+    if let Ok(wrapper) = serde_json::from_str::<PositionsWrapper>(&content) {
+        return Ok(wrapper.positions);
+    }
+    
+    // Fallback to pipe-delimited format: master_pos_id|receiver_pos_id|symbol|direction|lots|sl|tp
     let mut positions = vec![];
     for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
         let parts: Vec<&str> = line.split('|').collect();
         if parts.len() >= 5 {
             positions.push(ReceiverPosition {
