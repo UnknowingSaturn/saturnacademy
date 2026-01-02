@@ -82,11 +82,12 @@ pub fn execute_trade(
     tp: Option<f64>,
     receiver: &ReceiverConfig,
 ) -> Result<(f64, f64), TradeError> {
-    // Use tokio runtime to run async version
-    let rt = tokio::runtime::Handle::try_current()
-        .unwrap_or_else(|_| {
-            tokio::runtime::Runtime::new().unwrap().handle().clone()
-        });
+    // Create a new runtime for sync execution
+    // This avoids blocking issues when called from a non-async context
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| TradeError::ConfigError(format!("Failed to create runtime: {}", e)))?;
     
     let result = rt.block_on(execute_trade_async(
         event_type,
@@ -328,13 +329,12 @@ fn is_retryable_error(error: &str) -> bool {
 }
 
 fn get_receiver_command_folder(terminal_id: &str) -> Result<String, TradeError> {
-    // Standard MT5 data path location
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| TradeError::ConfigError("APPDATA not found".to_string()))?;
+    // Use bridge's terminal path detection for proper handling of portable installations
+    let terminal_path = find_terminal_path(terminal_id)?;
     
     let path = format!(
-        "{}\\MetaQuotes\\Terminal\\{}\\MQL5\\Files\\CopierCommands",
-        appdata, terminal_id
+        "{}\\MQL5\\Files\\CopierCommands",
+        terminal_path
     );
 
     // Create folder if it doesn't exist
@@ -344,6 +344,36 @@ fn get_receiver_command_folder(terminal_id: &str) -> Result<String, TradeError> 
     }
 
     Ok(path)
+}
+
+/// Find terminal path - handles both standard and portable installations
+fn find_terminal_path(terminal_id: &str) -> Result<String, TradeError> {
+    // Check if it's a portable terminal
+    if terminal_id.starts_with("portable_") {
+        // Search for it in known locations
+        let terminals = crate::mt5::bridge::find_mt5_terminals();
+        for terminal in terminals {
+            if terminal.terminal_id == terminal_id {
+                return Ok(terminal.path);
+            }
+        }
+        return Err(TradeError::ConfigError(format!("Portable terminal {} not found", terminal_id)));
+    }
+
+    // Standard AppData terminal
+    let appdata = std::env::var("APPDATA")
+        .map_err(|_| TradeError::ConfigError("APPDATA not found".to_string()))?;
+    
+    let terminal_path = format!(
+        "{}\\MetaQuotes\\Terminal\\{}",
+        appdata, terminal_id
+    );
+    
+    if Path::new(&terminal_path).exists() {
+        Ok(terminal_path)
+    } else {
+        Err(TradeError::ConfigError(format!("Terminal {} not found", terminal_id)))
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

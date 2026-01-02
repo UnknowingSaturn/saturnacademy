@@ -346,7 +346,8 @@ bool CheckEquityProtection()
 //+------------------------------------------------------------------+
 void CheckEmergencyCommands()
 {
-   string searchPattern = g_commandsFolder + "\\*.json";
+   // Check for emergency commands (emergency_*.json)
+   string searchPattern = g_commandsFolder + "\\emergency_*.json";
    string filename;
    
    long handle = FileFindFirst(searchPattern, filename);
@@ -360,6 +361,156 @@ void CheckEmergencyCommands()
       while(FileFindNext(handle, filename));
       
       FileFindClose(handle);
+   }
+   
+   // Check for trade commands from desktop app (cmd_*.json)
+   searchPattern = g_commandsFolder + "\\cmd_*.json";
+   
+   handle = FileFindFirst(searchPattern, filename);
+   if(handle != INVALID_HANDLE)
+   {
+      do
+      {
+         string fullPath = g_commandsFolder + "\\" + filename;
+         ProcessDesktopCommand(fullPath, filename);
+      }
+      while(FileFindNext(handle, filename));
+      
+      FileFindClose(handle);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Process Desktop Trade Command and Write Response                  |
+//+------------------------------------------------------------------+
+void ProcessDesktopCommand(string fullPath, string filename)
+{
+   int fHandle = FileOpen(fullPath, FILE_READ|FILE_TXT|FILE_ANSI);
+   if(fHandle == INVALID_HANDLE)
+      return;
+   
+   string content = "";
+   while(!FileIsEnding(fHandle))
+   {
+      content += FileReadString(fHandle) + "\n";
+   }
+   FileClose(fHandle);
+   
+   // Parse command
+   string action = ExtractJsonString(content, "action");
+   string symbol = ExtractJsonString(content, "symbol");
+   string direction = ExtractJsonString(content, "direction");
+   double lots = ExtractJsonNumber(content, "lots");
+   double sl = ExtractJsonNumber(content, "sl");
+   double tp = ExtractJsonNumber(content, "tp");
+   long timestamp = (long)ExtractJsonNumber(content, "timestamp");
+   long masterPosId = (long)ExtractJsonNumber(content, "master_position_id");
+   
+   // Map symbol
+   symbol = MapSymbol(symbol);
+   if(StringLen(symbol) == 0)
+   {
+      WriteCommandResponse(timestamp, false, 0, 0, 0, "No symbol mapping found");
+      FileDelete(fullPath);
+      return;
+   }
+   
+   bool success = false;
+   double executedPrice = 0;
+   double slippagePips = 0;
+   long receiverPosId = 0;
+   string errorMsg = "";
+   
+   if(action == "entry")
+   {
+      success = ExecuteEntry(symbol, direction, lots, sl, tp, masterPosId, receiverPosId);
+      if(success)
+      {
+         executedPrice = (direction == "buy") ? 
+            SymbolInfoDouble(symbol, SYMBOL_ASK) : 
+            SymbolInfoDouble(symbol, SYMBOL_BID);
+      }
+      else
+      {
+         errorMsg = "Entry execution failed";
+      }
+   }
+   else if(action == "exit")
+   {
+      success = ExecuteExit(masterPosId, receiverPosId);
+      if(success)
+      {
+         executedPrice = SymbolInfoDouble(symbol, SYMBOL_BID);
+      }
+      else
+      {
+         errorMsg = "Exit execution failed - position not found";
+      }
+   }
+   else if(action == "modify")
+   {
+      receiverPosId = GetReceiverPositionId(masterPosId);
+      if(receiverPosId > 0 && PositionSelectByTicket((ulong)receiverPosId))
+      {
+         MqlTradeRequest request = {};
+         MqlTradeResult result = {};
+         
+         request.action = TRADE_ACTION_SLTP;
+         request.symbol = symbol;
+         request.position = (ulong)receiverPosId;
+         if(sl > 0) request.sl = sl;
+         if(tp > 0) request.tp = tp;
+         
+         success = OrderSend(request, result);
+         if(!success)
+         {
+            errorMsg = "Modify failed: " + IntegerToString(result.retcode);
+         }
+      }
+      else
+      {
+         errorMsg = "Position not found for modify";
+      }
+   }
+   
+   // Write response file
+   WriteCommandResponse(timestamp, success, executedPrice, slippagePips, receiverPosId, errorMsg);
+   
+   // Delete command file
+   FileDelete(fullPath);
+   
+   if(success)
+   {
+      LogMessage("Desktop command executed: " + action + " " + symbol);
+   }
+   else
+   {
+      LogMessage("Desktop command failed: " + action + " " + symbol + " - " + errorMsg);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Write Response File for Desktop App                               |
+//+------------------------------------------------------------------+
+void WriteCommandResponse(long timestamp, bool success, double price, double slippage, long posId, string error)
+{
+   string respFilename = g_commandsFolder + "\\resp_" + IntegerToString(timestamp) + ".json";
+   
+   string json = "{\n";
+   json += "  \"success\": " + (success ? "true" : "false") + ",\n";
+   json += "  \"executed_price\": " + DoubleToString(price, 5) + ",\n";
+   json += "  \"slippage_pips\": " + DoubleToString(slippage, 1) + ",\n";
+   json += "  \"receiver_position_id\": " + IntegerToString(posId) + ",\n";
+   if(StringLen(error) > 0)
+      json += "  \"error\": \"" + error + "\",\n";
+   json += "  \"timestamp\": " + IntegerToString(TimeCurrent()) + "\n";
+   json += "}";
+   
+   int handle = FileOpen(respFilename, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle != INVALID_HANDLE)
+   {
+      FileWriteString(handle, json);
+      FileClose(handle);
    }
 }
 
@@ -448,7 +599,6 @@ void ProcessEmergencyCommand(string fullPath, string filename)
    
    // Delete the command file after processing
    FileDelete(fullPath);
-}
 
 //+------------------------------------------------------------------+
 //| Close All Copier Positions                                        |
@@ -1032,7 +1182,50 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
       return false;
    }
    
-   receiverPosId = (long)result.order;
+   // CRITICAL: Get actual position ID, not order ticket
+   // result.order is the order ticket, we need the position ID
+   // After order execution, we need to find the position that was created
+   receiverPosId = 0;
+   
+   // Method 1: Check if result.deal has a position
+   if(result.deal > 0)
+   {
+      if(HistoryDealSelect(result.deal))
+      {
+         receiverPosId = HistoryDealGetInteger(result.deal, DEAL_POSITION_ID);
+      }
+   }
+   
+   // Method 2: If no position ID from deal, try to find matching position
+   if(receiverPosId == 0)
+   {
+      // Wait a moment for position to appear
+      Sleep(50);
+      
+      // Find the position with our comment
+      string expectedComment = "Copier:" + IntegerToString(masterPosId);
+      int total = PositionsTotal();
+      for(int i = 0; i < total; i++)
+      {
+         ulong posTicket = PositionGetTicket(i);
+         if(posTicket == 0) continue;
+         
+         if(PositionGetString(POSITION_SYMBOL) == symbol &&
+            PositionGetInteger(POSITION_MAGIC) == g_magicNumber &&
+            PositionGetString(POSITION_COMMENT) == expectedComment)
+         {
+            receiverPosId = (long)PositionGetInteger(POSITION_IDENTIFIER);
+            break;
+         }
+      }
+   }
+   
+   // Method 3: Fallback to order ticket if still no position ID
+   if(receiverPosId == 0)
+   {
+      receiverPosId = (long)result.order;
+      Print("Warning: Using order ticket as position ID: ", receiverPosId);
+   }
    
    // Store position mapping
    int idx = ArraySize(g_positionMaps);

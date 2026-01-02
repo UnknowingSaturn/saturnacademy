@@ -182,18 +182,34 @@ fn record_blocked_execution(
 }
 
 /// Get cached account info for a terminal
-/// In production, this would be updated from periodic heartbeat files
+/// Supports both standard and portable installations
 fn get_cached_account_info(terminal_id: &str) -> Option<lot_calculator::AccountInfo> {
-    // Try to read from account info file
-    let appdata = std::env::var("APPDATA").ok()?;
-    let info_file = format!(
-        "{}\\MetaQuotes\\Terminal\\{}\\MQL5\\Files\\CopierAccountInfo.json",
-        appdata, terminal_id
-    );
+    // Use bridge to find terminal path (handles portable installations)
+    let terminals = crate::mt5::bridge::find_mt5_terminals();
+    for terminal in terminals {
+        if terminal.terminal_id == terminal_id {
+            let info_file = format!("{}\\MQL5\\Files\\CopierAccountInfo.json", terminal.path);
+            
+            if let Ok(content) = std::fs::read_to_string(&info_file) {
+                if let Ok(info) = serde_json::from_str::<lot_calculator::AccountInfo>(&content) {
+                    return Some(info);
+                }
+            }
+            break;
+        }
+    }
     
-    if let Ok(content) = std::fs::read_to_string(&info_file) {
-        if let Ok(info) = serde_json::from_str::<lot_calculator::AccountInfo>(&content) {
-            return Some(info);
+    // Fallback: try standard AppData path
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let info_file = format!(
+            "{}\\MetaQuotes\\Terminal\\{}\\MQL5\\Files\\CopierAccountInfo.json",
+            appdata, terminal_id
+        );
+        
+        if let Ok(content) = std::fs::read_to_string(&info_file) {
+            if let Ok(info) = serde_json::from_str::<lot_calculator::AccountInfo>(&content) {
+                return Some(info);
+            }
         }
     }
     
