@@ -365,10 +365,11 @@ pub enum TradeError {
 }
 
 // ============================================================================
-// Execution Queue System
+// Execution Queue System (prepared for future async integration)
 // ============================================================================
 
 /// Execution request to be queued
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ExecutionRequest {
     pub id: String,
@@ -384,6 +385,7 @@ pub struct ExecutionRequest {
 }
 
 /// Execution queue for non-blocking trade processing
+#[allow(dead_code)]
 pub struct ExecutionQueue {
     sender: mpsc::Sender<ExecutionRequest>,
 }
@@ -409,6 +411,7 @@ impl ExecutionQueue {
 }
 
 /// Start the execution queue processor
+#[allow(dead_code)]
 pub async fn start_queue_processor(
     mut receiver: mpsc::Receiver<ExecutionRequest>,
     result_callback: impl Fn(String, ExecutionResult) + Send + 'static,
