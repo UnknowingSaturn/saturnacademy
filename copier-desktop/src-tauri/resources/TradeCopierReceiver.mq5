@@ -33,6 +33,10 @@ input double   InpDailyLossOverride  = 0;                          // Override d
 input double   InpMinEquity          = 0;                          // Minimum equity to continue copying (0 = disabled)
 input double   InpMaxDrawdownPct     = 0;                          // Max drawdown % from high water mark (0 = disabled)
 
+input group "=== Trade Execution ==="
+input long     InpMagicNumber        = 12345;                      // Magic number for copier trades (0 = auto-generate)
+input bool     InpAutoFillMode       = true;                       // Auto-detect order filling mode
+
 input group "=== Logging ==="
 input bool     InpEnableLogging      = true;                       // Enable file logging
 input bool     InpVerboseMode        = false;                      // Verbose console output
@@ -107,6 +111,8 @@ bool           g_configLoaded        = false;
 int            g_configVersion       = 0;
 double         g_startingEquity      = 0;
 double         g_highWaterMark       = 0;
+long           g_magicNumber         = 12345;                       // Effective magic number
+ENUM_ORDER_TYPE_FILLING g_fillMode   = ORDER_FILLING_IOC;           // Detected fill mode
 string         g_commandsFolder      = "";
 bool           g_isPaused            = false;
 
@@ -141,6 +147,18 @@ int OnInit()
    // Initialize equity tracking
    g_startingEquity = AccountInfoDouble(ACCOUNT_EQUITY);
    g_highWaterMark = g_startingEquity;
+   
+   // Initialize magic number
+   if(InpMagicNumber == 0)
+   {
+      // Auto-generate based on account number for uniqueness
+      g_magicNumber = 12345000 + (AccountInfoInteger(ACCOUNT_LOGIN) % 1000);
+   }
+   else
+   {
+      g_magicNumber = InpMagicNumber;
+   }
+   Print("Magic number: ", g_magicNumber);
    
    // Initialize logging
    if(InpEnableLogging)
@@ -432,8 +450,8 @@ void CloseAllCopierPositions()
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0) continue;
       
-      // Only close copier positions (magic 12345)
-      if(PositionGetInteger(POSITION_MAGIC) != 12345)
+      // Only close copier positions (check for our magic number)
+      if(PositionGetInteger(POSITION_MAGIC) != g_magicNumber)
          continue;
       
       string symbol = PositionGetString(POSITION_SYMBOL);
@@ -956,7 +974,7 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
    request.type = (direction == "buy") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
    request.price = (direction == "buy") ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
    request.deviation = (ulong)(g_config.max_slippage_pips * 10);
-   request.magic = 12345;
+   request.magic = g_magicNumber;
    request.comment = "Copier:" + IntegerToString(masterPosId);
    
    // Apply SL/TP - use relative mode for indices if enabled
@@ -988,10 +1006,9 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
       request.tp = masterTP;
    }
    
-   request.type_filling = ORDER_FILLING_IOC;
-   
-   request.type_filling = ORDER_FILLING_IOC;
-   
+   // Dynamic order filling mode detection
+   request.type_filling = GetOptimalFillingMode(symbol);
+
    if(!OrderSend(request, result))
    {
       Print("OrderSend failed: ", result.retcode, " - ", result.comment);
@@ -1061,7 +1078,7 @@ bool ExecuteExit(long masterPosId, long &receiverPosId)
    request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
    request.position = (ulong)receiverPosId;
    request.deviation = (ulong)(g_config.max_slippage_pips * 10);
-   request.type_filling = ORDER_FILLING_IOC;
+   request.type_filling = GetOptimalFillingMode(symbol);
    
    if(!OrderSend(request, result))
    {
@@ -1163,7 +1180,7 @@ bool ExecutePartialClose(string eventJson, long masterPosId, long &receiverPosId
    request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
    request.position = (ulong)receiverPosId;
    request.deviation = (ulong)(g_config.max_slippage_pips * 10);
-   request.type_filling = ORDER_FILLING_IOC;
+   request.type_filling = GetOptimalFillingMode(symbol);
    
    if(!OrderSend(request, result))
    {
@@ -2151,4 +2168,65 @@ void LogMessage(string message)
    string logLine = TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + " | " + message;
    FileWriteString(g_logHandle, logLine + "\n");
    FileFlush(g_logHandle);
+}
+
+//+------------------------------------------------------------------+
+//| Get Optimal Filling Mode for Symbol                               |
+//| Automatically detects broker-supported filling mode               |
+//+------------------------------------------------------------------+
+ENUM_ORDER_TYPE_FILLING GetOptimalFillingMode(string symbol)
+{
+   // If auto-detect is disabled, use IOC as default
+   if(!InpAutoFillMode)
+      return ORDER_FILLING_IOC;
+   
+   // Get the filling modes supported by the symbol
+   uint fillModes = (uint)SymbolInfoInteger(symbol, SYMBOL_FILLING_MODE);
+   
+   // Check which modes are available and prefer in order: FOK > IOC > RETURN
+   if((fillModes & SYMBOL_FILLING_FOK) != 0)
+   {
+      // Fill or Kill - entire order must be filled or canceled
+      // Good for prop firms requiring full fills
+      return ORDER_FILLING_FOK;
+   }
+   else if((fillModes & SYMBOL_FILLING_IOC) != 0)
+   {
+      // Immediate or Cancel - fill what's available, cancel rest
+      // Good for partial fills
+      return ORDER_FILLING_IOC;
+   }
+   else if((fillModes & SYMBOL_FILLING_BOC) != 0)
+   {
+      // Book or Cancel (Return mode in some brokers)
+      return ORDER_FILLING_BOC;
+   }
+   
+   // Fallback to IOC if nothing detected (shouldn't happen)
+   return ORDER_FILLING_IOC;
+}
+
+//+------------------------------------------------------------------+
+//| Write Account Info for Desktop App                                |
+//+------------------------------------------------------------------+
+void WriteAccountInfo()
+{
+   string filename = "CopierAccountInfo.json";
+   int handle = FileOpen(filename, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   
+   if(handle != INVALID_HANDLE)
+   {
+      string json = "{\n";
+      json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
+      json += "  \"equity\": " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",\n";
+      json += "  \"margin\": " + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN), 2) + ",\n";
+      json += "  \"free_margin\": " + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) + ",\n";
+      json += "  \"leverage\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LEVERAGE)) + ",\n";
+      json += "  \"currency\": \"" + AccountInfoString(ACCOUNT_CURRENCY) + "\",\n";
+      json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
+      json += "}";
+      
+      FileWriteString(handle, json);
+      FileClose(handle);
+   }
 }
