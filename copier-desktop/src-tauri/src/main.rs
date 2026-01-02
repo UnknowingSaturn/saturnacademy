@@ -415,6 +415,10 @@ fn main() {
         })
         .on_window_event(|event| match event.event() {
             tauri::WindowEvent::CloseRequested { api, .. } => {
+                // Save safety states before hiding (in case user quits from tray)
+                if let Err(e) = copier::safety::save_all_safety_states() {
+                    warn!("Failed to save safety states on window close: {}", e);
+                }
                 event.window().hide().unwrap();
                 api.prevent_close();
             }

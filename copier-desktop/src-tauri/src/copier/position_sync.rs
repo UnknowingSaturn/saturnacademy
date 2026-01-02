@@ -153,11 +153,11 @@ pub fn find_discrepancies(
 ) -> Vec<PositionDiscrepancy> {
     let mut discrepancies = vec![];
     
-    // Tolerance for SL/TP comparison (in price points)
-    const SL_TP_TOLERANCE: f64 = 0.0001; // ~1 pip for forex
-    
     // Check for positions on master that are missing on receiver
     for master_pos in master_positions {
+        // Calculate dynamic tolerance based on price (handles indices, forex, etc.)
+        let sl_tp_tolerance = get_sl_tp_tolerance(master_pos);
+        
         let receiver_pos = receiver_positions.iter()
             .find(|r| r.master_position_id == master_pos.position_id);
         
@@ -205,7 +205,7 @@ pub fn find_discrepancies(
                 if master_pos.sl > 0.0 {
                     if let Some(recv_sl) = recv.sl {
                         let sl_diff = (master_pos.sl - recv_sl).abs();
-                        if sl_diff > SL_TP_TOLERANCE {
+                        if sl_diff > sl_tp_tolerance {
                             discrepancies.push(PositionDiscrepancy {
                                 discrepancy_type: DiscrepancyType::SLMismatch,
                                 master_position: Some(master_pos.clone()),
@@ -236,7 +236,7 @@ pub fn find_discrepancies(
                 if master_pos.tp > 0.0 {
                     if let Some(recv_tp) = recv.tp {
                         let tp_diff = (master_pos.tp - recv_tp).abs();
-                        if tp_diff > SL_TP_TOLERANCE {
+                        if tp_diff > sl_tp_tolerance {
                             discrepancies.push(PositionDiscrepancy {
                                 discrepancy_type: DiscrepancyType::TPMismatch,
                                 master_position: Some(master_pos.clone()),
@@ -286,6 +286,24 @@ pub fn find_discrepancies(
     }
     
     discrepancies
+}
+
+/// Calculate dynamic SL/TP tolerance based on price level
+/// Returns a tolerance that is 0.1% of the price or 1 pip minimum
+fn get_sl_tp_tolerance(master_pos: &MasterPosition) -> f64 {
+    let price = master_pos.open_price;
+    
+    // 0.1% of the price as tolerance (handles indices with prices like 35000)
+    let percentage_tolerance = price * 0.001;
+    
+    // Minimum 1 pip tolerance for forex (0.0001 for standard, 0.01 for JPY)
+    let min_tolerance = if price > 50.0 {
+        0.01  // JPY pairs or indices
+    } else {
+        0.0001  // Standard forex
+    };
+    
+    percentage_tolerance.max(min_tolerance)
 }
 
 /// Generate a sync report for all receivers

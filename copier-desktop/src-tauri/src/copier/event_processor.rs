@@ -4,10 +4,40 @@
 
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use std::time::{Duration, Instant};
+use tracing::{info, warn, error, debug};
 use uuid::Uuid;
 
 use super::{lot_calculator, safety, trade_executor, CopierConfig, CopierState, Execution, TradeEvent};
+
+// Terminal cache to avoid repeated filesystem scans
+static TERMINAL_CACHE: std::sync::LazyLock<Mutex<TerminalCache>> = 
+    std::sync::LazyLock::new(|| Mutex::new(TerminalCache::new()));
+
+struct TerminalCache {
+    terminals: Vec<crate::mt5::bridge::Mt5Terminal>,
+    last_refresh: Instant,
+    ttl: Duration,
+}
+
+impl TerminalCache {
+    fn new() -> Self {
+        Self {
+            terminals: Vec::new(),
+            last_refresh: Instant::now() - Duration::from_secs(60), // Force refresh on first use
+            ttl: Duration::from_secs(30), // Cache for 30 seconds
+        }
+    }
+    
+    fn get_terminals(&mut self) -> Vec<crate::mt5::bridge::Mt5Terminal> {
+        if self.last_refresh.elapsed() > self.ttl {
+            debug!("Refreshing terminal cache");
+            self.terminals = crate::mt5::bridge::find_mt5_terminals();
+            self.last_refresh = Instant::now();
+        }
+        self.terminals.clone()
+    }
+}
 
 pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex<CopierState>>) {
     info!(
@@ -186,9 +216,14 @@ fn record_blocked_execution(
 
 /// Get cached account info for a terminal
 /// Supports both standard and portable installations
+/// Uses cached terminal list to avoid repeated filesystem scans
 fn get_cached_account_info(terminal_id: &str) -> Option<lot_calculator::AccountInfo> {
-    // Use bridge to find terminal path (handles portable installations)
-    let terminals = crate::mt5::bridge::find_mt5_terminals();
+    // Use cached terminal list instead of scanning every time
+    let terminals = {
+        let mut cache = TERMINAL_CACHE.lock();
+        cache.get_terminals()
+    };
+    
     for terminal in terminals {
         if terminal.terminal_id == terminal_id {
             let info_file = format!("{}\\MQL5\\Files\\CopierAccountInfo.json", terminal.path);
@@ -202,7 +237,7 @@ fn get_cached_account_info(terminal_id: &str) -> Option<lot_calculator::AccountI
         }
     }
     
-    // Fallback: try standard AppData path
+    // Fallback: try standard AppData path (for terminals not in cache yet)
     if let Ok(appdata) = std::env::var("APPDATA") {
         let info_file = format!(
             "{}\\MetaQuotes\\Terminal\\{}\\MQL5\\Files\\CopierAccountInfo.json",

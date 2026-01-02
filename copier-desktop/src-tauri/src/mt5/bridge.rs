@@ -47,12 +47,16 @@ pub fn find_mt5_terminals() -> Vec<Mt5Terminal> {
         }
     }
 
-    // Method 3: Check common broker installation paths
+    // Method 3: Check common broker installation paths (expanded to more drive letters)
     let common_paths = [
         "C:\\MetaTrader 5",
         "C:\\MT5",
         "D:\\MetaTrader 5",
         "D:\\MT5",
+        "E:\\MetaTrader 5",
+        "E:\\MT5",
+        "F:\\MetaTrader 5",
+        "F:\\MT5",
     ];
 
     for path_str in &common_paths {
