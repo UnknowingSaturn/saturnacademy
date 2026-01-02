@@ -537,6 +537,37 @@ void WriteHeartbeat()
       FileWriteString(handle, json);
       FileClose(handle);
    }
+   
+   // Also update account info for desktop app
+   WriteAccountInfo();
+}
+
+//+------------------------------------------------------------------+
+//| Write Account Info for Desktop App Detection                      |
+//+------------------------------------------------------------------+
+void WriteAccountInfo()
+{
+   string filename = "CopierAccountInfo.json";
+   int handle = FileOpen(filename, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   
+   if(handle != INVALID_HANDLE)
+   {
+      string json = "{\n";
+      json += "  \"account_number\": \"" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "\",\n";
+      json += "  \"broker\": \"" + EscapeJsonString(AccountInfoString(ACCOUNT_COMPANY)) + "\",\n";
+      json += "  \"server\": \"" + AccountInfoString(ACCOUNT_SERVER) + "\",\n";
+      json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
+      json += "  \"equity\": " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",\n";
+      json += "  \"margin\": " + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN), 2) + ",\n";
+      json += "  \"free_margin\": " + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) + ",\n";
+      json += "  \"leverage\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LEVERAGE)) + ",\n";
+      json += "  \"currency\": \"" + AccountInfoString(ACCOUNT_CURRENCY) + "\",\n";
+      json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
+      json += "}";
+      
+      FileWriteString(handle, json);
+      FileClose(handle);
+   }
 }
 
 //+------------------------------------------------------------------+

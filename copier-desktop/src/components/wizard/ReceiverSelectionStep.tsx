@@ -100,6 +100,10 @@ export default function ReceiverSelectionStep({
             const isSelected = selectedReceivers.some(
               (r) => r.terminal_id === terminal.terminal_id
             );
+            const displayName = terminal.account_info?.broker || terminal.broker || "MT5 Terminal";
+            const accountNum = terminal.account_info?.account_number;
+            const balance = terminal.account_info?.balance;
+            
             return (
               <button
                 key={terminal.terminal_id}
@@ -111,19 +115,31 @@ export default function ReceiverSelectionStep({
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">{terminal.broker || "Unknown Broker"}</p>
-                    <p className="text-xs text-muted-foreground">
-                      ID: {shortenId(terminal.terminal_id)}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">
+                      {displayName}
+                      {accountNum && <span className="text-muted-foreground"> - {accountNum}</span>}
                     </p>
-                    {terminal.account_info && (
-                      <p className="text-xs text-muted-foreground">
-                        Account: {terminal.account_info.account_number} • Balance: ${terminal.account_info.balance.toLocaleString()}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                      <span>ID: {shortenId(terminal.terminal_id)}</span>
+                      {balance !== undefined && (
+                        <>
+                          <span>•</span>
+                          <span className="text-green-500 font-medium">
+                            ${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </>
+                      )}
+                      {terminal.receiver_installed && (
+                        <>
+                          <span>•</span>
+                          <span className="text-purple-500">Receiver EA installed</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <div
-                    className={`w-5 h-5 rounded flex items-center justify-center ${
+                    className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 ml-3 ${
                       isSelected ? "bg-purple-500" : "border-2 border-muted-foreground"
                     }`}
                   >

@@ -82,30 +82,48 @@ fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
     let files_path = mql5_path.join("Files");
     let has_mql5 = files_path.exists();
 
-    // Try to read broker info from origin.txt
-    let origin_file = path.join("origin.txt");
-    let mut broker = if origin_file.exists() {
-        std::fs::read_to_string(&origin_file)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    } else {
-        None
-    };
-
-    // Fallback: try to read broker from terminal.ini
+    // Try to get account info first - this has the most accurate broker info
+    let account_info = get_account_info_internal(&files_path);
+    
+    // Build broker name with multiple fallbacks
+    let mut broker: Option<String> = None;
+    
+    // Method 1: Get broker from CopierAccountInfo.json if available
+    if let Some(ref info) = account_info {
+        if !info.broker.is_empty() {
+            broker = Some(info.broker.clone());
+        }
+    }
+    
+    // Method 2: Try to find installation path from origin.txt and read terminal.ini there
     if broker.is_none() {
-        let terminal_ini = path.join("terminal.ini");
-        if terminal_ini.exists() {
-            if let Ok(content) = std::fs::read_to_string(&terminal_ini) {
-                for line in content.lines() {
-                    if line.starts_with("Company=") {
-                        broker = Some(line.trim_start_matches("Company=").trim().to_string());
-                        break;
+        let origin_file = path.join("origin.txt");
+        if origin_file.exists() {
+            if let Ok(install_path) = std::fs::read_to_string(&origin_file) {
+                let install_path = install_path.trim();
+                if !install_path.is_empty() {
+                    let terminal_ini = std::path::Path::new(install_path).join("config").join("terminal.ini");
+                    if let Some(b) = read_broker_from_ini(&terminal_ini) {
+                        broker = Some(b);
+                    } else {
+                        // Try direct terminal.ini
+                        let terminal_ini_direct = std::path::Path::new(install_path).join("terminal.ini");
+                        broker = read_broker_from_ini(&terminal_ini_direct);
                     }
                 }
             }
         }
+    }
+    
+    // Method 3: Try terminal.ini in data folder itself
+    if broker.is_none() {
+        let terminal_ini = path.join("terminal.ini");
+        broker = read_broker_from_ini(&terminal_ini);
+    }
+    
+    // Method 4: Try community folder for server info files
+    if broker.is_none() {
+        broker = detect_broker_from_community_folder(path);
     }
 
     // Check which EAs are installed
@@ -114,9 +132,6 @@ fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
         || experts_path.join("TradeCopierMaster.ex5").exists();
     let receiver_installed = experts_path.join("TradeCopierReceiver.mq5").exists()
         || experts_path.join("TradeCopierReceiver.ex5").exists();
-
-    // Try to get account info if available
-    let account_info = get_account_info_internal(&files_path);
 
     Some(Mt5Terminal {
         terminal_id,
@@ -127,6 +142,69 @@ fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
         receiver_installed,
         account_info,
     })
+}
+
+fn read_broker_from_ini(ini_path: &Path) -> Option<String> {
+    if !ini_path.exists() {
+        return None;
+    }
+    
+    std::fs::read_to_string(ini_path).ok().and_then(|content| {
+        for line in content.lines() {
+            if line.starts_with("Company=") {
+                let broker = line.trim_start_matches("Company=").trim().to_string();
+                if !broker.is_empty() {
+                    return Some(broker);
+                }
+            }
+        }
+        None
+    })
+}
+
+fn detect_broker_from_community_folder(path: &Path) -> Option<String> {
+    // Check config folder for common.ini or similar files
+    let config_path = path.join("config");
+    if !config_path.exists() {
+        return None;
+    }
+    
+    // Try common.ini
+    let common_ini = config_path.join("common.ini");
+    if common_ini.exists() {
+        if let Ok(content) = std::fs::read_to_string(&common_ini) {
+            for line in content.lines() {
+                if line.starts_with("LastLogin=") {
+                    // This gives us a hint about the server, extract broker name if possible
+                    continue;
+                }
+            }
+        }
+    }
+    
+    // Try to find any .srv file in config folder that might contain broker info
+    if let Ok(entries) = std::fs::read_dir(&config_path) {
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if let Some(ext) = entry_path.extension() {
+                if ext == "srv" {
+                    // Server file name often contains broker info
+                    if let Some(name) = entry_path.file_stem() {
+                        let name_str = name.to_string_lossy().to_string();
+                        // Extract broker name from server file name (e.g., "ICMarkets-Demo01" -> "ICMarkets")
+                        if let Some(broker_part) = name_str.split('-').next() {
+                            if !broker_part.is_empty() {
+                                return Some(broker_part.to_string());
+                            }
+                        }
+                        return Some(name_str);
+                    }
+                }
+            }
+        }
+    }
+    
+    None
 }
 
 fn detect_portable_terminal(path: &Path) -> Option<Mt5Terminal> {
@@ -148,16 +226,40 @@ fn detect_portable_terminal(path: &Path) -> Option<Mt5Terminal> {
     let files_path = mql5_path.join("Files");
     let has_mql5 = files_path.exists();
 
-    // Try to get broker from origin.txt or config
-    let origin_file = path.join("origin.txt");
-    let broker = if origin_file.exists() {
-        std::fs::read_to_string(&origin_file)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    } else {
-        Some(path.file_name()?.to_str()?.to_string())
-    };
+    // Try to get account info first - this has the most accurate broker info
+    let account_info = get_account_info_internal(&files_path);
+    
+    // Build broker name with multiple fallbacks
+    let mut broker: Option<String> = None;
+    
+    // Method 1: Get broker from CopierAccountInfo.json if available
+    if let Some(ref info) = account_info {
+        if !info.broker.is_empty() {
+            broker = Some(info.broker.clone());
+        }
+    }
+    
+    // Method 2: Try terminal.ini in portable folder (portable installs have it directly)
+    if broker.is_none() {
+        let terminal_ini = path.join("config").join("terminal.ini");
+        if let Some(b) = read_broker_from_ini(&terminal_ini) {
+            broker = Some(b);
+        } else {
+            // Try direct terminal.ini
+            let terminal_ini_direct = path.join("terminal.ini");
+            broker = read_broker_from_ini(&terminal_ini_direct);
+        }
+    }
+    
+    // Method 3: Try community/server files
+    if broker.is_none() {
+        broker = detect_broker_from_community_folder(path);
+    }
+    
+    // Method 4: Fallback to folder name
+    if broker.is_none() {
+        broker = Some(path.file_name()?.to_str()?.to_string());
+    }
 
     // Check which EAs are installed
     let experts_path = mql5_path.join("Experts");
@@ -165,8 +267,6 @@ fn detect_portable_terminal(path: &Path) -> Option<Mt5Terminal> {
         || experts_path.join("TradeCopierMaster.ex5").exists();
     let receiver_installed = experts_path.join("TradeCopierReceiver.mq5").exists()
         || experts_path.join("TradeCopierReceiver.ex5").exists();
-
-    let account_info = get_account_info_internal(&files_path);
 
     Some(Mt5Terminal {
         terminal_id,
@@ -177,6 +277,11 @@ fn detect_portable_terminal(path: &Path) -> Option<Mt5Terminal> {
         receiver_installed,
         account_info,
     })
+}
+
+/// Public wrapper for detect_portable_terminal for use in add_terminal_path command
+pub fn detect_terminal_at_path(path: &Path) -> Option<Mt5Terminal> {
+    detect_portable_terminal(path)
 }
 
 fn get_account_info_internal(files_path: &Path) -> Option<AccountInfo> {
