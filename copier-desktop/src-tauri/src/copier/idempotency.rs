@@ -106,9 +106,10 @@ fn load_processed_keys() -> Result<Vec<String>, String> {
     // Only keep the most recent keys to prevent unbounded growth
     if keys.len() > MAX_KEYS_IN_MEMORY {
         // Take the last MAX_KEYS_IN_MEMORY keys (most recent)
+        let skip_count = keys.len().saturating_sub(MAX_KEYS_IN_MEMORY);
         let recent_keys: Vec<String> = keys
             .into_iter()
-            .skip(keys.len().saturating_sub(MAX_KEYS_IN_MEMORY))
+            .skip(skip_count)
             .collect();
         return Ok(recent_keys);
     }
