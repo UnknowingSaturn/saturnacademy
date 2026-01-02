@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Mt5Terminal, RiskConfig, RiskMode, SafetyConfig, DEFAULT_RISK_CONFIG, DEFAULT_SAFETY_CONFIG } from "../../types";
+import { Mt5Terminal, RiskConfig, RiskMode, SafetyConfig } from "../../types";
 
 // Combined config for the wizard step (risk + safety together)
 export interface WizardRiskConfig {
