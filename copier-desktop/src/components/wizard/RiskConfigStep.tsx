@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Mt5Terminal, RiskConfig, RiskMode, SafetyConfig } from "../../types";
-import { validateRiskConfig, validateSafetyConfig, getFieldError, ValidationError } from "../../lib/validation";
+import { validateRiskConfig, validateSafetyConfig, getFieldError } from "../../lib/validation";
 
 // Combined config for the wizard step (risk + safety together)
 export interface WizardRiskConfig {

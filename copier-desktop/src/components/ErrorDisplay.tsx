@@ -1,5 +1,5 @@
 import { AlertCircle, AlertTriangle, Info, Lightbulb } from "lucide-react";
-import { parseErrorMessage, MT5ErrorInfo } from "../lib/mt5Errors";
+import { parseErrorMessage } from "../lib/mt5Errors";
 
 interface ErrorDisplayProps {
   error: string;
