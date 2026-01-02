@@ -298,8 +298,6 @@ pub fn apply_min_lot_limit(lots: f64, min_lots: Option<f64>) -> f64 {
         lots
     }
 }
-    }
-}
 
 #[cfg(test)]
 mod tests {

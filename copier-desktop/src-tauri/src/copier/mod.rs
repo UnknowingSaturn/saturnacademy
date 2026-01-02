@@ -52,6 +52,9 @@ pub struct SymbolMapping {
 pub struct TradeEvent {
     pub event_type: String,
     pub ticket: i64,
+    /// Deal ID for idempotency (unique per deal on a position)
+    #[serde(default)]
+    pub deal_id: Option<i64>,
     pub symbol: String,
     pub direction: String,
     pub lots: f64,

@@ -11,6 +11,7 @@ use std::path::Path;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
+use tracing::{debug, error, info, warn};
 
 /// Configuration for retry behavior
 #[derive(Debug, Clone)]
@@ -127,7 +128,7 @@ pub async fn execute_trade_async(
     master_position_id: Option<i64>,
     retry_config: &RetryConfig,
 ) -> Result<ExecutionResult, TradeError> {
-    log::info!(
+    info!(
         "Executing {} {} {} {} lots on {} (async with retry)",
         event_type,
         direction,
@@ -157,7 +158,7 @@ pub async fn execute_trade_async(
         match execute_single_attempt(&command, receiver).await {
             Ok(response) => {
                 if response.success {
-                    log::info!(
+                    info!(
                         "Trade executed successfully on attempt {}: {} @ {} (slippage: {} pips)",
                         attempts,
                         symbol,
@@ -174,7 +175,7 @@ pub async fn execute_trade_async(
                     });
                 } else {
                     let error_msg = response.error.clone().unwrap_or_else(|| "Unknown error".to_string());
-                    log::warn!(
+                    warn!(
                         "Trade failed on attempt {}: {}",
                         attempts,
                         error_msg
@@ -196,7 +197,7 @@ pub async fn execute_trade_async(
                 }
             }
             Err(e) => {
-                log::warn!("Trade attempt {} failed with error: {}", attempts, e);
+                warn!("Trade attempt {} failed with error: {}", attempts, e);
                 
                 // Timeout and file errors are retryable
                 if !matches!(e, TradeError::Timeout | TradeError::FileReadError(_) | TradeError::FileWriteError(_)) {
@@ -210,13 +211,13 @@ pub async fn execute_trade_async(
         // Calculate delay with exponential backoff
         if attempt + 1 < retry_config.max_attempts {
             let delay_ms = calculate_backoff_delay(attempt, retry_config);
-            log::info!("Retrying in {}ms...", delay_ms);
+            info!("Retrying in {}ms...", delay_ms);
             sleep(Duration::from_millis(delay_ms)).await;
         }
     }
 
     // All retries exhausted
-    log::error!(
+    error!(
         "Trade execution failed after {} attempts: {:?}",
         attempts,
         last_error
@@ -253,7 +254,7 @@ async fn execute_single_attempt(
         .await
         .map_err(|e| TradeError::FileWriteError(e.to_string()))?;
 
-    log::info!("Command written to: {}", command_file);
+    info!("Command written to: {}", command_file);
 
     // Wait for response with async polling
     let response = wait_for_response_async(&command_folder, command.timestamp).await?;
@@ -446,10 +447,10 @@ pub async fn start_queue_processor(
     mut receiver: mpsc::Receiver<ExecutionRequest>,
     result_callback: impl Fn(String, ExecutionResult) + Send + 'static,
 ) {
-    log::info!("Execution queue processor started");
+    info!("Execution queue processor started");
     
     while let Some(request) = receiver.recv().await {
-        log::debug!("Processing queued execution: {}", request.id);
+        debug!("Processing queued execution: {}", request.id);
         
         let result = execute_trade_async(
             &request.event_type,
@@ -468,7 +469,7 @@ pub async fn start_queue_processor(
                 result_callback(request.id, exec_result);
             }
             Err(e) => {
-                log::error!("Execution queue error for {}: {}", request.id, e);
+                error!("Execution queue error for {}: {}", request.id, e);
                 result_callback(request.id, ExecutionResult {
                     success: false,
                     executed_price: 0.0,
@@ -481,7 +482,7 @@ pub async fn start_queue_processor(
         }
     }
     
-    log::info!("Execution queue processor stopped");
+    info!("Execution queue processor stopped");
 }
 
 #[cfg(test)]
