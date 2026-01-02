@@ -1,4 +1,4 @@
-import { RiskMode, SafetyConfig, RiskConfig } from "../types";
+import { SafetyConfig, RiskConfig } from "../types";
 
 export interface ValidationError {
   field: string;
