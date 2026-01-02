@@ -163,13 +163,14 @@ pub fn find_discrepancies(
         
         match receiver_pos {
             None => {
+                // m3 fix: Add note to verify symbol availability on receiver terminal
                 discrepancies.push(PositionDiscrepancy {
                     discrepancy_type: DiscrepancyType::MissingOnReceiver,
                     master_position: Some(master_pos.clone()),
                     receiver_id: receiver_id.to_string(),
                     receiver_position: None,
                     suggested_action: format!(
-                        "Open {} {} {} lots on receiver",
+                        "Open {} {} {} lots on receiver (verify symbol availability)",
                         master_pos.symbol, master_pos.direction, master_pos.volume
                     ),
                 });

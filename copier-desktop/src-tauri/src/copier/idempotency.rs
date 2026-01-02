@@ -78,9 +78,10 @@ static PROCESSED_KEYS: LazyLock<Mutex<IdempotencyCache>> = LazyLock::new(|| {
 
 /// Get the path to the idempotency file
 fn get_idempotency_file_path() -> Option<PathBuf> {
+    use super::safety::APP_DATA_FOLDER;
     let appdata = std::env::var("APPDATA").ok()?;
     Some(PathBuf::from(appdata)
-        .join("SaturnTradeCopier")
+        .join(APP_DATA_FOLDER)
         .join(IDEMPOTENCY_FILE))
 }
 

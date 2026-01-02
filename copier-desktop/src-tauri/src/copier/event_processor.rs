@@ -45,6 +45,10 @@ pub fn get_cached_terminals() -> Vec<crate::mt5::bridge::Mt5Terminal> {
     cache.get_terminals()
 }
 
+/// Process a trade event from the master EA
+/// 
+/// NOTE (m1): Config is passed by reference and is only loaded at startup or on explicit reload.
+/// Config changes require EA restart, so there's no race condition risk during event processing.
 pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex<CopierState>>) {
     info!(
         "Processing {} event for {} {} @ {} (ticket: {})",
