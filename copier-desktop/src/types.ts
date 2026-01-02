@@ -51,6 +51,8 @@ export interface AccountInfo {
 
 export type CopierRole = 'master' | 'receiver' | 'independent';
 
+export type RiskMode = 'balance_multiplier' | 'fixed_lot' | 'risk_percent' | 'risk_dollar' | 'intent';
+
 export interface WizardState {
   step: number;
   terminals: Mt5Terminal[];

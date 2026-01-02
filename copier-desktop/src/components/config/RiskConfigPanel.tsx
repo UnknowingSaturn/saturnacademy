@@ -35,7 +35,7 @@ const RISK_MODES: { mode: RiskMode; label: string; description: string; icon: Re
     icon: <DollarSign className="w-4 h-4" />
   },
   { 
-    mode: "intent_based", 
+    mode: "intent", 
     label: "Intent Based", 
     description: "Copy the master's risk intent (R-multiple)",
     icon: <TrendingUp className="w-4 h-4" />
@@ -55,53 +55,53 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
       fixed_lot: 0.1,
       risk_percent: 1.0,
       risk_dollar: 100,
-      intent_based: 1.0,
+      intent: 1.0,
     };
     
     const newConfig = { 
       ...localConfig, 
-      risk_mode: mode, 
-      risk_value: defaultValues[mode] 
+      mode: mode, 
+      value: defaultValues[mode] 
     };
     setLocalConfig(newConfig);
     onChange(newConfig);
   };
 
   const handleValueChange = (value: number) => {
-    const newConfig = { ...localConfig, risk_value: value };
+    const newConfig = { ...localConfig, value: value };
     setLocalConfig(newConfig);
     onChange(newConfig);
   };
 
   const getValueLabel = () => {
-    switch (localConfig.risk_mode) {
+    switch (localConfig.mode) {
       case "balance_multiplier": return "Multiplier";
       case "fixed_lot": return "Lot Size";
       case "risk_percent": return "Risk %";
       case "risk_dollar": return "Risk $";
-      case "intent_based": return "R-Multiple";
+      case "intent": return "R-Multiple";
       default: return "Value";
     }
   };
 
   const getValueStep = () => {
-    switch (localConfig.risk_mode) {
+    switch (localConfig.mode) {
       case "balance_multiplier": return 0.1;
       case "fixed_lot": return 0.01;
       case "risk_percent": return 0.25;
       case "risk_dollar": return 10;
-      case "intent_based": return 0.1;
+      case "intent": return 0.1;
       default: return 0.1;
     }
   };
 
   const getValuePlaceholder = () => {
-    switch (localConfig.risk_mode) {
+    switch (localConfig.mode) {
       case "balance_multiplier": return "e.g., 1.0 = same lots as master";
       case "fixed_lot": return "e.g., 0.10";
       case "risk_percent": return "e.g., 1.0%";
       case "risk_dollar": return "e.g., $100";
-      case "intent_based": return "e.g., 1.0R";
+      case "intent": return "e.g., 1.0R";
       default: return "";
     }
   };
@@ -142,14 +142,14 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
               onClick={() => handleModeChange(mode)}
               disabled={isUsingGlobal}
               className={`glass-card p-4 text-left transition-all ${
-                localConfig.risk_mode === mode
+                localConfig.mode === mode
                   ? "border-primary/50 bg-primary/5"
                   : "hover:border-border/80"
               } ${isUsingGlobal ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-lg ${
-                  localConfig.risk_mode === mode 
+                  localConfig.mode === mode 
                     ? "bg-primary/20 text-primary" 
                     : "bg-muted text-muted-foreground"
                 }`}>
@@ -158,7 +158,7 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm">{label}</span>
-                    {localConfig.risk_mode === mode && (
+                    {localConfig.mode === mode && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
                         Active
                       </span>
@@ -179,7 +179,7 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
           <div className="flex items-center gap-4">
             <input
               type="number"
-              value={localConfig.risk_value}
+              value={localConfig.value}
               onChange={(e) => handleValueChange(parseFloat(e.target.value) || 0)}
               step={getValueStep()}
               min={0}
@@ -187,11 +187,11 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
               className="flex-1 bg-background/50 border border-border rounded-lg px-4 py-3 text-lg font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <div className="text-sm text-muted-foreground">
-              {localConfig.risk_mode === "risk_percent" && "%"}
-              {localConfig.risk_mode === "risk_dollar" && "USD"}
-              {localConfig.risk_mode === "balance_multiplier" && "×"}
-              {localConfig.risk_mode === "fixed_lot" && "lots"}
-              {localConfig.risk_mode === "intent_based" && "R"}
+              {localConfig.mode === "risk_percent" && "%"}
+              {localConfig.mode === "risk_dollar" && "USD"}
+              {localConfig.mode === "balance_multiplier" && "×"}
+              {localConfig.mode === "fixed_lot" && "lots"}
+              {localConfig.mode === "intent" && "R"}
             </div>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
@@ -204,20 +204,20 @@ export function RiskConfigPanel({ config, onChange, onUseGlobal, isUsingGlobal }
       <div className="glass-card p-4 bg-muted/30">
         <h4 className="text-xs font-medium text-muted-foreground mb-2">Preview</h4>
         <p className="text-sm">
-          {localConfig.risk_mode === "balance_multiplier" && (
-            <>If master trades 0.10 lots, receiver will trade <span className="text-primary font-semibold">{(0.1 * localConfig.risk_value).toFixed(2)} lots</span></>
+          {localConfig.mode === "balance_multiplier" && (
+            <>If master trades 0.10 lots, receiver will trade <span className="text-primary font-semibold">{(0.1 * localConfig.value).toFixed(2)} lots</span></>
           )}
-          {localConfig.risk_mode === "fixed_lot" && (
-            <>All trades will be copied at <span className="text-primary font-semibold">{localConfig.risk_value.toFixed(2)} lots</span></>
+          {localConfig.mode === "fixed_lot" && (
+            <>All trades will be copied at <span className="text-primary font-semibold">{localConfig.value.toFixed(2)} lots</span></>
           )}
-          {localConfig.risk_mode === "risk_percent" && (
-            <>Each trade will risk <span className="text-primary font-semibold">{localConfig.risk_value}%</span> of account balance</>
+          {localConfig.mode === "risk_percent" && (
+            <>Each trade will risk <span className="text-primary font-semibold">{localConfig.value}%</span> of account balance</>
           )}
-          {localConfig.risk_mode === "risk_dollar" && (
-            <>Each trade will risk <span className="text-primary font-semibold">${localConfig.risk_value}</span> based on SL distance</>
+          {localConfig.mode === "risk_dollar" && (
+            <>Each trade will risk <span className="text-primary font-semibold">${localConfig.value}</span> based on SL distance</>
           )}
-          {localConfig.risk_mode === "intent_based" && (
-            <>Each trade will target <span className="text-primary font-semibold">{localConfig.risk_value}R</span> based on master's R-multiple</>
+          {localConfig.mode === "intent" && (
+            <>Each trade will target <span className="text-primary font-semibold">{localConfig.value}R</span> based on master's R-multiple</>
           )}
         </p>
       </div>

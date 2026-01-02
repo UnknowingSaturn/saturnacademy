@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { DollarSign, Link2, Settings2, Shield, Clock } from "lucide-react";
 
 interface Tab {
