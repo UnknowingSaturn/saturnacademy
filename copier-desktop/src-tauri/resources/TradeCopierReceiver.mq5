@@ -122,6 +122,7 @@ bool           g_webRequestOk        = false;
 string         g_journalQueueFile    = "ReceiverJournalQueue.txt";
 ulong          g_processedDeals[];
 int            g_maxProcessedDeals   = 1000;
+string         g_processedDealsFile  = "";  // M1 fix: file for persisting processed deals
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                    |
@@ -183,6 +184,7 @@ int OnInit()
    // Load persisted data
    LoadPositionMaps();
    LoadExecutedEvents();
+   LoadProcessedDeals();  // M1 fix: load persisted deals to prevent duplicate journaling
    
    // Reconcile position maps - remove stale entries for positions that no longer exist
    ReconcilePositionMaps();
@@ -230,6 +232,7 @@ void OnDeinit(const int reason)
    // Save state
    SavePositionMaps();
    SaveExecutedEvents();
+   SaveProcessedDeals();  // M1 fix: persist processed deals
    
    if(g_logHandle != INVALID_HANDLE)
    {
@@ -2488,15 +2491,27 @@ void ReconcilePositionMaps()
       double posVolume = PositionGetDouble(POSITION_VOLUME);
       long posMagic = PositionGetInteger(POSITION_MAGIC);
       
-      // Check if this is actually our copier position
+      // Check if this is actually our copier position (m4 fix: remove stale mappings)
       if(posMagic != g_magicNumber)
       {
-         // Position exists but has different magic number - likely orphaned or reassigned
-         LogMessage("Reconcile: Position " + IntegerToString(receiverPosId) + 
-                   " has different magic number (" + IntegerToString(posMagic) + 
-                   " vs " + IntegerToString(g_magicNumber) + ") - marking as orphaned");
+         // Position exists but has different magic number - remove stale mapping
+         LogMessage("Reconcile: Removing orphaned mapping for position " + 
+                   IntegerToString(receiverPosId) + " (magic " + IntegerToString(posMagic) + 
+                   " != " + IntegerToString(g_magicNumber) + ")");
+         
+         if(InpVerboseMode)
+            Print("Reconcile: Position ", receiverPosId, " has wrong magic - removing mapping");
+         
+         // Remove this mapping
+         int size = ArraySize(g_positionMaps);
+         for(int j = i; j < size - 1; j++)
+         {
+            g_positionMaps[j] = g_positionMaps[j + 1];
+         }
+         ArrayResize(g_positionMaps, size - 1);
          orphanedCount++;
-         // Keep the mapping for now but log the issue
+         removedCount++;
+         continue;
       }
       
       // Update lot size if it changed (partial closes)
@@ -2772,4 +2787,112 @@ void WriteAccountInfo()
          FileDelete(filename);
       FileMove(tempFile, 0, filename, FILE_REWRITE);
    }
+}
+
+//+------------------------------------------------------------------+
+//| Save Processed Deals to File (M1 fix - prevent duplicate journal) |
+//| Atomic write with temp file pattern                               |
+//+------------------------------------------------------------------+
+void SaveProcessedDeals()
+{
+   if(StringLen(g_processedDealsFile) == 0)
+   {
+      g_processedDealsFile = "ReceiverProcessedDeals_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".txt";
+   }
+   
+   string tempFile = g_processedDealsFile + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+   {
+      LogMessage("Failed to save processed deals - cannot open file");
+      return;
+   }
+   
+   // Save only the most recent deals to prevent file growth
+   int saveCount = MathMin(ArraySize(g_processedDeals), g_maxProcessedDeals);
+   int startIdx = MathMax(0, ArraySize(g_processedDeals) - saveCount);
+   
+   for(int i = startIdx; i < ArraySize(g_processedDeals); i++)
+   {
+      FileWriteString(handle, IntegerToString(g_processedDeals[i]) + "\n");
+   }
+   FileClose(handle);
+   
+   // Atomic rename
+   if(FileIsExist(g_processedDealsFile))
+      FileDelete(g_processedDealsFile);
+   FileMove(tempFile, 0, g_processedDealsFile, FILE_REWRITE);
+   
+   if(InpVerboseMode)
+      Print("Saved ", saveCount, " processed deals to disk");
+}
+
+//+------------------------------------------------------------------+
+//| Load Processed Deals from File (M1 fix)                           |
+//+------------------------------------------------------------------+
+void LoadProcessedDeals()
+{
+   ArrayResize(g_processedDeals, 0);
+   
+   // Set filename based on account
+   g_processedDealsFile = "ReceiverProcessedDeals_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".txt";
+   
+   if(!FileIsExist(g_processedDealsFile))
+   {
+      if(InpVerboseMode)
+         Print("No processed deals file found - starting fresh");
+      return;
+   }
+   
+   int handle = FileOpen(g_processedDealsFile, FILE_READ|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+   {
+      LogMessage("Failed to load processed deals - cannot open file");
+      return;
+   }
+   
+   while(!FileIsEnding(handle))
+   {
+      string line = FileReadString(handle);
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      
+      if(StringLen(line) == 0)
+         continue;
+      
+      ulong dealId = (ulong)StringToInteger(line);
+      if(dealId > 0)
+      {
+         int idx = ArraySize(g_processedDeals);
+         ArrayResize(g_processedDeals, idx + 1);
+         g_processedDeals[idx] = dealId;
+      }
+   }
+   FileClose(handle);
+   
+   // Prune if loaded too many (keep most recent)
+   if(ArraySize(g_processedDeals) > g_maxProcessedDeals)
+   {
+      ulong tempDeals[];
+      int keepCount = g_maxProcessedDeals;
+      ArrayResize(tempDeals, keepCount);
+      
+      int startIdx = ArraySize(g_processedDeals) - keepCount;
+      for(int i = 0; i < keepCount; i++)
+      {
+         tempDeals[i] = g_processedDeals[startIdx + i];
+      }
+      
+      ArrayResize(g_processedDeals, keepCount);
+      for(int i = 0; i < keepCount; i++)
+      {
+         g_processedDeals[i] = tempDeals[i];
+      }
+   }
+   
+   if(InpVerboseMode)
+      Print("Loaded ", ArraySize(g_processedDeals), " processed deals from disk");
+   
+   LogMessage("Loaded " + IntegerToString(ArraySize(g_processedDeals)) + " processed deals");
 }

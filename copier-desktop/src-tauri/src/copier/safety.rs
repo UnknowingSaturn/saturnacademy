@@ -14,6 +14,9 @@ use chrono::{Utc, NaiveDate, Timelike};
 /// File for persisting safety state
 const SAFETY_STATE_FILE: &str = "safety_state.json";
 
+/// App data folder name (shared constant for consistency - m2 fix)
+pub const APP_DATA_FOLDER: &str = "SaturnTradeCopier";
+
 /// Receiver safety state
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReceiverSafetyState {
@@ -133,7 +136,7 @@ pub fn get_daily_reset_hour() -> i32 {
 fn get_safety_state_path() -> Option<PathBuf> {
     let appdata = std::env::var("APPDATA").ok()?;
     Some(PathBuf::from(appdata)
-        .join("SaturnTradeCopier")
+        .join(APP_DATA_FOLDER)
         .join(SAFETY_STATE_FILE))
 }
 
