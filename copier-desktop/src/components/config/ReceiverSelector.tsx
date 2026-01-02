@@ -20,6 +20,11 @@ export function ReceiverSelector({
     const health = receiverHealth?.get(terminalId);
     if (!health) return { online: false, lastSeen: null };
     
+    // Handle undefined last_heartbeat
+    if (!health.last_heartbeat) {
+      return { online: false, lastSeen: null };
+    }
+    
     const lastSeen = new Date(health.last_heartbeat);
     const diffMs = Date.now() - lastSeen.getTime();
     return { 

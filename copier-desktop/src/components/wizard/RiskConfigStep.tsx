@@ -1,20 +1,16 @@
 import { useState, useEffect } from "react";
-import { Mt5Terminal } from "../../types";
+import { Mt5Terminal, RiskConfig, RiskMode, SafetyConfig, DEFAULT_RISK_CONFIG, DEFAULT_SAFETY_CONFIG } from "../../types";
 
-export type RiskMode = 'balance_multiplier' | 'fixed_lot' | 'lot_multiplier' | 'risk_percent' | 'risk_dollar';
-
-export interface RiskConfig {
-  risk_mode: RiskMode;
-  risk_value: number;
-  max_slippage_pips: number;
-  max_daily_loss_r: number;
-  prop_firm_safe_mode: boolean;
+// Combined config for the wizard step (risk + safety together)
+export interface WizardRiskConfig {
+  risk: RiskConfig;
+  safety: SafetyConfig;
 }
 
 interface RiskConfigStepProps {
   receiverTerminals: Mt5Terminal[];
-  riskConfig: RiskConfig;
-  onConfigChange: (config: RiskConfig) => void;
+  riskConfig: WizardRiskConfig;
+  onConfigChange: (config: WizardRiskConfig) => void;
   onContinue: () => void;
   onBack: () => void;
 }
@@ -34,7 +30,7 @@ export default function RiskConfigStep({
   onContinue,
   onBack,
 }: RiskConfigStepProps) {
-  const [localConfig, setLocalConfig] = useState<RiskConfig>(riskConfig);
+  const [localConfig, setLocalConfig] = useState<WizardRiskConfig>(riskConfig);
 
   useEffect(() => {
     onConfigChange(localConfig);
@@ -46,11 +42,14 @@ export default function RiskConfigStep({
     if (mode === 'risk_percent') defaultValue = 1.0;
     if (mode === 'risk_dollar') defaultValue = 100;
     
-    setLocalConfig(prev => ({ ...prev, risk_mode: mode, risk_value: defaultValue }));
+    setLocalConfig(prev => ({ 
+      ...prev, 
+      risk: { mode, value: defaultValue }
+    }));
   };
 
   const getValueLabel = () => {
-    switch (localConfig.risk_mode) {
+    switch (localConfig.risk.mode) {
       case 'fixed_lot': return 'Lot Size';
       case 'lot_multiplier': return 'Multiplier';
       case 'balance_multiplier': return 'Multiplier';
@@ -61,7 +60,7 @@ export default function RiskConfigStep({
   };
 
   const getValueStep = () => {
-    switch (localConfig.risk_mode) {
+    switch (localConfig.risk.mode) {
       case 'fixed_lot': return 0.01;
       case 'risk_percent': return 0.5;
       case 'risk_dollar': return 10;
@@ -88,7 +87,7 @@ export default function RiskConfigStep({
               key={mode.value}
               onClick={() => handleModeChange(mode.value)}
               className={`p-3 text-left border rounded-lg transition-colors ${
-                localConfig.risk_mode === mode.value
+                localConfig.risk.mode === mode.value
                   ? 'border-primary bg-primary/5'
                   : 'border-border hover:border-primary/50'
               }`}
@@ -105,8 +104,11 @@ export default function RiskConfigStep({
         <label className="text-sm font-medium">{getValueLabel()}</label>
         <input
           type="number"
-          value={localConfig.risk_value}
-          onChange={e => setLocalConfig(prev => ({ ...prev, risk_value: parseFloat(e.target.value) || 0 }))}
+          value={localConfig.risk.value}
+          onChange={e => setLocalConfig(prev => ({ 
+            ...prev, 
+            risk: { ...prev.risk, value: parseFloat(e.target.value) || 0 }
+          }))}
           step={getValueStep()}
           min={0.01}
           className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
@@ -122,8 +124,11 @@ export default function RiskConfigStep({
             <label className="text-xs text-muted-foreground">Max Slippage (pips)</label>
             <input
               type="number"
-              value={localConfig.max_slippage_pips}
-              onChange={e => setLocalConfig(prev => ({ ...prev, max_slippage_pips: parseFloat(e.target.value) || 0 }))}
+              value={localConfig.safety.max_slippage_pips}
+              onChange={e => setLocalConfig(prev => ({ 
+                ...prev, 
+                safety: { ...prev.safety, max_slippage_pips: parseFloat(e.target.value) || 0 }
+              }))}
               step={0.5}
               min={0}
               className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
@@ -133,8 +138,11 @@ export default function RiskConfigStep({
             <label className="text-xs text-muted-foreground">Max Daily Loss (R)</label>
             <input
               type="number"
-              value={localConfig.max_daily_loss_r}
-              onChange={e => setLocalConfig(prev => ({ ...prev, max_daily_loss_r: parseFloat(e.target.value) || 0 }))}
+              value={localConfig.safety.max_daily_loss_r}
+              onChange={e => setLocalConfig(prev => ({ 
+                ...prev, 
+                safety: { ...prev.safety, max_daily_loss_r: parseFloat(e.target.value) || 0 }
+              }))}
               step={0.5}
               min={0}
               className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
@@ -146,12 +154,15 @@ export default function RiskConfigStep({
         <label className="flex items-center gap-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-accent/50">
           <input
             type="checkbox"
-            checked={localConfig.prop_firm_safe_mode}
+            checked={localConfig.safety.prop_firm_safe_mode}
             onChange={e => setLocalConfig(prev => ({ 
               ...prev, 
-              prop_firm_safe_mode: e.target.checked,
-              max_slippage_pips: e.target.checked ? 2 : prev.max_slippage_pips,
-              max_daily_loss_r: e.target.checked ? 2 : prev.max_daily_loss_r,
+              safety: {
+                ...prev.safety,
+                prop_firm_safe_mode: e.target.checked,
+                max_slippage_pips: e.target.checked ? 2 : prev.safety.max_slippage_pips,
+                max_daily_loss_r: e.target.checked ? 2 : prev.safety.max_daily_loss_r,
+              }
             }))}
             className="w-4 h-4 rounded border-border"
           />
