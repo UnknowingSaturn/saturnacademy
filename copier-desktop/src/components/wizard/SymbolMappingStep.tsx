@@ -1,10 +1,5 @@
 import { useState } from "react";
-
-export interface SymbolMapping {
-  master_symbol: string;
-  receiver_symbol: string;
-  enabled: boolean;
-}
+import { SymbolMapping } from "../../types";
 
 interface SymbolMappingStepProps {
   symbolMappings: SymbolMapping[];

@@ -1,11 +1,11 @@
 import { useState, useCallback } from "react";
-import { Mt5Terminal, WizardState } from "../types";
+import { Mt5Terminal, WizardState, SymbolMapping, RiskConfig, SafetyConfig, DEFAULT_RISK_CONFIG, DEFAULT_SAFETY_CONFIG } from "../types";
 import WizardProgress from "./wizard/WizardProgress";
 import TerminalScanStep from "./wizard/TerminalScanStep";
 import MasterSelectionStep from "./wizard/MasterSelectionStep";
 import ReceiverSelectionStep from "./wizard/ReceiverSelectionStep";
-import RiskConfigStep, { RiskConfig } from "./wizard/RiskConfigStep";
-import SymbolMappingStep, { SymbolMapping } from "./wizard/SymbolMappingStep";
+import RiskConfigStep, { WizardRiskConfig } from "./wizard/RiskConfigStep";
+import SymbolMappingStep from "./wizard/SymbolMappingStep";
 import ConfirmationStep from "./wizard/ConfirmationStep";
 
 interface WizardViewProps {
@@ -13,18 +13,15 @@ interface WizardViewProps {
 }
 
 interface ExtendedWizardState extends WizardState {
-  riskConfig: RiskConfig;
+  riskConfig: WizardRiskConfig;
   symbolMappings: SymbolMapping[];
 }
 
 const STEPS = ["Scan", "Master", "Receivers", "Risk", "Symbols", "Complete"];
 
-const DEFAULT_RISK_CONFIG: RiskConfig = {
-  risk_mode: 'balance_multiplier',
-  risk_value: 1.0,
-  max_slippage_pips: 3.0,
-  max_daily_loss_r: 3.0,
-  prop_firm_safe_mode: false,
+const DEFAULT_WIZARD_RISK_CONFIG: WizardRiskConfig = {
+  risk: DEFAULT_RISK_CONFIG,
+  safety: DEFAULT_SAFETY_CONFIG,
 };
 
 export default function WizardView({ onComplete }: WizardViewProps) {
@@ -34,7 +31,7 @@ export default function WizardView({ onComplete }: WizardViewProps) {
     masterTerminal: null,
     receiverTerminals: [],
     setupComplete: false,
-    riskConfig: DEFAULT_RISK_CONFIG,
+    riskConfig: DEFAULT_WIZARD_RISK_CONFIG,
     symbolMappings: [],
   });
 
@@ -54,7 +51,7 @@ export default function WizardView({ onComplete }: WizardViewProps) {
     setState((prev) => ({ ...prev, receiverTerminals: terminals }));
   };
 
-  const handleRiskConfigChange = useCallback((config: RiskConfig) => {
+  const handleRiskConfigChange = useCallback((config: WizardRiskConfig) => {
     setState((prev) => ({ ...prev, riskConfig: config }));
   }, []);
 
