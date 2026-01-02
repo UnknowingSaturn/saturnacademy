@@ -27,12 +27,27 @@ pub struct SymbolInfo {
     pub tick_value: f64,
     /// Size of one tick
     pub tick_size: f64,
-    /// Contract size (e.g., 100000 for forex)
+    /// Contract size (e.g., 100000 for forex, 1 for indices)
     pub contract_size: f64,
     /// Number of digits after decimal
     pub digits: i32,
     /// Point size (e.g., 0.00001 for 5-digit broker)
     pub point: f64,
+    /// Symbol type for special handling
+    #[serde(default)]
+    pub symbol_type: SymbolType,
+}
+
+/// Symbol type for lot calculation adjustments
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SymbolType {
+    #[default]
+    Forex,
+    Index,
+    Cfd,
+    Commodity,
+    Crypto,
 }
 
 impl Default for SymbolInfo {
@@ -43,7 +58,65 @@ impl Default for SymbolInfo {
             contract_size: 100000.0,
             digits: 5,
             point: 0.00001,
+            symbol_type: SymbolType::Forex,
         }
+    }
+}
+
+impl SymbolInfo {
+    /// Create symbol info for an index (like US30, NAS100)
+    pub fn for_index(tick_value: f64, digits: i32) -> Self {
+        Self {
+            tick_value,
+            tick_size: if digits == 1 { 0.1 } else { 1.0 },
+            contract_size: 1.0,  // Indices typically have contract size of 1
+            digits,
+            point: if digits == 1 { 0.1 } else { 1.0 },
+            symbol_type: SymbolType::Index,
+        }
+    }
+    
+    /// Create symbol info for a CFD (like commodities)
+    pub fn for_cfd(tick_value: f64, contract_size: f64, digits: i32) -> Self {
+        Self {
+            tick_value,
+            tick_size: f64::powi(10.0, -digits),
+            contract_size,
+            digits,
+            point: f64::powi(10.0, -digits),
+            symbol_type: SymbolType::Cfd,
+        }
+    }
+    
+    /// Detect symbol type from name (heuristic)
+    pub fn detect_symbol_type(symbol: &str) -> SymbolType {
+        let upper = symbol.to_uppercase();
+        
+        // Common index patterns
+        if upper.contains("US30") || upper.contains("US500") || upper.contains("NAS100") 
+           || upper.contains("DJ30") || upper.contains("SPX") || upper.contains("NDX")
+           || upper.contains("DAX") || upper.contains("FTSE") || upper.contains("UK100")
+           || upper.contains("GER40") || upper.contains("JP225") || upper.contains("AUS200") 
+        {
+            return SymbolType::Index;
+        }
+        
+        // Crypto patterns
+        if upper.contains("BTC") || upper.contains("ETH") || upper.contains("XRP") 
+           || upper.contains("LTC") || upper.contains("CRYPTO")
+        {
+            return SymbolType::Crypto;
+        }
+        
+        // Commodity patterns
+        if upper.contains("XAUUSD") || upper.contains("GOLD") || upper.contains("SILVER")
+           || upper.contains("XAGUSD") || upper.contains("XTIUSD") || upper.contains("OIL")
+           || upper.contains("USOIL") || upper.contains("BRENT")
+        {
+            return SymbolType::Commodity;
+        }
+        
+        SymbolType::Forex
     }
 }
 
@@ -84,7 +157,7 @@ pub fn calculate_lots(
                 }
             } else {
                 // Fallback to master lots if account info not available
-                log::warn!("balance_multiplier mode: missing account info, using master lots");
+                tracing::warn!("balance_multiplier mode: missing account info, using master lots");
                 round_lots(master_lots)
             }
         }
@@ -95,7 +168,7 @@ pub fn calculate_lots(
                 let risk_amount = r_account.balance * (risk_value / 100.0);
                 calculate_lots_from_risk(risk_amount, price, stop_loss, &info)
             } else {
-                log::warn!("risk_percent mode: missing SL or account info, using master lots");
+                tracing::warn!("risk_percent mode: missing SL or account info, using master lots");
                 round_lots(master_lots)
             }
         }
@@ -105,7 +178,7 @@ pub fn calculate_lots(
             if let Some(stop_loss) = sl {
                 calculate_lots_from_risk(risk_value, price, stop_loss, &info)
             } else {
-                log::warn!("risk_dollar mode: missing SL, using master lots");
+                tracing::warn!("risk_dollar mode: missing SL, using master lots");
                 round_lots(master_lots)
             }
         }
@@ -117,7 +190,7 @@ pub fn calculate_lots(
             if let (Some(stop_loss), Some(_r_account)) = (sl, receiver_account) {
                 calculate_lots_from_risk(risk_value, price, stop_loss, &info)
             } else {
-                log::warn!("intent mode: missing SL or account info, using master lots");
+                tracing::warn!("intent mode: missing SL or account info, using master lots");
                 round_lots(master_lots)
             }
         }
@@ -128,13 +201,14 @@ pub fn calculate_lots(
         }
         
         _ => {
-            log::warn!("Unknown risk mode: {}, using master lots", risk_mode);
+            tracing::warn!("Unknown risk mode: {}, using master lots", risk_mode);
             round_lots(master_lots)
         }
     }
 }
 
 /// Calculate lot size from a risk amount in account currency
+/// Handles different symbol types (forex, indices, CFDs) correctly
 fn calculate_lots_from_risk(
     risk_amount: f64,
     price: f64,
@@ -144,24 +218,57 @@ fn calculate_lots_from_risk(
     let sl_distance = (price - stop_loss).abs();
     
     if sl_distance <= 0.0 {
-        log::warn!("Invalid SL distance (0), returning minimum lot");
+        tracing::warn!("Invalid SL distance (0), returning minimum lot");
         return 0.01;
     }
     
-    // Calculate points between entry and SL
-    let sl_points = sl_distance / symbol_info.point;
-    
-    // Calculate tick value per point
-    // For forex: tick_value is typically $10 per pip for a standard lot
-    // sl_points is in points, we need to convert to monetary value
-    let value_per_lot = sl_points * symbol_info.tick_value * (symbol_info.tick_size / symbol_info.point);
+    // Calculate value per lot based on SL distance
+    let value_per_lot = match symbol_info.symbol_type {
+        SymbolType::Index => {
+            // For indices: SL in points * tick_value
+            // Indices usually have tick_value = $1 per point per lot
+            let sl_points = sl_distance / symbol_info.point;
+            sl_points * symbol_info.tick_value
+        }
+        SymbolType::Cfd | SymbolType::Commodity => {
+            // For CFDs: Use tick value directly with proper scaling
+            let sl_ticks = sl_distance / symbol_info.tick_size;
+            sl_ticks * symbol_info.tick_value
+        }
+        SymbolType::Crypto => {
+            // Crypto: Similar to CFD but often with different contract sizes
+            let sl_ticks = sl_distance / symbol_info.tick_size;
+            sl_ticks * symbol_info.tick_value
+        }
+        SymbolType::Forex => {
+            // Standard forex calculation
+            let sl_points = sl_distance / symbol_info.point;
+            // tick_value is typically per pip, not per point for 5-digit brokers
+            let points_per_pip = if symbol_info.digits == 5 || symbol_info.digits == 3 {
+                10.0
+            } else {
+                1.0
+            };
+            (sl_points / points_per_pip) * symbol_info.tick_value
+        }
+    };
     
     if value_per_lot <= 0.0 {
-        log::warn!("Invalid value per lot calculation, returning minimum lot");
+        tracing::warn!("Invalid value per lot calculation ({}), returning minimum lot", value_per_lot);
         return 0.01;
     }
     
     let calculated_lots = risk_amount / value_per_lot;
+    
+    tracing::debug!(
+        symbol_type = ?symbol_info.symbol_type,
+        sl_distance = sl_distance,
+        value_per_lot = value_per_lot,
+        risk_amount = risk_amount,
+        calculated_lots = calculated_lots,
+        "Lot calculation"
+    );
+    
     round_lots(calculated_lots.max(0.01))
 }
 
@@ -174,10 +281,23 @@ fn round_lots(lots: f64) -> f64 {
 pub fn apply_max_lot_limit(lots: f64, max_lots: Option<f64>) -> f64 {
     match max_lots {
         Some(max) if lots > max => {
-            log::info!("Lot size {} exceeds max {}, capping", lots, max);
+            tracing::info!("Lot size {} exceeds max {}, capping", lots, max);
             max
         }
         _ => lots
+    }
+}
+
+/// Apply minimum lot size limit
+pub fn apply_min_lot_limit(lots: f64, min_lots: Option<f64>) -> f64 {
+    let min = min_lots.unwrap_or(0.01);
+    if lots < min {
+        tracing::info!("Lot size {} below min {}, using min", lots, min);
+        min
+    } else {
+        lots
+    }
+}
     }
 }
 

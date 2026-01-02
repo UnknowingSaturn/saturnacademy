@@ -98,8 +98,8 @@ PositionMap    g_positionMaps[];
 ExecutedEvent  g_executedEvents[];
 
 string         g_logFileName         = "TradeCopierReceiver.log";
-string         g_positionsFile       = "copier-positions.json";
-string         g_executedFile        = "copier-executed.json";
+string         g_positionsFile       = "copier-positions.json";   // JSON format for robustness
+string         g_executedFile        = "copier-executed.json";    // JSON format for robustness
 string         g_pendingFolder       = "";
 string         g_executedFolder      = "";
 int            g_logHandle           = INVALID_HANDLE;
@@ -2242,7 +2242,7 @@ void RemovePositionMap(long masterPosId)
 }
 
 //+------------------------------------------------------------------+
-//| Save Position Maps to File                                        |
+//| Save Position Maps to JSON File                                   |
 //+------------------------------------------------------------------+
 void SavePositionMaps()
 {
@@ -2250,21 +2250,37 @@ void SavePositionMaps()
    if(handle == INVALID_HANDLE)
       return;
    
-   for(int i = 0; i < ArraySize(g_positionMaps); i++)
+   string json = "{\n";
+   json += "  \"version\": 2,\n";
+   json += "  \"receiver_id\": \"" + g_config.receiver_id + "\",\n";
+   json += "  \"magic_number\": " + IntegerToString(g_magicNumber) + ",\n";
+   json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent()) + "\",\n";
+   json += "  \"positions\": [\n";
+   
+   int count = ArraySize(g_positionMaps);
+   for(int i = 0; i < count; i++)
    {
-      string line = IntegerToString(g_positionMaps[i].master_position_id) + "|" +
-                    IntegerToString(g_positionMaps[i].receiver_position_id) + "|" +
-                    g_positionMaps[i].symbol + "|" +
-                    g_positionMaps[i].direction + "|" +
-                    DoubleToString(g_positionMaps[i].lots, 2);
-      FileWriteString(handle, line + "\n");
+      json += "    {\n";
+      json += "      \"master_position_id\": " + IntegerToString(g_positionMaps[i].master_position_id) + ",\n";
+      json += "      \"receiver_position_id\": " + IntegerToString(g_positionMaps[i].receiver_position_id) + ",\n";
+      json += "      \"symbol\": \"" + g_positionMaps[i].symbol + "\",\n";
+      json += "      \"direction\": \"" + g_positionMaps[i].direction + "\",\n";
+      json += "      \"lots\": " + DoubleToString(g_positionMaps[i].lots, 2) + "\n";
+      json += "    }";
+      if(i < count - 1)
+         json += ",";
+      json += "\n";
    }
    
+   json += "  ]\n";
+   json += "}";
+   
+   FileWriteString(handle, json);
    FileClose(handle);
 }
 
 //+------------------------------------------------------------------+
-//| Load Position Maps from File                                      |
+//| Load Position Maps from JSON File                                 |
 //+------------------------------------------------------------------+
 void LoadPositionMaps()
 {
@@ -2277,9 +2293,87 @@ void LoadPositionMaps()
    if(handle == INVALID_HANDLE)
       return;
    
+   string content = "";
    while(!FileIsEnding(handle))
    {
-      string line = FileReadString(handle);
+      content += FileReadString(handle) + "\n";
+   }
+   FileClose(handle);
+   
+   // Check if it's the old pipe-delimited format (for migration)
+   if(StringFind(content, "{") < 0)
+   {
+      // Old format - parse pipe-delimited
+      LoadPositionMapsLegacy(content);
+      // Save in new JSON format
+      SavePositionMaps();
+      return;
+   }
+   
+   // Parse JSON format
+   int positionsStart = StringFind(content, "\"positions\"");
+   if(positionsStart < 0)
+      return;
+   
+   int arrayStart = StringFind(content, "[", positionsStart);
+   int arrayEnd = StringFind(content, "]", arrayStart);
+   if(arrayStart < 0 || arrayEnd < 0)
+      return;
+   
+   string positionsStr = StringSubstr(content, arrayStart + 1, arrayEnd - arrayStart - 1);
+   
+   // Parse each position object
+   int searchPos = 0;
+   while(searchPos < StringLen(positionsStr))
+   {
+      int objStart = StringFind(positionsStr, "{", searchPos);
+      if(objStart < 0)
+         break;
+      
+      int objEnd = StringFind(positionsStr, "}", objStart);
+      if(objEnd < 0)
+         break;
+      
+      string objStr = StringSubstr(positionsStr, objStart, objEnd - objStart + 1);
+      
+      long masterPosId = (long)ExtractJsonNumber(objStr, "master_position_id");
+      long receiverPosId = (long)ExtractJsonNumber(objStr, "receiver_position_id");
+      string symbol = ExtractJsonString(objStr, "symbol");
+      string direction = ExtractJsonString(objStr, "direction");
+      double lots = ExtractJsonNumber(objStr, "lots");
+      
+      if(masterPosId > 0 && receiverPosId > 0)
+      {
+         int idx = ArraySize(g_positionMaps);
+         ArrayResize(g_positionMaps, idx + 1);
+         g_positionMaps[idx].master_position_id = masterPosId;
+         g_positionMaps[idx].receiver_position_id = receiverPosId;
+         g_positionMaps[idx].symbol = symbol;
+         g_positionMaps[idx].direction = direction;
+         g_positionMaps[idx].lots = lots;
+      }
+      
+      searchPos = objEnd + 1;
+   }
+   
+   if(InpVerboseMode)
+      Print("Loaded ", ArraySize(g_positionMaps), " position maps from JSON");
+}
+
+//+------------------------------------------------------------------+
+//| Load Legacy Position Maps (pipe-delimited format)                 |
+//+------------------------------------------------------------------+
+void LoadPositionMapsLegacy(string content)
+{
+   string lines[];
+   StringSplit(content, '\n', lines);
+   
+   for(int i = 0; i < ArraySize(lines); i++)
+   {
+      string line = lines[i];
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      
       if(StringLen(line) == 0)
          continue;
       
@@ -2296,10 +2390,8 @@ void LoadPositionMaps()
       }
    }
    
-   FileClose(handle);
-   
    if(InpVerboseMode)
-      Print("Loaded ", ArraySize(g_positionMaps), " position maps");
+      Print("Migrated ", ArraySize(g_positionMaps), " position maps from legacy format");
 }
 
 //+------------------------------------------------------------------+

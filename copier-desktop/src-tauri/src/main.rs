@@ -4,8 +4,11 @@
 )]
 
 mod copier;
+mod logging;
 mod mt5;
 mod sync;
+
+use tracing::{info, warn, error};
 
 use copier::CopierState;
 use copier::config_generator::{
@@ -341,7 +344,8 @@ fn create_system_tray() -> SystemTray {
 }
 
 fn main() {
-    env_logger::init();
+    // Initialize structured logging (keep guard alive for the app's lifetime)
+    let _log_guard = logging::init_logging();
 
     let app_state = AppState {
         copier: Arc::new(Mutex::new(CopierState::default())),
@@ -378,6 +382,12 @@ fn main() {
                                 let mut copier = state_clone.lock();
                                 copier.config = Some(config);
                                 copier.last_sync = Some(chrono::Utc::now().to_rfc3339());
+                                info!("Config synced successfully");
+                            }
+                        });
+                                let mut copier = state_clone.lock();
+                                copier.config = Some(config);
+                                copier.last_sync = Some(chrono::Utc::now().to_rfc3339());
                             }
                         });
                     }
@@ -394,6 +404,14 @@ fn main() {
                     state.copier.lock().is_running = false;
                 }
                 "quit" => {
+                    info!("Application shutting down via tray menu");
+                    // Save copier state before exit
+                    let state = app.state::<AppState>();
+                    let copier = state.copier.lock();
+                    if let Err(e) = copier::safety::save_all_safety_states() {
+                        warn!("Failed to save safety states on exit: {}", e);
+                    }
+                    drop(copier);
                     std::process::exit(0);
                 }
                 _ => {}
