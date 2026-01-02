@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { 
   Download, 
@@ -12,7 +11,6 @@ import {
   Shield, 
   Copy, 
   Check,
-  Github,
   HardDrive,
   Package,
   Calendar,
@@ -22,7 +20,6 @@ import {
   ArrowLeftRight,
   AlertTriangle,
   HelpCircle,
-  Terminal,
   MonitorSmartphone,
   Scan,
   Crown,
@@ -30,7 +27,8 @@ import {
   Key,
   Play,
   ArrowRight,
-  Monitor
+  Monitor,
+  Loader2
 } from "lucide-react";
 import { useCopierAccounts, useReceiverSettings, useSymbolMappings } from "@/hooks/useCopier";
 import { toast } from "sonner";
@@ -38,7 +36,7 @@ import { toast } from "sonner";
 interface ReleaseInfo {
   version: string;
   releaseDate: string;
-  downloadUrl: string;
+  downloadUrl: string | null;
   downloadSize: string;
   releaseNotes: string[];
 }
@@ -46,7 +44,7 @@ interface ReleaseInfo {
 const DEFAULT_RELEASE: ReleaseInfo = {
   version: "1.0.0",
   releaseDate: new Date().toISOString().split('T')[0],
-  downloadUrl: "",
+  downloadUrl: null,
   downloadSize: "~5 MB",
   releaseNotes: [
     "Ultra-low latency trade copying (20-50ms)",
@@ -56,15 +54,12 @@ const DEFAULT_RELEASE: ReleaseInfo = {
   ]
 };
 
-const DOWNLOAD_URL_KEY = 'saturn_desktop_download_url';
-
 export function CopierDashboardView() {
   const { data: accounts, isLoading } = useCopierAccounts();
   const [copied, setCopied] = useState(false);
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo>(DEFAULT_RELEASE);
-  const [downloadUrlInput, setDownloadUrlInput] = useState("");
-  const [isEditingUrl, setIsEditingUrl] = useState(false);
+  const [loadingRelease, setLoadingRelease] = useState(true);
 
   // Derive master and receiver accounts
   const masterAccount = accounts?.find(a => 
@@ -84,22 +79,41 @@ export function CopierDashboardView() {
   const enabledMappingsCount = symbolMappings?.filter(m => m.is_enabled).length || 0;
   const totalMappingsCount = symbolMappings?.length || 0;
 
+  // Auto-fetch release info from GitHub via edge function
   useEffect(() => {
-    const savedUrl = localStorage.getItem(DOWNLOAD_URL_KEY);
-    if (savedUrl) {
-      setReleaseInfo(prev => ({ ...prev, downloadUrl: savedUrl }));
-      setDownloadUrlInput(savedUrl);
+    async function fetchRelease() {
+      try {
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copier-update-check?mode=web-download`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (data.available) {
+            // Parse release notes from markdown body
+            const notes = data.releaseNotes
+              ?.split('\n')
+              .filter((line: string) => line.trim().startsWith('-') || line.trim().startsWith('*'))
+              .map((line: string) => line.replace(/^[-*]\s*/, '').trim())
+              .filter(Boolean)
+              .slice(0, 6) || DEFAULT_RELEASE.releaseNotes;
+            
+            setReleaseInfo({
+              version: data.version,
+              releaseDate: data.releaseDate,
+              downloadUrl: data.downloadUrl,
+              downloadSize: "~5 MB",
+              releaseNotes: notes.length > 0 ? notes : DEFAULT_RELEASE.releaseNotes
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch release info:', error);
+      } finally {
+        setLoadingRelease(false);
+      }
     }
+    fetchRelease();
   }, []);
-
-  const handleSaveDownloadUrl = () => {
-    if (downloadUrlInput.trim()) {
-      localStorage.setItem(DOWNLOAD_URL_KEY, downloadUrlInput.trim());
-      setReleaseInfo(prev => ({ ...prev, downloadUrl: downloadUrlInput.trim() }));
-      toast.success("Download URL saved!");
-    }
-    setIsEditingUrl(false);
-  };
 
   const handleCopyEndpoint = async () => {
     await navigator.clipboard.writeText(configEndpoint);
@@ -159,11 +173,6 @@ export function CopierDashboardView() {
     { question: "Is my API key secure?", answer: "Yes, it's stored locally and only used for authentication. Never share it publicly." }
   ];
 
-  const buildSteps = [
-    { step: 1, title: "Clone Repository", code: "git clone https://github.com/UnknowingSaturn/saturnacademy.git\ncd saturnacademy/copier-desktop" },
-    { step: 2, title: "Install Dependencies", code: "npm install\nrustup update stable" },
-    { step: 3, title: "Build & Run", code: "npm run tauri dev    # Development\nnpm run tauri build  # Production" }
-  ];
 
   // When setup exists, show current configuration
   if (hasCopierSetup) {
@@ -430,62 +439,25 @@ export function CopierDashboardView() {
           </div>
 
           <div className="space-y-3">
-            {releaseInfo.downloadUrl ? (
+            {loadingRelease ? (
+              <Button className="w-full" size="lg" disabled>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Checking for latest version...
+              </Button>
+            ) : releaseInfo.downloadUrl ? (
               <Button className="w-full" size="lg" asChild>
                 <a href={releaseInfo.downloadUrl} download>
                   <Download className="mr-2 h-4 w-4" />
-                  Download for Windows
+                  Download v{releaseInfo.version} for Windows
                   <Badge variant="secondary" className="ml-2">{releaseInfo.downloadSize}</Badge>
                 </a>
               </Button>
             ) : (
-              <div className="p-4 rounded-lg border-2 border-dashed border-muted-foreground/30 text-center">
-                <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm font-medium">No download available yet</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Build via GitHub Actions, then paste the URL below
-                </p>
-              </div>
+              <Button className="w-full" size="lg" disabled variant="outline">
+                <Package className="mr-2 h-4 w-4" />
+                No release available yet
+              </Button>
             )}
-
-            <div className="p-3 rounded-lg bg-muted/50 border space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium">Download URL</Label>
-                {!isEditingUrl && releaseInfo.downloadUrl && (
-                  <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setIsEditingUrl(true)}>
-                    Edit
-                  </Button>
-                )}
-              </div>
-              {isEditingUrl || !releaseInfo.downloadUrl ? (
-                <div className="flex gap-2">
-                  <Input
-                    value={downloadUrlInput}
-                    onChange={(e) => setDownloadUrlInput(e.target.value)}
-                    placeholder="https://github.com/.../releases/download/..."
-                    className="text-xs font-mono"
-                  />
-                  <Button size="sm" onClick={handleSaveDownloadUrl}>Save</Button>
-                  {isEditingUrl && (
-                    <Button size="sm" variant="outline" onClick={() => {
-                      setIsEditingUrl(false);
-                      setDownloadUrlInput(releaseInfo.downloadUrl);
-                    }}>
-                      Cancel
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground font-mono truncate">{releaseInfo.downloadUrl}</p>
-              )}
-            </div>
-            
-            <Button variant="outline" className="w-full" asChild>
-              <a href="https://github.com" target="_blank" rel="noopener noreferrer">
-                <Github className="mr-2 h-4 w-4" />
-                View on GitHub
-              </a>
-            </Button>
           </div>
 
           <div className="pt-4 border-t">
@@ -566,25 +538,6 @@ export function CopierDashboardView() {
                     </AccordionItem>
                   ))}
                 </Accordion>
-              </AccordionContent>
-            </AccordionItem>
-            
-            <AccordionItem value="build">
-              <AccordionTrigger>Build from Source</AccordionTrigger>
-              <AccordionContent className="space-y-4">
-                <Alert>
-                  <Terminal className="h-4 w-4" />
-                  <AlertTitle>Prerequisites</AlertTitle>
-                  <AlertDescription className="text-xs">
-                    Node.js 18+, Rust toolchain, Visual Studio Build Tools (Windows)
-                  </AlertDescription>
-                </Alert>
-                {buildSteps.map((bs) => (
-                  <div key={bs.step} className="space-y-2">
-                    <p className="text-sm font-medium">Step {bs.step}: {bs.title}</p>
-                    <pre className="p-3 rounded-lg bg-muted text-xs font-mono overflow-x-auto">{bs.code}</pre>
-                  </div>
-                ))}
               </AccordionContent>
             </AccordionItem>
           </Accordion>
