@@ -93,8 +93,6 @@ impl Default for RiskConfig {
 
 /// Generate a stable config hash using CRC32 (consistent across Rust versions)
 pub fn generate_config_hash(config: &CopierConfigFile) -> String {
-    use std::hash::{Hash, Hasher};
-    
     // Create a reproducible hash by serializing to sorted JSON
     // We use a simple FNV-1a hash which is stable across versions
     let json = serde_json::to_string(config).unwrap_or_default();

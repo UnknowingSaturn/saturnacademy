@@ -12,7 +12,7 @@ pub async fn upload_executions(
         return Ok(());
     }
 
-    log::info!("Uploading {} executions to cloud...", executions.len());
+    tracing::info!("Uploading {} executions to cloud...", executions.len());
 
     let client = reqwest::Client::new();
     let response = client
@@ -33,7 +33,7 @@ pub async fn upload_executions(
         )));
     }
 
-    log::info!("Executions uploaded successfully");
+    tracing::info!("Executions uploaded successfully");
     Ok(())
 }
 
@@ -108,7 +108,7 @@ pub async fn process_queue(api_key: &str) -> Result<usize, ExecutionSyncError> {
                 uploaded += chunk.len();
             }
             Err(e) => {
-                log::error!("Failed to upload execution batch: {}", e);
+                tracing::error!("Failed to upload execution batch: {}", e);
                 break;
             }
         }

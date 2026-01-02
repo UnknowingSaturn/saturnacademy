@@ -8,7 +8,7 @@ mod logging;
 mod mt5;
 mod sync;
 
-use tracing::{info, warn, error};
+use tracing::{info, warn};
 
 use copier::CopierState;
 use copier::config_generator::{

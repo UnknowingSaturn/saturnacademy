@@ -7,7 +7,7 @@ const CONFIG_FILE_NAME: &str = "saturn_copier_config.json";
 
 /// Fetch configuration from the cloud
 pub async fn fetch_config(api_key: &str) -> Result<CopierConfig, ConfigError> {
-    log::info!("Fetching configuration from cloud...");
+    tracing::info!("Fetching configuration from cloud...");
 
     let client = reqwest::Client::new();
     let response = client
@@ -33,10 +33,10 @@ pub async fn fetch_config(api_key: &str) -> Result<CopierConfig, ConfigError> {
 
     // Cache the config locally
     if let Err(e) = cache_config(&config) {
-        log::warn!("Failed to cache config: {}", e);
+        tracing::warn!("Failed to cache config: {}", e);
     }
 
-    log::info!(
+    tracing::info!(
         "Configuration loaded: version {}, {} receivers",
         config.version,
         config.receivers.len()
