@@ -47,22 +47,33 @@ function compareVersions(v1: string, v2: string): number {
 
 async function fetchLatestRelease(): Promise<GitHubRelease | null> {
   try {
+    const headers: Record<string, string> = {
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'Saturn-Trade-Copier-Updater',
+    };
+    
+    // Add authentication for private repos
+    const githubToken = Deno.env.get('GITHUB_TOKEN');
+    if (githubToken) {
+      headers['Authorization'] = `Bearer ${githubToken}`;
+      console.log('Using GitHub token for authentication');
+    } else {
+      console.log('No GitHub token found, using unauthenticated request');
+    }
+    
     const response = await fetch(
       `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
-      {
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Saturn-Trade-Copier-Updater',
-        },
-      }
+      { headers }
     );
     
     if (!response.ok) {
-      console.log(`GitHub API returned ${response.status}`);
+      console.log(`GitHub API returned ${response.status} for ${GITHUB_OWNER}/${GITHUB_REPO}`);
       return null;
     }
     
-    return await response.json();
+    const release = await response.json();
+    console.log(`Found release: ${release.tag_name}`);
+    return release;
   } catch (error) {
     console.error('Failed to fetch GitHub release:', error);
     return null;
