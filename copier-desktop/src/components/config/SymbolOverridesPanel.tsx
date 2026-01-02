@@ -18,7 +18,7 @@ export function SymbolOverridesPanel({ overrides, onChange }: SymbolOverridesPan
     const newOverride: SymbolOverride = {
       symbol: newSymbol.toUpperCase().trim(),
       lot_multiplier: newLotMultiplier,
-      max_lot_size: newMaxLot,
+      max_lots: newMaxLot,
       enabled: true,
     };
     
@@ -176,8 +176,8 @@ export function SymbolOverridesPanel({ overrides, onChange }: SymbolOverridesPan
                   <span className="text-xs text-muted-foreground">Max:</span>
                   <input
                     type="number"
-                    value={override.max_lot_size ?? ""}
-                    onChange={(e) => handleUpdateOverride(index, 'max_lot_size', e.target.value ? parseFloat(e.target.value) : undefined)}
+                    value={override.max_lots ?? ""}
+                    onChange={(e) => handleUpdateOverride(index, 'max_lots', e.target.value ? parseFloat(e.target.value) : undefined)}
                     step={0.01}
                     min={0.01}
                     placeholder="∞"

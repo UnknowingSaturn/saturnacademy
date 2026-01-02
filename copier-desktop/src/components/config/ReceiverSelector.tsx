@@ -1,4 +1,4 @@
-import { Wifi, WifiOff, Settings, Check } from "lucide-react";
+import { Settings, Check } from "lucide-react";
 import { Mt5Terminal, ReceiverHealth } from "../../types";
 
 interface ReceiverSelectorProps {
