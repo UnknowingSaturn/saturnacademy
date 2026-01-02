@@ -187,8 +187,14 @@ fn save_safety_state(states: &HashMap<String, ReceiverSafetyState>) -> Result<()
 /// Persist current state (call after any modification)
 fn persist_state(states: &HashMap<String, ReceiverSafetyState>) {
     if let Err(e) = save_safety_state(states) {
-        log::warn!("Failed to persist safety state: {}", e);
+        tracing::warn!("Failed to persist safety state: {}", e);
     }
+}
+
+/// Save all safety states (public for graceful shutdown)
+pub fn save_all_safety_states() -> Result<(), String> {
+    let states = SAFETY_STATE.lock();
+    save_safety_state(&states)
 }
 
 /// Get or create safety state for a receiver
@@ -240,7 +246,7 @@ pub fn check_daily_reset(receiver_id: &str) {
         };
         
         if needs_reset {
-            log::info!("Resetting daily counters for receiver {}", receiver_id);
+            tracing::info!("Resetting daily counters for receiver {}", receiver_id);
             state.daily_pnl = 0.0;
             state.trades_today = 0;
             state.wins_today = 0;
@@ -408,7 +414,7 @@ pub fn check_trade_safety(
 
 /// Pause a receiver due to safety breach
 fn pause_receiver(receiver_id: &str, reason: &str) {
-    log::warn!("Safety pause for {}: {}", receiver_id, reason);
+    tracing::warn!("Safety pause for {}: {}", receiver_id, reason);
     
     let mut states = SAFETY_STATE.lock();
     let state = states.entry(receiver_id.to_string()).or_default();
