@@ -1,5 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Mt5Terminal, RiskConfig, RiskMode, SafetyConfig } from "../../types";
+import { validateRiskConfig, validateSafetyConfig, getFieldError, ValidationError } from "../../lib/validation";
 
 // Combined config for the wizard step (risk + safety together)
 export interface WizardRiskConfig {
@@ -31,10 +33,42 @@ export default function RiskConfigStep({
   onBack,
 }: RiskConfigStepProps) {
   const [localConfig, setLocalConfig] = useState<WizardRiskConfig>(riskConfig);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+
+  // Validation
+  const validationErrors = useMemo(() => {
+    const riskErrors = validateRiskConfig(localConfig.risk);
+    const safetyErrors = validateSafetyConfig(localConfig.safety);
+    return [...riskErrors.errors, ...safetyErrors.errors];
+  }, [localConfig]);
+
+  const isValid = validationErrors.length === 0;
 
   useEffect(() => {
     onConfigChange(localConfig);
   }, [localConfig, onConfigChange]);
+
+  const getError = (field: string) => {
+    if (!touched[field]) return undefined;
+    return getFieldError(validationErrors, field);
+  };
+
+  const handleBlur = (field: string) => {
+    setTouched(prev => ({ ...prev, [field]: true }));
+  };
+
+  const handleContinue = () => {
+    // Mark all fields as touched to show all errors
+    setTouched({
+      "risk.value": true,
+      "safety.max_slippage_pips": true,
+      "safety.max_daily_loss_r": true,
+    });
+    
+    if (isValid) {
+      onContinue();
+    }
+  };
 
   const handleModeChange = (mode: RiskMode) => {
     let defaultValue = 1.0;
@@ -109,10 +143,19 @@ export default function RiskConfigStep({
             ...prev, 
             risk: { ...prev.risk, value: parseFloat(e.target.value) || 0 }
           }))}
+          onBlur={() => handleBlur("risk.value")}
           step={getValueStep()}
           min={0.01}
-          className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
+          className={`w-full px-3 py-2 border rounded-lg bg-background text-sm ${
+            getError("risk.value") ? "border-red-500" : "border-border"
+          }`}
         />
+        {getError("risk.value") && (
+          <p className="text-xs text-red-400 flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3" />
+            {getError("risk.value")}
+          </p>
+        )}
       </div>
 
       {/* Safety Settings */}
@@ -181,8 +224,9 @@ export default function RiskConfigStep({
           Back
         </button>
         <button
-          onClick={onContinue}
-          className="flex-1 px-4 py-2.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
+          onClick={handleContinue}
+          disabled={!isValid && Object.keys(touched).length > 0}
+          className="flex-1 px-4 py-2.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50"
         >
           Continue
         </button>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { Mt5Terminal } from "../types";
+import EAStatusBadge, { getEAStatus, formatHeartbeatAge } from "./EAStatusBadge";
 
 interface ReceiverGridProps {
   receiverTerminals: Mt5Terminal[];
@@ -115,6 +116,7 @@ export default function ReceiverGrid({
           {receiverTerminals.map((terminal) => {
             const isPaused = paused[terminal.terminal_id];
             const isClosing = closing[terminal.terminal_id];
+            const eaStatus = getEAStatus(terminal.last_heartbeat);
 
             return (
               <div
@@ -122,33 +124,44 @@ export default function ReceiverGrid({
                 className={`p-4 rounded-lg border ${
                   isPaused
                     ? "bg-yellow-500/10 border-yellow-500/30"
+                    : eaStatus === "offline"
+                    ? "bg-red-500/5 border-red-500/20"
+                    : eaStatus === "stale"
+                    ? "bg-yellow-500/5 border-yellow-500/20"
                     : "bg-card border-border"
                 }`}
               >
                 {/* Header */}
-                <div className="flex items-start justify-between mb-3">
+                <div className="flex items-start justify-between mb-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          isPaused ? "bg-yellow-500" : "bg-green-500"
-                        }`}
+                      <EAStatusBadge 
+                        status={eaStatus} 
+                        lastHeartbeat={terminal.last_heartbeat} 
+                        compact 
                       />
                       <p className="font-medium">
                         {terminal.broker || "Unknown Broker"}
                       </p>
                     </div>
                     {terminal.account_info && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      <p className="text-xs text-muted-foreground mt-0.5 ml-4">
                         Account: {terminal.account_info.account_number}
                       </p>
                     )}
                   </div>
-                  {isPaused && (
-                    <span className="px-2 py-0.5 text-xs bg-yellow-500 text-white rounded">
-                      PAUSED
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {isPaused && (
+                      <span className="px-2 py-0.5 text-xs bg-yellow-500 text-white rounded">
+                        PAUSED
+                      </span>
+                    )}
+                    {eaStatus !== "online" && !isPaused && (
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatHeartbeatAge(terminal.last_heartbeat)}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Stats */}

@@ -35,6 +35,7 @@ export interface Mt5Terminal {
   master_installed: boolean;
   receiver_installed: boolean;
   account_info?: AccountInfo | null;
+  last_heartbeat?: string | null;
 }
 
 export interface AccountInfo {
