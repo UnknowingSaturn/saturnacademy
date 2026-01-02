@@ -1,11 +1,11 @@
 import {
-  AlertCircle,
   ArrowDown,
   ArrowUp,
   CheckCircle,
   Clock,
 } from "lucide-react";
 import { Execution } from "../types";
+import ErrorDisplay, { ErrorBadge } from "./ErrorDisplay";
 
 interface ExecutionLogProps {
   executions: Execution[];
@@ -71,7 +71,7 @@ function ExecutionItem({ execution }: { execution: Execution }) {
           {isSuccess ? (
             <CheckCircle className="w-4 h-4 text-green-500" />
           ) : (
-            <AlertCircle className="w-4 h-4 text-red-500" />
+            <ErrorBadge error={execution.error_message || "Failed"} />
           )}
         </div>
       </div>
@@ -102,8 +102,8 @@ function ExecutionItem({ execution }: { execution: Execution }) {
 
       {/* Error message if failed */}
       {execution.error_message && (
-        <div className="mt-2 text-xs text-red-400 bg-red-500/10 rounded p-2">
-          {execution.error_message}
+        <div className="mt-2">
+          <ErrorDisplay error={execution.error_message} showSuggestion={false} compact />
         </div>
       )}
 

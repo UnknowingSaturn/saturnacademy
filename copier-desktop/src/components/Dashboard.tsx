@@ -2,7 +2,6 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import {
   Activity,
-  AlertCircle,
   ArrowDownRight,
   ArrowUpRight,
   CheckCircle2,
@@ -17,6 +16,8 @@ import {
   TestTube2,
 } from "lucide-react";
 import { CopierStatus, Execution, Mt5Terminal, MasterHeartbeat } from "../types";
+import EAStatusBadge, { getEAStatus, formatHeartbeatAge } from "./EAStatusBadge";
+import ErrorDisplay from "./ErrorDisplay";
 
 interface DashboardProps {
   status: CopierStatus | null;
@@ -80,19 +81,8 @@ export default function Dashboard({
     (t) => t.account_info?.account_number?.toString().startsWith("5") // Demo accounts often start with 5
   );
 
-  const getHeartbeatAge = () => {
-    if (!masterHeartbeat?.timestamp_utc) return null;
-    const diff = Date.now() - new Date(masterHeartbeat.timestamp_utc).getTime();
-    if (diff < 5000) return "Just now";
-    if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    return "Offline";
-  };
-
-  const isHeartbeatStale = () => {
-    if (!masterHeartbeat?.timestamp_utc) return true;
-    return Date.now() - new Date(masterHeartbeat.timestamp_utc).getTime() > 30000;
-  };
+  const masterStatus = getEAStatus(masterHeartbeat?.timestamp_utc);
+  const heartbeatAge = formatHeartbeatAge(masterHeartbeat?.timestamp_utc);
 
   const recentExecutions = executions.slice(0, 5);
   const successCount = executions.filter(e => e.status === "success").length;
@@ -111,15 +101,16 @@ export default function Dashboard({
                 <div
                   className={`w-3 h-3 rounded-full ${
                     status?.is_running
-                      ? "bg-green-500 animate-pulse"
+                      ? "status-online animate-pulse"
                       : status?.is_connected
-                      ? "bg-yellow-500"
-                      : "bg-red-500"
+                      ? "status-warning"
+                      : "status-offline"
                   }`}
                 />
                 <span className="text-xl font-semibold">
                   {status?.is_running ? "Running" : status?.is_connected ? "Connected" : "Disconnected"}
                 </span>
+                <EAStatusBadge status={masterStatus} lastHeartbeat={masterHeartbeat?.timestamp_utc} />
               </div>
               {masterHeartbeat && (
                 <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
@@ -128,9 +119,9 @@ export default function Dashboard({
                   <span>Equity: ${masterHeartbeat.equity?.toLocaleString()}</span>
                 </div>
               )}
-              <div className={`flex items-center gap-1.5 mt-2 text-xs ${isHeartbeatStale() ? "text-yellow-500" : "text-muted-foreground"}`}>
+              <div className={`flex items-center gap-1.5 mt-2 text-xs ${masterStatus === "stale" ? "text-yellow-500" : masterStatus === "offline" ? "text-red-400" : "text-muted-foreground"}`}>
                 <Clock className="w-3 h-3" />
-                <span>Last heartbeat: {getHeartbeatAge() || "No data"}</span>
+                <span>Last heartbeat: {heartbeatAge}</span>
               </div>
             </div>
 
@@ -165,9 +156,8 @@ export default function Dashboard({
           </div>
 
           {status?.last_error && (
-            <div className="flex items-start gap-2 mt-4 p-3 bg-red-500/10 rounded-lg">
-              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-              <span className="text-sm text-red-400">{status.last_error}</span>
+            <div className="mt-4">
+              <ErrorDisplay error={status.last_error} showSuggestion={true} />
             </div>
           )}
 
