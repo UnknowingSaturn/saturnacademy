@@ -87,6 +87,44 @@ serve(async (req) => {
 
   try {
     const url = new URL(req.url);
+    const mode = url.searchParams.get('mode');
+    
+    // Web download mode - returns user-friendly release info for frontend
+    if (mode === 'web-download') {
+      console.log('Web download info requested');
+      const release = await fetchLatestRelease();
+      
+      if (!release) {
+        return new Response(JSON.stringify({ 
+          available: false 
+        }), { 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        });
+      }
+      
+      // Find Windows installer (.msi or .exe)
+      const windowsInstaller = release.assets.find(a => 
+        a.name.endsWith('.msi') || a.name.endsWith('_x64-setup.exe') || a.name.endsWith('.msi.zip')
+      );
+      
+      // Calculate approximate size from asset if available
+      const installerAsset = release.assets.find(a => 
+        a.name.endsWith('.msi') || a.name.endsWith('_x64-setup.exe')
+      );
+      
+      return new Response(JSON.stringify({
+        available: true,
+        version: release.tag_name.replace(/^v/, ''),
+        releaseDate: release.published_at,
+        downloadUrl: windowsInstaller?.browser_download_url || null,
+        fileName: windowsInstaller?.name || null,
+        releaseNotes: release.body || 'Latest version with improvements and bug fixes'
+      }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+    
+    // Standard Tauri update check mode
     const currentVersion = url.searchParams.get('current_version') || url.searchParams.get('version') || '0.0.0';
     const target = url.searchParams.get('target') || 'windows-x86_64';
 
