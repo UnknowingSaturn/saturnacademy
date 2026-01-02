@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useState } from "react";
 import { z } from "zod";
 import { useAuth } from "@/hooks/useAuth";
@@ -29,7 +30,10 @@ interface AccountSettingsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function AccountSettingsDialog({ open, onOpenChange }: AccountSettingsDialogProps) {
+export const AccountSettingsDialog = React.forwardRef<
+  HTMLDivElement,
+  AccountSettingsDialogProps
+>(({ open, onOpenChange }, ref) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errors, setErrors] = useState<{ newPassword?: string; confirmPassword?: string }>({});
@@ -142,4 +146,6 @@ export function AccountSettingsDialog({ open, onOpenChange }: AccountSettingsDia
       </DialogContent>
     </Dialog>
   );
-}
+});
+
+AccountSettingsDialog.displayName = "AccountSettingsDialog";
