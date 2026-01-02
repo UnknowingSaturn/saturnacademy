@@ -2278,11 +2278,13 @@ void RemovePositionMap(long masterPosId)
 }
 
 //+------------------------------------------------------------------+
-//| Save Position Maps to JSON File                                   |
+//| Save Position Maps to JSON File (Atomic Write)                    |
 //+------------------------------------------------------------------+
 void SavePositionMaps()
 {
-   int handle = FileOpen(g_positionsFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   string tempFile = g_positionsFile + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(handle == INVALID_HANDLE)
       return;
    
@@ -2313,6 +2315,11 @@ void SavePositionMaps()
    
    FileWriteString(handle, json);
    FileClose(handle);
+   
+   // Atomic rename: delete old file and rename temp to final
+   if(FileIsExist(g_positionsFile))
+      FileDelete(g_positionsFile);
+   FileMove(tempFile, 0, g_positionsFile, FILE_REWRITE);
 }
 
 //+------------------------------------------------------------------+
@@ -2525,31 +2532,52 @@ void ReconcilePositionMaps()
 }
 
 //+------------------------------------------------------------------+
-//| Save Executed Events to File                                      |
+//| Save Executed Events to JSON File (Atomic Write)                  |
 //+------------------------------------------------------------------+
 void SaveExecutedEvents()
 {
-   int handle = FileOpen(g_executedFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   string tempFile = g_executedFile + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(handle == INVALID_HANDLE)
       return;
    
    int saveCount = MathMin(ArraySize(g_executedEvents), 500);
    int startIdx = MathMax(0, ArraySize(g_executedEvents) - saveCount);
    
+   // Write as JSON array for better robustness
+   string json = "{\n";
+   json += "  \"version\": 1,\n";
+   json += "  \"saved_at\": \"" + FormatTimestampUTC(TimeCurrent()) + "\",\n";
+   json += "  \"events\": [\n";
+   
    for(int i = startIdx; i < ArraySize(g_executedEvents); i++)
    {
-      string line = g_executedEvents[i].idempotency_key + "|" +
-                    IntegerToString(g_executedEvents[i].receiver_position_id) + "|" +
-                    TimeToString(g_executedEvents[i].executed_at, TIME_DATE|TIME_SECONDS) + "|" +
-                    DoubleToString(g_executedEvents[i].slippage_pips, 1);
-      FileWriteString(handle, line + "\n");
+      json += "    {\n";
+      json += "      \"idempotency_key\": \"" + g_executedEvents[i].idempotency_key + "\",\n";
+      json += "      \"receiver_position_id\": " + IntegerToString(g_executedEvents[i].receiver_position_id) + ",\n";
+      json += "      \"executed_at\": \"" + TimeToString(g_executedEvents[i].executed_at, TIME_DATE|TIME_SECONDS) + "\",\n";
+      json += "      \"slippage_pips\": " + DoubleToString(g_executedEvents[i].slippage_pips, 1) + "\n";
+      json += "    }";
+      if(i < ArraySize(g_executedEvents) - 1)
+         json += ",";
+      json += "\n";
    }
    
+   json += "  ]\n";
+   json += "}";
+   
+   FileWriteString(handle, json);
    FileClose(handle);
+   
+   // Atomic rename
+   if(FileIsExist(g_executedFile))
+      FileDelete(g_executedFile);
+   FileMove(tempFile, 0, g_executedFile, FILE_REWRITE);
 }
 
 //+------------------------------------------------------------------+
-//| Load Executed Events from File                                    |
+//| Load Executed Events from File (supports both JSON and legacy)    |
 //+------------------------------------------------------------------+
 void LoadExecutedEvents()
 {
@@ -2562,9 +2590,87 @@ void LoadExecutedEvents()
    if(handle == INVALID_HANDLE)
       return;
    
+   string content = "";
    while(!FileIsEnding(handle))
    {
-      string line = FileReadString(handle);
+      content += FileReadString(handle) + "\n";
+   }
+   FileClose(handle);
+   
+   // Check if JSON format (new) or pipe-delimited (legacy)
+   if(StringFind(content, "{") >= 0 && StringFind(content, "\"events\"") >= 0)
+   {
+      // New JSON format
+      LoadExecutedEventsJson(content);
+   }
+   else
+   {
+      // Legacy pipe-delimited format
+      LoadExecutedEventsLegacy(content);
+   }
+   
+   if(InpVerboseMode)
+      Print("Loaded ", ArraySize(g_executedEvents), " executed events");
+}
+
+//+------------------------------------------------------------------+
+//| Load Executed Events from JSON format                             |
+//+------------------------------------------------------------------+
+void LoadExecutedEventsJson(string content)
+{
+   int eventsStart = StringFind(content, "\"events\"");
+   if(eventsStart < 0) return;
+   
+   int arrayStart = StringFind(content, "[", eventsStart);
+   int arrayEnd = StringFind(content, "]", arrayStart);
+   if(arrayStart < 0 || arrayEnd < 0) return;
+   
+   string eventsStr = StringSubstr(content, arrayStart + 1, arrayEnd - arrayStart - 1);
+   
+   int searchPos = 0;
+   while(searchPos < StringLen(eventsStr))
+   {
+      int objStart = StringFind(eventsStr, "{", searchPos);
+      if(objStart < 0) break;
+      
+      int objEnd = StringFind(eventsStr, "}", objStart);
+      if(objEnd < 0) break;
+      
+      string objStr = StringSubstr(eventsStr, objStart, objEnd - objStart + 1);
+      
+      string idempKey = ExtractJsonString(objStr, "idempotency_key");
+      long recvPosId = (long)ExtractJsonNumber(objStr, "receiver_position_id");
+      string execAt = ExtractJsonString(objStr, "executed_at");
+      double slippage = ExtractJsonNumber(objStr, "slippage_pips");
+      
+      if(StringLen(idempKey) > 0)
+      {
+         int idx = ArraySize(g_executedEvents);
+         ArrayResize(g_executedEvents, idx + 1);
+         g_executedEvents[idx].idempotency_key = idempKey;
+         g_executedEvents[idx].receiver_position_id = recvPosId;
+         g_executedEvents[idx].executed_at = StringToTime(execAt);
+         g_executedEvents[idx].slippage_pips = slippage;
+      }
+      
+      searchPos = objEnd + 1;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Load Executed Events from Legacy pipe-delimited format            |
+//+------------------------------------------------------------------+
+void LoadExecutedEventsLegacy(string content)
+{
+   string lines[];
+   StringSplit(content, '\n', lines);
+   
+   for(int i = 0; i < ArraySize(lines); i++)
+   {
+      string line = lines[i];
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      
       if(StringLen(line) == 0)
          continue;
       
@@ -2579,11 +2685,6 @@ void LoadExecutedEvents()
          g_executedEvents[idx].slippage_pips = StringToDouble(parts[3]);
       }
    }
-   
-   FileClose(handle);
-   
-   if(InpVerboseMode)
-      Print("Loaded ", ArraySize(g_executedEvents), " executed events");
 }
 
 //+------------------------------------------------------------------+
@@ -2636,12 +2737,14 @@ ENUM_ORDER_TYPE_FILLING GetOptimalFillingMode(string symbol)
 }
 
 //+------------------------------------------------------------------+
-//| Write Account Info for Desktop App                                |
+//| Write Account Info for Desktop App (Atomic Write)                 |
 //+------------------------------------------------------------------+
 void WriteAccountInfo()
 {
    string filename = "CopierAccountInfo.json";
-   int handle = FileOpen(filename, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   string tempFile = filename + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
    
    if(handle != INVALID_HANDLE)
    {
@@ -2660,5 +2763,10 @@ void WriteAccountInfo()
       
       FileWriteString(handle, json);
       FileClose(handle);
+      
+      // Atomic rename
+      if(FileIsExist(filename))
+         FileDelete(filename);
+      FileMove(tempFile, 0, filename, FILE_REWRITE);
    }
 }

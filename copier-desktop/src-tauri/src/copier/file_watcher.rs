@@ -289,13 +289,14 @@ fn process_event_file(path: &Path, state: Arc<Mutex<CopierState>>) {
         }
     };
 
-    // Process the event for each receiver
-    event_processor::process_event(&event, &config, state.clone());
-    
-    // Mark as processed after successful execution
+    // CRITICAL: Mark as processed BEFORE deleting file to prevent race conditions
+    // If app crashes between delete and mark, the event could be reprocessed on restart
     idempotency::mark_event_processed(&idempotency_key);
 
-    // Delete the processed file
+    // Process the event for each receiver
+    event_processor::process_event(&event, &config, state.clone());
+
+    // Now safe to delete the processed file
     if let Err(e) = std::fs::remove_file(path) {
         error!("Failed to delete processed file: {}", e);
     }

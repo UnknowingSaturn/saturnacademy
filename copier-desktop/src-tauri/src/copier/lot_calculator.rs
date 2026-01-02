@@ -241,13 +241,20 @@ fn calculate_lots_from_risk(
             sl_ticks * symbol_info.tick_value
         }
         SymbolType::Forex => {
-            // Standard forex calculation
+            // Standard forex calculation with proper JPY handling
             let sl_points = sl_distance / symbol_info.point;
-            // tick_value is typically per pip, not per point for 5-digit brokers
-            let points_per_pip = if symbol_info.digits == 5 || symbol_info.digits == 3 {
-                10.0
-            } else {
-                1.0
+            
+            // Determine points per pip based on digits:
+            // - 5 digits = standard forex pairs (e.g., EURUSD 1.12345) -> 10 points = 1 pip
+            // - 4 digits = older format or indices -> 1 point = 1 pip  
+            // - 3 digits = JPY pairs (e.g., USDJPY 150.123) -> 10 points = 1 pip
+            // - 2 digits = JPY pairs older format (e.g., USDJPY 150.12) -> 1 point = 1 pip
+            let points_per_pip = match symbol_info.digits {
+                5 => 10.0,  // Standard forex: 10 points = 1 pip
+                4 => 1.0,   // Older forex or some CFDs
+                3 => 10.0,  // JPY pairs: 10 points = 1 pip (150.123)
+                2 => 1.0,   // JPY pairs older format: 1 point = 1 pip (150.12)
+                _ => 1.0,   // Fallback
             };
             (sl_points / points_per_pip) * symbol_info.tick_value
         }

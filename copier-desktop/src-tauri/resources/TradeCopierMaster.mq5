@@ -65,6 +65,7 @@ string         g_terminalId          = "";
 // Track processed deals
 ulong          g_processedDeals[];
 int            g_maxProcessedDeals   = 1000;
+string         g_processedDealsFile  = "";        // File for persisting processed deals
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                    |
@@ -126,8 +127,10 @@ int OnInit()
    // Set timer for queue processing and heartbeat
    EventSetTimer(1); // 1 second timer for responsive heartbeat
    
-   // Initialize processed deals array
+   // Initialize processed deals array and load persisted deals
+   g_processedDealsFile = "MasterProcessedDeals_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".txt";
    ArrayResize(g_processedDeals, 0);
+   LoadProcessedDeals();
    
    Print("=================================================");
    Print("Trade Copier Master v1.00");
@@ -162,6 +165,9 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   
+   // Save processed deals for crash recovery
+   SaveProcessedDeals();
    
    if(g_logHandle != INVALID_HANDLE)
    {
@@ -543,12 +549,14 @@ void WriteHeartbeat()
 }
 
 //+------------------------------------------------------------------+
-//| Write Account Info for Desktop App Detection                      |
+//| Write Account Info for Desktop App Detection (Atomic Write)       |
 //+------------------------------------------------------------------+
 void WriteAccountInfo()
 {
    string filename = "CopierAccountInfo.json";
-   int handle = FileOpen(filename, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   string tempFile = filename + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
    
    if(handle != INVALID_HANDLE)
    {
@@ -567,6 +575,11 @@ void WriteAccountInfo()
       
       FileWriteString(handle, json);
       FileClose(handle);
+      
+      // Atomic rename
+      if(FileIsExist(filename))
+         FileDelete(filename);
+      FileMove(tempFile, 0, filename, FILE_REWRITE);
    }
 }
 
@@ -740,6 +753,87 @@ void MarkDealProcessed(ulong dealTicket)
    
    ArrayResize(g_processedDeals, size + 1);
    g_processedDeals[size] = dealTicket;
+   
+   // Periodically save to disk (every 10 deals)
+   static int saveCounter = 0;
+   saveCounter++;
+   if(saveCounter >= 10)
+   {
+      SaveProcessedDeals();
+      saveCounter = 0;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Save Processed Deals to File                                      |
+//+------------------------------------------------------------------+
+void SaveProcessedDeals()
+{
+   if(StringLen(g_processedDealsFile) == 0)
+      return;
+   
+   string tempFile = g_processedDealsFile + ".tmp";
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+      return;
+   
+   // Only save the last 500 to keep file small
+   int count = MathMin(ArraySize(g_processedDeals), 500);
+   int start = MathMax(0, ArraySize(g_processedDeals) - count);
+   
+   for(int i = start; i < ArraySize(g_processedDeals); i++)
+   {
+      FileWriteString(handle, IntegerToString(g_processedDeals[i]) + "\n");
+   }
+   FileClose(handle);
+   
+   // Atomic rename
+   if(FileIsExist(g_processedDealsFile))
+      FileDelete(g_processedDealsFile);
+   FileMove(tempFile, 0, g_processedDealsFile, FILE_REWRITE);
+   
+   if(InpVerboseMode)
+      Print("Saved ", count, " processed deals to file");
+}
+
+//+------------------------------------------------------------------+
+//| Load Processed Deals from File                                    |
+//+------------------------------------------------------------------+
+void LoadProcessedDeals()
+{
+   if(StringLen(g_processedDealsFile) == 0)
+      return;
+   
+   if(!FileIsExist(g_processedDealsFile))
+      return;
+   
+   int handle = FileOpen(g_processedDealsFile, FILE_READ|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+      return;
+   
+   ArrayResize(g_processedDeals, 0);
+   
+   while(!FileIsEnding(handle))
+   {
+      string line = FileReadString(handle);
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      
+      if(StringLen(line) > 0)
+      {
+         ulong dealId = StringToInteger(line);
+         if(dealId > 0)
+         {
+            int idx = ArraySize(g_processedDeals);
+            ArrayResize(g_processedDeals, idx + 1);
+            g_processedDeals[idx] = dealId;
+         }
+      }
+   }
+   FileClose(handle);
+   
+   Print("Loaded ", ArraySize(g_processedDeals), " processed deals from file");
+   LogMessage("Loaded " + IntegerToString(ArraySize(g_processedDeals)) + " processed deals from file");
 }
 
 //+------------------------------------------------------------------+

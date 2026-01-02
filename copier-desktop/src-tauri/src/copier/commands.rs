@@ -55,7 +55,23 @@ impl EmergencyCommand {
 }
 
 /// Get the commands folder path for a terminal
+/// Supports both standard APPDATA installations and portable terminals
 fn get_commands_folder(terminal_id: &str) -> Option<PathBuf> {
+    // Check if it's a portable terminal first
+    if terminal_id.starts_with("portable_") {
+        let terminals = crate::mt5::bridge::find_mt5_terminals();
+        for terminal in terminals {
+            if terminal.terminal_id == terminal_id {
+                return Some(PathBuf::from(&terminal.path)
+                    .join("MQL5")
+                    .join("Files")
+                    .join("CopierCommands"));
+            }
+        }
+        return None;
+    }
+    
+    // Standard AppData terminal
     let appdata = std::env::var("APPDATA").ok()?;
     Some(PathBuf::from(appdata)
         .join("MetaQuotes")
