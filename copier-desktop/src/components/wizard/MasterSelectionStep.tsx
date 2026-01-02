@@ -92,6 +92,9 @@ export default function MasterSelectionStep({
                   <p className="font-medium truncate">
                     {displayName}
                     {accountNum && <span className="text-muted-foreground"> - {accountNum}</span>}
+                    {!terminal.broker && !terminal.account_info?.broker && (
+                      <span className="ml-2 text-amber-500 text-xs">(run EA to detect)</span>
+                    )}
                   </p>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
                     <span>ID: {shortenId(terminal.terminal_id)}</span>

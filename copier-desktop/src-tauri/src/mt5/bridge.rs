@@ -79,6 +79,8 @@ pub fn find_mt5_terminals() -> Vec<Mt5Terminal> {
 }
 
 fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
+    tracing::debug!("Detecting terminal at path: {:?}", path);
+    
     let terminal_id = path.file_name()?.to_str()?.to_string();
     
     // Key check: MQL5 folder must exist - this is the data folder
@@ -140,6 +142,11 @@ fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
     let receiver_installed = experts_path.join("TradeCopierReceiver.mq5").exists()
         || experts_path.join("TradeCopierReceiver.ex5").exists();
 
+    tracing::info!(
+        "Detected terminal: id={}, broker={:?}, has_account_info={}",
+        terminal_id, broker, account_info.is_some()
+    );
+    
     Some(Mt5Terminal {
         terminal_id,
         path: path.to_string_lossy().to_string(),
@@ -273,7 +280,7 @@ fn detect_broker_from_community_folder(path: &Path) -> Option<String> {
                         // Extract broker name from server file name (e.g., "ICMarkets-Demo01" -> "ICMarkets")
                         if let Some(broker_part) = name_str.split('-').next() {
                             if !broker_part.is_empty() {
-                                return Some(broker_part.to_string());
+                                return Some(expand_broker_abbreviation(broker_part));
                             }
                         }
                         return Some(name_str);
@@ -287,6 +294,8 @@ fn detect_broker_from_community_folder(path: &Path) -> Option<String> {
 }
 
 fn detect_portable_terminal(path: &Path) -> Option<Mt5Terminal> {
+    tracing::debug!("Detecting portable terminal at: {:?}", path);
+    
     // For portable installations, the MQL5 folder is in the same directory as terminal64.exe
     let mql5_path = path.join("MQL5");
     if !mql5_path.exists() {
