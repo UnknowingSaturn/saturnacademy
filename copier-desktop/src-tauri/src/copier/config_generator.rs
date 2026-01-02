@@ -112,9 +112,9 @@ pub fn generate_config_hash(config: &CopierConfigFile) -> String {
 /// Get the MQL5 Files folder path for a terminal
 /// Supports both standard APPDATA installations and portable terminals
 pub fn get_terminal_files_path(terminal_id: &str) -> Option<PathBuf> {
-    // Check if it's a portable terminal first
+    // Check if it's a portable terminal first - use cached terminals (M3 fix)
     if terminal_id.starts_with("portable_") {
-        let terminals = crate::mt5::bridge::find_mt5_terminals();
+        let terminals = crate::copier::event_processor::get_cached_terminals();
         for terminal in terminals {
             if terminal.terminal_id == terminal_id {
                 let path = PathBuf::from(&terminal.path)

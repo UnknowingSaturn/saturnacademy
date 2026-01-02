@@ -120,18 +120,44 @@ fn find_master_queue_path(state: &Arc<Mutex<CopierState>>) -> Option<String> {
         }
     }
     
-    // Auto-detect: find any terminal with Master EA installed
+    // Auto-detect: find any terminal with Master EA installed AND online heartbeat
     let terminals = bridge::find_mt5_terminals();
     for terminal in terminals {
         if terminal.master_installed {
+            // Verify heartbeat is fresh before using this terminal (M2 fix)
+            if is_master_heartbeat_fresh(&terminal.terminal_id) {
+                if let Some(path) = get_terminal_queue_path(&terminal.terminal_id) {
+                    info!("Auto-detected master terminal with fresh heartbeat: {}", terminal.terminal_id);
+                    return Some(path);
+                }
+            } else {
+                debug!("Master terminal {} has stale heartbeat, skipping", terminal.terminal_id);
+            }
+        }
+    }
+    
+    // Fallback: check any terminal with master installed (heartbeat might not be written yet)
+    for terminal in bridge::find_mt5_terminals() {
+        if terminal.master_installed {
             if let Some(path) = get_terminal_queue_path(&terminal.terminal_id) {
-                info!("Auto-detected master terminal: {}", terminal.terminal_id);
+                info!("Using master terminal (no heartbeat verification): {}", terminal.terminal_id);
                 return Some(path);
             }
         }
     }
     
     None
+}
+
+/// Check if master heartbeat is fresh (within last 30 seconds)
+fn is_master_heartbeat_fresh(terminal_id: &str) -> bool {
+    if let Some(heartbeat) = bridge::get_master_heartbeat(terminal_id) {
+        if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(&heartbeat.timestamp_utc) {
+            let age = chrono::Utc::now().signed_duration_since(timestamp);
+            return age.num_seconds() < 30;
+        }
+    }
+    false
 }
 
 /// Get the CopierQueue path for a terminal
