@@ -374,16 +374,34 @@ pub fn get_account_info(terminal_id: &str) -> Option<AccountInfo> {
 }
 
 /// Get master heartbeat from file
+/// Master EA writes to CopierQueue/heartbeat.json
 pub fn get_master_heartbeat(terminal_id: &str) -> Option<MasterHeartbeat> {
     let terminal_path = find_terminal_path(terminal_id).ok()?;
-    let heartbeat_file = terminal_path.join("MQL5").join("Files").join("CopierHeartbeat.json");
+    
+    // Primary path: CopierQueue/heartbeat.json (where Master EA writes)
+    let heartbeat_file = terminal_path
+        .join("MQL5")
+        .join("Files")
+        .join("CopierQueue")
+        .join("heartbeat.json");
 
-    if !heartbeat_file.exists() {
-        return None;
+    if heartbeat_file.exists() {
+        if let Ok(content) = std::fs::read_to_string(&heartbeat_file) {
+            if let Ok(heartbeat) = serde_json::from_str(&content) {
+                return Some(heartbeat);
+            }
+        }
+    }
+    
+    // Fallback: legacy path (for backwards compatibility)
+    let legacy_file = terminal_path.join("MQL5").join("Files").join("CopierHeartbeat.json");
+    if legacy_file.exists() {
+        if let Ok(content) = std::fs::read_to_string(&legacy_file) {
+            return serde_json::from_str(&content).ok();
+        }
     }
 
-    let content = std::fs::read_to_string(&heartbeat_file).ok()?;
-    serde_json::from_str(&content).ok()
+    None
 }
 
 /// Ensure the CopierQueue and CopierCommands folders exist

@@ -134,29 +134,51 @@ pub struct Heartbeat {
 }
 
 pub fn read_master_heartbeat(terminal_id: &str) -> Result<Heartbeat, String> {
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| "APPDATA not found")?;
+    // Use the bridge to find terminal path (handles portable installations)
+    let terminal_path = crate::mt5::bridge::find_mt5_terminals()
+        .into_iter()
+        .find(|t| t.terminal_id == terminal_id)
+        .map(|t| PathBuf::from(t.path));
     
-    let heartbeat_file = PathBuf::from(appdata)
-        .join("MetaQuotes")
-        .join("Terminal")
-        .join(terminal_id)
+    let terminal_path = match terminal_path {
+        Some(p) => p,
+        None => {
+            // Fallback to standard AppData path
+            let appdata = std::env::var("APPDATA")
+                .map_err(|_| "APPDATA not found")?;
+            PathBuf::from(appdata)
+                .join("MetaQuotes")
+                .join("Terminal")
+                .join(terminal_id)
+        }
+    };
+    
+    // Primary path: CopierQueue/heartbeat.json
+    let heartbeat_file = terminal_path
         .join("MQL5")
         .join("Files")
         .join("CopierQueue")
         .join("heartbeat.json");
     
-    if !heartbeat_file.exists() {
-        return Err("Heartbeat file not found".to_string());
+    if heartbeat_file.exists() {
+        let content = fs::read_to_string(&heartbeat_file)
+            .map_err(|e| format!("Failed to read heartbeat: {}", e))?;
+        
+        return serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse heartbeat: {}", e));
     }
     
-    let content = fs::read_to_string(&heartbeat_file)
-        .map_err(|e| format!("Failed to read heartbeat: {}", e))?;
+    // Fallback: legacy path
+    let legacy_file = terminal_path.join("MQL5").join("Files").join("CopierHeartbeat.json");
+    if legacy_file.exists() {
+        let content = fs::read_to_string(&legacy_file)
+            .map_err(|e| format!("Failed to read heartbeat: {}", e))?;
+        
+        return serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse heartbeat: {}", e));
+    }
     
-    let heartbeat: Heartbeat = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse heartbeat: {}", e))?;
-    
-    Ok(heartbeat)
+    Err("Heartbeat file not found".to_string())
 }
 
 /// Check if master is online (heartbeat within last 30 seconds)
