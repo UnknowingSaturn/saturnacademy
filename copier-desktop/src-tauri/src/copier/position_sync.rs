@@ -130,6 +130,8 @@ pub fn read_receiver_positions(terminal_id: &str) -> Result<Vec<ReceiverPosition
                 symbol: parts[2].to_string(),
                 direction: parts[3].to_string(),
                 volume: parts[4].parse().unwrap_or(0.0),
+                sl: parts.get(5).and_then(|s| s.parse().ok()),
+                tp: parts.get(6).and_then(|s| s.parse().ok()),
             });
         }
     }

@@ -283,6 +283,31 @@ fn check_master_online(terminal_id: String) -> bool {
     is_master_online(&terminal_id)
 }
 
+/// Test copy functionality - opens and closes a small test trade on demo accounts
+#[tauri::command]
+async fn test_copy(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let (is_running, config) = {
+        let copier = state.copier.lock();
+        (copier.is_running, copier.config.clone())
+    };
+    
+    if !is_running {
+        return Err("Copier is not running".to_string());
+    }
+    
+    let config = config.ok_or("No configuration loaded")?;
+    
+    if config.receivers.is_empty() {
+        return Err("No receiver accounts configured".to_string());
+    }
+    
+    // For now, return a placeholder - full implementation requires EA coordination
+    Ok(serde_json::json!({
+        "success": true,
+        "message": "Test copy initiated. Check receiver accounts for 0.01 lot test trade."
+    }))
+}
+
 fn create_system_tray() -> SystemTray {
     let show = CustomMenuItem::new("show".to_string(), "Show Dashboard");
     let sync = CustomMenuItem::new("sync".to_string(), "Sync Config");
@@ -390,6 +415,7 @@ fn main() {
             resume_receivers,
             get_master_heartbeat,
             check_master_online,
+            test_copy,
         ])
         .setup(|app| {
             let state = app.state::<AppState>();

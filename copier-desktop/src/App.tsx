@@ -119,7 +119,7 @@ function App() {
 
   const handlePauseReceiver = async (terminalId: string) => {
     try {
-      await invoke("pause_receiver", { terminalId });
+      await invoke("pause_receivers", { receiverTerminalIds: [terminalId] });
       console.log("Paused receiver:", terminalId);
     } catch (error) {
       console.error("Failed to pause receiver:", error);
@@ -128,7 +128,7 @@ function App() {
 
   const handleResumeReceiver = async (terminalId: string) => {
     try {
-      await invoke("resume_receiver", { terminalId });
+      await invoke("resume_receivers", { receiverTerminalIds: [terminalId] });
       console.log("Resumed receiver:", terminalId);
     } catch (error) {
       console.error("Failed to resume receiver:", error);

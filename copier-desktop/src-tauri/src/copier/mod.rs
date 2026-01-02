@@ -2,9 +2,11 @@ pub mod commands;
 pub mod config_generator;
 pub mod event_processor;
 pub mod file_watcher;
+pub mod idempotency;
 pub mod lot_calculator;
 pub mod position_sync;
 pub mod trade_executor;
+pub mod safety;
 
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +47,7 @@ pub struct SymbolMapping {
     pub is_enabled: bool,
 }
 
+/// Trade event from Master EA
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradeEvent {
     pub event_type: String,
@@ -53,9 +56,35 @@ pub struct TradeEvent {
     pub direction: String,
     pub lots: f64,
     pub price: f64,
+    #[serde(default)]
     pub sl: Option<f64>,
+    #[serde(default)]
     pub tp: Option<f64>,
     pub timestamp: String,
+    /// SL distance in points (for relative SL mode)
+    #[serde(default)]
+    pub sl_distance_points: Option<f64>,
+    /// TP distance in points (for relative TP mode)
+    #[serde(default)]
+    pub tp_distance_points: Option<f64>,
+    /// Master account balance at time of trade
+    #[serde(default)]
+    pub master_balance: Option<f64>,
+    /// Master account equity at time of trade
+    #[serde(default)]
+    pub master_equity: Option<f64>,
+    /// Symbol tick value (for lot calculations)
+    #[serde(default)]
+    pub tick_value: Option<f64>,
+    /// Symbol contract size
+    #[serde(default)]
+    pub contract_size: Option<f64>,
+    /// Symbol digits
+    #[serde(default)]
+    pub digits: Option<i32>,
+    /// Symbol point size
+    #[serde(default)]
+    pub point: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
