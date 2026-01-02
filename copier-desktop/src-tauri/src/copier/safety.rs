@@ -1,36 +1,71 @@
 //! Safety and risk management module
 //! 
 //! Implements daily loss tracking, drawdown protection, and prop firm safety features
+//! With file-based persistence to survive app restarts
 
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::LazyLock;
 use chrono::{Utc, NaiveDate};
 
+/// File for persisting safety state
+const SAFETY_STATE_FILE: &str = "safety_state.json";
+
 /// Receiver safety state
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReceiverSafetyState {
     /// Daily P&L in account currency
     pub daily_pnl: f64,
     /// Number of trades today
     pub trades_today: i32,
+    /// Number of winning trades today
+    pub wins_today: i32,
+    /// Number of losing trades today
+    pub losses_today: i32,
     /// High water mark for drawdown calculation
     pub high_water_mark: f64,
     /// Current equity (from last heartbeat)
     pub current_equity: f64,
-    /// Date of last reset
-    pub last_reset_date: Option<NaiveDate>,
+    /// Starting balance for percentage calculations
+    pub starting_balance: f64,
+    /// Date of last reset (ISO format for JSON serialization)
+    pub last_reset_date: Option<String>,
     /// Whether receiver is paused due to safety breach
     pub is_safety_paused: bool,
     /// Reason for safety pause
     pub pause_reason: Option<String>,
     /// Consecutive losses counter
     pub consecutive_losses: i32,
+    /// Timestamp of last update
+    pub last_updated: Option<String>,
+}
+
+impl ReceiverSafetyState {
+    fn get_last_reset_date(&self) -> Option<NaiveDate> {
+        self.last_reset_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+    }
+    
+    fn set_last_reset_date(&mut self, date: NaiveDate) {
+        self.last_reset_date = Some(date.format("%Y-%m-%d").to_string());
+    }
+}
+
+/// Persisted safety state structure
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct PersistedSafetyState {
+    receivers: HashMap<String, ReceiverSafetyState>,
+    version: u32,
 }
 
 /// Global safety state for all receivers
 static SAFETY_STATE: LazyLock<Mutex<HashMap<String, ReceiverSafetyState>>> = 
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+    LazyLock::new(|| {
+        let states = load_safety_state().unwrap_or_default();
+        Mutex::new(states)
+    });
 
 /// Safety check result
 #[derive(Debug, Clone)]
@@ -73,6 +108,89 @@ impl Default for SafetyConfig {
     }
 }
 
+/// Get the path to the safety state file
+fn get_safety_state_path() -> Option<PathBuf> {
+    let appdata = std::env::var("APPDATA").ok()?;
+    Some(PathBuf::from(appdata)
+        .join("SaturnTradeCopier")
+        .join(SAFETY_STATE_FILE))
+}
+
+/// Load safety state from disk
+fn load_safety_state() -> Result<HashMap<String, ReceiverSafetyState>, String> {
+    let path = get_safety_state_path()
+        .ok_or_else(|| "Failed to get safety state path".to_string())?;
+    
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read safety state: {}", e))?;
+    
+    let persisted: PersistedSafetyState = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse safety state: {}", e))?;
+    
+    // Check if daily reset is needed for each receiver
+    let today = Utc::now().date_naive();
+    let mut states = persisted.receivers;
+    
+    for state in states.values_mut() {
+        if let Some(last_date) = state.get_last_reset_date() {
+            if last_date != today {
+                // Reset daily counters
+                state.daily_pnl = 0.0;
+                state.trades_today = 0;
+                state.wins_today = 0;
+                state.losses_today = 0;
+                state.consecutive_losses = 0;
+                state.is_safety_paused = false;
+                state.pause_reason = None;
+                state.set_last_reset_date(today);
+            }
+        }
+    }
+    
+    Ok(states)
+}
+
+/// Save safety state to disk
+fn save_safety_state(states: &HashMap<String, ReceiverSafetyState>) -> Result<(), String> {
+    let path = get_safety_state_path()
+        .ok_or_else(|| "Failed to get safety state path".to_string())?;
+    
+    // Ensure parent directory exists
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create safety state directory: {}", e))?;
+    }
+    
+    let persisted = PersistedSafetyState {
+        receivers: states.clone(),
+        version: 1,
+    };
+    
+    let json = serde_json::to_string_pretty(&persisted)
+        .map_err(|e| format!("Failed to serialize safety state: {}", e))?;
+    
+    // Write atomically via temp file
+    let temp_path = path.with_extension("tmp");
+    fs::write(&temp_path, &json)
+        .map_err(|e| format!("Failed to write safety state: {}", e))?;
+    
+    fs::rename(&temp_path, &path)
+        .map_err(|e| format!("Failed to finalize safety state: {}", e))?;
+    
+    Ok(())
+}
+
+/// Persist current state (call after any modification)
+fn persist_state(states: &HashMap<String, ReceiverSafetyState>) {
+    if let Err(e) = save_safety_state(states) {
+        log::warn!("Failed to persist safety state: {}", e);
+    }
+}
+
 /// Get or create safety state for a receiver
 pub fn get_receiver_state(receiver_id: &str) -> ReceiverSafetyState {
     let states = SAFETY_STATE.lock();
@@ -83,6 +201,31 @@ pub fn get_receiver_state(receiver_id: &str) -> ReceiverSafetyState {
 pub fn update_receiver_state(receiver_id: &str, state: ReceiverSafetyState) {
     let mut states = SAFETY_STATE.lock();
     states.insert(receiver_id.to_string(), state);
+    persist_state(&states);
+}
+
+/// Initialize receiver state with starting balance
+pub fn initialize_receiver(receiver_id: &str, starting_balance: f64, current_equity: f64) {
+    let mut states = SAFETY_STATE.lock();
+    let state = states.entry(receiver_id.to_string()).or_default();
+    
+    // Only set starting balance if not already set
+    if state.starting_balance == 0.0 {
+        state.starting_balance = starting_balance;
+    }
+    
+    state.current_equity = current_equity;
+    if current_equity > state.high_water_mark {
+        state.high_water_mark = current_equity;
+    }
+    
+    // Ensure we have a reset date
+    if state.last_reset_date.is_none() {
+        state.set_last_reset_date(Utc::now().date_naive());
+    }
+    
+    state.last_updated = Some(Utc::now().to_rfc3339());
+    persist_state(&states);
 }
 
 /// Reset daily counters if it's a new day
@@ -91,14 +234,23 @@ pub fn check_daily_reset(receiver_id: &str) {
     let mut states = SAFETY_STATE.lock();
     
     if let Some(state) = states.get_mut(receiver_id) {
-        if state.last_reset_date != Some(today) {
+        let needs_reset = match state.get_last_reset_date() {
+            Some(last_date) => last_date != today,
+            None => true,
+        };
+        
+        if needs_reset {
             log::info!("Resetting daily counters for receiver {}", receiver_id);
             state.daily_pnl = 0.0;
             state.trades_today = 0;
-            state.last_reset_date = Some(today);
+            state.wins_today = 0;
+            state.losses_today = 0;
+            state.set_last_reset_date(today);
             state.is_safety_paused = false;
             state.pause_reason = None;
             state.consecutive_losses = 0;
+            state.last_updated = Some(Utc::now().to_rfc3339());
+            persist_state(&states);
         }
     }
 }
@@ -112,6 +264,8 @@ pub fn update_equity(receiver_id: &str, equity: f64) {
     if equity > state.high_water_mark {
         state.high_water_mark = equity;
     }
+    state.last_updated = Some(Utc::now().to_rfc3339());
+    persist_state(&states);
 }
 
 /// Record a trade result
@@ -123,10 +277,15 @@ pub fn record_trade_result(receiver_id: &str, pnl: f64, is_winner: bool) {
     state.trades_today += 1;
     
     if is_winner {
+        state.wins_today += 1;
         state.consecutive_losses = 0;
     } else {
+        state.losses_today += 1;
         state.consecutive_losses += 1;
     }
+    
+    state.last_updated = Some(Utc::now().to_rfc3339());
+    persist_state(&states);
 }
 
 /// Check if a trade should be allowed based on safety rules
@@ -140,6 +299,15 @@ pub fn check_trade_safety(
     
     let state = get_receiver_state(receiver_id);
     
+    // Use provided starting balance or the persisted one
+    let effective_balance = if starting_balance > 0.0 {
+        starting_balance
+    } else if state.starting_balance > 0.0 {
+        state.starting_balance
+    } else {
+        10000.0 // Fallback default
+    };
+    
     // Check if already safety paused
     if state.is_safety_paused {
         return SafetyCheckResult::Blocked(
@@ -149,11 +317,11 @@ pub fn check_trade_safety(
     
     // Check daily loss limit (percentage)
     if let Some(max_loss_percent) = config.max_daily_loss_percent {
-        let loss_limit = starting_balance * (max_loss_percent / 100.0);
+        let loss_limit = effective_balance * (max_loss_percent / 100.0);
         if state.daily_pnl <= -loss_limit {
             let reason = format!(
                 "Daily loss limit reached: ${:.2} ({}% of ${:.0})",
-                state.daily_pnl.abs(), max_loss_percent, starting_balance
+                state.daily_pnl.abs(), max_loss_percent, effective_balance
             );
             pause_receiver(receiver_id, &reason);
             return SafetyCheckResult::Blocked(reason);
@@ -246,6 +414,8 @@ fn pause_receiver(receiver_id: &str, reason: &str) {
     let state = states.entry(receiver_id.to_string()).or_default();
     state.is_safety_paused = true;
     state.pause_reason = Some(reason.to_string());
+    state.last_updated = Some(Utc::now().to_rfc3339());
+    persist_state(&states);
 }
 
 /// Manually unpause a receiver
@@ -254,6 +424,8 @@ pub fn unpause_receiver(receiver_id: &str) {
     if let Some(state) = states.get_mut(receiver_id) {
         state.is_safety_paused = false;
         state.pause_reason = None;
+        state.last_updated = Some(Utc::now().to_rfc3339());
+        persist_state(&states);
     }
 }
 
@@ -263,6 +435,19 @@ pub fn is_receiver_paused(receiver_id: &str) -> bool {
     states.get(receiver_id)
         .map(|s| s.is_safety_paused)
         .unwrap_or(false)
+}
+
+/// Get all receiver states (for UI display)
+pub fn get_all_receiver_states() -> HashMap<String, ReceiverSafetyState> {
+    let states = SAFETY_STATE.lock();
+    states.clone()
+}
+
+/// Clear safety state for a receiver (for testing or reset)
+pub fn clear_receiver_state(receiver_id: &str) {
+    let mut states = SAFETY_STATE.lock();
+    states.remove(receiver_id);
+    persist_state(&states);
 }
 
 #[cfg(test)]
@@ -290,5 +475,23 @@ mod tests {
         // Should be blocked
         let result = check_trade_safety(receiver_id, &config, 10000.0);
         assert!(matches!(result, SafetyCheckResult::Blocked(_)));
+        
+        // Cleanup
+        clear_receiver_state(receiver_id);
+    }
+    
+    #[test]
+    fn test_state_serialization() {
+        let mut state = ReceiverSafetyState::default();
+        state.daily_pnl = -150.0;
+        state.trades_today = 5;
+        state.high_water_mark = 10500.0;
+        state.set_last_reset_date(Utc::now().date_naive());
+        
+        let json = serde_json::to_string(&state).unwrap();
+        let deserialized: ReceiverSafetyState = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(state.daily_pnl, deserialized.daily_pnl);
+        assert_eq!(state.trades_today, deserialized.trades_today);
     }
 }

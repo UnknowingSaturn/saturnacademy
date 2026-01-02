@@ -184,6 +184,9 @@ int OnInit()
    LoadPositionMaps();
    LoadExecutedEvents();
    
+   // Reconcile position maps - remove stale entries for positions that no longer exist
+   ReconcilePositionMaps();
+   
    // Calculate today's P&L
    CalculateDailyPnL();
    
@@ -2297,6 +2300,100 @@ void LoadPositionMaps()
    
    if(InpVerboseMode)
       Print("Loaded ", ArraySize(g_positionMaps), " position maps");
+}
+
+//+------------------------------------------------------------------+
+//| Reconcile Position Maps - Validate and clean stale entries        |
+//| Called on EA startup to ensure position maps are consistent       |
+//+------------------------------------------------------------------+
+void ReconcilePositionMaps()
+{
+   if(ArraySize(g_positionMaps) == 0)
+      return;
+   
+   int originalCount = ArraySize(g_positionMaps);
+   int removedCount = 0;
+   int orphanedCount = 0;
+   
+   // Check each mapped position from the end (to safely remove while iterating)
+   for(int i = ArraySize(g_positionMaps) - 1; i >= 0; i--)
+   {
+      long receiverPosId = g_positionMaps[i].receiver_position_id;
+      long masterPosId = g_positionMaps[i].master_position_id;
+      string symbol = g_positionMaps[i].symbol;
+      
+      // Check if receiver position still exists
+      bool positionExists = PositionSelectByTicket((ulong)receiverPosId);
+      
+      if(!positionExists)
+      {
+         // Position was closed (manually or by SL/TP) - remove stale mapping
+         LogMessage("Reconcile: Removing stale mapping for closed receiver position " + 
+                   IntegerToString(receiverPosId) + " (master: " + IntegerToString(masterPosId) + ")");
+         
+         if(InpVerboseMode)
+            Print("Reconcile: Position ", receiverPosId, " no longer exists - removing mapping");
+         
+         // Remove this mapping
+         int size = ArraySize(g_positionMaps);
+         for(int j = i; j < size - 1; j++)
+         {
+            g_positionMaps[j] = g_positionMaps[j + 1];
+         }
+         ArrayResize(g_positionMaps, size - 1);
+         removedCount++;
+         continue;
+      }
+      
+      // Position exists - verify it matches our mapping
+      string posSymbol = PositionGetString(POSITION_SYMBOL);
+      double posVolume = PositionGetDouble(POSITION_VOLUME);
+      long posMagic = PositionGetInteger(POSITION_MAGIC);
+      
+      // Check if this is actually our copier position
+      if(posMagic != g_magicNumber)
+      {
+         // Position exists but has different magic number - likely orphaned or reassigned
+         LogMessage("Reconcile: Position " + IntegerToString(receiverPosId) + 
+                   " has different magic number (" + IntegerToString(posMagic) + 
+                   " vs " + IntegerToString(g_magicNumber) + ") - marking as orphaned");
+         orphanedCount++;
+         // Keep the mapping for now but log the issue
+      }
+      
+      // Update lot size if it changed (partial closes)
+      if(MathAbs(g_positionMaps[i].lots - posVolume) > 0.001)
+      {
+         if(InpVerboseMode)
+            Print("Reconcile: Updating lot size for position ", receiverPosId, 
+                  " from ", g_positionMaps[i].lots, " to ", posVolume);
+         g_positionMaps[i].lots = posVolume;
+      }
+   }
+   
+   // Save updated position maps if any changes were made
+   if(removedCount > 0)
+   {
+      SavePositionMaps();
+   }
+   
+   // Log reconciliation summary
+   Print("=== Position Reconciliation Summary ===");
+   Print("Original mappings: ", originalCount);
+   Print("Removed (closed): ", removedCount);
+   Print("Orphaned (magic mismatch): ", orphanedCount);
+   Print("Active mappings: ", ArraySize(g_positionMaps));
+   Print("=======================================");
+   
+   LogMessage("Reconciliation complete: " + IntegerToString(removedCount) + " stale mappings removed, " +
+              IntegerToString(ArraySize(g_positionMaps)) + " active");
+   
+   // Alert user if there are orphaned positions
+   if(orphanedCount > 0)
+   {
+      Print("WARNING: ", orphanedCount, " position(s) have mismatched magic numbers.");
+      Print("These may be orphaned positions from previous runs or manual trades.");
+   }
 }
 
 //+------------------------------------------------------------------+

@@ -73,8 +73,13 @@ fn save_processed_keys(keys: &HashSet<String>) -> Result<(), String> {
     
     let content = keys.iter().cloned().collect::<Vec<_>>().join("\n");
     
-    fs::write(&path, content)
+    // Write atomically via temp file
+    let temp_path = path.with_extension("tmp");
+    fs::write(&temp_path, &content)
         .map_err(|e| format!("Failed to write idempotency file: {}", e))?;
+    
+    fs::rename(&temp_path, &path)
+        .map_err(|e| format!("Failed to finalize idempotency file: {}", e))?;
     
     Ok(())
 }
@@ -111,13 +116,37 @@ pub fn mark_event_processed(idempotency_key: &str) {
 }
 
 /// Generate an idempotency key from event data
+/// Now includes deal_id for uniqueness across partial closes and reopens
 pub fn generate_idempotency_key(
     event_type: &str,
     ticket: i64,
+    deal_id: i64,
     symbol: &str,
     timestamp: &str,
 ) -> String {
-    format!("{}:{}:{}:{}", event_type, ticket, symbol, timestamp)
+    // Include deal_id to differentiate between different deals on the same position
+    // This prevents issues where:
+    // 1. A partial close creates a new deal on the same position
+    // 2. A position is closed and a new one opened with same ticket
+    format!("{}:{}:{}:{}:{}", event_type, ticket, deal_id, symbol, timestamp)
+}
+
+/// Generate idempotency key for modify events (no deal_id)
+pub fn generate_modify_idempotency_key(
+    position_id: i64,
+    symbol: &str,
+    timestamp: &str,
+) -> String {
+    format!("modify:{}:{}:{}", position_id, symbol, timestamp)
+}
+
+/// Clear all processed keys (for testing or reset)
+pub fn clear_processed_keys() {
+    let mut keys = PROCESSED_KEYS.lock();
+    keys.clear();
+    if let Err(e) = save_processed_keys(&keys) {
+        log::warn!("Failed to clear idempotency keys: {}", e);
+    }
 }
 
 #[cfg(test)]
@@ -126,7 +155,21 @@ mod tests {
 
     #[test]
     fn test_idempotency_key_generation() {
-        let key = generate_idempotency_key("open", 12345, "EURUSD", "2024-01-15T10:30:00Z");
-        assert_eq!(key, "open:12345:EURUSD:2024-01-15T10:30:00Z");
+        let key = generate_idempotency_key("open", 12345, 67890, "EURUSD", "2024-01-15T10:30:00Z");
+        assert_eq!(key, "open:12345:67890:EURUSD:2024-01-15T10:30:00Z");
+    }
+    
+    #[test]
+    fn test_idempotency_key_with_deal_id_uniqueness() {
+        // Same position, different deals should have different keys
+        let key1 = generate_idempotency_key("close", 12345, 100, "EURUSD", "2024-01-15T10:30:00Z");
+        let key2 = generate_idempotency_key("close", 12345, 101, "EURUSD", "2024-01-15T10:31:00Z");
+        assert_ne!(key1, key2);
+    }
+    
+    #[test]
+    fn test_modify_key_generation() {
+        let key = generate_modify_idempotency_key(12345, "EURUSD", "2024-01-15T10:30:00Z");
+        assert_eq!(key, "modify:12345:EURUSD:2024-01-15T10:30:00Z");
     }
 }
