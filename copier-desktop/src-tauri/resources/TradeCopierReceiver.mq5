@@ -1567,7 +1567,7 @@ string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string 
    json += "},";
    
    json += "\"raw_payload\":{";
-   json += "\"magic\":12345,";
+   json += "\"magic\":" + IntegerToString(g_magicNumber) + ",";
    json += "\"comment\":\"Copier\",";
    json += "\"source\":\"receiver_ea\"";
    json += "}";
