@@ -1,15 +1,16 @@
 //! File watcher for monitoring trade event files from Master EA
 //! 
-//! This module watches a queue folder for JSON event files and processes them.
+//! This module watches the CopierQueue/pending folder for JSON event files.
 //! Includes safety measures like file stability checks and idempotency.
 
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use super::{event_processor, idempotency, CopierState, TradeEvent};
+use crate::mt5::bridge;
 
 /// Delay before reading a newly created file to ensure it's fully written
 const FILE_STABILITY_DELAY_MS: u64 = 150;
@@ -24,30 +25,111 @@ pub fn start_watching(state: Arc<Mutex<CopierState>>) {
     log::info!("Starting file watcher...");
 
     loop {
-        let mt5_path = {
-            let copier = state.lock();
-            copier.mt5_data_path.clone()
-        };
-
-        if let Some(path) = mt5_path {
-            let queue_path = format!("{}\\MQL5\\Files\\CopierQueue", path);
+        // Try to find master terminal path from config or auto-detect
+        let queue_path = find_master_queue_path(&state);
+        
+        if let Some(path) = queue_path {
+            // Watch the 'pending' subfolder where Master EA writes events
+            let pending_path = format!("{}\\pending", path);
             
-            if Path::new(&queue_path).exists() {
-                log::info!("Watching queue folder: {}", queue_path);
+            // Ensure the pending folder exists
+            if !Path::new(&pending_path).exists() {
+                let _ = std::fs::create_dir_all(&pending_path);
+            }
+            
+            if Path::new(&pending_path).exists() {
+                log::info!("Watching queue folder: {}", pending_path);
                 
-                if let Err(e) = watch_folder(&queue_path, state.clone()) {
+                // Update state with the MT5 path for other modules
+                {
+                    let mut copier = state.lock();
+                    // Extract parent path from queue_path
+                    if let Some(parent) = Path::new(&path).parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+                        copier.mt5_data_path = Some(parent.to_string_lossy().to_string());
+                    }
+                }
+                
+                if let Err(e) = watch_folder(&pending_path, state.clone()) {
                     log::error!("File watcher error: {}", e);
                     let mut copier = state.lock();
                     copier.last_error = Some(format!("Watcher error: {}", e));
                 }
             } else {
-                log::warn!("Queue folder does not exist: {}", queue_path);
+                log::warn!("Pending folder does not exist: {}", pending_path);
             }
+        } else {
+            log::debug!("No master terminal found, waiting...");
         }
 
         // Wait before retrying
         std::thread::sleep(Duration::from_secs(5));
     }
+}
+
+/// Find the queue path from the master terminal
+fn find_master_queue_path(state: &Arc<Mutex<CopierState>>) -> Option<String> {
+    // First check if we have a config with master terminal
+    {
+        let copier = state.lock();
+        if let Some(ref config) = copier.config {
+            let terminal_id = &config.master.terminal_id;
+            if let Some(path) = get_terminal_queue_path(terminal_id) {
+                return Some(path);
+            }
+        }
+        
+        // Check if mt5_data_path is already set
+        if let Some(ref path) = copier.mt5_data_path {
+            let queue_path = format!("{}\\MQL5\\Files\\CopierQueue", path);
+            if Path::new(&queue_path).exists() {
+                return Some(queue_path);
+            }
+        }
+    }
+    
+    // Auto-detect: find any terminal with Master EA installed
+    let terminals = bridge::find_mt5_terminals();
+    for terminal in terminals {
+        if terminal.master_installed {
+            if let Some(path) = get_terminal_queue_path(&terminal.terminal_id) {
+                log::info!("Auto-detected master terminal: {}", terminal.terminal_id);
+                return Some(path);
+            }
+        }
+    }
+    
+    None
+}
+
+/// Get the CopierQueue path for a terminal
+fn get_terminal_queue_path(terminal_id: &str) -> Option<String> {
+    // Check if it's a portable terminal
+    if terminal_id.starts_with("portable_") {
+        // Search for it in known locations
+        let terminals = bridge::find_mt5_terminals();
+        for terminal in terminals {
+            if terminal.terminal_id == terminal_id {
+                let queue_path = format!("{}\\MQL5\\Files\\CopierQueue", terminal.path);
+                if Path::new(&queue_path).exists() {
+                    return Some(queue_path);
+                }
+            }
+        }
+        return None;
+    }
+    
+    // Standard AppData terminal
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let queue_path = format!(
+            "{}\\MetaQuotes\\Terminal\\{}\\MQL5\\Files\\CopierQueue",
+            appdata, terminal_id
+        );
+        if Path::new(&queue_path).exists() {
+            return Some(queue_path);
+        }
+    }
+    
+    None
 }
 
 fn watch_folder(path: &str, state: Arc<Mutex<CopierState>>) -> Result<(), Box<dyn std::error::Error>> {
