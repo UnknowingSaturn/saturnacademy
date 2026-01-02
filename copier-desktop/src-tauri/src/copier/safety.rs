@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::LazyLock;
-use chrono::{Utc, NaiveDate};
+use chrono::{Utc, NaiveDate, Timelike};
 
 /// File for persisting safety state
 const SAFETY_STATE_FILE: &str = "safety_state.json";
@@ -58,6 +58,9 @@ impl ReceiverSafetyState {
 struct PersistedSafetyState {
     receivers: HashMap<String, ReceiverSafetyState>,
     version: u32,
+    /// Daily reset hour in UTC (default 0 = midnight UTC)
+    #[serde(default)]
+    daily_reset_hour_utc: i32,
 }
 
 /// Global safety state for all receivers
@@ -66,6 +69,9 @@ static SAFETY_STATE: LazyLock<Mutex<HashMap<String, ReceiverSafetyState>>> =
         let states = load_safety_state().unwrap_or_default();
         Mutex::new(states)
     });
+
+/// Configurable daily reset hour (default: 0 = midnight UTC)
+static DAILY_RESET_HOUR: LazyLock<Mutex<i32>> = LazyLock::new(|| Mutex::new(0));
 
 /// Safety check result
 #[derive(Debug, Clone)]
@@ -90,6 +96,8 @@ pub struct SafetyConfig {
     pub max_trades_per_day: Option<i32>,
     pub prop_firm_safe_mode: bool,
     pub max_consecutive_losses: Option<i32>,
+    /// Daily reset hour in UTC (0-23), default 0 = midnight
+    pub daily_reset_hour_utc: Option<i32>,
 }
 
 impl Default for SafetyConfig {
@@ -104,8 +112,21 @@ impl Default for SafetyConfig {
             max_trades_per_day: None,
             prop_firm_safe_mode: false,
             max_consecutive_losses: None,
+            daily_reset_hour_utc: Some(0),
         }
     }
+}
+
+/// Set the daily reset hour (0-23 UTC)
+pub fn set_daily_reset_hour(hour: i32) {
+    let clamped = hour.clamp(0, 23);
+    let mut reset_hour = DAILY_RESET_HOUR.lock();
+    *reset_hour = clamped;
+}
+
+/// Get the current daily reset hour
+pub fn get_daily_reset_hour() -> i32 {
+    *DAILY_RESET_HOUR.lock()
 }
 
 /// Get the path to the safety state file
@@ -131,8 +152,13 @@ fn load_safety_state() -> Result<HashMap<String, ReceiverSafetyState>, String> {
     let persisted: PersistedSafetyState = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse safety state: {}", e))?;
     
+    // Set the daily reset hour from persisted state
+    set_daily_reset_hour(persisted.daily_reset_hour_utc);
+    
     // Check if daily reset is needed for each receiver
-    let today = Utc::now().date_naive();
+    let reset_hour = get_daily_reset_hour();
+    let now = Utc::now();
+    let today = get_trading_day(now, reset_hour);
     let mut states = persisted.receivers;
     
     for state in states.values_mut() {
@@ -154,6 +180,20 @@ fn load_safety_state() -> Result<HashMap<String, ReceiverSafetyState>, String> {
     Ok(states)
 }
 
+/// Get the "trading day" based on reset hour
+/// If it's before reset hour, we're still in the previous day's trading session
+fn get_trading_day(now: chrono::DateTime<Utc>, reset_hour: i32) -> NaiveDate {
+    let current_hour = now.hour() as i32;
+    let today = now.date_naive();
+    
+    if current_hour < reset_hour {
+        // Before reset hour, still in previous trading day
+        today - chrono::Duration::days(1)
+    } else {
+        today
+    }
+}
+
 /// Save safety state to disk
 fn save_safety_state(states: &HashMap<String, ReceiverSafetyState>) -> Result<(), String> {
     let path = get_safety_state_path()
@@ -168,6 +208,7 @@ fn save_safety_state(states: &HashMap<String, ReceiverSafetyState>) -> Result<()
     let persisted = PersistedSafetyState {
         receivers: states.clone(),
         version: 1,
+        daily_reset_hour_utc: get_daily_reset_hour(),
     };
     
     let json = serde_json::to_string_pretty(&persisted)
@@ -212,6 +253,9 @@ pub fn update_receiver_state(receiver_id: &str, state: ReceiverSafetyState) {
 
 /// Initialize receiver state with starting balance
 pub fn initialize_receiver(receiver_id: &str, starting_balance: f64, current_equity: f64) {
+    let reset_hour = get_daily_reset_hour();
+    let today = get_trading_day(Utc::now(), reset_hour);
+    
     let mut states = SAFETY_STATE.lock();
     let state = states.entry(receiver_id.to_string()).or_default();
     
@@ -227,16 +271,17 @@ pub fn initialize_receiver(receiver_id: &str, starting_balance: f64, current_equ
     
     // Ensure we have a reset date
     if state.last_reset_date.is_none() {
-        state.set_last_reset_date(Utc::now().date_naive());
+        state.set_last_reset_date(today);
     }
     
     state.last_updated = Some(Utc::now().to_rfc3339());
     persist_state(&states);
 }
 
-/// Reset daily counters if it's a new day
+/// Reset daily counters if it's a new trading day (respects configured reset hour)
 pub fn check_daily_reset(receiver_id: &str) {
-    let today = Utc::now().date_naive();
+    let reset_hour = get_daily_reset_hour();
+    let today = get_trading_day(Utc::now(), reset_hour);
     let mut states = SAFETY_STATE.lock();
     
     if let Some(state) = states.get_mut(receiver_id) {
@@ -246,7 +291,7 @@ pub fn check_daily_reset(receiver_id: &str) {
         };
         
         if needs_reset {
-            tracing::info!("Resetting daily counters for receiver {}", receiver_id);
+            tracing::info!("Resetting daily counters for receiver {} (reset hour: {} UTC)", receiver_id, reset_hour);
             state.daily_pnl = 0.0;
             state.trades_today = 0;
             state.wins_today = 0;
@@ -487,6 +532,26 @@ mod tests {
     }
     
     #[test]
+    fn test_trading_day_calculation() {
+        use chrono::TimeZone;
+        
+        // Test at 11 PM with reset at midnight (0) - should be today
+        let now_11pm = Utc.with_ymd_and_hms(2024, 1, 15, 23, 0, 0).unwrap();
+        let day = get_trading_day(now_11pm, 0);
+        assert_eq!(day, NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+        
+        // Test at 1 AM with reset at 5 AM - should be yesterday (still in previous session)
+        let now_1am = Utc.with_ymd_and_hms(2024, 1, 15, 1, 0, 0).unwrap();
+        let day = get_trading_day(now_1am, 5);
+        assert_eq!(day, NaiveDate::from_ymd_opt(2024, 1, 14).unwrap());
+        
+        // Test at 6 AM with reset at 5 AM - should be today (new session started)
+        let now_6am = Utc.with_ymd_and_hms(2024, 1, 15, 6, 0, 0).unwrap();
+        let day = get_trading_day(now_6am, 5);
+        assert_eq!(day, NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+    }
+    
+    #[test]
     fn test_state_serialization() {
         let mut state = ReceiverSafetyState::default();
         state.daily_pnl = -150.0;
@@ -499,5 +564,6 @@ mod tests {
         
         assert_eq!(state.daily_pnl, deserialized.daily_pnl);
         assert_eq!(state.trades_today, deserialized.trades_today);
+        assert_eq!(state.high_water_mark, deserialized.high_water_mark);
     }
 }

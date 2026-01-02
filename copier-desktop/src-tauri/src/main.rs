@@ -400,6 +400,13 @@ fn main() {
                 }
                 "quit" => {
                     info!("Application shutting down via tray menu");
+                    
+                    // Request file watcher shutdown (graceful termination - C3 fix)
+                    copier::file_watcher::request_shutdown();
+                    
+                    // Give file watcher time to finish any in-progress work
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    
                     // Save copier state before exit
                     let state = app.state::<AppState>();
                     let copier = state.copier.lock();

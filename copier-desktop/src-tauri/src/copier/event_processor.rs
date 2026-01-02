@@ -39,6 +39,12 @@ impl TerminalCache {
     }
 }
 
+/// Get cached terminals (public for use by commands.rs - M1 fix)
+pub fn get_cached_terminals() -> Vec<crate::mt5::bridge::Mt5Terminal> {
+    let mut cache = TERMINAL_CACHE.lock();
+    cache.get_terminals()
+}
+
 pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex<CopierState>>) {
     info!(
         "Processing {} event for {} {} @ {} (ticket: {})",
@@ -217,12 +223,9 @@ fn record_blocked_execution(
 /// Get cached account info for a terminal
 /// Supports both standard and portable installations
 /// Uses cached terminal list to avoid repeated filesystem scans
-fn get_cached_account_info(terminal_id: &str) -> Option<lot_calculator::AccountInfo> {
+pub fn get_cached_account_info(terminal_id: &str) -> Option<lot_calculator::AccountInfo> {
     // Use cached terminal list instead of scanning every time
-    let terminals = {
-        let mut cache = TERMINAL_CACHE.lock();
-        cache.get_terminals()
-    };
+    let terminals = get_cached_terminals();
     
     for terminal in terminals {
         if terminal.terminal_id == terminal_id {

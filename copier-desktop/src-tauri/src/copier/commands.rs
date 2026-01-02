@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use super::event_processor::get_cached_terminals;
+
 /// Emergency command types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -56,10 +58,12 @@ impl EmergencyCommand {
 
 /// Get the commands folder path for a terminal
 /// Supports both standard APPDATA installations and portable terminals
+/// Uses cached terminal list for efficiency
 fn get_commands_folder(terminal_id: &str) -> Option<PathBuf> {
     // Check if it's a portable terminal first
     if terminal_id.starts_with("portable_") {
-        let terminals = crate::mt5::bridge::find_mt5_terminals();
+        // Use cached terminal list for efficiency (M1 fix)
+        let terminals = get_cached_terminals();
         for terminal in terminals {
             if terminal.terminal_id == terminal_id {
                 return Some(PathBuf::from(&terminal.path)
@@ -82,7 +86,7 @@ fn get_commands_folder(terminal_id: &str) -> Option<PathBuf> {
         .join("CopierCommands"))
 }
 
-/// Write an emergency command to a receiver terminal
+/// Write an emergency command to a receiver terminal (atomic write)
 pub fn send_emergency_command(
     terminal_id: &str,
     command: &EmergencyCommand,
@@ -93,14 +97,23 @@ pub fn send_emergency_command(
     fs::create_dir_all(&commands_folder)
         .map_err(|e| format!("Failed to create commands folder: {}", e))?;
     
-    let filename = format!("emergency_{}.json", chrono::Utc::now().timestamp_millis());
-    let command_file = commands_folder.join(filename);
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    let temp_filename = format!("emergency_{}.json.tmp", timestamp);
+    let final_filename = format!("emergency_{}.json", timestamp);
+    
+    let temp_file = commands_folder.join(&temp_filename);
+    let command_file = commands_folder.join(&final_filename);
     
     let json = serde_json::to_string_pretty(command)
         .map_err(|e| format!("Failed to serialize command: {}", e))?;
     
-    fs::write(&command_file, json)
+    // Write to temp file first
+    fs::write(&temp_file, json)
         .map_err(|e| format!("Failed to write command: {}", e))?;
+    
+    // Atomic rename
+    fs::rename(&temp_file, &command_file)
+        .map_err(|e| format!("Failed to finalize command: {}", e))?;
     
     Ok(())
 }
@@ -150,8 +163,10 @@ pub struct Heartbeat {
 }
 
 pub fn read_master_heartbeat(terminal_id: &str) -> Result<Heartbeat, String> {
-    // Use the bridge to find terminal path (handles portable installations)
-    let terminal_path = crate::mt5::bridge::find_mt5_terminals()
+    // Use the cached terminal list for portable support
+    let terminals = get_cached_terminals();
+    
+    let terminal_path = terminals
         .into_iter()
         .find(|t| t.terminal_id == terminal_id)
         .map(|t| PathBuf::from(t.path));
