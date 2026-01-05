@@ -42,6 +42,12 @@ pub struct SymbolMapping {
     pub is_enabled: bool,
     #[serde(default)]
     pub auto_mapped: bool,
+    /// How the match was made: exact, normalized, specs, specs_ambiguous, manual
+    #[serde(default)]
+    pub match_method: String,
+    /// Confidence score 0-100
+    #[serde(default)]
+    pub confidence: u8,
 }
 
 /// Common suffixes to strip when normalizing symbols
@@ -171,7 +177,97 @@ pub fn get_master_symbols(terminal_id: &str) -> Result<Vec<String>, String> {
     Ok(symbols)
 }
 
-/// Auto-map symbols between master and receiver
+/// Check if two symbols match by contract specifications
+fn specs_match(a: &SymbolSpec, b: &SymbolSpec) -> bool {
+    // Contract size must match exactly (within tolerance)
+    let contract_match = (a.contract_size - b.contract_size).abs() < 0.01 
+        || (a.contract_size > 0.0 && b.contract_size > 0.0 
+            && ((a.contract_size / b.contract_size) - 1.0).abs() < 0.01);
+    
+    // Digits must match exactly
+    let digits_match = a.digits == b.digits;
+    
+    // Tick size should be same order of magnitude
+    let tick_match = a.tick_size > 0.0 && b.tick_size > 0.0 
+        && (a.tick_size / b.tick_size) > 0.9 
+        && (a.tick_size / b.tick_size) < 1.1;
+    
+    contract_match && digits_match && tick_match
+}
+
+/// Auto-map master symbols to receiver symbols using contract specs (preferred) + normalized name
+pub fn auto_map_symbols_by_specs(
+    master_catalog: &SymbolCatalog,
+    receiver_catalog: &SymbolCatalog,
+) -> Vec<SymbolMapping> {
+    let mut mappings = Vec::new();
+    
+    for master_sym in &master_catalog.symbols {
+        // Priority 1: Exact name match
+        if let Some(receiver_sym) = receiver_catalog.symbols.iter()
+            .find(|s| s.name == master_sym.name) 
+        {
+            mappings.push(SymbolMapping {
+                master_symbol: master_sym.name.clone(),
+                receiver_symbol: receiver_sym.name.clone(),
+                is_enabled: true,
+                auto_mapped: true,
+                match_method: "exact".to_string(),
+                confidence: 100,
+            });
+            continue;
+        }
+        
+        // Priority 2: Normalized name match
+        let master_normalized = normalize_symbol(&master_sym.name);
+        if let Some(receiver_sym) = receiver_catalog.symbols.iter()
+            .find(|s| normalize_symbol(&s.name) == master_normalized) 
+        {
+            mappings.push(SymbolMapping {
+                master_symbol: master_sym.name.clone(),
+                receiver_symbol: receiver_sym.name.clone(),
+                is_enabled: true,
+                auto_mapped: true,
+                match_method: "normalized".to_string(),
+                confidence: 90,
+            });
+            continue;
+        }
+        
+        // Priority 3: Match by contract specifications
+        let spec_candidates: Vec<_> = receiver_catalog.symbols.iter()
+            .filter(|s| specs_match(master_sym, s))
+            .collect();
+        
+        if spec_candidates.len() == 1 {
+            // Unique match by specs - high confidence
+            mappings.push(SymbolMapping {
+                master_symbol: master_sym.name.clone(),
+                receiver_symbol: spec_candidates[0].name.clone(),
+                is_enabled: true,
+                auto_mapped: true,
+                match_method: "specs".to_string(),
+                confidence: 85,
+            });
+        } else if !spec_candidates.is_empty() {
+            // Multiple spec matches - pick first but disabled for manual review
+            mappings.push(SymbolMapping {
+                master_symbol: master_sym.name.clone(),
+                receiver_symbol: spec_candidates[0].name.clone(),
+                is_enabled: false,
+                auto_mapped: true,
+                match_method: "specs_ambiguous".to_string(),
+                confidence: 50,
+            });
+        }
+        // If no match found, symbol is not mapped (user must add manually)
+    }
+    
+    info!("Auto-mapped {} symbols by specs", mappings.len());
+    mappings
+}
+
+/// Legacy: Auto-map symbols between master and receiver by name only
 pub fn auto_map_symbols(
     master_symbols: &[String],
     receiver_catalog: &SymbolCatalog,
@@ -200,6 +296,8 @@ pub fn auto_map_symbols(
                 receiver_symbol: receiver.name.clone(),
                 is_enabled: true,
                 auto_mapped: true,
+                match_method: "exact".to_string(),
+                confidence: 100,
             });
             continue;
         }
@@ -211,11 +309,13 @@ pub fn auto_map_symbols(
                 receiver_symbol: receiver.name.clone(),
                 is_enabled: true,
                 auto_mapped: true,
+                match_method: "normalized".to_string(),
+                confidence: 90,
             });
             continue;
         }
         
-        // No match found - add as disabled with empty receiver
+        // No match found
         debug!("No receiver symbol found for master: {}", master);
     }
     

@@ -25,8 +25,9 @@ input int      InpEventRetentionMin  = 60;                         // Delete exe
 input int      InpHeartbeatSec       = 10;                         // Heartbeat interval (seconds)
 
 input group "=== Copy Filters (CRITICAL) ==="
+input bool     InpPropFirmSafeMode   = true;                       // Prop Firm Safe Mode (disables all modifications)
 input bool     InpCopyMarketOnly     = true;                       // Copy MARKET orders only (recommended)
-input bool     InpCopySLTPModify     = true;                       // Copy SL/TP modifications
+input bool     InpCopySLTPModify     = false;                      // Copy SL/TP modifications (OFF in prop firm mode)
 input bool     InpCopyPartialClose   = true;                       // Copy partial closes
 input bool     InpCopyPendingOrders  = false;                      // Copy pending orders (DISABLED by default)
 input bool     InpCopyOnMasterClose  = true;                       // Close receiver when master closes
@@ -194,9 +195,18 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
                         const MqlTradeResult& result)
 {
    // Handle position modifications (SL/TP changes) - respects copy filter
-   if(trans.type == TRADE_TRANSACTION_POSITION && InpEnableCopier && InpCopySLTPModify)
+   // CRITICAL: In prop firm safe mode, SL/TP modifications are NEVER sent
+   if(trans.type == TRADE_TRANSACTION_POSITION && InpEnableCopier)
    {
-      HandlePositionModify(trans);
+      if(InpPropFirmSafeMode)
+      {
+         // Prop firm mode: never send SL/TP modifications
+         return;
+      }
+      if(InpCopySLTPModify)
+      {
+         HandlePositionModify(trans);
+      }
       return;
    }
    
