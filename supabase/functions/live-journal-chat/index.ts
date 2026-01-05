@@ -31,6 +31,16 @@ interface RecentTradeInfo {
   time_ago: string;
 }
 
+// Step machine types
+type JournalStep = 'emotion' | 'screenshot' | 'regime' | 'setup' | 'concerns' | 'wrapup';
+
+interface StepProgress {
+  completedSteps: Set<JournalStep>;
+  awaitingStep: JournalStep | null;
+  currentStep: JournalStep;
+  lastAssistantQuestion: string | null;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -96,7 +106,15 @@ serve(async (req) => {
       }
     }
 
-    const systemPrompt = buildSystemPrompt(trade, playbook, recentTrades, conversationHistory || []);
+    // Use step machine to analyze progress
+    const stepProgress = analyzeStepProgress(conversationHistory || []);
+    console.log('Step progress:', {
+      completedSteps: Array.from(stepProgress.completedSteps),
+      awaitingStep: stepProgress.awaitingStep,
+      currentStep: stepProgress.currentStep,
+    });
+
+    const systemPrompt = buildSystemPrompt(trade, playbook, recentTrades, stepProgress);
     const messages = buildMessages(systemPrompt, conversationHistory || [], message);
 
     console.log('System prompt length:', systemPrompt.length);
@@ -264,24 +282,81 @@ serve(async (req) => {
       }
     }
 
-    // Analyze current progress
-    const progress = analyzeConversationProgress(conversationHistory || []);
+    // Server-side heuristic extraction for short answers
+    if (message && stepProgress.awaitingStep) {
+      const userAnswer = message.trim().toLowerCase();
+      
+      // Extract regime from short answers
+      if (stepProgress.awaitingStep === 'regime' && !extractedData?.regime) {
+        if (userAnswer.includes('rotational') || userAnswer.includes('ranging') || userAnswer.includes('range')) {
+          extractedData = { ...(extractedData || {}), regime: 'rotational' };
+          console.log('Server-side regime extraction: rotational');
+        } else if (userAnswer.includes('transitional') || userAnswer.includes('trending') || userAnswer.includes('trend')) {
+          extractedData = { ...(extractedData || {}), regime: 'transitional' };
+          console.log('Server-side regime extraction: transitional');
+        }
+      }
+      
+      // Extract setup notes from short answers
+      if (stepProgress.awaitingStep === 'setup' && !extractedData?.thoughts) {
+        extractedData = { ...(extractedData || {}), thoughts: message.trim() };
+        console.log('Server-side setup notes extraction:', message.trim());
+      }
+      
+      // Extract concerns from short answers
+      if (stepProgress.awaitingStep === 'concerns' && !extractedData?.psychology_notes) {
+        if (userAnswer.includes('no concern') || userAnswer.includes('all good') || userAnswer.includes('none')) {
+          extractedData = { ...(extractedData || {}), psychology_notes: 'No concerns noted.' };
+        } else {
+          extractedData = { ...(extractedData || {}), psychology_notes: message.trim() };
+        }
+        console.log('Server-side concerns extraction');
+      }
+    }
 
-    // CRITICAL FALLBACK: If AI gave a short response after extracting data, append follow-up
-    if (extractedData && assistantMessage.length < 100 && !assistantMessage.includes('?')) {
-      console.log('Short response detected after data extraction, appending follow-up question');
-      const nextStep = getNextQuestion(progress, trade, playbook);
-      assistantMessage = assistantMessage.trim() + ' ' + nextStep.question;
+    // Update progress after this message (user just replied to awaitingStep)
+    const updatedProgress = { ...stepProgress };
+    if (stepProgress.awaitingStep && message) {
+      updatedProgress.completedSteps.add(stepProgress.awaitingStep);
+    }
+    
+    // Determine next step
+    const nextStep = getNextStep(updatedProgress.completedSteps);
+    console.log('Next step determined:', nextStep);
+
+    // CRITICAL FALLBACK: Ensure response has proper follow-up
+    const hasQuestion = assistantMessage.includes('?');
+    const isShortResponse = assistantMessage.length < 100;
+
+    if ((isShortResponse || !hasQuestion) && nextStep !== 'wrapup') {
+      console.log('Short/no-question response detected, appending follow-up');
+      const nextQ = getStepQuestion(nextStep, trade, playbook);
+      
+      if (!hasQuestion) {
+        assistantMessage = assistantMessage.trim() + ' ' + nextQ.question;
+      }
       
       if (quickResponses.length === 0) {
-        quickResponses = nextStep.quickResponses;
+        quickResponses = nextQ.quickResponses;
       }
-      if (nextStep.shouldUploadScreenshot) {
+      if (nextQ.shouldUploadScreenshot) {
         shouldUploadScreenshot = true;
       }
     }
 
-    // Fallback: Determine quick responses based on message content if no tool was called
+    // REPEAT GUARD: If assistant is asking about a step already completed, override
+    const askedStep = classifyAssistantQuestion(assistantMessage);
+    if (askedStep && updatedProgress.completedSteps.has(askedStep) && nextStep !== 'wrapup') {
+      console.log('Repeat guard activated: AI asked about completed step', askedStep, '-> forcing', nextStep);
+      const nextQ = getStepQuestion(nextStep, trade, playbook);
+      
+      // Replace the repeated question with next step's question
+      assistantMessage = assistantMessage.replace(/\?[^?]*$/, '').trim() + ' ' + nextQ.question;
+      quickResponses = nextQ.quickResponses;
+      shouldUploadScreenshot = nextQ.shouldUploadScreenshot;
+    }
+
+    // Fallback: Determine quick responses based on message content if still empty
     if (quickResponses.length === 0) {
       const lowerMessage = assistantMessage.toLowerCase();
       
@@ -292,22 +367,21 @@ serve(async (req) => {
       } else if (lowerMessage.includes('screenshot') || lowerMessage.includes('chart') || lowerMessage.includes('upload')) {
         shouldUploadScreenshot = true;
         quickResponses = ['15m', '1H', '4H', 'Daily'];
-      } else if (lowerMessage.includes('pressure') || lowerMessage.includes('revenge') || lowerMessage.includes('make it back')) {
-        quickResponses = ['No pressure', 'A little', 'Yes, feeling pressure'];
-      } else if (lowerMessage.includes('anything else') || lowerMessage.includes('notes')) {
-        quickResponses = ['No, that covers it', 'One more thing...'];
+      } else if (lowerMessage.includes('concern') || lowerMessage.includes('notes to remember')) {
+        quickResponses = ['No concerns', 'One thing...', 'All good'];
+      } else if (lowerMessage.includes('valid') || lowerMessage.includes('entry') || lowerMessage.includes('setup')) {
+        quickResponses = ['Clean setup', 'Took a chance', 'All confirmations hit'];
+      } else if (lowerMessage.includes('all set') || lowerMessage.includes('anything else') || lowerMessage.includes('summarize')) {
+        quickResponses = ['All set!', 'Add one more note'];
       }
     }
 
-    // FINAL SAFETY: If still no quick responses after all processing, use next step
-    if (quickResponses.length === 0) {
-      console.log('No quick responses after all processing, using next step fallback');
-      const nextStep = getNextQuestion(progress, trade, playbook);
-      quickResponses = nextStep.quickResponses;
-      
-      if (nextStep.shouldUploadScreenshot && !shouldUploadScreenshot) {
-        shouldUploadScreenshot = true;
-      }
+    // FINAL SAFETY: If still no quick responses, use next step
+    if (quickResponses.length === 0 && nextStep !== 'wrapup') {
+      console.log('No quick responses, using next step fallback');
+      const nextQ = getStepQuestion(nextStep, trade, playbook);
+      quickResponses = nextQ.quickResponses;
+      shouldUploadScreenshot = nextQ.shouldUploadScreenshot || shouldUploadScreenshot;
     }
 
     console.log('Final response - message length:', assistantMessage.length, 'quickResponses:', quickResponses.length, 'shouldUploadScreenshot:', shouldUploadScreenshot);
@@ -332,68 +406,121 @@ serve(async (req) => {
   }
 });
 
-interface ConversationProgress {
-  hasEmotion: boolean; 
-  hasScreenshot: boolean; 
-  hasRegime: boolean; 
-  hasSetupNotes: boolean;
-  messageCount: number;
+// Classify what step an assistant message is asking about
+function classifyAssistantQuestion(text: string): JournalStep | null {
+  const lower = text.toLowerCase();
+  
+  if (/how.*feeling|emotion|mindset|going into/i.test(lower)) return 'emotion';
+  if (/screenshot|upload.*chart|share.*setup|share.*chart/i.test(lower)) return 'screenshot';
+  if (/rotational|transitional|regime|market.*condition/i.test(lower)) return 'regime';
+  if (/what made.*valid|why.*valid|setup|entry.*reason/i.test(lower)) return 'setup';
+  if (/concern|notes to remember|anything else.*add|one more/i.test(lower)) return 'concerns';
+  if (/all set|summarize|recap|good luck/i.test(lower)) return 'wrapup';
+  
+  return null;
 }
 
-function analyzeConversationProgress(history: Message[]): ConversationProgress {
-  const userMessages = history.filter(m => m.role === 'user').map(m => m.content.toLowerCase());
-  const allContent = userMessages.join(' ');
-  
+// Analyze conversation to determine step progress using step machine
+function analyzeStepProgress(history: Message[]): StepProgress {
+  const completedSteps = new Set<JournalStep>();
+  let awaitingStep: JournalStep | null = null;
+  let lastAssistantQuestion: string | null = null;
+
+  // Walk through conversation in order
+  for (let i = 0; i < history.length; i++) {
+    const msg = history[i];
+    
+    if (msg.role === 'assistant') {
+      // Classify what step this assistant message is asking about
+      const step = classifyAssistantQuestion(msg.content);
+      if (step) {
+        awaitingStep = step;
+        lastAssistantQuestion = msg.content;
+      }
+    } else if (msg.role === 'user' && awaitingStep) {
+      // User replied to an awaited step - mark it complete
+      completedSteps.add(awaitingStep);
+      awaitingStep = null; // Clear until next assistant question
+    }
+  }
+
+  // Determine current step (next uncompleted)
+  const currentStep = getNextStep(completedSteps);
+
   return {
-    hasEmotion: /focused|calm|confident|anxious|fomo|great|good|nervous|excited|normal|okay|rough|tilted|exhausted|alright/i.test(allContent),
-    hasScreenshot: /screenshot|uploaded|chart|image|here's|attached/i.test(allContent),
-    hasRegime: /rotational|transitional|ranging|trending|sideways/i.test(allContent),
-    hasSetupNotes: userMessages.some(m => m.length > 50),
-    messageCount: userMessages.length,
+    completedSteps,
+    awaitingStep,
+    currentStep,
+    lastAssistantQuestion,
   };
 }
 
-function getNextQuestion(progress: ConversationProgress, trade: TradeContext, playbook: any): {
+// Get next uncompleted step
+function getNextStep(completedSteps: Set<JournalStep>): JournalStep {
+  const stepOrder: JournalStep[] = ['emotion', 'screenshot', 'regime', 'setup', 'concerns', 'wrapup'];
+  
+  for (const step of stepOrder) {
+    if (!completedSteps.has(step)) {
+      return step;
+    }
+  }
+  
+  return 'wrapup';
+}
+
+// Get question and quick responses for a specific step
+function getStepQuestion(step: JournalStep, trade: TradeContext, playbook: any): {
   question: string;
   quickResponses: string[];
   shouldUploadScreenshot: boolean;
 } {
-  if (!progress.hasEmotion) {
-    return {
-      question: "How are you feeling going into this position?",
-      quickResponses: ['Focused', 'Calm', 'Confident', 'Anxious', 'FOMO'],
-      shouldUploadScreenshot: false
-    };
+  switch (step) {
+    case 'emotion':
+      return {
+        question: "How are you feeling going into this position?",
+        quickResponses: ['Focused', 'Calm', 'Confident', 'Anxious', 'FOMO'],
+        shouldUploadScreenshot: false
+      };
+    case 'screenshot':
+      return {
+        question: "Can you share a screenshot of your entry setup?",
+        quickResponses: ['15m', '1H', '4H', 'Daily'],
+        shouldUploadScreenshot: true
+      };
+    case 'regime':
+      return {
+        question: "Is the market currently rotational or transitional?",
+        quickResponses: ['Rotational', 'Transitional'],
+        shouldUploadScreenshot: false
+      };
+    case 'setup':
+      return {
+        question: `What made this a valid ${playbook?.name || 'playbook'} entry for you?`,
+        quickResponses: ['Clean setup', 'Took a chance', 'All confirmations hit'],
+        shouldUploadScreenshot: false
+      };
+    case 'concerns':
+      return {
+        question: "Any concerns or notes to remember for this trade?",
+        quickResponses: ['No concerns', 'One thing...', 'All good'],
+        shouldUploadScreenshot: false
+      };
+    case 'wrapup':
+      return {
+        question: "Great, I've captured everything! Want a quick summary, or are you all set?",
+        quickResponses: ['Summarize', 'Add one more note', 'All set!'],
+        shouldUploadScreenshot: false
+      };
+    default:
+      return {
+        question: "Anything else you'd like to add?",
+        quickResponses: ['No, that covers it', 'One more thing...'],
+        shouldUploadScreenshot: false
+      };
   }
-  if (!progress.hasScreenshot) {
-    return {
-      question: "Can you share a screenshot of your entry setup?",
-      quickResponses: ['15m', '1H', '4H', 'Daily'],
-      shouldUploadScreenshot: true
-    };
-  }
-  if (!progress.hasRegime) {
-    return {
-      question: "Is the market currently rotational or transitional?",
-      quickResponses: ['Rotational', 'Transitional'],
-      shouldUploadScreenshot: false
-    };
-  }
-  if (!progress.hasSetupNotes) {
-    return {
-      question: `What made this a valid ${playbook?.name || 'playbook'} entry for you?`,
-      quickResponses: ['Clean setup', 'Took a chance', 'All confirmations hit'],
-      shouldUploadScreenshot: false
-    };
-  }
-  return {
-    question: "Any concerns or notes to remember for this trade?",
-    quickResponses: ['No concerns', 'One thing...', 'All good'],
-    shouldUploadScreenshot: false
-  };
 }
 
-function buildSystemPrompt(trade: TradeContext, playbook: any, recentTrades: RecentTradeInfo[], conversationHistory: Message[]) {
+function buildSystemPrompt(trade: TradeContext, playbook: any, recentTrades: RecentTradeInfo[], stepProgress: StepProgress) {
   const recentTradesSummary = recentTrades.length > 0
     ? recentTrades.map(t => `${t.result === 'win' ? '✓' : '✗'} ${t.r_multiple >= 0 ? '+' : ''}${t.r_multiple.toFixed(1)}R ${t.symbol} (${t.time_ago})`).join(', ')
     : 'No recent closed trades';
@@ -403,27 +530,18 @@ function buildSystemPrompt(trade: TradeContext, playbook: any, recentTrades: Rec
     ? `\nIMPORTANT: Their last trade was a loss of ${lastTrade.r_multiple.toFixed(1)}R on ${lastTrade.symbol}. Gently check if they're feeling pressure to recover.`
     : '';
 
-  // Analyze what's been discussed
-  const progress = analyzeConversationProgress(conversationHistory);
-  
-  let progressNote = '';
-  if (progress.messageCount > 0) {
-    const discussed = [];
-    const notDiscussed = [];
-    
-    if (progress.hasEmotion) discussed.push('emotion'); else notDiscussed.push('emotion');
-    if (progress.hasScreenshot) discussed.push('screenshot'); else notDiscussed.push('screenshot');
-    if (progress.hasRegime) discussed.push('regime'); else notDiscussed.push('regime');
-    if (progress.hasSetupNotes) discussed.push('setup notes'); else notDiscussed.push('setup notes');
-    
-    progressNote = `
-CONVERSATION PROGRESS:
-- Already covered: ${discussed.length > 0 ? discussed.join(', ') : 'nothing yet'}
-- Still need to cover: ${notDiscussed.length > 0 ? notDiscussed.join(', ') : 'all done!'}
-- Total user messages: ${progress.messageCount}
+  // Build progress note from step machine
+  const completedList = Array.from(stepProgress.completedSteps);
+  const allSteps: JournalStep[] = ['emotion', 'screenshot', 'regime', 'setup', 'concerns'];
+  const remainingSteps = allSteps.filter(s => !stepProgress.completedSteps.has(s));
 
-DO NOT ask about topics already covered. Move to the next uncovered topic.`;
-  }
+  const progressNote = `
+CONVERSATION PROGRESS (CRITICAL - READ THIS):
+- COMPLETED: ${completedList.length > 0 ? completedList.join(', ') : 'nothing yet'}
+- REMAINING: ${remainingSteps.length > 0 ? remainingSteps.join(', ') : 'all done - wrap up!'}
+- NEXT STEP: ${stepProgress.currentStep}
+
+DO NOT ask about completed topics. The user already answered those. Move to: ${stepProgress.currentStep}`;
 
   return `You are a live trade journaling assistant helping a trader document their active position in real-time.
 
@@ -455,7 +573,7 @@ YOUR ROLE:
 6. Be supportive and conversational, not interrogating
 7. If they mention anxiety, FOMO, or revenge trading - explore it gently
 
-STRICT QUESTION FLOW (follow in order, skip already-covered topics):
+STRICT QUESTION FLOW (follow in order, SKIP completed topics):
 1. EMOTION: "How are you feeling going into this trade?" (use suggest_quick_responses with emotions)
 2. SCREENSHOT: "Can you share a screenshot of your setup?" (use request_screenshot tool)
 3. REGIME: "Is the market rotational or transitional?" (use suggest_quick_responses)
@@ -465,17 +583,18 @@ STRICT QUESTION FLOW (follow in order, skip already-covered topics):
 
 CRITICAL RULES:
 - Ask ONE question at a time - wait for their response
-- NEVER repeat a question that's already been answered
+- NEVER repeat a question that's already been answered (check COMPLETED list above)
 - ALWAYS use the tools to extract data and suggest responses
 - Keep messages short (2-3 sentences max)
-- End each message with a clear question or action
+- End each message with a clear question about the NEXT topic
+- The user's short answers like "Focused", "Rotational", "All confirmations hit" ARE valid answers - accept them and move on
 
 RESPONSE FORMAT (REQUIRED):
 - After calling extract_journal_data, you MUST still provide a substantive text response
 - EVERY response MUST end with a question about the NEXT topic in the flow
 - Your text response should be: "Brief acknowledgment + follow-up question"
-- Example: "Great, you're feeling focused - that's a solid mindset for this trade! Can you share a screenshot of your entry setup so I can see the context?"
-- IMPORTANT: Just calling a tool is NOT enough. You must ALWAYS include the next question in your text response.
+- Example: "Great, you're feeling focused - solid mindset! Can you share a screenshot of your entry setup?"
+- IMPORTANT: Just calling a tool is NOT enough. You must ALWAYS include the next question.
 
 When you identify emotional states, regimes, or other structured data in their responses, ALWAYS call extract_journal_data to save it AND ask about the next topic.`;
 }
