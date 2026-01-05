@@ -167,11 +167,16 @@ export interface SafetyConfig {
   max_retry_attempts?: number;
 }
 
-// Symbol mapping
+// Symbol mapping with match metadata
 export interface SymbolMapping {
   master_symbol: string;
   receiver_symbol: string;
   enabled: boolean;
+  /** How the match was made: exact, normalized, specs, specs_ambiguous, manual */
+  match_method?: string;
+  /** Confidence score 0-100 */
+  confidence?: number;
+  auto_mapped?: boolean;
 }
 
 // Per-symbol override

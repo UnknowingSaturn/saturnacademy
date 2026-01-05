@@ -566,24 +566,37 @@ fn get_terminal_identity(files_path: &Path, install_dir: &Path) -> (Option<Strin
         return (Some(broker), Some(server), Some(login), Some(account_name));
     }
 
-    // Priority 2: terminal.ini Company= field
-    let terminal_ini = install_dir.join("terminal.ini");
-    if let Some(broker) = read_broker_from_ini(&terminal_ini) {
-        return (Some(broker), None, None, None);
-    }
-
-    // Priority 3: .srv files in config folder
+    // Priority 2: accounts.ini (login/server from MT5 config)
     let config_path = if files_path.parent().and_then(|p| p.parent()).is_some() {
         files_path.parent().unwrap().parent().unwrap().join("config")
     } else {
         install_dir.join("config")
     };
     
+    if let Some((server, login)) = read_accounts_ini(&config_path) {
+        // Try to get broker from terminal.ini or folder name
+        let broker = read_broker_from_ini(&install_dir.join("terminal.ini"))
+            .or_else(|| extract_broker_from_folder(install_dir));
+        
+        let account_name = broker.as_ref()
+            .map(|b| format!("{} - {}", b, login))
+            .unwrap_or_else(|| format!("Account {}", login));
+        
+        return (broker, Some(server), Some(login), Some(account_name));
+    }
+
+    // Priority 3: terminal.ini Company= field
+    let terminal_ini = install_dir.join("terminal.ini");
+    if let Some(broker) = read_broker_from_ini(&terminal_ini) {
+        return (Some(broker), None, None, None);
+    }
+    
+    // Priority 4: .srv files in config folder
     if let Some(broker) = read_broker_from_srv(&config_path) {
         return (Some(broker), None, None, None);
     }
 
-    // Priority 4: Folder name extraction
+    // Priority 5: Folder name extraction
     if let Some(broker) = extract_broker_from_folder(install_dir) {
         return (Some(broker), None, None, None);
     }
@@ -624,6 +637,33 @@ fn read_broker_from_ini(ini_path: &Path) -> Option<String> {
         }
     }
     None
+}
+
+/// Read accounts.ini for login and server (fallback when EA not connected)
+fn read_accounts_ini(config_path: &Path) -> Option<(String, i64)> {
+    let accounts_ini = config_path.join("accounts.ini");
+    if !accounts_ini.exists() {
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&accounts_ini).ok()?;
+    let mut server = None;
+    let mut login = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("Server=") {
+            server = Some(line.trim_start_matches("Server=").to_string());
+        }
+        if line.starts_with("Login=") {
+            login = line.trim_start_matches("Login=").parse().ok();
+        }
+    }
+
+    match (server, login) {
+        (Some(s), Some(l)) => Some((s, l)),
+        _ => None,
+    }
 }
 
 /// Read broker from .srv files
