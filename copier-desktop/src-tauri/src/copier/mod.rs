@@ -1,12 +1,14 @@
 pub mod commands;
 pub mod config_generator;
 pub mod event_processor;
+pub mod execution_queue;
 pub mod file_watcher;
 pub mod idempotency;
 pub mod lot_calculator;
 pub mod position_sync;
-pub mod trade_executor;
 pub mod safety;
+pub mod symbol_catalog;
+pub mod trade_executor;
 
 use serde::{Deserialize, Serialize};
 
@@ -121,4 +123,34 @@ pub struct CopierState {
     pub config_version: i32,
     pub recent_executions: Vec<Execution>,
     pub mt5_data_path: Option<String>,
+}
+
+/// Diagnostics information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticsInfo {
+    pub terminals: Vec<TerminalDiagnostic>,
+    pub queue_pending: usize,
+    pub queue_in_progress: usize,
+    pub queue_completed_today: usize,
+    pub queue_failed_today: usize,
+    pub idempotency_keys_count: usize,
+    pub recent_errors: Vec<ErrorEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalDiagnostic {
+    pub terminal_id: String,
+    pub broker: Option<String>,
+    pub account: Option<String>,
+    pub is_running: bool,
+    pub ea_status: String,
+    pub last_heartbeat_age_secs: Option<i64>,
+    pub discovery_method: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErrorEntry {
+    pub timestamp: String,
+    pub message: String,
+    pub terminal_id: Option<String>,
 }

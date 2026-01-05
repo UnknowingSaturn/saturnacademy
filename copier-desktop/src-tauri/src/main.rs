@@ -121,6 +121,18 @@ fn find_terminals() -> Vec<mt5::bridge::Mt5Terminal> {
     mt5::bridge::find_mt5_terminals()
 }
 
+/// Enhanced terminal discovery using multiple strategies
+#[tauri::command]
+fn discover_terminals() -> Vec<mt5::discovery::TerminalInfo> {
+    mt5::discovery::discover_all_terminals()
+}
+
+/// Add a manual terminal path and persist it
+#[tauri::command]
+fn add_manual_terminal(path: String) -> Result<(), String> {
+    mt5::discovery::add_manual_terminal(&path)
+}
+
 #[tauri::command]
 fn add_terminal_path(path: String) -> Option<mt5::bridge::Mt5Terminal> {
     let path = std::path::Path::new(&path);
@@ -132,6 +144,64 @@ fn add_terminal_path(path: String) -> Option<mt5::bridge::Mt5Terminal> {
     
     // Use the portable detection logic
     mt5::bridge::detect_terminal_at_path(path)
+}
+
+/// Get symbol catalog from a receiver terminal
+#[tauri::command]
+fn get_symbol_catalog(terminal_id: String) -> Result<copier::symbol_catalog::SymbolCatalog, String> {
+    copier::symbol_catalog::fetch_symbol_catalog(&terminal_id)
+}
+
+/// Get master symbols for mapping UI
+#[tauri::command]
+fn get_master_symbols(terminal_id: String) -> Result<Vec<String>, String> {
+    copier::symbol_catalog::get_master_symbols(&terminal_id)
+}
+
+/// Auto-map symbols between master and receiver
+#[tauri::command]
+fn auto_map_symbols(
+    master_symbols: Vec<String>,
+    receiver_terminal_id: String,
+) -> Result<Vec<copier::symbol_catalog::SymbolMapping>, String> {
+    let catalog = copier::symbol_catalog::fetch_symbol_catalog(&receiver_terminal_id)?;
+    Ok(copier::symbol_catalog::auto_map_symbols(&master_symbols, &catalog))
+}
+
+/// Get diagnostics information
+#[tauri::command]
+fn get_diagnostics() -> copier::DiagnosticsInfo {
+    let terminals = mt5::discovery::discover_all_terminals();
+    
+    let terminal_diags: Vec<copier::TerminalDiagnostic> = terminals.iter().map(|t| {
+        let heartbeat_age = t.last_heartbeat.as_ref().and_then(|ts| {
+            chrono::DateTime::parse_from_rfc3339(ts).ok().map(|dt| {
+                (chrono::Utc::now() - dt.with_timezone(&chrono::Utc)).num_seconds()
+            })
+        });
+        
+        copier::TerminalDiagnostic {
+            terminal_id: t.terminal_id.clone(),
+            broker: t.broker.clone(),
+            account: t.login.map(|l| l.to_string()),
+            is_running: t.is_running,
+            ea_status: format!("{:?}", t.ea_status),
+            last_heartbeat_age_secs: heartbeat_age,
+            discovery_method: format!("{:?}", t.discovery_method),
+        }
+    }).collect();
+    
+    let idempotency_count = copier::idempotency::get_processed_keys_count();
+    
+    copier::DiagnosticsInfo {
+        terminals: terminal_diags,
+        queue_pending: 0,
+        queue_in_progress: 0,
+        queue_completed_today: 0,
+        queue_failed_today: 0,
+        idempotency_keys_count: idempotency_count,
+        recent_errors: vec![],
+    }
 }
 
 #[tauri::command]
@@ -441,9 +511,15 @@ fn main() {
             get_recent_executions,
             set_mt5_path,
             find_terminals,
+            discover_terminals,
             add_terminal_path,
+            add_manual_terminal,
             install_ea,
             get_terminal_account_info,
+            get_symbol_catalog,
+            get_master_symbols,
+            auto_map_symbols,
+            get_diagnostics,
             // New commands
             save_copier_config,
             get_position_sync_status,
