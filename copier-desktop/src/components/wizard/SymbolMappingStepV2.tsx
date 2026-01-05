@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
-import { Search, RefreshCw, CheckCircle2, XCircle, ChevronDown, AlertTriangle, Info } from "lucide-react";
+import { RefreshCw, CheckCircle2, XCircle, ChevronDown, AlertTriangle } from "lucide-react";
 import { SymbolMapping, SymbolSpec, SymbolCatalog, Mt5Terminal } from "../../types";
 
 interface SymbolMappingStepV2Props {

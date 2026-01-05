@@ -17,7 +17,7 @@ import {
   Pause,
   RotateCcw,
 } from "lucide-react";
-import { DiagnosticsInfo, TerminalDiagnostic, ErrorEntry } from "../types";
+import { DiagnosticsInfo } from "../types";
 
 interface ReconciliationStatus {
   config: {
