@@ -6,6 +6,7 @@ pub mod file_watcher;
 pub mod idempotency;
 pub mod lot_calculator;
 pub mod position_sync;
+pub mod reconciliation;
 pub mod safety;
 pub mod symbol_catalog;
 pub mod trade_executor;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
-import { Search, RefreshCw, CheckCircle2, XCircle, ChevronDown } from "lucide-react";
+import { Search, RefreshCw, CheckCircle2, XCircle, ChevronDown, AlertTriangle, Info } from "lucide-react";
 import { SymbolMapping, SymbolSpec, SymbolCatalog, Mt5Terminal } from "../../types";
 
 interface SymbolMappingStepV2Props {
@@ -10,6 +10,62 @@ interface SymbolMappingStepV2Props {
   onMappingsChange: (mappings: SymbolMapping[]) => void;
   onContinue: () => void;
   onBack: () => void;
+}
+
+// Get spec match confidence and warnings
+function getSpecMatchInfo(
+  masterSymbol: string,
+  receiverSymbol: string,
+  masterSpecs: Record<string, SymbolSpec>,
+  receiverSpecs: Record<string, SymbolSpec>
+): { confidence: number; warnings: string[]; color: string } {
+  const mSpec = masterSpecs[masterSymbol];
+  const rSpec = receiverSpecs[receiverSymbol];
+  
+  if (!mSpec || !rSpec) {
+    return { confidence: 50, warnings: ["Specs not available"], color: "text-muted-foreground" };
+  }
+  
+  const warnings: string[] = [];
+  let score = 100;
+  
+  // Contract size check
+  const contractDiff = Math.abs((mSpec.contract_size - rSpec.contract_size) / mSpec.contract_size);
+  if (contractDiff > 0.01) {
+    warnings.push(`Contract size: ${mSpec.contract_size} vs ${rSpec.contract_size}`);
+    score -= 25;
+  }
+  
+  // Digits check
+  if (mSpec.digits !== rSpec.digits) {
+    warnings.push(`Digits: ${mSpec.digits} vs ${rSpec.digits}`);
+    score -= 20;
+  }
+  
+  // Tick size check
+  const tickDiff = Math.abs((mSpec.tick_size - rSpec.tick_size) / mSpec.tick_size);
+  if (tickDiff > 0.1) {
+    warnings.push(`Tick size: ${mSpec.tick_size} vs ${rSpec.tick_size}`);
+    score -= 15;
+  }
+  
+  // Tick value check (more tolerance due to broker differences)
+  const tickValDiff = Math.abs((mSpec.tick_value - rSpec.tick_value) / mSpec.tick_value);
+  if (tickValDiff > 0.25) {
+    warnings.push(`Tick value differs by ${Math.round(tickValDiff * 100)}%`);
+    score -= 10;
+  }
+  
+  // Profit currency check
+  if (mSpec.profit_currency && rSpec.profit_currency && 
+      mSpec.profit_currency.toUpperCase() !== rSpec.profit_currency.toUpperCase()) {
+    warnings.push(`Currency: ${mSpec.profit_currency} vs ${rSpec.profit_currency}`);
+    score -= 20;
+  }
+  
+  const color = score >= 90 ? "text-green-500" : score >= 70 ? "text-yellow-500" : "text-red-500";
+  
+  return { confidence: Math.max(0, score), warnings, color };
 }
 
 export default function SymbolMappingStepV2({
@@ -23,6 +79,8 @@ export default function SymbolMappingStepV2({
   const [mappings, setMappings] = useState<SymbolMapping[]>(symbolMappings);
   const [masterSymbols, setMasterSymbols] = useState<string[]>([]);
   const [receiverCatalog, setReceiverCatalog] = useState<SymbolSpec[]>([]);
+  const [masterSpecs, setMasterSpecs] = useState<Record<string, SymbolSpec>>({});
+  const [receiverSpecs, setReceiverSpecs] = useState<Record<string, SymbolSpec>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -33,6 +91,9 @@ export default function SymbolMappingStepV2({
   const [receiverSearch, setReceiverSearch] = useState("");
   const [showMasterDropdown, setShowMasterDropdown] = useState(false);
   const [showReceiverDropdown, setShowReceiverDropdown] = useState(false);
+  
+  // Tooltip state
+  const [hoveredMapping, setHoveredMapping] = useState<number | null>(null);
 
   // Load symbol catalogs
   useEffect(() => {
@@ -48,9 +109,20 @@ export default function SymbolMappingStepV2({
               terminalId: masterTerminal.terminal_id,
             });
             setMasterSymbols(symbols);
+            
+            // Try to get master symbol specs
+            try {
+              const catalog = await invoke<SymbolCatalog>("get_symbol_catalog", {
+                terminalId: masterTerminal.terminal_id,
+              });
+              const specs: Record<string, SymbolSpec> = {};
+              catalog.symbols.forEach(s => specs[s.name] = s);
+              setMasterSpecs(specs);
+            } catch {
+              // Master specs not available - that's okay
+            }
           } catch (err) {
             console.warn("Could not fetch master symbols:", err);
-            // Use common symbols as fallback
             setMasterSymbols(COMMON_SYMBOLS);
           }
         }
@@ -62,9 +134,13 @@ export default function SymbolMappingStepV2({
               terminalId: receiverTerminals[0].terminal_id,
             });
             setReceiverCatalog(catalog.symbols);
+            
+            // Build receiver specs lookup
+            const specs: Record<string, SymbolSpec> = {};
+            catalog.symbols.forEach(s => specs[s.name] = s);
+            setReceiverSpecs(specs);
           } catch (err) {
             console.warn("Could not fetch receiver symbols:", err);
-            // Use common symbols as fallback
             setReceiverCatalog(COMMON_SYMBOLS.map(s => ({
               name: s,
               normalized_key: s,
@@ -341,37 +417,76 @@ export default function SymbolMappingStepV2({
               </div>
             ) : (
               <div className="max-h-48 overflow-y-auto space-y-1.5 p-1">
-                {mappings.map((mapping, index) => (
-                  <div
-                    key={index}
-                    className={`flex items-center gap-2 p-2 border rounded-lg transition-opacity ${
-                      mapping.enabled ? "border-border" : "border-border/50 opacity-50"
-                    }`}
-                  >
-                    <button
-                      onClick={() => handleToggleMapping(index)}
-                      className={`w-4 h-4 rounded border flex items-center justify-center ${
-                        mapping.enabled ? "bg-primary border-primary text-primary-foreground" : "border-border"
+                {mappings.map((mapping, index) => {
+                  const specInfo = getSpecMatchInfo(
+                    mapping.master_symbol,
+                    mapping.receiver_symbol,
+                    masterSpecs,
+                    receiverSpecs
+                  );
+                  
+                  return (
+                    <div
+                      key={index}
+                      className={`flex items-center gap-2 p-2 border rounded-lg transition-opacity ${
+                        mapping.enabled ? "border-border" : "border-border/50 opacity-50"
                       }`}
+                      onMouseEnter={() => setHoveredMapping(index)}
+                      onMouseLeave={() => setHoveredMapping(null)}
                     >
-                      {mapping.enabled && <span className="text-xs">✓</span>}
-                    </button>
-                    <span className="text-sm font-mono flex-1">{mapping.master_symbol}</span>
-                    <span className="text-muted-foreground">→</span>
-                    <span className="text-sm font-mono flex-1">{mapping.receiver_symbol}</span>
-                    {mapping.master_symbol === mapping.receiver_symbol ? (
-                      <CheckCircle2 className="w-4 h-4 text-green-500" />
-                    ) : (
-                      <span className="text-xs text-yellow-500">mapped</span>
-                    )}
-                    <button
-                      onClick={() => handleRemoveMapping(index)}
-                      className="w-6 h-6 text-muted-foreground hover:text-destructive"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                      <button
+                        onClick={() => handleToggleMapping(index)}
+                        className={`w-4 h-4 rounded border flex items-center justify-center ${
+                          mapping.enabled ? "bg-primary border-primary text-primary-foreground" : "border-border"
+                        }`}
+                      >
+                        {mapping.enabled && <span className="text-xs">✓</span>}
+                      </button>
+                      <span className="text-sm font-mono flex-1">{mapping.master_symbol}</span>
+                      <span className="text-muted-foreground">→</span>
+                      <span className="text-sm font-mono flex-1">{mapping.receiver_symbol}</span>
+                      
+                      {/* Spec match indicator */}
+                      <div className="relative">
+                        {specInfo.warnings.length === 0 ? (
+                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                        ) : specInfo.confidence >= 70 ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-yellow-500">{specInfo.confidence}%</span>
+                            <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-red-500">{specInfo.confidence}%</span>
+                            <XCircle className="w-4 h-4 text-red-500" />
+                          </div>
+                        )}
+                        
+                        {/* Warning tooltip */}
+                        {hoveredMapping === index && specInfo.warnings.length > 0 && (
+                          <div className="absolute z-50 bottom-full right-0 mb-2 w-64 p-2 bg-popover border border-border rounded-lg shadow-lg text-xs">
+                            <div className="font-medium mb-1 flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" />
+                              Spec Differences
+                            </div>
+                            <ul className="space-y-0.5 text-muted-foreground">
+                              {specInfo.warnings.map((w, i) => (
+                                <li key={i}>• {w}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <button
+                        onClick={() => handleRemoveMapping(index)}
+                        className="w-6 h-6 text-muted-foreground hover:text-destructive"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
