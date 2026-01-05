@@ -5,7 +5,7 @@ import TerminalScanStep from "./wizard/TerminalScanStep";
 import MasterSelectionStep from "./wizard/MasterSelectionStep";
 import ReceiverSelectionStep from "./wizard/ReceiverSelectionStep";
 import RiskConfigStep, { WizardRiskConfig } from "./wizard/RiskConfigStep";
-import SymbolMappingStep from "./wizard/SymbolMappingStep";
+import SymbolMappingStepV2 from "./wizard/SymbolMappingStepV2";
 import ConfirmationStep from "./wizard/ConfirmationStep";
 
 interface WizardViewProps {
@@ -111,7 +111,9 @@ export default function WizardView({ onComplete }: WizardViewProps) {
           )}
 
           {state.step === 4 && (
-            <SymbolMappingStep
+            <SymbolMappingStepV2
+              masterTerminal={state.masterTerminal}
+              receiverTerminals={state.receiverTerminals}
               symbolMappings={state.symbolMappings}
               onMappingsChange={handleSymbolMappingsChange}
               onContinue={() => goToStep(5)}

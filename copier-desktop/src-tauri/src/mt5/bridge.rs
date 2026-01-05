@@ -210,24 +210,9 @@ fn read_broker_from_srv_files(data_path: &Path) -> Option<String> {
 }
 
 /// Expand common broker abbreviations to full names
+/// Delegates to discovery module for consistent behavior
 fn expand_broker_abbreviation(abbr: &str) -> String {
-    match abbr {
-        "VantageInt" | "VantageInternational" => "Vantage International".to_string(),
-        "ICMarkets" | "ICM" => "IC Markets".to_string(),
-        "FTMO" | "FTMOGlobal" => "FTMO".to_string(),
-        "FundedNext" | "FN" => "FundedNext".to_string(),
-        "Pepperstone" | "PepperstoneGroup" => "Pepperstone".to_string(),
-        "XM" | "XMGroup" => "XM Group".to_string(),
-        "OANDA" | "OandaCorporation" => "OANDA".to_string(),
-        "FXCM" | "FXCMGroup" => "FXCM".to_string(),
-        "IG" | "IGGroup" => "IG Markets".to_string(),
-        "Exness" | "ExnessGroup" => "Exness".to_string(),
-        "Admirals" | "AdmiralMarkets" => "Admirals".to_string(),
-        "RoboForex" | "RoboMarkets" => "RoboForex".to_string(),
-        "FBS" | "FBSMarkets" => "FBS".to_string(),
-        "XTB" | "XTBGroup" => "XTB".to_string(),
-        other => other.to_string(),
-    }
+    super::discovery::expand_broker_abbreviation(abbr)
 }
 
 fn read_broker_from_ini(ini_path: &Path) -> Option<String> {
