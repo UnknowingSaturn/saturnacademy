@@ -61,6 +61,9 @@ export interface TerminalInfo {
   has_mql5: boolean;
   master_installed: boolean;
   receiver_installed: boolean;
+  // Cached symbol information
+  cached_symbols?: string[];
+  symbol_count?: number;
 }
 
 export interface AccountInfo {

@@ -40,6 +40,10 @@ pub struct TradeCommand {
     pub symbol: String,
     pub direction: String,
     pub lots: f64,
+    /// Desktop-calculated lot size (EA should use this instead of calculating)
+    /// Per requirements: "Risk logic must live in desktop app, NOT EA"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calculated_lots: Option<f64>,
     pub sl: Option<f64>,
     pub tp: Option<f64>,
     pub max_slippage_pips: f64,
@@ -110,6 +114,7 @@ fn execute_trade_sync(
         symbol: symbol.to_string(),
         direction: direction.to_string(),
         lots,
+        calculated_lots: Some(lots), // Desktop calculated - EA should use this
         sl,
         tp,
         max_slippage_pips: receiver.max_slippage_pips,
@@ -209,6 +214,7 @@ pub async fn execute_trade_async(
         symbol: symbol.to_string(),
         direction: direction.to_string(),
         lots,
+        calculated_lots: Some(lots), // Desktop calculated - EA should use this
         sl,
         tp,
         max_slippage_pips: receiver.max_slippage_pips,

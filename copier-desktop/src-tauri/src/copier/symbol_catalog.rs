@@ -178,6 +178,7 @@ pub fn get_master_symbols(terminal_id: &str) -> Result<Vec<String>, String> {
 }
 
 /// Check if two symbols match by contract specifications
+/// CRITICAL: This is the primary matching method per requirements
 fn specs_match(a: &SymbolSpec, b: &SymbolSpec) -> bool {
     // Contract size must match exactly (within tolerance)
     let contract_match = (a.contract_size - b.contract_size).abs() < 0.01 
@@ -188,14 +189,60 @@ fn specs_match(a: &SymbolSpec, b: &SymbolSpec) -> bool {
     let digits_match = a.digits == b.digits;
     
     // Tick size should be same order of magnitude
-    let tick_match = a.tick_size > 0.0 && b.tick_size > 0.0 
+    let tick_size_match = a.tick_size > 0.0 && b.tick_size > 0.0 
         && (a.tick_size / b.tick_size) > 0.9 
         && (a.tick_size / b.tick_size) < 1.1;
     
-    contract_match && digits_match && tick_match
+    // Tick value should also match (within 20% tolerance for different brokers)
+    let tick_value_match = a.tick_value > 0.0 && b.tick_value > 0.0
+        && (a.tick_value / b.tick_value) > 0.8
+        && (a.tick_value / b.tick_value) < 1.25;
+    
+    // Require at least contract_size + digits + tick_size to match
+    // Tick value is optional bonus for higher confidence
+    contract_match && digits_match && tick_size_match
 }
 
-/// Auto-map master symbols to receiver symbols using contract specs (preferred) + normalized name
+/// Calculate a match score for two symbols based on specifications
+fn calculate_spec_match_score(a: &SymbolSpec, b: &SymbolSpec) -> u8 {
+    let mut score: u8 = 0;
+    
+    // Contract size match (25 points)
+    if (a.contract_size - b.contract_size).abs() < 0.01 
+        || (a.contract_size > 0.0 && b.contract_size > 0.0 
+            && ((a.contract_size / b.contract_size) - 1.0).abs() < 0.01) {
+        score += 25;
+    }
+    
+    // Digits match (25 points)
+    if a.digits == b.digits {
+        score += 25;
+    }
+    
+    // Tick size match (25 points)
+    if a.tick_size > 0.0 && b.tick_size > 0.0 
+        && (a.tick_size / b.tick_size) > 0.9 
+        && (a.tick_size / b.tick_size) < 1.1 {
+        score += 25;
+    }
+    
+    // Tick value match (15 points - allows for slight broker differences)
+    if a.tick_value > 0.0 && b.tick_value > 0.0
+        && (a.tick_value / b.tick_value) > 0.8
+        && (a.tick_value / b.tick_value) < 1.25 {
+        score += 15;
+    }
+    
+    // Name similarity bonus (10 points)
+    if normalize_symbol(&a.name) == normalize_symbol(&b.name) {
+        score += 10;
+    }
+    
+    score
+}
+
+/// Auto-map master symbols to receiver symbols using SPECS-FIRST approach
+/// CRITICAL: Per requirements - "Do NOT map by symbol name. Map using: Contract size, Tick size, Tick value, Digits"
 pub fn auto_map_symbols_by_specs(
     master_catalog: &SymbolCatalog,
     receiver_catalog: &SymbolCatalog,
@@ -203,7 +250,70 @@ pub fn auto_map_symbols_by_specs(
     let mut mappings = Vec::new();
     
     for master_sym in &master_catalog.symbols {
-        // Priority 1: Exact name match
+        // ========================================
+        // PRIORITY 1: Match by CONTRACT SPECS FIRST
+        // This is the most reliable method
+        // ========================================
+        let spec_candidates: Vec<(&SymbolSpec, u8)> = receiver_catalog.symbols.iter()
+            .filter(|s| specs_match(master_sym, s))
+            .map(|s| (s, calculate_spec_match_score(master_sym, s)))
+            .collect();
+        
+        if !spec_candidates.is_empty() {
+            // Sort by score descending
+            let mut sorted = spec_candidates;
+            sorted.sort_by(|a, b| b.1.cmp(&a.1));
+            
+            let best_match = sorted[0];
+            let is_unique = sorted.len() == 1 || sorted[0].1 > sorted[1].1;
+            
+            if is_unique {
+                // Unique best match by specs - high confidence
+                mappings.push(SymbolMapping {
+                    master_symbol: master_sym.name.clone(),
+                    receiver_symbol: best_match.0.name.clone(),
+                    is_enabled: true,
+                    auto_mapped: true,
+                    match_method: "specs".to_string(),
+                    confidence: best_match.1.min(95), // Cap at 95 for non-exact
+                });
+                continue;
+            } else {
+                // Multiple good matches - check if names help disambiguate
+                let name_matching: Vec<_> = sorted.iter()
+                    .filter(|(s, _)| normalize_symbol(&s.name) == normalize_symbol(&master_sym.name))
+                    .collect();
+                
+                if name_matching.len() == 1 {
+                    // Specs match + name match = high confidence
+                    mappings.push(SymbolMapping {
+                        master_symbol: master_sym.name.clone(),
+                        receiver_symbol: name_matching[0].0.name.clone(),
+                        is_enabled: true,
+                        auto_mapped: true,
+                        match_method: "specs_name".to_string(),
+                        confidence: 90,
+                    });
+                    continue;
+                }
+                
+                // Ambiguous - disable for manual review
+                mappings.push(SymbolMapping {
+                    master_symbol: master_sym.name.clone(),
+                    receiver_symbol: best_match.0.name.clone(),
+                    is_enabled: false,
+                    auto_mapped: true,
+                    match_method: "specs_ambiguous".to_string(),
+                    confidence: 50,
+                });
+                continue;
+            }
+        }
+        
+        // ========================================
+        // PRIORITY 2: Exact name match (fallback only)
+        // Only used when no specs match found
+        // ========================================
         if let Some(receiver_sym) = receiver_catalog.symbols.iter()
             .find(|s| s.name == master_sym.name) 
         {
@@ -212,13 +322,15 @@ pub fn auto_map_symbols_by_specs(
                 receiver_symbol: receiver_sym.name.clone(),
                 is_enabled: true,
                 auto_mapped: true,
-                match_method: "exact".to_string(),
-                confidence: 100,
+                match_method: "exact_name".to_string(),
+                confidence: 80, // Lower confidence than specs match
             });
             continue;
         }
         
-        // Priority 2: Normalized name match
+        // ========================================
+        // PRIORITY 3: Normalized name match (last resort)
+        // ========================================
         let master_normalized = normalize_symbol(&master_sym.name);
         if let Some(receiver_sym) = receiver_catalog.symbols.iter()
             .find(|s| normalize_symbol(&s.name) == master_normalized) 
@@ -226,44 +338,19 @@ pub fn auto_map_symbols_by_specs(
             mappings.push(SymbolMapping {
                 master_symbol: master_sym.name.clone(),
                 receiver_symbol: receiver_sym.name.clone(),
-                is_enabled: true,
+                is_enabled: false, // Disabled - needs manual review
                 auto_mapped: true,
-                match_method: "normalized".to_string(),
-                confidence: 90,
+                match_method: "normalized_name".to_string(),
+                confidence: 60, // Low confidence
             });
             continue;
         }
         
-        // Priority 3: Match by contract specifications
-        let spec_candidates: Vec<_> = receiver_catalog.symbols.iter()
-            .filter(|s| specs_match(master_sym, s))
-            .collect();
-        
-        if spec_candidates.len() == 1 {
-            // Unique match by specs - high confidence
-            mappings.push(SymbolMapping {
-                master_symbol: master_sym.name.clone(),
-                receiver_symbol: spec_candidates[0].name.clone(),
-                is_enabled: true,
-                auto_mapped: true,
-                match_method: "specs".to_string(),
-                confidence: 85,
-            });
-        } else if !spec_candidates.is_empty() {
-            // Multiple spec matches - pick first but disabled for manual review
-            mappings.push(SymbolMapping {
-                master_symbol: master_sym.name.clone(),
-                receiver_symbol: spec_candidates[0].name.clone(),
-                is_enabled: false,
-                auto_mapped: true,
-                match_method: "specs_ambiguous".to_string(),
-                confidence: 50,
-            });
-        }
-        // If no match found, symbol is not mapped (user must add manually)
+        // No match found - symbol is not mapped (user must add manually)
+        debug!("No match found for master symbol: {} - manual mapping required", master_sym.name);
     }
     
-    info!("Auto-mapped {} symbols by specs", mappings.len());
+    info!("Auto-mapped {} symbols (specs-first approach)", mappings.len());
     mappings
 }
 
