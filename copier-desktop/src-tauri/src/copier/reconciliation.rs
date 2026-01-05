@@ -7,11 +7,13 @@ use crate::copier::position_sync::{
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Reconciliation configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,7 +95,9 @@ pub fn init_reconciliation(
     let mut state = RECONCILIATION_STATE.lock();
     state.master_terminal_id = Some(master_terminal_id.to_string());
     state.receiver_terminal_ids = receiver_terminal_ids.to_vec();
-    state.config = config;
+    
+    // Load persisted config if available, otherwise use provided config
+    state.config = load_config_from_disk().unwrap_or(config);
     
     info!(
         "Reconciliation initialized: master={}, receivers={:?}, enabled={}",
@@ -101,11 +105,63 @@ pub fn init_reconciliation(
     );
 }
 
-/// Update reconciliation config
+/// Update reconciliation config and persist to disk
 pub fn update_reconciliation_config(config: ReconciliationConfig) {
     let mut state = RECONCILIATION_STATE.lock();
-    state.config = config;
+    state.config = config.clone();
     info!("Reconciliation config updated: enabled={}", state.config.enabled);
+    
+    // Persist config to disk
+    if let Err(e) = save_config_to_disk(&config) {
+        error!("Failed to persist reconciliation config: {}", e);
+    }
+}
+
+/// Get the config file path
+fn get_config_path() -> PathBuf {
+    let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(appdata)
+        .join("TradeCopier")
+        .join("reconciliation_config.json")
+}
+
+/// Save config to disk
+fn save_config_to_disk(config: &ReconciliationConfig) -> Result<(), String> {
+    let path = get_config_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    }
+    let json = serde_json::to_string_pretty(config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    fs::write(&path, json)
+        .map_err(|e| format!("Failed to write config: {}", e))?;
+    debug!("Reconciliation config saved to {:?}", path);
+    Ok(())
+}
+
+/// Load config from disk
+pub fn load_config_from_disk() -> Option<ReconciliationConfig> {
+    let path = get_config_path();
+    if !path.exists() {
+        return None;
+    }
+    match fs::read_to_string(&path) {
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(config) => {
+                info!("Loaded reconciliation config from {:?}", path);
+                Some(config)
+            }
+            Err(e) => {
+                warn!("Failed to parse reconciliation config: {}", e);
+                None
+            }
+        },
+        Err(e) => {
+            warn!("Failed to read reconciliation config: {}", e);
+            None
+        }
+    }
 }
 
 /// Get current reconciliation status
@@ -298,7 +354,7 @@ fn handle_discrepancy(
         DiscrepancyType::SLMismatch | DiscrepancyType::TPMismatch => {
             if config.auto_sync_sl_tp {
                 if let (Some(ref master_pos), Some(ref recv_pos)) = (&discrepancy.master_position, &discrepancy.receiver_position) {
-                    let cmd = SyncCommand::modify_sl_tp(recv_pos.position_id, master_pos.sl, master_pos.tp);
+                    let cmd = SyncCommand::modify_sl_tp(recv_pos.position_id, Some(master_pos.sl), Some(master_pos.tp));
                     match write_sync_command(receiver_id, &cmd) {
                         Ok(_) => ReconciliationAction {
                             timestamp: chrono::Utc::now().to_rfc3339(),
