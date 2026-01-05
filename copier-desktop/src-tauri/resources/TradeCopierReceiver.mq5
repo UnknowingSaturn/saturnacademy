@@ -1943,9 +1943,36 @@ string EscapeJsonString(string str)
 
 //+------------------------------------------------------------------+
 //| Calculate Lot Size Based on Risk Mode                             |
+//| PRIORITY: Use desktop-calculated lots if provided                 |
 //+------------------------------------------------------------------+
 double CalculateLotSize(string eventJson, double masterLots, double masterSL, double masterPrice, string receiverSymbol)
 {
+   // ================================================================
+   // PRIORITY 1: Check if desktop app already calculated lots
+   // Per requirements: "Risk logic must live in desktop app, NOT EA"
+   // ================================================================
+   double desktopLots = ExtractJsonNumber(eventJson, "calculated_lots");
+   if(desktopLots > 0.001)
+   {
+      if(InpVerboseMode)
+         Print("Using desktop-calculated lots: ", desktopLots);
+      
+      // Just clamp to symbol limits, don't recalculate
+      double minLot = SymbolInfoDouble(receiverSymbol, SYMBOL_VOLUME_MIN);
+      double maxLot = SymbolInfoDouble(receiverSymbol, SYMBOL_VOLUME_MAX);
+      double lotStep = SymbolInfoDouble(receiverSymbol, SYMBOL_VOLUME_STEP);
+      
+      desktopLots = MathMax(minLot, desktopLots);
+      desktopLots = MathMin(maxLot, desktopLots);
+      desktopLots = MathFloor(desktopLots / lotStep) * lotStep;
+      
+      return NormalizeDouble(desktopLots, 2);
+   }
+   
+   // ================================================================
+   // FALLBACK: Local calculation (for backwards compatibility)
+   // This should only be used if desktop doesn't send calculated_lots
+   // ================================================================
    double lots = masterLots;
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    

@@ -52,6 +52,12 @@ pub struct TerminalInfo {
     pub has_mql5: bool,
     pub master_installed: bool,
     pub receiver_installed: bool,
+    /// Cached symbol names from last catalog fetch
+    #[serde(default)]
+    pub cached_symbols: Option<Vec<String>>,
+    /// Quick reference for symbol count
+    #[serde(default)]
+    pub symbol_count: Option<usize>,
 }
 
 /// Config for persisted manual terminals
@@ -437,6 +443,20 @@ fn discover_from_manual_paths() -> Vec<TerminalInfo> {
     terminals
 }
 
+/// Generate a stable terminal ID hash from the data folder path
+fn generate_terminal_hash(data_path: &Path) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    
+    let path_str = data_path.to_string_lossy().to_lowercase();
+    let mut hasher = DefaultHasher::new();
+    path_str.hash(&mut hasher);
+    let hash = hasher.finish();
+    
+    // Return first 16 hex characters for readability
+    format!("{:016x}", hash)
+}
+
 /// Create TerminalInfo from executable path (portable installation)
 fn terminal_from_executable(exe_path: &str, method: DiscoveryMethod, is_running: bool) -> Option<TerminalInfo> {
     let exe = Path::new(exe_path);
@@ -449,8 +469,8 @@ fn terminal_from_executable(exe_path: &str, method: DiscoveryMethod, is_running:
     }
 
     let files_path = mql5_path.join("Files");
-    let terminal_id = format!("portable_{}", 
-        install_dir.file_name()?.to_str()?.replace(' ', "_").replace("\\", "_"));
+    // Generate stable terminal_id using hash
+    let terminal_id = format!("portable_{}", generate_terminal_hash(install_dir));
 
     // Get broker info
     let (broker, server, login, account_name) = get_terminal_identity(&files_path, install_dir);
@@ -493,12 +513,15 @@ fn terminal_from_executable(exe_path: &str, method: DiscoveryMethod, is_running:
         has_mql5: files_path.exists(),
         master_installed,
         receiver_installed,
+        cached_symbols: None,
+        symbol_count: None,
     })
 }
 
 /// Create TerminalInfo from data folder path (AppData installation)
 fn terminal_from_data_folder(data_path: &Path, method: DiscoveryMethod) -> Option<TerminalInfo> {
-    let terminal_id = data_path.file_name()?.to_str()?.to_string();
+    // Generate stable terminal_id using hash of data folder path
+    let terminal_id = generate_terminal_hash(data_path);
     
     let mql5_path = data_path.join("MQL5");
     if !mql5_path.exists() {
@@ -555,6 +578,8 @@ fn terminal_from_data_folder(data_path: &Path, method: DiscoveryMethod) -> Optio
         has_mql5: files_path.exists(),
         master_installed,
         receiver_installed,
+        cached_symbols: None,
+        symbol_count: None,
     })
 }
 
