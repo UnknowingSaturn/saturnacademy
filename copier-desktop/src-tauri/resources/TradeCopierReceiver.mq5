@@ -2787,6 +2787,102 @@ void WriteAccountInfo()
          FileDelete(filename);
       FileMove(tempFile, 0, filename, FILE_REWRITE);
    }
+   
+   // Also write symbol catalog periodically
+   static datetime lastCatalogWrite = 0;
+   if(TimeCurrent() - lastCatalogWrite >= 60) // Every 60 seconds
+   {
+      WriteSymbolCatalog();
+      lastCatalogWrite = TimeCurrent();
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Write Symbol Catalog for Desktop App Symbol Mapping               |
+//| This provides receiver's available symbols + specs for mapping    |
+//+------------------------------------------------------------------+
+void WriteSymbolCatalog()
+{
+   string filename = "CopierSymbolCatalog.json";
+   string tempFile = filename + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+   {
+      if(InpVerboseMode)
+         Print("Failed to write symbol catalog");
+      return;
+   }
+   
+   string json = "{\n";
+   json += "  \"terminal_id\": \"" + g_terminalId + "\",\n";
+   json += "  \"account\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",\n";
+   json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\",\n";
+   json += "  \"symbols\": [\n";
+   
+   int total = SymbolsTotal(false); // All symbols, not just Market Watch
+   bool first = true;
+   int exportedCount = 0;
+   
+   for(int i = 0; i < total; i++)
+   {
+      string symbol = SymbolName(i, false);
+      
+      // Check trade mode - skip non-tradeable symbols
+      long tradeMode = SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE);
+      if(tradeMode == SYMBOL_TRADE_MODE_DISABLED)
+         continue;
+      
+      // Get symbol specifications
+      double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+      double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+      double contractSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+      double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+      double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+      double maxLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+      string description = SymbolInfoString(symbol, SYMBOL_DESCRIPTION);
+      
+      // Get trade mode as string
+      string tradeModeStr = "full";
+      if(tradeMode == SYMBOL_TRADE_MODE_LONGONLY)
+         tradeModeStr = "long_only";
+      else if(tradeMode == SYMBOL_TRADE_MODE_SHORTONLY)
+         tradeModeStr = "short_only";
+      else if(tradeMode == SYMBOL_TRADE_MODE_CLOSEONLY)
+         tradeModeStr = "close_only";
+      
+      if(!first) json += ",\n";
+      first = false;
+      
+      json += "    {\n";
+      json += "      \"name\": \"" + symbol + "\",\n";
+      json += "      \"description\": \"" + EscapeJsonString(description) + "\",\n";
+      json += "      \"tick_value\": " + DoubleToString(tickValue, 6) + ",\n";
+      json += "      \"tick_size\": " + DoubleToString(tickSize, 8) + ",\n";
+      json += "      \"contract_size\": " + DoubleToString(contractSize, 2) + ",\n";
+      json += "      \"digits\": " + IntegerToString(digits) + ",\n";
+      json += "      \"min_lot\": " + DoubleToString(minLot, 2) + ",\n";
+      json += "      \"lot_step\": " + DoubleToString(lotStep, 2) + ",\n";
+      json += "      \"max_lot\": " + DoubleToString(maxLot, 2) + ",\n";
+      json += "      \"trade_mode\": \"" + tradeModeStr + "\"\n";
+      json += "    }";
+      
+      exportedCount++;
+   }
+   
+   json += "\n  ]\n}";
+   
+   FileWriteString(handle, json);
+   FileClose(handle);
+   
+   // Atomic rename
+   if(FileIsExist(filename))
+      FileDelete(filename);
+   FileMove(tempFile, 0, filename, FILE_REWRITE);
+   
+   if(InpVerboseMode)
+      Print("Exported symbol catalog: ", exportedCount, " tradeable symbols");
 }
 
 //+------------------------------------------------------------------+

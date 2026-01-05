@@ -24,6 +24,13 @@ input bool     InpIntentMode         = true;                       // Send inten
 input int      InpEventRetentionMin  = 60;                         // Delete executed events after (minutes)
 input int      InpHeartbeatSec       = 10;                         // Heartbeat interval (seconds)
 
+input group "=== Copy Filters (CRITICAL) ==="
+input bool     InpCopyMarketOnly     = true;                       // Copy MARKET orders only (recommended)
+input bool     InpCopySLTPModify     = true;                       // Copy SL/TP modifications
+input bool     InpCopyPartialClose   = true;                       // Copy partial closes
+input bool     InpCopyPendingOrders  = false;                      // Copy pending orders (DISABLED by default)
+input bool     InpCopyOnMasterClose  = true;                       // Close receiver when master closes
+
 input group "=== Retry Settings ==="
 input int      InpMaxRetries         = 5;                          // Max retry attempts
 input int      InpRetryDelayMs       = 5000;                       // Retry delay (milliseconds)
@@ -186,8 +193,8 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
                         const MqlTradeRequest& request,
                         const MqlTradeResult& result)
 {
-   // Handle position modifications (SL/TP changes)
-   if(trans.type == TRADE_TRANSACTION_POSITION && InpEnableCopier)
+   // Handle position modifications (SL/TP changes) - respects copy filter
+   if(trans.type == TRADE_TRANSACTION_POSITION && InpEnableCopier && InpCopySLTPModify)
    {
       HandlePositionModify(trans);
       return;
@@ -217,22 +224,62 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
    
-   // Apply filters
+   // Apply symbol/magic filters
    if(StringLen(InpSymbolFilter) > 0 && symbol != InpSymbolFilter)
       return;
    if(InpMagicFilter != 0 && magic != InpMagicFilter)
       return;
    
-   // Get deal type
+   // Get deal type and entry
    ENUM_DEAL_TYPE dealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
    ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+   ENUM_DEAL_REASON dealReason = (ENUM_DEAL_REASON)HistoryDealGetInteger(dealTicket, DEAL_REASON);
    
-   // Skip non-trade deals
+   // ========== CRITICAL: Skip non-trade deals ==========
    if(dealType == DEAL_TYPE_BALANCE || dealType == DEAL_TYPE_CREDIT ||
       dealType == DEAL_TYPE_COMMISSION || dealType == DEAL_TYPE_COMMISSION_DAILY ||
-      dealType == DEAL_TYPE_COMMISSION_MONTHLY)
+      dealType == DEAL_TYPE_COMMISSION_MONTHLY || dealType == DEAL_TYPE_INTEREST ||
+      dealType == DEAL_TYPE_CORRECTION || dealType == DEAL_TYPE_BONUS)
+   {
+      if(InpVerboseMode)
+         Print("Skipping non-trade deal type: ", EnumToString(dealType));
       return;
+   }
    
+   // ========== CRITICAL: Market order filter ==========
+   if(InpCopyMarketOnly)
+   {
+      // Only copy deals from manual/client orders, expert advisors, mobile, web
+      // Skip deals from SL/TP execution, StopOut, rollover, etc.
+      if(dealReason != DEAL_REASON_CLIENT && dealReason != DEAL_REASON_EXPERT &&
+         dealReason != DEAL_REASON_MOBILE && dealReason != DEAL_REASON_WEB)
+      {
+         // Allow SL/TP triggered exits if copy-on-master-close is enabled
+         if(dealEntry == DEAL_ENTRY_OUT || dealEntry == DEAL_ENTRY_INOUT)
+         {
+            if(InpCopyOnMasterClose)
+            {
+               // This is a close triggered by SL/TP - still copy it
+               if(InpVerboseMode)
+                  Print("Copying SL/TP triggered exit: ", EnumToString(dealReason));
+            }
+            else
+            {
+               if(InpVerboseMode)
+                  Print("Skipping deal, reason: ", EnumToString(dealReason));
+               return;
+            }
+         }
+         else
+         {
+            if(InpVerboseMode)
+               Print("Skipping deal, reason: ", EnumToString(dealReason));
+            return;
+         }
+      }
+   }
+   
+   // Determine direction
    string direction = "";
    if(dealType == DEAL_TYPE_BUY)
       direction = "buy";
@@ -241,14 +288,43 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    else
       return;
    
-   // Check for partial close
+   // Check for partial close and determine event type
    long positionId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
-   string eventType = DetermineEventType(dealEntry, dealTicket, positionId);
+   string eventType = "";
+   
+   if(dealEntry == DEAL_ENTRY_IN)
+   {
+      eventType = "entry";
+   }
+   else if(dealEntry == DEAL_ENTRY_OUT || dealEntry == DEAL_ENTRY_INOUT)
+   {
+      // Check if position still exists (partial close) or fully closed
+      if(PositionSelectByTicket((ulong)positionId))
+      {
+         // Position still exists = partial close
+         if(!InpCopyPartialClose)
+         {
+            if(InpVerboseMode)
+               Print("Partial close skipped (disabled): ", dealTicket);
+            return;
+         }
+         eventType = "partial_close";
+      }
+      else
+      {
+         eventType = "exit";
+      }
+   }
+   else
+   {
+      return;
+   }
+   
    if(eventType == "")
       return;
    
    if(InpVerboseMode)
-      Print("Event captured: ", eventType, " | Deal: ", dealTicket, " | Symbol: ", symbol);
+      Print("Event captured: ", eventType, " | Deal: ", dealTicket, " | Symbol: ", symbol, " | Reason: ", EnumToString(dealReason));
    
    LogMessage("Captured " + eventType + " event for deal " + IntegerToString(dealTicket));
    

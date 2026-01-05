@@ -27,6 +27,12 @@ export interface Execution {
   receiver_account: string;
 }
 
+// Discovery method for terminals
+export type DiscoveryMethod = 'process' | 'registry' | 'app_data' | 'common_path' | 'manual';
+
+// EA connection status
+export type EaStatus = 'none' | 'master' | 'receiver' | 'both';
+
 export interface Mt5Terminal {
   terminal_id: string;
   path: string;
@@ -36,6 +42,25 @@ export interface Mt5Terminal {
   receiver_installed: boolean;
   account_info?: AccountInfo | null;
   last_heartbeat?: string | null;
+}
+
+// Enhanced terminal info from discovery
+export interface TerminalInfo {
+  terminal_id: string;
+  executable_path: string | null;
+  data_folder: string;
+  broker: string | null;
+  server: string | null;
+  login: number | null;
+  account_name: string | null;
+  platform: string;
+  is_running: boolean;
+  ea_status: EaStatus;
+  last_heartbeat: string | null;
+  discovery_method: DiscoveryMethod;
+  has_mql5: boolean;
+  master_installed: boolean;
+  receiver_installed: boolean;
 }
 
 export interface AccountInfo {
@@ -48,6 +73,28 @@ export interface AccountInfo {
   leverage: number;
   currency: string;
   server: string;
+}
+
+// Symbol specification from receiver
+export interface SymbolSpec {
+  name: string;
+  normalized_key: string;
+  tick_value: number;
+  tick_size: number;
+  contract_size: number;
+  digits: number;
+  min_lot: number;
+  lot_step: number;
+  max_lot: number;
+  description?: string;
+  trade_mode?: string;
+}
+
+// Symbol catalog from a terminal
+export interface SymbolCatalog {
+  terminal_id: string;
+  symbols: SymbolSpec[];
+  fetched_at: string;
 }
 
 export type CopierRole = 'master' | 'receiver' | 'independent';
@@ -67,6 +114,33 @@ export interface SetupTokenResponse {
   expires_at: string;
   role: CopierRole;
   master_account_id: string | null;
+}
+
+// Diagnostics types
+export interface DiagnosticsInfo {
+  terminals: TerminalDiagnostic[];
+  queue_pending: number;
+  queue_in_progress: number;
+  queue_completed_today: number;
+  queue_failed_today: number;
+  idempotency_keys_count: number;
+  recent_errors: ErrorEntry[];
+}
+
+export interface TerminalDiagnostic {
+  terminal_id: string;
+  broker: string | null;
+  account: string | null;
+  is_running: boolean;
+  ea_status: string;
+  last_heartbeat_age_secs: number | null;
+  discovery_method: string;
+}
+
+export interface ErrorEntry {
+  timestamp: string;
+  message: string;
+  terminal_id: string | null;
 }
 
 // Risk configuration
