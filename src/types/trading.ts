@@ -184,6 +184,11 @@ export interface ChecklistQuestion {
   order: number;
 }
 
+export interface JournalMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface TradeReview {
   id: string;
   trade_id: string;
@@ -201,6 +206,7 @@ export interface TradeReview {
   actionable_steps: ActionableStep[];
   thoughts: string | null;
   screenshots: TradeScreenshot[] | string[]; // Supports both new and legacy formats
+  journal_conversation: JournalMessage[] | null; // Live journal chat history
   reviewed_at: string | null;
   created_at: string;
   updated_at: string;

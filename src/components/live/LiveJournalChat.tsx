@@ -14,7 +14,6 @@ import {
   Mic, 
   MicOff, 
   Loader2, 
-  Upload,
   Image as ImageIcon,
   CheckCircle2,
   RotateCcw
@@ -31,7 +30,7 @@ interface LiveJournalChatProps {
   playbook: Playbook;
 }
 
-const INITIAL_MESSAGE = `Hey! You're in a ${"{symbol}"} ${"{direction}"} using your **${"{playbook}"}** setup. Let's document this trade while it's fresh.
+const INITIAL_MESSAGE = `Hey! You're in a {{symbol}} {{direction}} using your **{{playbook}}** setup. Let's document this trade while it's fresh.
 
 How are you feeling going into this position?`;
 
@@ -43,6 +42,7 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
   const [quickResponses, setQuickResponses] = useState<string[]>(['Focused', 'Calm', 'Confident', 'Anxious', 'FOMO']);
   const [shouldUploadScreenshot, setShouldUploadScreenshot] = useState(false);
   const [savedData, setSavedData] = useState<Record<string, any>>({});
+  const [hasLoadedConversation, setHasLoadedConversation] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,15 +51,45 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
   const upsertReview = useUpsertTradeReview();
   const { uploadScreenshot, isUploading } = useScreenshots();
 
-  // Initialize with first message
+  // Load existing conversation or initialize with first message
   useEffect(() => {
-    const initialContent = INITIAL_MESSAGE
-      .replace('{symbol}', trade.symbol)
-      .replace('{direction}', trade.direction.toUpperCase())
-      .replace('{playbook}', playbook.name);
+    const existingConversation = trade.review?.journal_conversation as Message[] | undefined;
     
-    setMessages([{ role: 'assistant', content: initialContent }]);
+    if (existingConversation && Array.isArray(existingConversation) && existingConversation.length > 0) {
+      setMessages(existingConversation);
+      setQuickResponses([]); // Clear quick responses when loading existing conversation
+    } else {
+      const initialContent = INITIAL_MESSAGE
+        .replace('{{symbol}}', trade.symbol)
+        .replace('{{direction}}', trade.direction.toUpperCase())
+        .replace('{{playbook}}', playbook.name);
+      
+      setMessages([{ role: 'assistant', content: initialContent }]);
+    }
+    setHasLoadedConversation(true);
   }, [trade.id, playbook.id]);
+
+  // Save conversation when messages change (debounced)
+  useEffect(() => {
+    if (!hasLoadedConversation || messages.length <= 1) return;
+    
+    const saveTimeout = setTimeout(async () => {
+      try {
+        await upsertReview.mutateAsync({
+          review: {
+            trade_id: trade.id,
+            playbook_id: playbook.id,
+            journal_conversation: messages as any,
+          },
+          silent: true,
+        });
+      } catch (error) {
+        console.error('Failed to save conversation:', error);
+      }
+    }, 1000); // Debounce for 1 second
+    
+    return () => clearTimeout(saveTimeout);
+  }, [messages, hasLoadedConversation, trade.id, playbook.id]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -143,7 +173,11 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
     if (!messageText.trim() || isLoading) return;
 
     const userMessage: Message = { role: 'user', content: messageText };
-    setMessages(prev => [...prev, userMessage]);
+    
+    // Build full history including the new user message
+    const fullHistory = [...messages, userMessage];
+    
+    setMessages(fullHistory);
     setInput("");
     setIsLoading(true);
     setQuickResponses([]);
@@ -162,7 +196,7 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
           },
           body: JSON.stringify({
             message: messageText,
-            conversationHistory: messages,
+            conversationHistory: fullHistory, // Send full history including current message
             trade: {
               id: trade.id,
               symbol: trade.symbol,
@@ -195,7 +229,9 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
 
       const data = await response.json();
       
-      setMessages(prev => [...prev, { role: 'assistant', content: data.message }]);
+      // Add assistant response to messages
+      const assistantMessage: Message = { role: 'assistant', content: data.message };
+      setMessages(prev => [...prev, assistantMessage]);
       
       if (data.quickResponses?.length) {
         setQuickResponses(data.quickResponses);
@@ -212,7 +248,8 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
     } catch (error) {
       console.error('Chat error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to send message');
-      setMessages(prev => prev.slice(0, -1)); // Remove failed user message
+      // Remove the failed user message
+      setMessages(messages);
     } finally {
       setIsLoading(false);
     }
@@ -257,9 +294,9 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
 
   const resetChat = () => {
     const initialContent = INITIAL_MESSAGE
-      .replace('{symbol}', trade.symbol)
-      .replace('{direction}', trade.direction.toUpperCase())
-      .replace('{playbook}', playbook.name);
+      .replace('{{symbol}}', trade.symbol)
+      .replace('{{direction}}', trade.direction.toUpperCase())
+      .replace('{{playbook}}', playbook.name);
     
     setMessages([{ role: 'assistant', content: initialContent }]);
     setQuickResponses(['Focused', 'Calm', 'Confident', 'Anxious', 'FOMO']);
@@ -348,7 +385,7 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
         </div>
       )}
 
-      {/* Screenshot Upload Prompt */}
+      {/* Screenshot Upload Prompt (shows when AI requests) */}
       {shouldUploadScreenshot && !isLoading && (
         <div className="py-2 border-t border-border/50">
           <Button
@@ -365,18 +402,36 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
             )}
             Upload Screenshot
           </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleScreenshotUpload}
-          />
         </div>
       )}
 
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleScreenshotUpload}
+      />
+
       {/* Input */}
       <div className="flex gap-2 pt-3 border-t border-border/50">
+        {/* Persistent screenshot button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          title="Upload screenshot"
+        >
+          {isUploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ImageIcon className="h-4 w-4" />
+          )}
+        </Button>
+        
         <Button
           variant="ghost"
           size="icon"

@@ -84,6 +84,7 @@ function transformReview(row: any): TradeReview {
     actionable_steps: Array.isArray(row.actionable_steps) ? row.actionable_steps : [],
     thoughts: row.thoughts,
     screenshots: Array.isArray(row.screenshots) ? row.screenshots : [],
+    journal_conversation: Array.isArray(row.journal_conversation) ? row.journal_conversation : null,
     reviewed_at: row.reviewed_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
