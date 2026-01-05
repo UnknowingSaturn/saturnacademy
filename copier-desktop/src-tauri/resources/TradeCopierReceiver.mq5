@@ -1136,6 +1136,21 @@ void ProcessEventFile(string fullPath, string filename)
 //+------------------------------------------------------------------+
 bool ExecuteEntry(string symbol, string direction, double lots, double masterSL, double masterTP, long masterPosId, long &receiverPosId)
 {
+   // Auto-enable symbol in Market Watch if not visible
+   if(!SymbolInfoInteger(symbol, SYMBOL_VISIBLE))
+   {
+      if(SymbolSelect(symbol, true))
+      {
+         LogMessage("Auto-added symbol to Market Watch: " + symbol);
+         Sleep(100); // Brief delay to allow symbol data to load
+      }
+      else
+      {
+         Print("Failed to add symbol to Market Watch: ", symbol);
+         return false;
+      }
+   }
+   
    MqlTradeRequest request = {};
    MqlTradeResult result = {};
    

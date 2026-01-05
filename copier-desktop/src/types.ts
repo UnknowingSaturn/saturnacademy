@@ -324,3 +324,29 @@ export const PROP_FIRM_SAFETY_PRESET: SafetyConfig = {
   enable_retry: true,
   max_retry_attempts: 5,
 };
+
+// Reconciliation types
+export interface ReconciliationConfig {
+  enabled: boolean;
+  interval_secs: number;
+  auto_close_orphaned: boolean;
+  auto_open_missing: boolean;
+  auto_adjust_volume: boolean;
+  auto_sync_sl_tp: boolean;
+}
+
+export interface ReconciliationAction {
+  timestamp: string;
+  receiver_id: string;
+  action_type: string;
+  symbol: string;
+  details: string;
+  success: boolean;
+  error: string | null;
+}
+
+export interface ReconciliationStatus {
+  config: ReconciliationConfig;
+  last_run: string | null;
+  recent_actions: ReconciliationAction[];
+}

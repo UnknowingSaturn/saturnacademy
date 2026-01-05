@@ -22,6 +22,11 @@ use copier::commands::{
     close_all_positions, pause_all_receivers, resume_all_receivers,
     read_master_heartbeat, is_master_online, Heartbeat,
 };
+use copier::reconciliation::{
+    ReconciliationConfig, ReconciliationAction, 
+    init_reconciliation, update_reconciliation_config, get_reconciliation_status,
+    start_reconciliation_loop, stop_reconciliation_loop, trigger_reconciliation,
+};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -394,6 +399,174 @@ async fn test_copy(state: tauri::State<'_, AppState>) -> Result<serde_json::Valu
     }))
 }
 
+// ==================== RECONCILIATION COMMANDS ====================
+
+#[tauri::command]
+fn set_reconciliation_config(
+    master_terminal_id: String,
+    receiver_terminal_ids: Vec<String>,
+    config: serde_json::Value,
+) -> Result<(), String> {
+    let recon_config = ReconciliationConfig {
+        enabled: config["enabled"].as_bool().unwrap_or(false),
+        interval_secs: config["interval_secs"].as_u64().unwrap_or(30),
+        auto_close_orphaned: config["auto_close_orphaned"].as_bool().unwrap_or(false),
+        auto_open_missing: config["auto_open_missing"].as_bool().unwrap_or(false),
+        auto_adjust_volume: config["auto_adjust_volume"].as_bool().unwrap_or(false),
+        auto_sync_sl_tp: config["auto_sync_sl_tp"].as_bool().unwrap_or(true),
+    };
+    
+    init_reconciliation(&master_terminal_id, &receiver_terminal_ids, recon_config);
+    Ok(())
+}
+
+#[tauri::command]
+fn update_recon_config(config: serde_json::Value) -> Result<(), String> {
+    let recon_config = ReconciliationConfig {
+        enabled: config["enabled"].as_bool().unwrap_or(false),
+        interval_secs: config["interval_secs"].as_u64().unwrap_or(30),
+        auto_close_orphaned: config["auto_close_orphaned"].as_bool().unwrap_or(false),
+        auto_open_missing: config["auto_open_missing"].as_bool().unwrap_or(false),
+        auto_adjust_volume: config["auto_adjust_volume"].as_bool().unwrap_or(false),
+        auto_sync_sl_tp: config["auto_sync_sl_tp"].as_bool().unwrap_or(true),
+    };
+    
+    update_reconciliation_config(recon_config);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_recon_status() -> serde_json::Value {
+    let (config, last_run, actions) = get_reconciliation_status();
+    serde_json::json!({
+        "config": config,
+        "last_run": last_run,
+        "recent_actions": actions,
+    })
+}
+
+#[tauri::command]
+fn start_recon_loop() -> Result<(), String> {
+    start_reconciliation_loop();
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_recon_loop() -> Result<(), String> {
+    stop_reconciliation_loop();
+    Ok(())
+}
+
+#[tauri::command]
+fn run_reconciliation_now() -> Result<serde_json::Value, String> {
+    let discrepancies = trigger_reconciliation()?;
+    Ok(serde_json::json!({
+        "discrepancy_count": discrepancies.len(),
+        "discrepancies": discrepancies,
+    }))
+}
+
+// ==================== DEBUG BUNDLE EXPORT ====================
+
+#[tauri::command]
+async fn export_debug_bundle(save_path: String) -> Result<String, String> {
+    use std::io::Write;
+    
+    let mut bundle = String::new();
+    
+    // Header
+    bundle.push_str("=== TRADE COPIER DEBUG BUNDLE ===\n");
+    bundle.push_str(&format!("Generated: {}\n", chrono::Utc::now().to_rfc3339()));
+    bundle.push_str(&format!("Platform: Windows\n"));
+    bundle.push_str(&format!("Version: 2.0.0\n\n"));
+    
+    // Discovered terminals
+    bundle.push_str("=== DISCOVERED TERMINALS ===\n");
+    let terminals = mt5::discovery::discover_all_terminals();
+    for t in &terminals {
+        bundle.push_str(&format!(
+            "Terminal: {} | Broker: {:?} | Login: {:?} | Running: {} | EA: {:?}\n",
+            t.terminal_id, t.broker, t.login, t.is_running, t.ea_status
+        ));
+    }
+    bundle.push_str("\n");
+    
+    // Reconciliation status
+    bundle.push_str("=== RECONCILIATION STATUS ===\n");
+    let (recon_config, last_run, actions) = get_reconciliation_status();
+    bundle.push_str(&format!("Enabled: {}\n", recon_config.enabled));
+    bundle.push_str(&format!("Interval: {}s\n", recon_config.interval_secs));
+    bundle.push_str(&format!("Last Run: {:?}\n", last_run));
+    bundle.push_str(&format!("Recent Actions: {}\n\n", actions.len()));
+    
+    for action in actions.iter().take(20) {
+        bundle.push_str(&format!(
+            "  {} | {} | {} | {}\n",
+            action.timestamp, action.receiver_id, action.action_type, action.details
+        ));
+    }
+    bundle.push_str("\n");
+    
+    // Idempotency cache
+    bundle.push_str("=== IDEMPOTENCY CACHE ===\n");
+    let idem_count = copier::idempotency::get_processed_keys_count();
+    bundle.push_str(&format!("Cached Keys: {}\n\n", idem_count));
+    
+    // Safety states
+    bundle.push_str("=== SAFETY STATES ===\n");
+    if let Ok(safety_json) = std::fs::read_to_string(
+        std::env::var("APPDATA").unwrap_or_default() + "\\TradeCopier\\safety_state.json"
+    ) {
+        bundle.push_str(&safety_json);
+    } else {
+        bundle.push_str("No safety state file found\n");
+    }
+    bundle.push_str("\n\n");
+    
+    // Config files from terminals
+    bundle.push_str("=== CONFIG FILES ===\n");
+    for t in &terminals {
+        if let Ok(config_path) = find_terminal_config_path(&t.terminal_id) {
+            if let Ok(config) = std::fs::read_to_string(&config_path) {
+                bundle.push_str(&format!("--- {} ---\n", t.terminal_id));
+                bundle.push_str(&config);
+                bundle.push_str("\n\n");
+            }
+        }
+    }
+    
+    // Write to file
+    std::fs::write(&save_path, &bundle)
+        .map_err(|e| format!("Failed to write debug bundle: {}", e))?;
+    
+    Ok(save_path)
+}
+
+fn find_terminal_config_path(terminal_id: &str) -> Result<std::path::PathBuf, String> {
+    let appdata = std::env::var("APPDATA").map_err(|_| "APPDATA not found")?;
+    
+    if terminal_id.starts_with("portable_") {
+        let terminals = mt5::discovery::discover_all_terminals();
+        for t in terminals {
+            if t.terminal_id == terminal_id {
+                return Ok(std::path::PathBuf::from(&t.data_folder)
+                    .join("MQL5")
+                    .join("Files")
+                    .join("copier-config.json"));
+            }
+        }
+        return Err("Terminal not found".to_string());
+    }
+    
+    Ok(std::path::PathBuf::from(&appdata)
+        .join("MetaQuotes")
+        .join("Terminal")
+        .join(terminal_id)
+        .join("MQL5")
+        .join("Files")
+        .join("copier-config.json"))
+}
+
 fn create_system_tray() -> SystemTray {
     let show = CustomMenuItem::new("show".to_string(), "Show Dashboard");
     let sync = CustomMenuItem::new("sync".to_string(), "Sync Config");
@@ -520,7 +693,7 @@ fn main() {
             get_master_symbols,
             auto_map_symbols,
             get_diagnostics,
-            // New commands
+            // Config & sync commands
             save_copier_config,
             get_position_sync_status,
             sync_position_to_receiver,
@@ -530,6 +703,15 @@ fn main() {
             get_master_heartbeat,
             check_master_online,
             test_copy,
+            // Reconciliation commands
+            set_reconciliation_config,
+            update_recon_config,
+            get_recon_status,
+            start_recon_loop,
+            stop_recon_loop,
+            run_reconciliation_now,
+            // Debug commands
+            export_debug_bundle,
         ])
         .setup(|app| {
             // Show main window on startup
