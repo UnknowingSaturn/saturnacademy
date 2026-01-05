@@ -1022,6 +1022,7 @@ export type Database = {
             | Database["public"]["Enums"]["emotional_state"]
             | null
           id: string
+          journal_conversation: Json | null
           mistakes: Json | null
           news_risk: Database["public"]["Enums"]["news_risk"] | null
           playbook_id: string | null
@@ -1047,6 +1048,7 @@ export type Database = {
             | Database["public"]["Enums"]["emotional_state"]
             | null
           id?: string
+          journal_conversation?: Json | null
           mistakes?: Json | null
           news_risk?: Database["public"]["Enums"]["news_risk"] | null
           playbook_id?: string | null
@@ -1072,6 +1074,7 @@ export type Database = {
             | Database["public"]["Enums"]["emotional_state"]
             | null
           id?: string
+          journal_conversation?: Json | null
           mistakes?: Json | null
           news_risk?: Database["public"]["Enums"]["news_risk"] | null
           playbook_id?: string | null

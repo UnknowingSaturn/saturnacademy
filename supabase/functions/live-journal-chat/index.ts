@@ -67,6 +67,9 @@ serve(async (req) => {
       isFirstMessage 
     } = await req.json();
 
+    console.log('Received message:', message);
+    console.log('Conversation history length:', conversationHistory?.length || 0);
+
     // Fetch recent trades for context on first message
     let recentTrades: RecentTradeInfo[] = [];
     if (isFirstMessage) {
@@ -93,8 +96,11 @@ serve(async (req) => {
       }
     }
 
-    const systemPrompt = buildSystemPrompt(trade, playbook, recentTrades);
+    const systemPrompt = buildSystemPrompt(trade, playbook, recentTrades, conversationHistory || []);
     const messages = buildMessages(systemPrompt, conversationHistory || [], message);
+
+    console.log('System prompt length:', systemPrompt.length);
+    console.log('Total messages to send:', messages.length);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -116,7 +122,7 @@ serve(async (req) => {
             type: "function",
             function: {
               name: "extract_journal_data",
-              description: "Extract structured journal data from the conversation to save to the trade review",
+              description: "Extract structured journal data from the conversation to save to the trade review. Call this whenever you identify relevant data from the trader's responses.",
               parameters: {
                 type: "object",
                 properties: {
@@ -137,16 +143,49 @@ serve(async (req) => {
                   thoughts: {
                     type: "string",
                     description: "General thoughts and notes about the trade setup"
-                  },
-                  screenshot_description: {
-                    type: "string",
-                    description: "Description of what the screenshot shows"
-                  },
-                  screenshot_timeframe: {
-                    type: "string",
-                    description: "The timeframe shown in the screenshot"
                   }
                 },
+                additionalProperties: false
+              }
+            }
+          },
+          {
+            type: "function",
+            function: {
+              name: "request_screenshot",
+              description: "Request the trader to upload a chart screenshot. Call this when you want them to share their chart setup.",
+              parameters: {
+                type: "object",
+                properties: {
+                  timeframe_suggestions: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Suggested timeframes to show (e.g., ['15m', '1H', '4H'])"
+                  },
+                  reason: {
+                    type: "string",
+                    description: "Brief reason for requesting the screenshot"
+                  }
+                },
+                additionalProperties: false
+              }
+            }
+          },
+          {
+            type: "function",
+            function: {
+              name: "suggest_quick_responses",
+              description: "Suggest quick response buttons for the trader to tap. Use this to make responding easier.",
+              parameters: {
+                type: "object",
+                properties: {
+                  responses: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "List of 3-5 quick response options relevant to your question"
+                  }
+                },
+                required: ["responses"],
                 additionalProperties: false
               }
             }
@@ -181,32 +220,68 @@ serve(async (req) => {
     let quickResponses: string[] = [];
     let shouldUploadScreenshot = false;
 
+    console.log('AI response received, tool_calls:', choice?.message?.tool_calls?.length || 0);
+
     // Check for tool calls
     if (choice?.message?.tool_calls) {
       for (const toolCall of choice.message.tool_calls) {
+        console.log('Processing tool call:', toolCall.function?.name);
+        
         if (toolCall.function?.name === 'extract_journal_data') {
           try {
             extractedData = JSON.parse(toolCall.function.arguments);
+            console.log('Extracted data:', extractedData);
           } catch (e) {
             console.error('Failed to parse extracted data:', e);
+          }
+        }
+        
+        if (toolCall.function?.name === 'request_screenshot') {
+          shouldUploadScreenshot = true;
+          try {
+            const args = JSON.parse(toolCall.function.arguments);
+            if (args.timeframe_suggestions?.length) {
+              quickResponses = args.timeframe_suggestions;
+            }
+            console.log('Screenshot requested with timeframes:', quickResponses);
+          } catch (e) {
+            console.error('Failed to parse screenshot request:', e);
+          }
+        }
+        
+        if (toolCall.function?.name === 'suggest_quick_responses') {
+          try {
+            const args = JSON.parse(toolCall.function.arguments);
+            if (args.responses?.length) {
+              quickResponses = args.responses;
+            }
+            console.log('Quick responses suggested:', quickResponses);
+          } catch (e) {
+            console.error('Failed to parse quick responses:', e);
           }
         }
       }
     }
 
-    // Determine quick responses and next action based on message content
-    const lowerMessage = assistantMessage.toLowerCase();
-    
-    if (lowerMessage.includes('how are you feeling') || lowerMessage.includes('emotional state')) {
-      quickResponses = ['Focused', 'Calm', 'Confident', 'Anxious', 'FOMO'];
-    } else if (lowerMessage.includes('rotational') || lowerMessage.includes('transitional') || lowerMessage.includes('regime')) {
-      quickResponses = ['Rotational', 'Transitional'];
-    } else if (lowerMessage.includes('screenshot') || lowerMessage.includes('upload')) {
-      shouldUploadScreenshot = true;
-      quickResponses = ['15m', '1H', '4H', 'Daily'];
-    } else if (lowerMessage.includes('pressure') || lowerMessage.includes('revenge') || lowerMessage.includes('make it back')) {
-      quickResponses = ['No pressure', 'A little', 'Yes, feeling pressure'];
+    // Fallback: Determine quick responses based on message content if no tool was called
+    if (quickResponses.length === 0) {
+      const lowerMessage = assistantMessage.toLowerCase();
+      
+      if (lowerMessage.includes('how are you feeling') || lowerMessage.includes('emotional state') || lowerMessage.includes('mindset')) {
+        quickResponses = ['Focused', 'Calm', 'Confident', 'Anxious', 'FOMO'];
+      } else if (lowerMessage.includes('rotational') || lowerMessage.includes('transitional') || lowerMessage.includes('regime')) {
+        quickResponses = ['Rotational', 'Transitional'];
+      } else if (lowerMessage.includes('screenshot') || lowerMessage.includes('chart') || lowerMessage.includes('upload')) {
+        shouldUploadScreenshot = true;
+        quickResponses = ['15m', '1H', '4H', 'Daily'];
+      } else if (lowerMessage.includes('pressure') || lowerMessage.includes('revenge') || lowerMessage.includes('make it back')) {
+        quickResponses = ['No pressure', 'A little', 'Yes, feeling pressure'];
+      } else if (lowerMessage.includes('anything else') || lowerMessage.includes('notes')) {
+        quickResponses = ['No, that covers it', 'One more thing...'];
+      }
     }
+
+    console.log('Final response - message length:', assistantMessage.length, 'quickResponses:', quickResponses.length, 'shouldUploadScreenshot:', shouldUploadScreenshot);
 
     return new Response(JSON.stringify({
       message: assistantMessage,
@@ -228,7 +303,26 @@ serve(async (req) => {
   }
 });
 
-function buildSystemPrompt(trade: TradeContext, playbook: any, recentTrades: RecentTradeInfo[]) {
+function analyzeConversationProgress(history: Message[]): { 
+  hasEmotion: boolean; 
+  hasScreenshot: boolean; 
+  hasRegime: boolean; 
+  hasSetupNotes: boolean;
+  messageCount: number;
+} {
+  const userMessages = history.filter(m => m.role === 'user').map(m => m.content.toLowerCase());
+  const allContent = userMessages.join(' ');
+  
+  return {
+    hasEmotion: /focused|calm|confident|anxious|fomo|great|good|nervous|excited|normal|okay/i.test(allContent),
+    hasScreenshot: /screenshot|uploaded|chart|image/i.test(allContent),
+    hasRegime: /rotational|transitional|ranging|trending|sideways/i.test(allContent),
+    hasSetupNotes: userMessages.some(m => m.length > 50), // Longer messages likely contain notes
+    messageCount: userMessages.length,
+  };
+}
+
+function buildSystemPrompt(trade: TradeContext, playbook: any, recentTrades: RecentTradeInfo[], conversationHistory: Message[]) {
   const recentTradesSummary = recentTrades.length > 0
     ? recentTrades.map(t => `${t.result === 'win' ? '✓' : '✗'} ${t.r_multiple >= 0 ? '+' : ''}${t.r_multiple.toFixed(1)}R ${t.symbol} (${t.time_ago})`).join(', ')
     : 'No recent closed trades';
@@ -237,6 +331,28 @@ function buildSystemPrompt(trade: TradeContext, playbook: any, recentTrades: Rec
   const recentLossContext = lastTrade && lastTrade.result === 'loss' 
     ? `\nIMPORTANT: Their last trade was a loss of ${lastTrade.r_multiple.toFixed(1)}R on ${lastTrade.symbol}. Gently check if they're feeling pressure to recover.`
     : '';
+
+  // Analyze what's been discussed
+  const progress = analyzeConversationProgress(conversationHistory);
+  
+  let progressNote = '';
+  if (progress.messageCount > 0) {
+    const discussed = [];
+    const notDiscussed = [];
+    
+    if (progress.hasEmotion) discussed.push('emotion'); else notDiscussed.push('emotion');
+    if (progress.hasScreenshot) discussed.push('screenshot'); else notDiscussed.push('screenshot');
+    if (progress.hasRegime) discussed.push('regime'); else notDiscussed.push('regime');
+    if (progress.hasSetupNotes) discussed.push('setup notes'); else notDiscussed.push('setup notes');
+    
+    progressNote = `
+CONVERSATION PROGRESS:
+- Already covered: ${discussed.length > 0 ? discussed.join(', ') : 'nothing yet'}
+- Still need to cover: ${notDiscussed.length > 0 ? notDiscussed.join(', ') : 'all done!'}
+- Total user messages: ${progress.messageCount}
+
+DO NOT ask about topics already covered. Move to the next uncovered topic.`;
+  }
 
   return `You are a live trade journaling assistant helping a trader document their active position in real-time.
 
@@ -257,29 +373,33 @@ ${playbook.invalidation_rules?.length ? `- Invalidations: ${playbook.invalidatio
 ${playbook.management_rules?.length ? `- Management: ${playbook.management_rules.join('; ')}` : ''}
 ${playbook.failure_modes?.length ? `- Watch out for: ${playbook.failure_modes.join('; ')}` : ''}
 ${playbook.session_filter?.length ? `- Sessions: ${playbook.session_filter.join(', ')}` : ''}
+${progressNote}
 
 YOUR ROLE:
-1. Guide the trader through documenting this trade BEFORE they need to manage it
-2. Ask ONE question at a time, keeping it conversational
-3. Extract structured data from their responses (use the extract_journal_data tool)
-4. Be supportive, not interrogating
-5. If they mention anxiety, FOMO, or revenge - explore it gently
+1. Guide the trader through documenting this trade ONE QUESTION at a time
+2. ALWAYS acknowledge their response briefly before asking the next question
+3. Extract structured data using the extract_journal_data tool when you identify relevant info
+4. Use suggest_quick_responses tool to provide easy tap-to-respond options
+5. Use request_screenshot tool when you want them to share their chart
+6. Be supportive and conversational, not interrogating
+7. If they mention anxiety, FOMO, or revenge trading - explore it gently
 
-QUESTION FLOW (adapt based on conversation):
-1. Screenshot - "Can you upload a screenshot? Which timeframe best shows your setup?"
-2. Emotion - "How are you feeling going into this trade?" (offer: Focused, Calm, Confident, Anxious, FOMO)
-3. Recent context - If recent loss, ask about pressure to recover
-4. Regime - "Is the market rotational or transitional right now?"
-5. Setup notes - "What made this a valid entry for your ${playbook.name} setup?"
-6. Anything else - "Any other notes before we save this?"
+STRICT QUESTION FLOW (follow in order, skip already-covered topics):
+1. EMOTION: "How are you feeling going into this trade?" (use suggest_quick_responses with emotions)
+2. SCREENSHOT: "Can you share a screenshot of your setup?" (use request_screenshot tool)
+3. REGIME: "Is the market rotational or transitional?" (use suggest_quick_responses)
+4. SETUP NOTES: "What made this a valid ${playbook.name} entry?"
+5. CONCERNS: "Any concerns or notes to remember?"
+6. WRAP UP: Summarize what was captured and wish them well
 
-STYLE:
-- Short, focused messages (2-3 sentences max)
-- Acknowledge their responses briefly before asking next question
-- Use their playbook terminology when relevant
-- End with a clear question or action
+CRITICAL RULES:
+- Ask ONE question at a time - wait for their response
+- NEVER repeat a question that's already been answered
+- ALWAYS use the tools to extract data and suggest responses
+- Keep messages short (2-3 sentences max)
+- End each message with a clear question or action
 
-When you identify emotional states, regimes, or other structured data, use the extract_journal_data function to save it.`;
+When you identify emotional states, regimes, or other structured data in their responses, ALWAYS call extract_journal_data to save it.`;
 }
 
 function buildMessages(systemPrompt: string, conversationHistory: Message[], userMessage: string) {
@@ -287,11 +407,16 @@ function buildMessages(systemPrompt: string, conversationHistory: Message[], use
     { role: 'system', content: systemPrompt }
   ];
 
+  // Add all conversation history (which already includes the current user message from the client)
   for (const msg of conversationHistory) {
     messages.push({ role: msg.role, content: msg.content });
   }
 
-  messages.push({ role: 'user', content: userMessage });
+  // Only add the user message if it's not already the last message in history
+  const lastHistoryMessage = conversationHistory[conversationHistory.length - 1];
+  if (!lastHistoryMessage || lastHistoryMessage.content !== userMessage || lastHistoryMessage.role !== 'user') {
+    messages.push({ role: 'user', content: userMessage });
+  }
 
   return messages;
 }
