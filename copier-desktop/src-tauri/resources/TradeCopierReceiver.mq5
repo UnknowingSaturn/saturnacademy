@@ -2869,6 +2869,7 @@ void WriteSymbolCatalog()
       double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
       double maxLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
       string description = SymbolInfoString(symbol, SYMBOL_DESCRIPTION);
+      string profitCurrency = SymbolInfoString(symbol, SYMBOL_CURRENCY_PROFIT);
       
       // Get trade mode as string
       string tradeModeStr = "full";
@@ -2892,6 +2893,7 @@ void WriteSymbolCatalog()
       json += "      \"min_lot\": " + DoubleToString(minLot, 2) + ",\n";
       json += "      \"lot_step\": " + DoubleToString(lotStep, 2) + ",\n";
       json += "      \"max_lot\": " + DoubleToString(maxLot, 2) + ",\n";
+      json += "      \"profit_currency\": \"" + profitCurrency + "\",\n";
       json += "      \"trade_mode\": \"" + tradeModeStr + "\"\n";
       json += "    }";
       

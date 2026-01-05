@@ -24,6 +24,9 @@ pub struct SymbolSpec {
     pub description: Option<String>,
     #[serde(default)]
     pub trade_mode: Option<String>,
+    /// Profit currency (e.g., "USD", "EUR") for matching validation
+    #[serde(default)]
+    pub profit_currency: Option<String>,
 }
 
 /// Symbol catalog for a terminal
@@ -122,6 +125,7 @@ pub fn fetch_symbol_catalog(terminal_id: &str) -> Result<SymbolCatalog, String> 
             max_lot: sym.get("max_lot").and_then(|v| v.as_f64()).unwrap_or(100.0),
             description: sym.get("description").and_then(|v| v.as_str()).map(|s| s.to_string()),
             trade_mode: sym.get("trade_mode").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            profit_currency: sym.get("profit_currency").and_then(|v| v.as_str()).map(|s| s.to_string()),
         });
     }
     
@@ -198,32 +202,38 @@ fn specs_match(a: &SymbolSpec, b: &SymbolSpec) -> bool {
         && (a.tick_value / b.tick_value) > 0.8
         && (a.tick_value / b.tick_value) < 1.25;
     
-    // Require at least contract_size + digits + tick_size to match
+    // Profit currency must match if both are available
+    let currency_match = match (&a.profit_currency, &b.profit_currency) {
+        (Some(a_curr), Some(b_curr)) => a_curr.to_uppercase() == b_curr.to_uppercase(),
+        _ => true, // If either is missing, don't penalize
+    };
+    
+    // Require contract_size + digits + tick_size + currency to match
     // Tick value is optional bonus for higher confidence
-    contract_match && digits_match && tick_size_match
+    contract_match && digits_match && tick_size_match && currency_match
 }
 
 /// Calculate a match score for two symbols based on specifications
 fn calculate_spec_match_score(a: &SymbolSpec, b: &SymbolSpec) -> u8 {
     let mut score: u8 = 0;
     
-    // Contract size match (25 points)
+    // Contract size match (20 points)
     if (a.contract_size - b.contract_size).abs() < 0.01 
         || (a.contract_size > 0.0 && b.contract_size > 0.0 
             && ((a.contract_size / b.contract_size) - 1.0).abs() < 0.01) {
-        score += 25;
+        score += 20;
     }
     
-    // Digits match (25 points)
+    // Digits match (20 points)
     if a.digits == b.digits {
-        score += 25;
+        score += 20;
     }
     
-    // Tick size match (25 points)
+    // Tick size match (20 points)
     if a.tick_size > 0.0 && b.tick_size > 0.0 
         && (a.tick_size / b.tick_size) > 0.9 
         && (a.tick_size / b.tick_size) < 1.1 {
-        score += 25;
+        score += 20;
     }
     
     // Tick value match (15 points - allows for slight broker differences)
@@ -231,6 +241,18 @@ fn calculate_spec_match_score(a: &SymbolSpec, b: &SymbolSpec) -> u8 {
         && (a.tick_value / b.tick_value) > 0.8
         && (a.tick_value / b.tick_value) < 1.25 {
         score += 15;
+    }
+    
+    // Profit currency match (15 points)
+    match (&a.profit_currency, &b.profit_currency) {
+        (Some(a_curr), Some(b_curr)) if a_curr.to_uppercase() == b_curr.to_uppercase() => {
+            score += 15;
+        }
+        (None, None) => {
+            // Both missing - slight bonus for consistency
+            score += 5;
+        }
+        _ => {}
     }
     
     // Name similarity bonus (10 points)
