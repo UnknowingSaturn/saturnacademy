@@ -122,7 +122,7 @@ serve(async (req) => {
             type: "function",
             function: {
               name: "extract_journal_data",
-              description: "Extract structured journal data from the conversation to save to the trade review. Call this whenever you identify relevant data from the trader's responses.",
+              description: "Extract structured journal data from the conversation. IMPORTANT: After calling this, you MUST still provide a follow-up question in your text response and call suggest_quick_responses or request_screenshot for the next step.",
               parameters: {
                 type: "object",
                 properties: {
@@ -175,7 +175,7 @@ serve(async (req) => {
             type: "function",
             function: {
               name: "suggest_quick_responses",
-              description: "Suggest quick response buttons for the trader to tap. Use this to make responding easier.",
+              description: "ALWAYS call this tool to suggest quick response buttons after asking a question. This makes it easy for the trader to respond quickly.",
               parameters: {
                 type: "object",
                 properties: {
@@ -191,6 +191,7 @@ serve(async (req) => {
             }
           }
         ],
+        tool_choice: "auto",
       }),
     });
 
@@ -263,6 +264,23 @@ serve(async (req) => {
       }
     }
 
+    // Analyze current progress
+    const progress = analyzeConversationProgress(conversationHistory || []);
+
+    // CRITICAL FALLBACK: If AI gave a short response after extracting data, append follow-up
+    if (extractedData && assistantMessage.length < 100 && !assistantMessage.includes('?')) {
+      console.log('Short response detected after data extraction, appending follow-up question');
+      const nextStep = getNextQuestion(progress, trade, playbook);
+      assistantMessage = assistantMessage.trim() + ' ' + nextStep.question;
+      
+      if (quickResponses.length === 0) {
+        quickResponses = nextStep.quickResponses;
+      }
+      if (nextStep.shouldUploadScreenshot) {
+        shouldUploadScreenshot = true;
+      }
+    }
+
     // Fallback: Determine quick responses based on message content if no tool was called
     if (quickResponses.length === 0) {
       const lowerMessage = assistantMessage.toLowerCase();
@@ -278,6 +296,17 @@ serve(async (req) => {
         quickResponses = ['No pressure', 'A little', 'Yes, feeling pressure'];
       } else if (lowerMessage.includes('anything else') || lowerMessage.includes('notes')) {
         quickResponses = ['No, that covers it', 'One more thing...'];
+      }
+    }
+
+    // FINAL SAFETY: If still no quick responses after all processing, use next step
+    if (quickResponses.length === 0) {
+      console.log('No quick responses after all processing, using next step fallback');
+      const nextStep = getNextQuestion(progress, trade, playbook);
+      quickResponses = nextStep.quickResponses;
+      
+      if (nextStep.shouldUploadScreenshot && !shouldUploadScreenshot) {
+        shouldUploadScreenshot = true;
       }
     }
 
@@ -303,22 +332,64 @@ serve(async (req) => {
   }
 });
 
-function analyzeConversationProgress(history: Message[]): { 
+interface ConversationProgress {
   hasEmotion: boolean; 
   hasScreenshot: boolean; 
   hasRegime: boolean; 
   hasSetupNotes: boolean;
   messageCount: number;
-} {
+}
+
+function analyzeConversationProgress(history: Message[]): ConversationProgress {
   const userMessages = history.filter(m => m.role === 'user').map(m => m.content.toLowerCase());
   const allContent = userMessages.join(' ');
   
   return {
-    hasEmotion: /focused|calm|confident|anxious|fomo|great|good|nervous|excited|normal|okay/i.test(allContent),
-    hasScreenshot: /screenshot|uploaded|chart|image/i.test(allContent),
+    hasEmotion: /focused|calm|confident|anxious|fomo|great|good|nervous|excited|normal|okay|rough|tilted|exhausted|alright/i.test(allContent),
+    hasScreenshot: /screenshot|uploaded|chart|image|here's|attached/i.test(allContent),
     hasRegime: /rotational|transitional|ranging|trending|sideways/i.test(allContent),
-    hasSetupNotes: userMessages.some(m => m.length > 50), // Longer messages likely contain notes
+    hasSetupNotes: userMessages.some(m => m.length > 50),
     messageCount: userMessages.length,
+  };
+}
+
+function getNextQuestion(progress: ConversationProgress, trade: TradeContext, playbook: any): {
+  question: string;
+  quickResponses: string[];
+  shouldUploadScreenshot: boolean;
+} {
+  if (!progress.hasEmotion) {
+    return {
+      question: "How are you feeling going into this position?",
+      quickResponses: ['Focused', 'Calm', 'Confident', 'Anxious', 'FOMO'],
+      shouldUploadScreenshot: false
+    };
+  }
+  if (!progress.hasScreenshot) {
+    return {
+      question: "Can you share a screenshot of your entry setup?",
+      quickResponses: ['15m', '1H', '4H', 'Daily'],
+      shouldUploadScreenshot: true
+    };
+  }
+  if (!progress.hasRegime) {
+    return {
+      question: "Is the market currently rotational or transitional?",
+      quickResponses: ['Rotational', 'Transitional'],
+      shouldUploadScreenshot: false
+    };
+  }
+  if (!progress.hasSetupNotes) {
+    return {
+      question: `What made this a valid ${playbook?.name || 'playbook'} entry for you?`,
+      quickResponses: ['Clean setup', 'Took a chance', 'All confirmations hit'],
+      shouldUploadScreenshot: false
+    };
+  }
+  return {
+    question: "Any concerns or notes to remember for this trade?",
+    quickResponses: ['No concerns', 'One thing...', 'All good'],
+    shouldUploadScreenshot: false
   };
 }
 
@@ -399,7 +470,14 @@ CRITICAL RULES:
 - Keep messages short (2-3 sentences max)
 - End each message with a clear question or action
 
-When you identify emotional states, regimes, or other structured data in their responses, ALWAYS call extract_journal_data to save it.`;
+RESPONSE FORMAT (REQUIRED):
+- After calling extract_journal_data, you MUST still provide a substantive text response
+- EVERY response MUST end with a question about the NEXT topic in the flow
+- Your text response should be: "Brief acknowledgment + follow-up question"
+- Example: "Great, you're feeling focused - that's a solid mindset for this trade! Can you share a screenshot of your entry setup so I can see the context?"
+- IMPORTANT: Just calling a tool is NOT enough. You must ALWAYS include the next question in your text response.
+
+When you identify emotional states, regimes, or other structured data in their responses, ALWAYS call extract_journal_data to save it AND ask about the next topic.`;
 }
 
 function buildMessages(systemPrompt: string, conversationHistory: Message[], userMessage: string) {
