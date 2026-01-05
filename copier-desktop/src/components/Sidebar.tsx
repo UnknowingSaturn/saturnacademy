@@ -12,10 +12,11 @@ import {
   Wand2,
   Wifi,
   WifiOff,
+  Stethoscope,
 } from "lucide-react";
 import { CopierStatus } from "../types";
 
-export type NavItem = "dashboard" | "positions" | "receivers" | "configuration" | "activity" | "terminals" | "settings";
+export type NavItem = "dashboard" | "positions" | "receivers" | "configuration" | "activity" | "terminals" | "diagnostics" | "settings";
 
 interface SidebarProps {
   activeItem: NavItem;
@@ -182,6 +183,13 @@ export default function Sidebar({ activeItem, onNavigate, onShowWizard, status, 
           active={activeItem === "terminals"}
           collapsed={collapsed}
           onClick={() => onNavigate("terminals")}
+        />
+        <NavButton
+          icon={Stethoscope}
+          label="Diagnostics"
+          active={activeItem === "diagnostics"}
+          collapsed={collapsed}
+          onClick={() => onNavigate("diagnostics")}
         />
         <NavButton
           icon={Settings}

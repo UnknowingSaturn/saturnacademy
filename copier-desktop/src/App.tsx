@@ -12,6 +12,7 @@ import ReceiverGrid from "./components/ReceiverGrid";
 import PositionSyncDialog from "./components/PositionSyncDialog";
 import Configuration from "./components/Configuration";
 import UpdateNotification from "./components/UpdateNotification";
+import Diagnostics from "./components/Diagnostics";
 import { CopierStatus, Execution, Mt5Terminal, MasterHeartbeat } from "./types";
 
 type AppMode = "wizard" | "dashboard";
@@ -232,6 +233,7 @@ function App() {
           {activeNav === "activity" && <ExecutionLog executions={executions} />}
           {activeNav === "configuration" && <Configuration receiverTerminals={receiverTerminals} />}
           {activeNav === "terminals" && <TerminalManager />}
+          {activeNav === "diagnostics" && <Diagnostics />}
           {activeNav === "settings" && <Settings status={status} />}
         </main>
       </div>
