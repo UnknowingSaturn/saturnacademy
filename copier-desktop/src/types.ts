@@ -91,6 +91,7 @@ export interface SymbolSpec {
   max_lot: number;
   description?: string;
   trade_mode?: string;
+  profit_currency?: string;
 }
 
 // Symbol catalog from a terminal
