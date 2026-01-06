@@ -168,11 +168,17 @@ export default function TerminalScanStep({
             Found {terminalsWithInfo.length} terminal{terminalsWithInfo.length !== 1 ? 's' : ''}
           </p>
           {terminalsWithInfo.map((terminal) => {
-            const displayName = terminal.account_info?.broker || terminal.broker || "MT5 Terminal";
-            const accountNum = terminal.account_info?.account_number;
-            const server = terminal.discoveryInfo?.server;
-            const isRunning = terminal.discoveryInfo?.is_running;
-            const discoveryMethod = terminal.discoveryInfo?.discovery_method || "app_data";
+            // Use install_label pre-EA, broker post-EA
+            const info = terminal.discoveryInfo;
+            const isVerified = info?.verified === true;
+            const displayName = isVerified 
+              ? (info?.broker || terminal.broker || info?.install_label || "MT5 Terminal")
+              : (info?.install_label || terminal.broker || "MT5 Terminal");
+            const accountNum = isVerified ? terminal.account_info?.account_number : null;
+            const server = isVerified ? info?.server : null;
+            const isRunning = info?.is_running;
+            const discoveryMethod = info?.discovery_method || "app_data";
+            const dataId = info?.data_id || terminal.terminal_id;
             
             return (
               <div
@@ -188,9 +194,9 @@ export default function TerminalScanStep({
                       {accountNum && (
                         <span className="text-muted-foreground">#{accountNum}</span>
                       )}
-                      {!terminal.broker && !terminal.account_info?.broker && (
+                      {!isVerified && (
                         <span className="text-amber-500 text-xs bg-amber-500/10 px-1.5 py-0.5 rounded">
-                          Attach EA to identify
+                          Attach EA to verify
                         </span>
                       )}
                     </div>
@@ -211,9 +217,9 @@ export default function TerminalScanStep({
                         </span>
                       )}
                       
-                      {/* Terminal ID */}
+                      {/* Data ID (secondary) */}
                       <span className="text-muted-foreground font-mono">
-                        ID: {shortenId(terminal.terminal_id)}
+                        Data ID: {shortenId(dataId)}
                       </span>
                       
                       {/* EA badges */}
@@ -232,8 +238,8 @@ export default function TerminalScanStep({
                   
                   {/* Connection status indicator */}
                   <div className="flex items-center">
-                    {terminal.account_info ? (
-                      <CheckCircle2 className="w-5 h-5 text-green-500" />
+                    {isVerified ? (
+                      <CheckCircle2 className="w-5 h-5 text-green-500" title="EA verified" />
                     ) : (
                       <div className="w-3 h-3 rounded-full bg-yellow-500" title="EA not connected" />
                     )}

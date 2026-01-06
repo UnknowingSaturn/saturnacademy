@@ -141,12 +141,17 @@ pub struct DiagnosticsInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminalDiagnostic {
     pub terminal_id: String,
+    /// Install label (from registry DisplayName or folder) - shown pre-EA
+    pub install_label: Option<String>,
+    /// Broker name (from EA handshake) - only valid when verified=true
     pub broker: Option<String>,
     pub account: Option<String>,
     pub is_running: bool,
     pub ea_status: String,
     pub last_heartbeat_age_secs: Option<i64>,
     pub discovery_method: String,
+    /// Whether EA handshake file exists
+    pub verified: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

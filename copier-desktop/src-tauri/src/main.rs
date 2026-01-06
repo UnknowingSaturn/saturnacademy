@@ -187,12 +187,14 @@ fn get_diagnostics() -> copier::DiagnosticsInfo {
         
         copier::TerminalDiagnostic {
             terminal_id: t.terminal_id.clone(),
+            install_label: t.install_label.clone(),
             broker: t.broker.clone(),
             account: t.login.map(|l| l.to_string()),
             is_running: t.is_running,
             ea_status: format!("{:?}", t.ea_status),
             last_heartbeat_age_secs: heartbeat_age,
             discovery_method: format!("{:?}", t.discovery_method),
+            verified: t.verified,
         }
     }).collect();
     
