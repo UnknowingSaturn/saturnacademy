@@ -119,7 +119,8 @@ export default function Diagnostics() {
     fetchDiagnostics();
     
     if (autoRefresh) {
-      const interval = setInterval(fetchDiagnostics, 2000);
+      // Reduced from 2s to 5s to prevent UI lag
+      const interval = setInterval(fetchDiagnostics, 5000);
       return () => clearInterval(interval);
     }
   }, [autoRefresh]);
@@ -241,6 +242,10 @@ export default function Diagnostics() {
                 diagnostics.terminals.map((terminal) => {
                   const heartbeat = getHeartbeatStatus(terminal.last_heartbeat_age_secs);
                   const HeartbeatIcon = heartbeat.icon;
+                  // Use install_label pre-EA, broker post-EA
+                  const displayName = terminal.verified 
+                    ? (terminal.broker || terminal.install_label || "MT5 Terminal")
+                    : (terminal.install_label || "MT5 Terminal");
                   
                   return (
                     <div key={terminal.terminal_id} className="p-4 hover:bg-muted/30 transition-colors">
@@ -248,11 +253,16 @@ export default function Diagnostics() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-medium truncate">
-                              {terminal.broker || "Unknown Broker"}
+                              {displayName}
                             </span>
                             {terminal.account && (
                               <span className="text-muted-foreground">
                                 - {terminal.account}
+                              </span>
+                            )}
+                            {!terminal.verified && (
+                              <span className="text-amber-500 text-xs bg-amber-500/10 px-1.5 py-0.5 rounded">
+                                Unverified
                               </span>
                             )}
                           </div>
@@ -276,7 +286,7 @@ export default function Diagnostics() {
                               {terminal.discovery_method}
                             </span>
                             
-                            {/* Terminal ID */}
+                            {/* Terminal ID (secondary) */}
                             <span className="text-xs text-muted-foreground font-mono">
                               {terminal.terminal_id.length > 16 
                                 ? `${terminal.terminal_id.slice(0, 8)}...${terminal.terminal_id.slice(-4)}` 

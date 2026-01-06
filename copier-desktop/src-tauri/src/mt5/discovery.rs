@@ -1,16 +1,36 @@
 //! Multi-strategy MT5 terminal discovery
 //!
-//! Implements rock-solid terminal detection using multiple strategies:
-//! 1. Running processes (terminal64.exe PIDs)
-//! 2. Windows Registry (Uninstall keys)
-//! 3. Standard MetaQuotes data folders (%APPDATA%\MetaQuotes\Terminal)
-//! 4. Common installation paths
+//! Implements install-centric terminal detection:
+//! 1. Windows Registry uninstall entries (best - gets DisplayName)
+//! 2. Common installation directories (Program Files)
+//! 3. Running processes (for is_running status)
+//! 4. Standard MetaQuotes data folders (for data folder mapping)
 //! 5. Persisted manual paths
+//!
+//! Key principle: show install_label (registry DisplayName or folder name) pre-EA,
+//! only show broker/server/login after EA handshake (CopierAccountInfo.json).
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
+
+// ==================== CACHING ====================
+// Cache discovery results to prevent UI freezing from repeated expensive scans
+
+lazy_static::lazy_static! {
+    static ref DISCOVERY_CACHE: Mutex<DiscoveryCache> = Mutex::new(DiscoveryCache::default());
+}
+
+const CACHE_TTL_SECS: u64 = 10; // Refresh at most every 10 seconds
+
+#[derive(Default)]
+struct DiscoveryCache {
+    terminals: Vec<TerminalInfo>,
+    last_refresh: Option<Instant>,
+}
 
 /// How the terminal was discovered
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -40,6 +60,10 @@ pub struct TerminalInfo {
     pub terminal_id: String,
     pub executable_path: Option<String>,
     pub data_folder: String,
+    /// Install label (from registry DisplayName or folder name) - shown pre-EA
+    #[serde(default)]
+    pub install_label: Option<String>,
+    /// Verified broker name (from EA handshake only)
     pub broker: Option<String>,
     pub server: Option<String>,
     pub login: Option<i64>,
@@ -52,6 +76,12 @@ pub struct TerminalInfo {
     pub has_mql5: bool,
     pub master_installed: bool,
     pub receiver_installed: bool,
+    /// Whether EA handshake file exists (CopierAccountInfo.json)
+    #[serde(default)]
+    pub verified: bool,
+    /// The MetaQuotes data folder hash (for AppData terminals)
+    #[serde(default)]
+    pub data_id: Option<String>,
     /// Cached symbol names from last catalog fetch
     #[serde(default)]
     pub cached_symbols: Option<Vec<String>>,
@@ -137,59 +167,82 @@ pub fn remove_manual_terminal(path: &str) -> Result<(), String> {
     save_config(&config)
 }
 
-/// Discover all MT5 terminals using multiple strategies
+/// Discover all MT5 terminals using cached results (throttled)
+/// Use this for UI to prevent freezing
 pub fn discover_all_terminals() -> Vec<TerminalInfo> {
+    discover_all_terminals_cached(false)
+}
+
+/// Discover terminals with optional force refresh
+pub fn discover_all_terminals_cached(force: bool) -> Vec<TerminalInfo> {
+    let mut cache = DISCOVERY_CACHE.lock().unwrap();
+    
+    let should_refresh = force || cache.last_refresh.map_or(true, |last| {
+        last.elapsed() > Duration::from_secs(CACHE_TTL_SECS)
+    });
+    
+    if should_refresh {
+        debug!("Refreshing terminal discovery cache...");
+        cache.terminals = discover_all_terminals_internal();
+        cache.last_refresh = Some(Instant::now());
+    } else {
+        debug!("Using cached terminal discovery results");
+    }
+    
+    cache.terminals.clone()
+}
+
+/// Force refresh the discovery cache (for manual refresh buttons)
+pub fn refresh_discovery_cache() -> Vec<TerminalInfo> {
+    discover_all_terminals_cached(true)
+}
+
+/// Internal discovery - does the actual work
+fn discover_all_terminals_internal() -> Vec<TerminalInfo> {
     let mut results = Vec::new();
     let mut seen_ids: HashSet<String> = HashSet::new();
-    let mut data_folder_to_exe: HashMap<String, String> = HashMap::new();
+    let mut exe_to_data: HashMap<String, (String, String)> = HashMap::new(); // exe_path -> (data_folder, data_id)
 
-    info!("Starting multi-strategy terminal discovery...");
+    info!("Starting install-centric terminal discovery...");
 
-    // Strategy 1: Running processes (highest priority - most accurate)
-    let process_terminals = discover_from_processes();
-    for terminal in process_terminals {
+    // Step 1: Build AppData index first (maps exe_path -> data_folder)
+    let appdata_index = build_appdata_index();
+    for (exe_path, data_folder, data_id) in &appdata_index {
+        exe_to_data.insert(exe_path.to_lowercase(), (data_folder.clone(), data_id.clone()));
+    }
+    debug!("Built AppData index with {} entries", appdata_index.len());
+
+    // Step 2: Get running processes for is_running status
+    let running_exes = get_running_terminal_exes();
+    debug!("Found {} running terminal processes", running_exes.len());
+
+    // Step 3: Windows Registry (primary - has DisplayName)
+    let registry_terminals = discover_from_registry_install_centric(&exe_to_data, &running_exes);
+    for terminal in registry_terminals {
         if seen_ids.insert(terminal.terminal_id.clone()) {
-            if let Some(ref exe) = terminal.executable_path {
-                data_folder_to_exe.insert(terminal.data_folder.clone(), exe.clone());
-            }
             results.push(terminal);
         }
     }
-    debug!("Found {} terminals from processes", results.len());
+    debug!("Found {} terminals from registry", results.len());
 
-    // Strategy 2: Windows Registry
-    let registry_terminals = discover_from_registry();
-    for mut terminal in registry_terminals {
-        if seen_ids.insert(terminal.terminal_id.clone()) {
-            // Try to get exe path from running processes
-            if let Some(exe) = data_folder_to_exe.get(&terminal.data_folder) {
-                terminal.executable_path = Some(exe.clone());
-            }
-            results.push(terminal);
-        }
-    }
-
-    // Strategy 3: Standard MetaQuotes data folders
-    let appdata_terminals = discover_from_appdata();
-    for mut terminal in appdata_terminals {
-        if seen_ids.insert(terminal.terminal_id.clone()) {
-            if let Some(exe) = data_folder_to_exe.get(&terminal.data_folder) {
-                terminal.executable_path = Some(exe.clone());
-            }
-            results.push(terminal);
-        }
-    }
-    debug!("Found {} terminals total after AppData scan", results.len());
-
-    // Strategy 4: Common installation paths
-    let common_terminals = discover_from_common_paths();
+    // Step 4: Common installation paths (fallback)
+    let common_terminals = discover_from_common_paths_limited(&exe_to_data, &running_exes);
     for terminal in common_terminals {
         if seen_ids.insert(terminal.terminal_id.clone()) {
             results.push(terminal);
         }
     }
 
-    // Strategy 5: Persisted manual paths
+    // Step 5: AppData terminals not yet found via install paths
+    let appdata_terminals = discover_from_appdata_remaining(&seen_ids, &running_exes);
+    for terminal in appdata_terminals {
+        if seen_ids.insert(terminal.terminal_id.clone()) {
+            results.push(terminal);
+        }
+    }
+    debug!("Found {} terminals total after AppData scan", results.len());
+
+    // Step 6: Persisted manual paths
     let manual_terminals = discover_from_manual_paths();
     for terminal in manual_terminals {
         if seen_ids.insert(terminal.terminal_id.clone()) {
@@ -201,56 +254,78 @@ pub fn discover_all_terminals() -> Vec<TerminalInfo> {
     results
 }
 
-/// Discover terminals from running processes
-fn discover_from_processes() -> Vec<TerminalInfo> {
-    let mut terminals = Vec::new();
+/// Build AppData index: maps exe_path -> (data_folder, data_id)
+fn build_appdata_index() -> Vec<(String, String, String)> {
+    let mut index = Vec::new();
+    
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let terminals_path = PathBuf::from(&appdata).join("MetaQuotes").join("Terminal");
+        
+        if let Ok(entries) = std::fs::read_dir(&terminals_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let data_id = path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    
+                    // Check for MQL5 folder
+                    if !path.join("MQL5").exists() {
+                        continue;
+                    }
+                    
+                    // Try to get exe path from origin.txt
+                    if let Some(exe_path) = get_executable_from_origin(&path) {
+                        index.push((exe_path, path.to_string_lossy().to_string(), data_id));
+                    }
+                }
+            }
+        }
+    }
+    
+    index
+}
 
+/// Get running terminal64.exe paths (without spawning visible console)
+fn get_running_terminal_exes() -> HashSet<String> {
+    let mut exes = HashSet::new();
+    
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
         use std::process::Command;
         
-        // Use WMIC to find running terminal64.exe processes with their paths
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        
+        // Use WMIC with hidden window
         let output = Command::new("wmic")
             .args(["process", "where", "name='terminal64.exe'", "get", "ExecutablePath", "/format:csv"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         if let Ok(output) = output {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines().skip(1) {
-                // CSV format: Node,ExecutablePath
                 let parts: Vec<&str> = line.split(',').collect();
                 if parts.len() >= 2 {
                     let exe_path = parts[1].trim();
                     if !exe_path.is_empty() {
-                        if let Some(terminal) = terminal_from_executable(exe_path, DiscoveryMethod::Process, true) {
-                            terminals.push(terminal);
-                        }
+                        exes.insert(exe_path.to_lowercase());
                     }
                 }
             }
         }
-        
-        // Also try tasklist as fallback
-        if terminals.is_empty() {
-            let output = Command::new("tasklist")
-                .args(["/FI", "IMAGENAME eq terminal64.exe", "/FO", "CSV", "/V"])
-                .output();
-            
-            if let Ok(output) = output {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                // If terminal64.exe is running, we at least know MT5 is active
-                if stdout.contains("terminal64.exe") {
-                    debug!("MT5 process detected but path unavailable from tasklist");
-                }
-            }
-        }
     }
-
-    terminals
+    
+    exes
 }
 
-/// Discover terminals from Windows Registry
-fn discover_from_registry() -> Vec<TerminalInfo> {
+/// Discover terminals from Windows Registry (install-centric with DisplayName)
+fn discover_from_registry_install_centric(
+    exe_to_data: &HashMap<String, (String, String)>,
+    running_exes: &HashSet<String>,
+) -> Vec<TerminalInfo> {
     let mut terminals = Vec::new();
 
     #[cfg(target_os = "windows")]
@@ -258,7 +333,6 @@ fn discover_from_registry() -> Vec<TerminalInfo> {
         use winreg::enums::*;
         use winreg::RegKey;
 
-        // Check both HKLM and HKCU Uninstall keys
         let paths = [
             (HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
             (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
@@ -269,19 +343,22 @@ fn discover_from_registry() -> Vec<TerminalInfo> {
             if let Ok(uninstall_key) = RegKey::predef(hkey).open_subkey(path) {
                 for name in uninstall_key.enum_keys().filter_map(|k| k.ok()) {
                     if let Ok(app_key) = uninstall_key.open_subkey(&name) {
-                        // Check DisplayName for MetaTrader
                         let display_name: Result<String, _> = app_key.get_value("DisplayName");
                         if let Ok(display_name) = display_name {
                             let name_lower = display_name.to_lowercase();
                             if name_lower.contains("metatrader") || name_lower.contains("mt5") {
                                 // Get install location
-                                if let Ok(install_path) = app_key.get_value::<String, _>("InstallLocation") {
-                                    let exe_path = PathBuf::from(&install_path).join("terminal64.exe");
+                                if let Ok(install_path_str) = app_key.get_value::<String, _>("InstallLocation") {
+                                    let install_path = PathBuf::from(&install_path_str);
+                                    let exe_path = install_path.join("terminal64.exe");
+                                    
                                     if exe_path.exists() {
-                                        if let Some(terminal) = terminal_from_executable(
-                                            exe_path.to_string_lossy().as_ref(),
+                                        if let Some(terminal) = terminal_from_install(
+                                            &exe_path,
+                                            &display_name,
+                                            exe_to_data,
+                                            running_exes,
                                             DiscoveryMethod::Registry,
-                                            false,
                                         ) {
                                             terminals.push(terminal);
                                         }
@@ -298,22 +375,48 @@ fn discover_from_registry() -> Vec<TerminalInfo> {
     terminals
 }
 
-/// Discover terminals from standard AppData location
-fn discover_from_appdata() -> Vec<TerminalInfo> {
+/// Discover terminals from common install paths (limited - no drive root scans)
+fn discover_from_common_paths_limited(
+    exe_to_data: &HashMap<String, (String, String)>,
+    running_exes: &HashSet<String>,
+) -> Vec<TerminalInfo> {
     let mut terminals = Vec::new();
 
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let terminals_path = PathBuf::from(&appdata).join("MetaQuotes").join("Terminal");
-        
-        if let Ok(entries) = std::fs::read_dir(&terminals_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    // This is a hash folder, check for MQL5
-                    let mql5_path = path.join("MQL5");
-                    if mql5_path.exists() {
-                        if let Some(terminal) = terminal_from_data_folder(&path, DiscoveryMethod::AppData) {
-                            terminals.push(terminal);
+    // Only scan specific directories, NOT drive roots
+    let base_paths = [
+        "C:\\Program Files",
+        "C:\\Program Files (x86)",
+        "D:\\Program Files",
+        "D:\\Program Files (x86)",
+    ];
+    
+    // Also check user's local programs
+    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+        let programs_path = PathBuf::from(&local_appdata).join("Programs");
+        if programs_path.exists() {
+            if let Ok(entries) = std::fs::read_dir(&programs_path) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_dir() { continue; }
+                    
+                    let name = path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    
+                    if name.contains("metatrader") || name.contains("mt5") {
+                        let exe_path = path.join("terminal64.exe");
+                        if exe_path.exists() {
+                            let label = extract_install_label(&path);
+                            if let Some(terminal) = terminal_from_install(
+                                &exe_path,
+                                &label,
+                                exe_to_data,
+                                running_exes,
+                                DiscoveryMethod::CommonPath,
+                            ) {
+                                terminals.push(terminal);
+                            }
                         }
                     }
                 }
@@ -321,61 +424,31 @@ fn discover_from_appdata() -> Vec<TerminalInfo> {
         }
     }
 
-    terminals
-}
-
-/// Discover terminals from common installation paths
-fn discover_from_common_paths() -> Vec<TerminalInfo> {
-    let mut terminals = Vec::new();
-
-    // Expanded list of common paths
-    let base_paths = [
-        "C:\\Program Files",
-        "C:\\Program Files (x86)",
-        "D:\\Program Files",
-        "D:\\Program Files (x86)",
-        "E:\\Program Files",
-        "C:\\",
-        "D:\\",
-        "E:\\",
-    ];
-
-    let patterns = [
-        "MetaTrader 5",
-        "MetaTrader5",
-        "MT5",
-    ];
-
     for base in &base_paths {
         let base_path = Path::new(base);
-        if !base_path.exists() {
-            continue;
-        }
+        if !base_path.exists() { continue; }
 
+        // Only scan ONE level deep (direct children)
         if let Ok(entries) = std::fs::read_dir(base_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if !path.is_dir() {
-                    continue;
-                }
+                if !path.is_dir() { continue; }
 
                 let name = path.file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("")
                     .to_lowercase();
 
-                // Check if folder name matches MT5 patterns
-                let is_mt5 = patterns.iter().any(|p| name.contains(&p.to_lowercase()))
-                    || name.contains("metatrader")
-                    || name.contains("mt5");
-
-                if is_mt5 {
+                if name.contains("metatrader") || name.contains("mt5") || name.contains("terminal") {
                     let exe_path = path.join("terminal64.exe");
                     if exe_path.exists() {
-                        if let Some(terminal) = terminal_from_executable(
-                            exe_path.to_string_lossy().as_ref(),
+                        let label = extract_install_label(&path);
+                        if let Some(terminal) = terminal_from_install(
+                            &exe_path,
+                            &label,
+                            exe_to_data,
+                            running_exes,
                             DiscoveryMethod::CommonPath,
-                            false,
                         ) {
                             terminals.push(terminal);
                         }
@@ -385,12 +458,10 @@ fn discover_from_common_paths() -> Vec<TerminalInfo> {
         }
     }
 
-    // Also check specific broker paths
+    // Check specific broker paths
     let specific_paths = [
         "C:\\FTMO MetaTrader 5",
         "C:\\FundedNext MT5",
-        "C:\\ICMarkets MT5",
-        "C:\\Pepperstone MT5",
         "D:\\FTMO MetaTrader 5",
         "D:\\FundedNext MT5",
     ];
@@ -400,10 +471,13 @@ fn discover_from_common_paths() -> Vec<TerminalInfo> {
         if path.exists() {
             let exe_path = path.join("terminal64.exe");
             if exe_path.exists() {
-                if let Some(terminal) = terminal_from_executable(
-                    exe_path.to_string_lossy().as_ref(),
+                let label = extract_install_label(path);
+                if let Some(terminal) = terminal_from_install(
+                    &exe_path,
+                    &label,
+                    exe_to_data,
+                    running_exes,
                     DiscoveryMethod::CommonPath,
-                    false,
                 ) {
                     terminals.push(terminal);
                 }
@@ -414,26 +488,291 @@ fn discover_from_common_paths() -> Vec<TerminalInfo> {
     terminals
 }
 
+/// Discover AppData terminals not already found via install paths
+fn discover_from_appdata_remaining(
+    seen_ids: &HashSet<String>,
+    running_exes: &HashSet<String>,
+) -> Vec<TerminalInfo> {
+    let mut terminals = Vec::new();
+
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let terminals_path = PathBuf::from(&appdata).join("MetaQuotes").join("Terminal");
+        
+        if let Ok(entries) = std::fs::read_dir(&terminals_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let data_id = path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    
+                    // Skip if already found
+                    if seen_ids.contains(&data_id) {
+                        continue;
+                    }
+                    
+                    let mql5_path = path.join("MQL5");
+                    if mql5_path.exists() {
+                        if let Some(terminal) = terminal_from_data_folder_enhanced(&path, running_exes) {
+                            terminals.push(terminal);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    terminals
+}
+
+/// Extract install label from folder path
+fn extract_install_label(install_path: &Path) -> String {
+    let folder_name = install_path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("MT5 Terminal");
+    
+    // Clean up common suffixes but keep broker name
+    let cleaned = folder_name
+        .replace(" Terminal", "")
+        .trim()
+        .to_string();
+    
+    if cleaned.is_empty() {
+        folder_name.to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// Create TerminalInfo from install path (install-centric approach)
+fn terminal_from_install(
+    exe_path: &Path,
+    install_label: &str,
+    exe_to_data: &HashMap<String, (String, String)>,
+    running_exes: &HashSet<String>,
+    method: DiscoveryMethod,
+) -> Option<TerminalInfo> {
+    let install_dir = exe_path.parent()?;
+    let exe_path_str = exe_path.to_string_lossy().to_string();
+    let exe_path_lower = exe_path_str.to_lowercase();
+    
+    // Check if running
+    let is_running = running_exes.contains(&exe_path_lower);
+    
+    // Try to find data folder from AppData index
+    let (data_folder, data_id) = exe_to_data
+        .get(&exe_path_lower)
+        .cloned()
+        .unwrap_or_else(|| {
+            // Fallback: use install dir as data folder (portable mode)
+            (install_dir.to_string_lossy().to_string(), format!("portable_{}", generate_terminal_hash(install_dir)))
+        });
+    
+    // Use data_id as terminal_id for consistency
+    let terminal_id = if data_folder.contains("MetaQuotes") {
+        // Extract hash from path
+        Path::new(&data_folder)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&data_id)
+            .to_string()
+    } else {
+        data_id.clone()
+    };
+    
+    let data_path = Path::new(&data_folder);
+    let mql5_path = data_path.join("MQL5");
+    let files_path = mql5_path.join("Files");
+    
+    // Check if MQL5 exists (might be portable or data folder)
+    let has_mql5 = mql5_path.exists() || install_dir.join("MQL5").exists();
+    let actual_files_path = if files_path.exists() {
+        files_path
+    } else {
+        install_dir.join("MQL5").join("Files")
+    };
+    
+    // Only get broker/server/login from EA handshake
+    let (broker, server, login, account_name, verified) = read_ea_handshake(&actual_files_path);
+    
+    // Check EA installation
+    let experts_path = if mql5_path.exists() {
+        mql5_path.join("Experts")
+    } else {
+        install_dir.join("MQL5").join("Experts")
+    };
+    
+    let master_installed = experts_path.join("TradeCopierMaster.mq5").exists()
+        || experts_path.join("TradeCopierMaster.ex5").exists();
+    let receiver_installed = experts_path.join("TradeCopierReceiver.mq5").exists()
+        || experts_path.join("TradeCopierReceiver.ex5").exists();
+
+    let ea_status = match (master_installed, receiver_installed) {
+        (true, true) => EaStatus::Both,
+        (true, false) => EaStatus::Master,
+        (false, true) => EaStatus::Receiver,
+        (false, false) => EaStatus::None,
+    };
+
+    let last_heartbeat = if master_installed {
+        get_heartbeat_timestamp(&actual_files_path.join("CopierQueue").join("heartbeat.json"))
+    } else {
+        None
+    };
+
+    Some(TerminalInfo {
+        terminal_id,
+        executable_path: Some(exe_path_str),
+        data_folder,
+        install_label: Some(install_label.to_string()),
+        broker,
+        server,
+        login,
+        account_name,
+        platform: "MT5".to_string(),
+        is_running,
+        ea_status,
+        last_heartbeat,
+        discovery_method: method,
+        has_mql5,
+        master_installed,
+        receiver_installed,
+        verified,
+        data_id: Some(data_id),
+        cached_symbols: None,
+        symbol_count: None,
+    })
+}
+
+/// Read EA handshake file (only source of broker/server/login)
+fn read_ea_handshake(files_path: &Path) -> (Option<String>, Option<String>, Option<i64>, Option<String>, bool) {
+    let info_file = files_path.join("CopierAccountInfo.json");
+    if !info_file.exists() {
+        return (None, None, None, None, false);
+    }
+
+    let content = match std::fs::read_to_string(&info_file) {
+        Ok(c) => c,
+        Err(_) => return (None, None, None, None, false),
+    };
+    
+    let json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(j) => j,
+        Err(_) => return (None, None, None, None, false),
+    };
+
+    let broker = json.get("broker").and_then(|v| v.as_str()).map(String::from);
+    let server = json.get("server").and_then(|v| v.as_str()).map(String::from);
+    let login = json.get("account_number")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok());
+    
+    let account_name = match (&broker, login) {
+        (Some(b), Some(l)) => Some(format!("{} - {}", b, l)),
+        _ => None,
+    };
+
+    (broker, server, login, account_name, true)
+}
+
+/// Create TerminalInfo from data folder (for AppData terminals not found via install)
+fn terminal_from_data_folder_enhanced(
+    data_path: &Path,
+    running_exes: &HashSet<String>,
+) -> Option<TerminalInfo> {
+    let terminal_id = data_path.file_name()?.to_str()?.to_string();
+    
+    let mql5_path = data_path.join("MQL5");
+    if !mql5_path.exists() {
+        return None;
+    }
+
+    let files_path = mql5_path.join("Files");
+    
+    // Try to find executable via origin.txt
+    let executable_path = get_executable_from_origin(data_path);
+    let is_running = executable_path.as_ref()
+        .map(|p| running_exes.contains(&p.to_lowercase()))
+        .unwrap_or(false);
+    
+    // Get install label from exe path if available
+    let install_label = executable_path.as_ref()
+        .and_then(|p| Path::new(p).parent())
+        .map(|dir| extract_install_label(dir));
+
+    // Only get broker/server/login from EA handshake
+    let (broker, server, login, account_name, verified) = read_ea_handshake(&files_path);
+
+    // Check EA installation
+    let experts_path = mql5_path.join("Experts");
+    let master_installed = experts_path.join("TradeCopierMaster.mq5").exists()
+        || experts_path.join("TradeCopierMaster.ex5").exists();
+    let receiver_installed = experts_path.join("TradeCopierReceiver.mq5").exists()
+        || experts_path.join("TradeCopierReceiver.ex5").exists();
+
+    let ea_status = match (master_installed, receiver_installed) {
+        (true, true) => EaStatus::Both,
+        (true, false) => EaStatus::Master,
+        (false, true) => EaStatus::Receiver,
+        (false, false) => EaStatus::None,
+    };
+
+    let last_heartbeat = if master_installed {
+        get_heartbeat_timestamp(&files_path.join("CopierQueue").join("heartbeat.json"))
+    } else {
+        None
+    };
+
+    Some(TerminalInfo {
+        terminal_id: terminal_id.clone(),
+        executable_path,
+        data_folder: data_path.to_string_lossy().to_string(),
+        install_label,
+        broker,
+        server,
+        login,
+        account_name,
+        platform: "MT5".to_string(),
+        is_running,
+        ea_status,
+        last_heartbeat,
+        discovery_method: DiscoveryMethod::AppData,
+        has_mql5: files_path.exists(),
+        master_installed,
+        receiver_installed,
+        verified,
+        data_id: Some(terminal_id),
+        cached_symbols: None,
+        symbol_count: None,
+    })
+}
+
 /// Discover terminals from persisted manual paths
 fn discover_from_manual_paths() -> Vec<TerminalInfo> {
     let mut terminals = Vec::new();
     let config = load_config();
+    let running_exes = get_running_terminal_exes();
+    let exe_to_data = HashMap::new(); // Manual paths don't need AppData mapping
 
     for manual in config.manual_terminals {
         let path = Path::new(&manual.path);
         if path.exists() {
             let exe_path = path.join("terminal64.exe");
             if exe_path.exists() {
-                if let Some(terminal) = terminal_from_executable(
-                    exe_path.to_string_lossy().as_ref(),
+                let label = extract_install_label(path);
+                if let Some(terminal) = terminal_from_install(
+                    &exe_path,
+                    &label,
+                    &exe_to_data,
+                    &running_exes,
                     DiscoveryMethod::Manual,
-                    false,
                 ) {
                     terminals.push(terminal);
                 }
             } else {
                 // Maybe it's a data folder path
-                if let Some(terminal) = terminal_from_data_folder(path, DiscoveryMethod::Manual) {
+                if let Some(terminal) = terminal_from_data_folder_enhanced(path, &running_exes) {
                     terminals.push(terminal);
                 }
             }
@@ -457,7 +796,8 @@ fn generate_terminal_hash(data_path: &Path) -> String {
     format!("{:016x}", hash)
 }
 
-/// Create TerminalInfo from executable path (portable installation)
+/// Create TerminalInfo from executable path (legacy - for compatibility)
+#[allow(dead_code)]
 fn terminal_from_executable(exe_path: &str, method: DiscoveryMethod, is_running: bool) -> Option<TerminalInfo> {
     let exe = Path::new(exe_path);
     let install_dir = exe.parent()?;
@@ -469,11 +809,11 @@ fn terminal_from_executable(exe_path: &str, method: DiscoveryMethod, is_running:
     }
 
     let files_path = mql5_path.join("Files");
-    // Generate stable terminal_id using hash
     let terminal_id = format!("portable_{}", generate_terminal_hash(install_dir));
+    let install_label = extract_install_label(install_dir);
 
-    // Get broker info
-    let (broker, server, login, account_name) = get_terminal_identity(&files_path, install_dir);
+    // Only get broker/server/login from EA handshake
+    let (broker, server, login, account_name, verified) = read_ea_handshake(&files_path);
 
     // Check EA installation
     let experts_path = mql5_path.join("Experts");
@@ -482,7 +822,6 @@ fn terminal_from_executable(exe_path: &str, method: DiscoveryMethod, is_running:
     let receiver_installed = experts_path.join("TradeCopierReceiver.mq5").exists()
         || experts_path.join("TradeCopierReceiver.ex5").exists();
 
-    // Determine EA status
     let ea_status = match (master_installed, receiver_installed) {
         (true, true) => EaStatus::Both,
         (true, false) => EaStatus::Master,
@@ -490,7 +829,6 @@ fn terminal_from_executable(exe_path: &str, method: DiscoveryMethod, is_running:
         (false, false) => EaStatus::None,
     };
 
-    // Get heartbeat if master installed
     let last_heartbeat = if master_installed {
         get_heartbeat_timestamp(&files_path.join("CopierQueue").join("heartbeat.json"))
     } else {
@@ -498,9 +836,10 @@ fn terminal_from_executable(exe_path: &str, method: DiscoveryMethod, is_running:
     };
 
     Some(TerminalInfo {
-        terminal_id,
+        terminal_id: terminal_id.clone(),
         executable_path: Some(exe_path.to_string()),
         data_folder: install_dir.to_string_lossy().to_string(),
+        install_label: Some(install_label),
         broker,
         server,
         login,
@@ -513,77 +852,22 @@ fn terminal_from_executable(exe_path: &str, method: DiscoveryMethod, is_running:
         has_mql5: files_path.exists(),
         master_installed,
         receiver_installed,
+        verified,
+        data_id: Some(terminal_id),
         cached_symbols: None,
         symbol_count: None,
     })
 }
 
-/// Create TerminalInfo from data folder path (AppData installation)
-fn terminal_from_data_folder(data_path: &Path, method: DiscoveryMethod) -> Option<TerminalInfo> {
-    // Generate stable terminal_id using hash of data folder path
-    let terminal_id = generate_terminal_hash(data_path);
-    
-    let mql5_path = data_path.join("MQL5");
-    if !mql5_path.exists() {
-        return None;
-    }
-
-    let files_path = mql5_path.join("Files");
-    
-    // Try to find executable via origin.txt
-    let executable_path = get_executable_from_origin(data_path);
-    let install_dir = executable_path.as_ref()
-        .and_then(|p| Path::new(p).parent())
-        .map(|p| p.to_path_buf());
-
-    // Get broker info
-    let (broker, server, login, account_name) = get_terminal_identity(
-        &files_path,
-        install_dir.as_deref().unwrap_or(data_path),
-    );
-
-    // Check EA installation
-    let experts_path = mql5_path.join("Experts");
-    let master_installed = experts_path.join("TradeCopierMaster.mq5").exists()
-        || experts_path.join("TradeCopierMaster.ex5").exists();
-    let receiver_installed = experts_path.join("TradeCopierReceiver.mq5").exists()
-        || experts_path.join("TradeCopierReceiver.ex5").exists();
-
-    let ea_status = match (master_installed, receiver_installed) {
-        (true, true) => EaStatus::Both,
-        (true, false) => EaStatus::Master,
-        (false, true) => EaStatus::Receiver,
-        (false, false) => EaStatus::None,
-    };
-
-    let last_heartbeat = if master_installed {
-        get_heartbeat_timestamp(&files_path.join("CopierQueue").join("heartbeat.json"))
-    } else {
-        None
-    };
-
-    Some(TerminalInfo {
-        terminal_id,
-        executable_path,
-        data_folder: data_path.to_string_lossy().to_string(),
-        broker,
-        server,
-        login,
-        account_name,
-        platform: "MT5".to_string(),
-        is_running: false, // Will be updated by process check
-        ea_status,
-        last_heartbeat,
-        discovery_method: method,
-        has_mql5: files_path.exists(),
-        master_installed,
-        receiver_installed,
-        cached_symbols: None,
-        symbol_count: None,
-    })
+/// Create TerminalInfo from data folder path (legacy - for compatibility)
+#[allow(dead_code)]
+fn terminal_from_data_folder(data_path: &Path, _method: DiscoveryMethod) -> Option<TerminalInfo> {
+    let running_exes = get_running_terminal_exes();
+    terminal_from_data_folder_enhanced(data_path, &running_exes)
 }
 
-/// Get terminal identity (broker, server, login) using multiple sources
+/// Get terminal identity - legacy function, kept for backwards compatibility
+#[allow(dead_code)]
 fn get_terminal_identity(files_path: &Path, install_dir: &Path) -> (Option<String>, Option<String>, Option<i64>, Option<String>) {
     // Priority 1: CopierAccountInfo.json (from EA - most accurate)
     if let Some((broker, server, login)) = read_account_info_json(files_path) {

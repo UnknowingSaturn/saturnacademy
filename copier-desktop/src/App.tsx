@@ -78,17 +78,14 @@ function App() {
     checkSetup();
   }, []);
 
-  // Poll for status and heartbeat when in dashboard mode
+  // Poll for status and heartbeat when in dashboard mode (reduced frequency)
   useEffect(() => {
     if (mode !== "dashboard") return;
 
-    const fetchData = async () => {
+    const fetchStatus = async () => {
       try {
         const result = await invoke<CopierStatus>("get_copier_status");
         setStatus(result);
-
-        const execs = await invoke<Execution[]>("get_recent_executions");
-        setExecutions(execs);
 
         // Try to get master heartbeat
         if (masterTerminalId) {
@@ -104,10 +101,27 @@ function App() {
       }
     };
 
-    fetchData();
-    const interval = setInterval(fetchData, 1000);
+    // Fetch executions less frequently
+    const fetchExecutions = async () => {
+      try {
+        const execs = await invoke<Execution[]>("get_recent_executions");
+        setExecutions(execs);
+      } catch (error) {
+        console.error("Failed to get executions:", error);
+      }
+    };
 
-    return () => clearInterval(interval);
+    fetchStatus();
+    fetchExecutions();
+    
+    // Status every 2 seconds, executions every 5 seconds
+    const statusInterval = setInterval(fetchStatus, 2000);
+    const executionsInterval = setInterval(fetchExecutions, 5000);
+
+    return () => {
+      clearInterval(statusInterval);
+      clearInterval(executionsInterval);
+    };
   }, [mode, masterTerminalId]);
 
   const handleWizardComplete = () => {

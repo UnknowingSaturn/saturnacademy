@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
-import { Mt5Terminal } from "../types";
+import { Mt5Terminal, TerminalInfo } from "../types";
 
 interface TerminalManagerProps {
   onTerminalSelect?: (terminalId: string) => void;
@@ -8,6 +8,7 @@ interface TerminalManagerProps {
 
 export default function TerminalManager({ onTerminalSelect }: TerminalManagerProps) {
   const [terminals, setTerminals] = useState<Mt5Terminal[]>([]);
+  const [discoveryInfo, setDiscoveryInfo] = useState<TerminalInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -17,10 +18,41 @@ export default function TerminalManager({ onTerminalSelect }: TerminalManagerPro
     setLoading(true);
     setError(null);
     try {
-      const result = await invoke<Mt5Terminal[]>("find_terminals");
-      setTerminals(result);
+      // Use enhanced discovery for better install_label support
+      const result = await invoke<TerminalInfo[]>("discover_terminals");
+      setDiscoveryInfo(result);
+      
+      // Convert to Mt5Terminal format for compatibility
+      const converted: Mt5Terminal[] = result.map(t => ({
+        terminal_id: t.terminal_id,
+        path: t.data_folder,
+        broker: t.broker,
+        has_mql5: t.has_mql5,
+        master_installed: t.master_installed,
+        receiver_installed: t.receiver_installed,
+        account_info: t.login ? {
+          account_number: t.login.toString(),
+          broker: t.broker || "",
+          balance: 0,
+          equity: 0,
+          margin: 0,
+          free_margin: 0,
+          leverage: 0,
+          currency: "USD",
+          server: t.server || "",
+        } : null,
+        last_heartbeat: t.last_heartbeat,
+      }));
+      
+      setTerminals(converted);
     } catch (err) {
-      setError(`Failed to scan terminals: ${err}`);
+      // Fallback to old method
+      try {
+        const result = await invoke<Mt5Terminal[]>("find_terminals");
+        setTerminals(result);
+      } catch (fallbackErr) {
+        setError(`Failed to scan terminals: ${fallbackErr}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -98,39 +130,48 @@ export default function TerminalManager({ onTerminalSelect }: TerminalManagerPro
         </div>
       ) : (
         <div className="space-y-3">
-          {terminals.map((terminal) => (
-            <div
-              key={terminal.terminal_id}
-              className="p-3 bg-card border border-border rounded-lg"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <p className="font-medium text-sm">
-                    {terminal.account_info?.broker || terminal.broker || "MT5 Terminal"}
-                    {terminal.account_info?.account_number && (
-                      <span className="text-muted-foreground font-normal"> - {terminal.account_info.account_number}</span>
+          {terminals.map((terminal) => {
+            // Get discovery info for this terminal
+            const info = discoveryInfo.find(d => d.terminal_id === terminal.terminal_id);
+            const isVerified = info?.verified === true;
+            // Use install_label pre-EA, broker post-EA
+            const displayName = isVerified 
+              ? (info?.broker || terminal.broker || info?.install_label || "MT5 Terminal")
+              : (info?.install_label || terminal.broker || "MT5 Terminal");
+            
+            return (
+              <div
+                key={terminal.terminal_id}
+                className="p-3 bg-card border border-border rounded-lg"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="font-medium text-sm">
+                      {displayName}
+                      {terminal.account_info?.account_number && (
+                        <span className="text-muted-foreground font-normal"> - {terminal.account_info.account_number}</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      ID: {shortenId(terminal.terminal_id)}
+                      {!isVerified && (
+                        <span className="ml-2 text-amber-500">(attach EA to verify)</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex gap-1">
+                    {terminal.master_installed && (
+                      <span className="px-2 py-0.5 text-xs bg-blue-500/10 text-blue-500 rounded">
+                        Master
+                      </span>
                     )}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    ID: {shortenId(terminal.terminal_id)}
-                    {!terminal.broker && !terminal.account_info?.broker && (
-                      <span className="ml-2 text-amber-500">(run EA to detect broker)</span>
+                    {terminal.receiver_installed && (
+                      <span className="px-2 py-0.5 text-xs bg-purple-500/10 text-purple-500 rounded">
+                        Receiver
+                      </span>
                     )}
-                  </p>
+                  </div>
                 </div>
-                <div className="flex gap-1">
-                  {terminal.master_installed && (
-                    <span className="px-2 py-0.5 text-xs bg-blue-500/10 text-blue-500 rounded">
-                      Master
-                    </span>
-                  )}
-                  {terminal.receiver_installed && (
-                    <span className="px-2 py-0.5 text-xs bg-purple-500/10 text-purple-500 rounded">
-                      Receiver
-                    </span>
-                  )}
-                </div>
-              </div>
 
               <div className="flex gap-2 mt-3">
                 <button

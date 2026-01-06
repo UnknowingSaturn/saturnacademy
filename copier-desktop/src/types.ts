@@ -49,6 +49,9 @@ export interface TerminalInfo {
   terminal_id: string;
   executable_path: string | null;
   data_folder: string;
+  /** Install label from registry DisplayName or folder name - shown pre-EA */
+  install_label: string | null;
+  /** Verified broker name from EA handshake only */
   broker: string | null;
   server: string | null;
   login: number | null;
@@ -61,6 +64,10 @@ export interface TerminalInfo {
   has_mql5: boolean;
   master_installed: boolean;
   receiver_installed: boolean;
+  /** Whether EA handshake file exists (CopierAccountInfo.json) */
+  verified?: boolean;
+  /** The MetaQuotes data folder hash (for AppData terminals) */
+  data_id?: string | null;
   // Cached symbol information
   cached_symbols?: string[];
   symbol_count?: number;
@@ -133,12 +140,17 @@ export interface DiagnosticsInfo {
 
 export interface TerminalDiagnostic {
   terminal_id: string;
+  /** Install label (from registry DisplayName or folder) - shown pre-EA */
+  install_label: string | null;
+  /** Broker name (from EA handshake) - only valid when verified=true */
   broker: string | null;
   account: string | null;
   is_running: boolean;
   ea_status: string;
   last_heartbeat_age_secs: number | null;
   discovery_method: string;
+  /** Whether EA handshake file exists */
+  verified: boolean;
 }
 
 export interface ErrorEntry {
