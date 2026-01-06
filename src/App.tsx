@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider as QCP } from "@tanstack/react-query";
 import { BrowserRouter as BR, Routes as R, Route, Navigate as Nav, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AccountFilterProvider } from "@/contexts/AccountFilterContext";
+import { LiveTradesProvider } from "@/contexts/LiveTradesContext";
 import { withForwardRef } from "@/lib/withForwardRef";
 import { AppLayout } from "./components/layout/AppLayout";
 import NotFound from "./pages/NotFound";
@@ -79,13 +80,15 @@ const App = React.forwardRef<HTMLDivElement, object>(
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <AccountFilterProvider>
-            <TooltipProvider>
-              <Toaster />
-              <Sonner />
-              <BrowserRouter>
-                <AppRoutes />
-              </BrowserRouter>
-            </TooltipProvider>
+            <LiveTradesProvider>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                <BrowserRouter>
+                  <AppRoutes />
+                </BrowserRouter>
+              </TooltipProvider>
+            </LiveTradesProvider>
           </AccountFilterProvider>
         </AuthProvider>
       </QueryClientProvider>
