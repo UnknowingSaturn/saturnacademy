@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Trade, Playbook } from "@/types/trading";
 import { useTradeCompliance, ComplianceRule } from "@/hooks/useTradeCompliance";
 import { useUpsertTradeReview } from "@/hooks/useTrades";
+import { useLiveTrades } from "@/contexts/LiveTradesContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -35,12 +36,22 @@ interface LiveTradeCompliancePanelProps {
 }
 
 export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeCompliancePanelProps) {
+  const { 
+    getComplianceState, 
+    updateManualAnswers,
+    registerPendingSave,
+    unregisterPendingSave
+  } = useLiveTrades();
+  
   const existingReview = trade.review;
+  const cachedState = getComplianceState(trade.id);
+  
   const [manualAnswers, setManualAnswers] = useState<Record<string, boolean>>(
-    existingReview?.checklist_answers || {}
+    cachedState?.manualAnswers || existingReview?.checklist_answers || {}
   );
   const [autoVerifiedOpen, setAutoVerifiedOpen] = useState(false);
   
+  const pendingSaveRef = useRef<NodeJS.Timeout | null>(null);
   const upsertReview = useUpsertTradeReview();
 
   const compliance = useTradeCompliance(trade, playbook, manualAnswers);
@@ -51,6 +62,13 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     compliance.checklistQuestions.length;
   const completedRules = [...compliance.confirmationRules, ...compliance.invalidationRules, ...compliance.checklistQuestions]
     .filter(r => r.status === 'passed').length;
+
+  // Sync manual answers to context when they change
+  useEffect(() => {
+    if (Object.keys(manualAnswers).length > 0) {
+      updateManualAnswers(trade.id, manualAnswers);
+    }
+  }, [manualAnswers, trade.id, updateManualAnswers]);
 
   // Auto-collapse auto-verified if all pass
   useEffect(() => {
@@ -63,7 +81,9 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     if (Object.keys(manualAnswers).length === 0) return;
     if (upsertReview.isPending) return;
     
-    const saveAnswers = async () => {
+    registerPendingSave(trade.id, 'compliance');
+    
+    pendingSaveRef.current = setTimeout(async () => {
       const reviewData = {
         trade_id: trade.id,
         playbook_id: playbook.id,
@@ -80,14 +100,40 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
 
       try {
         await upsertReview.mutateAsync({ review: reviewData, silent: true });
+        unregisterPendingSave(trade.id, 'compliance');
       } catch (error) {
-        // Error handled by mutation
+        unregisterPendingSave(trade.id, 'compliance');
+      }
+    }, 500);
+    
+    return () => {
+      if (pendingSaveRef.current) {
+        clearTimeout(pendingSaveRef.current);
       }
     };
+  }, [manualAnswers, trade.id, playbook.id, existingReview, upsertReview.isPending, registerPendingSave, unregisterPendingSave]);
 
-    const debounce = setTimeout(saveAnswers, 500);
-    return () => clearTimeout(debounce);
-  }, [manualAnswers, trade.id, playbook.id, existingReview, upsertReview.isPending]);
+  // Flush pending saves on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingSaveRef.current) {
+        clearTimeout(pendingSaveRef.current);
+        // Synchronously save before unmount
+        if (Object.keys(manualAnswers).length > 0) {
+          upsertReview.mutate({
+            review: {
+              trade_id: trade.id,
+              playbook_id: playbook.id,
+              checklist_answers: manualAnswers,
+              score: Object.values(manualAnswers).filter(Boolean).length,
+            },
+            silent: true,
+          });
+        }
+        unregisterPendingSave(trade.id, 'compliance');
+      }
+    };
+  }, [manualAnswers, trade.id, playbook.id]);
 
   const toggleAnswer = (ruleId: string) => {
     setManualAnswers(prev => ({

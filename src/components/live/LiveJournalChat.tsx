@@ -3,6 +3,7 @@ import { Trade, Playbook } from "@/types/trading";
 import { supabase } from "@/integrations/supabase/client";
 import { useUpsertTradeReview } from "@/hooks/useTrades";
 import { useScreenshots } from "@/hooks/useScreenshots";
+import { useLiveTrades } from "@/contexts/LiveTradesContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,24 +36,50 @@ const INITIAL_MESSAGE = `Hey! You're in a {{symbol}} {{direction}} using your **
 How are you feeling going into this position?`;
 
 export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { 
+    getChatState, 
+    setChatState, 
+    updateChatMessages, 
+    updateQuickResponses,
+    updateSavedData,
+    registerPendingSave,
+    unregisterPendingSave 
+  } = useLiveTrades();
+  
+  // Get cached state from context
+  const cachedState = getChatState(trade.id);
+  
+  const [messages, setMessages] = useState<Message[]>(cachedState?.messages || []);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [quickResponses, setQuickResponses] = useState<string[]>(['Focused', 'Calm', 'Confident', 'Anxious', 'FOMO']);
+  const [quickResponses, setQuickResponses] = useState<string[]>(
+    cachedState?.quickResponses || ['Focused', 'Calm', 'Confident', 'Anxious', 'FOMO']
+  );
   const [shouldUploadScreenshot, setShouldUploadScreenshot] = useState(false);
-  const [savedData, setSavedData] = useState<Record<string, any>>({});
+  const [savedData, setSavedData] = useState<Record<string, any>>(cachedState?.savedData || {});
   const [hasLoadedConversation, setHasLoadedConversation] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const pendingSaveRef = useRef<NodeJS.Timeout | null>(null);
   
   const upsertReview = useUpsertTradeReview();
   const { uploadScreenshot, isUploading } = useScreenshots();
 
   // Load existing conversation or initialize with first message
   useEffect(() => {
+    // If we have cached state from context, use it
+    if (cachedState?.messages && cachedState.messages.length > 0) {
+      setMessages(cachedState.messages);
+      setQuickResponses(cachedState.quickResponses || []);
+      setSavedData(cachedState.savedData || {});
+      setHasLoadedConversation(true);
+      return;
+    }
+    
+    // Otherwise, try loading from trade.review
     const existingConversation = trade.review?.journal_conversation as Message[] | undefined;
     
     if (existingConversation && Array.isArray(existingConversation) && existingConversation.length > 0) {
@@ -67,13 +94,36 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
       setMessages([{ role: 'assistant', content: initialContent }]);
     }
     setHasLoadedConversation(true);
-  }, [trade.id, playbook.id]);
+  }, [trade.id, playbook.id, cachedState]);
 
-  // Save conversation when messages change (debounced)
+  // Sync messages to context when they change
+  useEffect(() => {
+    if (hasLoadedConversation && messages.length > 0) {
+      updateChatMessages(trade.id, messages);
+    }
+  }, [messages, trade.id, hasLoadedConversation, updateChatMessages]);
+
+  // Sync quick responses to context
+  useEffect(() => {
+    if (hasLoadedConversation) {
+      updateQuickResponses(trade.id, quickResponses);
+    }
+  }, [quickResponses, trade.id, hasLoadedConversation, updateQuickResponses]);
+
+  // Sync saved data to context
+  useEffect(() => {
+    if (hasLoadedConversation && Object.keys(savedData).length > 0) {
+      updateSavedData(trade.id, savedData);
+    }
+  }, [savedData, trade.id, hasLoadedConversation, updateSavedData]);
+
+  // Save conversation when messages change (debounced) with immediate flush on unmount
   useEffect(() => {
     if (!hasLoadedConversation || messages.length <= 1) return;
     
-    const saveTimeout = setTimeout(async () => {
+    registerPendingSave(trade.id, 'chat');
+    
+    pendingSaveRef.current = setTimeout(async () => {
       try {
         await upsertReview.mutateAsync({
           review: {
@@ -83,13 +133,40 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
           },
           silent: true,
         });
+        unregisterPendingSave(trade.id, 'chat');
       } catch (error) {
         console.error('Failed to save conversation:', error);
+        unregisterPendingSave(trade.id, 'chat');
       }
     }, 1000); // Debounce for 1 second
     
-    return () => clearTimeout(saveTimeout);
-  }, [messages, hasLoadedConversation, trade.id, playbook.id]);
+    return () => {
+      if (pendingSaveRef.current) {
+        clearTimeout(pendingSaveRef.current);
+      }
+    };
+  }, [messages, hasLoadedConversation, trade.id, playbook.id, registerPendingSave, unregisterPendingSave]);
+
+  // Flush pending saves on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingSaveRef.current) {
+        clearTimeout(pendingSaveRef.current);
+        // Synchronously save before unmount
+        if (messages.length > 1) {
+          upsertReview.mutate({
+            review: {
+              trade_id: trade.id,
+              playbook_id: playbook.id,
+              journal_conversation: messages as any,
+            },
+            silent: true,
+          });
+        }
+        unregisterPendingSave(trade.id, 'chat');
+      }
+    };
+  }, [messages, trade.id, playbook.id]);
 
   // Auto-scroll to bottom
   useEffect(() => {

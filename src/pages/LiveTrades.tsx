@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
+import { useLiveTrades } from "@/contexts/LiveTradesContext";
 import { Playbook } from "@/types/trading";
 import { ModelSelectionPrompt } from "@/components/journal/ModelSelectionPrompt";
 import { LiveTradeCompliancePanel } from "@/components/journal/LiveTradeCompliancePanel";
@@ -28,6 +29,7 @@ export default function LiveTrades() {
   const { data: allOpenTrades = [], isLoading } = useOpenTrades();
   const { data: playbooks = [] } = usePlaybooks();
   const { selectedAccountId, selectedAccount } = useAccountFilter();
+  const { selectedTradeId, setSelectedTradeId } = useLiveTrades();
   
   // Filter open trades by selected account
   const openTrades = useMemo(() => {
@@ -35,10 +37,14 @@ export default function LiveTrades() {
     return allOpenTrades.filter(t => t.account_id === selectedAccountId);
   }, [allOpenTrades, selectedAccountId]);
 
-  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(
-    location.state?.selectedTradeId || null
-  );
   const [selectedPlaybook, setSelectedPlaybook] = useState<Playbook | null>(null);
+
+  // Handle initial trade selection from location state
+  useEffect(() => {
+    if (location.state?.selectedTradeId) {
+      setSelectedTradeId(location.state.selectedTradeId);
+    }
+  }, [location.state?.selectedTradeId, setSelectedTradeId]);
 
   const selectedTrade = openTrades.find(t => t.id === selectedTradeId);
 
@@ -55,7 +61,7 @@ export default function LiveTrades() {
     if (!selectedTradeId && openTrades.length > 0) {
       setSelectedTradeId(openTrades[0].id);
     }
-  }, [openTrades, selectedTradeId]);
+  }, [openTrades, selectedTradeId, setSelectedTradeId]);
 
   // When trade is selected, find matching playbook
   useEffect(() => {
