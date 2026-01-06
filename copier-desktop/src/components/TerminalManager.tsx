@@ -226,7 +226,8 @@ export default function TerminalManager({ onTerminalSelect }: TerminalManagerPro
                   </button>
                 )}
               </div>
-            ))}
+            );
+          })}
         </div>
       )}
 
