@@ -173,59 +173,59 @@ export default function TerminalManager({ onTerminalSelect }: TerminalManagerPro
                   </div>
                 </div>
 
-              <div className="flex gap-2 mt-3">
-                <button
-                  onClick={() => installEa(terminal.terminal_id, "master")}
-                  disabled={installing !== null}
-                  className={`flex-1 px-3 py-2 text-xs rounded transition-colors ${
-                    terminal.master_installed
-                      ? "bg-muted text-muted-foreground hover:bg-muted/80"
-                      : "bg-blue-500 text-white hover:bg-blue-600"
-                  } disabled:opacity-50`}
-                >
-                  {installing === `${terminal.terminal_id}-master` ? (
-                    <span className="flex items-center justify-center gap-1">
-                      <span className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
-                      Installing...
-                    </span>
-                  ) : terminal.master_installed ? (
-                    "Reinstall Master"
-                  ) : (
-                    "Install Master EA"
-                  )}
-                </button>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={() => installEa(terminal.terminal_id, "master")}
+                    disabled={installing !== null}
+                    className={`flex-1 px-3 py-2 text-xs rounded transition-colors ${
+                      terminal.master_installed
+                        ? "bg-muted text-muted-foreground hover:bg-muted/80"
+                        : "bg-blue-500 text-white hover:bg-blue-600"
+                    } disabled:opacity-50`}
+                  >
+                    {installing === `${terminal.terminal_id}-master` ? (
+                      <span className="flex items-center justify-center gap-1">
+                        <span className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
+                        Installing...
+                      </span>
+                    ) : terminal.master_installed ? (
+                      "Reinstall Master"
+                    ) : (
+                      "Install Master EA"
+                    )}
+                  </button>
 
-                <button
-                  onClick={() => installEa(terminal.terminal_id, "receiver")}
-                  disabled={installing !== null}
-                  className={`flex-1 px-3 py-2 text-xs rounded transition-colors ${
-                    terminal.receiver_installed
-                      ? "bg-muted text-muted-foreground hover:bg-muted/80"
-                      : "bg-purple-500 text-white hover:bg-purple-600"
-                  } disabled:opacity-50`}
-                >
-                  {installing === `${terminal.terminal_id}-receiver` ? (
-                    <span className="flex items-center justify-center gap-1">
-                      <span className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
-                      Installing...
-                    </span>
-                  ) : terminal.receiver_installed ? (
-                    "Reinstall Receiver"
-                  ) : (
-                    "Install Receiver EA"
-                  )}
-                </button>
+                  <button
+                    onClick={() => installEa(terminal.terminal_id, "receiver")}
+                    disabled={installing !== null}
+                    className={`flex-1 px-3 py-2 text-xs rounded transition-colors ${
+                      terminal.receiver_installed
+                        ? "bg-muted text-muted-foreground hover:bg-muted/80"
+                        : "bg-purple-500 text-white hover:bg-purple-600"
+                    } disabled:opacity-50`}
+                  >
+                    {installing === `${terminal.terminal_id}-receiver` ? (
+                      <span className="flex items-center justify-center gap-1">
+                        <span className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
+                        Installing...
+                      </span>
+                    ) : terminal.receiver_installed ? (
+                      "Reinstall Receiver"
+                    ) : (
+                      "Install Receiver EA"
+                    )}
+                  </button>
+                </div>
+
+                {onTerminalSelect && (
+                  <button
+                    onClick={() => onTerminalSelect(terminal.terminal_id)}
+                    className="w-full mt-2 px-3 py-1.5 text-xs border border-border rounded hover:bg-accent"
+                  >
+                    Use this terminal
+                  </button>
+                )}
               </div>
-
-              {onTerminalSelect && (
-                <button
-                  onClick={() => onTerminalSelect(terminal.terminal_id)}
-                  className="w-full mt-2 px-3 py-1.5 text-xs border border-border rounded hover:bg-accent"
-                >
-                  Use this terminal
-                </button>
-              )}
-            </div>
           ))}
         </div>
       )}
