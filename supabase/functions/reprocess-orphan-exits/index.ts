@@ -32,19 +32,60 @@ function detectSession(utcTimestamp: string): string {
 
 // Helper: Get pip size for a symbol
 function getPipSize(symbol: string): number {
-  const normalized = symbol.toUpperCase().replace(/[^A-Z]/g, '');
+  const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  
+  // JPY pairs
   if (normalized.includes('JPY')) return 0.01;
+  
+  // Precious metals
   if (normalized.includes('XAU') || normalized.includes('GOLD')) return 0.1;
   if (normalized.includes('XAG') || normalized.includes('SILVER')) return 0.01;
+  
+  // US Indices - quoted in points
+  if (normalized.includes('SP500') || normalized.includes('SPX') || normalized.includes('US500')) return 0.01;
+  if (normalized.includes('NAS') || normalized.includes('USTEC') || normalized.includes('US100')) return 0.01;
+  if (normalized.includes('US30') || normalized.includes('DJ30') || normalized.includes('DOW')) return 1.0;
+  if (normalized.includes('DAX') || normalized.includes('DE40') || normalized.includes('GER40')) return 0.1;
+  if (normalized.includes('FTSE') || normalized.includes('UK100')) return 0.1;
+  
+  // Oil
+  if (normalized.includes('OIL') || normalized.includes('BRENT') || normalized.includes('WTI') || 
+      normalized.includes('USOIL') || normalized.includes('XTIUSD')) return 0.01;
+  
+  // Crypto
+  if (normalized.includes('BTC') || normalized.includes('BITCOIN')) return 1.0;
+  if (normalized.includes('ETH')) return 0.01;
+  
+  // Default forex
   return 0.0001;
 }
 
 // Helper: Get approximate pip value in USD
 function getPipValue(symbol: string, lots: number): number {
-  const normalized = symbol.toUpperCase().replace(/[^A-Z]/g, '');
+  const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  
+  // JPY pairs
   if (normalized.includes('JPY')) return lots * 7.5;
+  
+  // Precious metals
   if (normalized.includes('XAU') || normalized.includes('GOLD')) return lots * 10;
   if (normalized.includes('XAG') || normalized.includes('SILVER')) return lots * 50;
+  
+  // US Indices - pip value per lot (approximations)
+  if (normalized.includes('SP500') || normalized.includes('SPX') || normalized.includes('US500')) return lots * 0.50;
+  if (normalized.includes('NAS') || normalized.includes('USTEC') || normalized.includes('US100')) return lots * 0.20;
+  if (normalized.includes('US30') || normalized.includes('DJ30') || normalized.includes('DOW')) return lots * 0.10;
+  if (normalized.includes('DAX') || normalized.includes('DE40') || normalized.includes('GER40')) return lots * 0.10;
+  
+  // Oil
+  if (normalized.includes('OIL') || normalized.includes('BRENT') || normalized.includes('WTI') ||
+      normalized.includes('USOIL') || normalized.includes('XTIUSD')) return lots * 10;
+  
+  // Crypto
+  if (normalized.includes('BTC') || normalized.includes('BITCOIN')) return lots * 1.0;
+  if (normalized.includes('ETH')) return lots * 1.0;
+  
+  // Default forex
   return lots * 10;
 }
 
