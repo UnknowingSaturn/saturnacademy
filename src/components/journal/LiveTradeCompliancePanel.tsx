@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Trade, Playbook } from "@/types/trading";
 import { useTradeCompliance, ComplianceRule } from "@/hooks/useTradeCompliance";
 import { useUpsertTradeReview } from "@/hooks/useTrades";
 import { useLiveTrades } from "@/contexts/LiveTradesContext";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import { useScreenshots } from "@/hooks/useScreenshots";
 import { LiveTradeQuestion, DEFAULT_LIVE_TRADE_QUESTIONS } from "@/types/settings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Collapsible,
@@ -31,7 +34,10 @@ import {
   ChevronDown,
   ChevronRight,
   MessageSquare,
-  Star
+  Star,
+  ImagePlus,
+  Trash2,
+  Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ComplianceScoreRing } from "@/components/live/ComplianceScoreRing";
