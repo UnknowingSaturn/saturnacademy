@@ -230,6 +230,8 @@ export default function LiveTrades() {
           </div>
         </>
       )}
+
+      <JournalSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} defaultTab="live" />
     </div>
   );
 }
