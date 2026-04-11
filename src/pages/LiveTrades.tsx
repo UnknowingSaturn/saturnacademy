@@ -17,12 +17,13 @@ import {
   Radio,
   Loader2,
   Zap,
-  
-  RefreshCw
+  RefreshCw,
+  Settings
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
+import { JournalSettingsDialog } from "@/components/journal/JournalSettingsDialog";
 
 export default function LiveTrades() {
   const location = useLocation();
