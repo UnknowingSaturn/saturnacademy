@@ -20,19 +20,13 @@ interface EventPayload {
   idempotency_key: string;
   terminal_id: string;
   account_id?: string;
-  // EA type to distinguish between journal/master/receiver
   ea_type?: "journal" | "master" | "receiver";
-  // Accept all event types including history_sync and position_snapshot
-  event_type: "entry" | "exit" | "history_sync" | "open" | "modify" | "partial_close" | "close" | "position_snapshot";
-  // For position_snapshot: array of currently open position ticket IDs
+  event_type: "entry" | "exit" | "history_sync" | "open" | "modify" | "partial_close" | "close" | "position_snapshot" | "heartbeat";
   open_position_tickets?: number[];
-  // For history_sync, this contains the actual event type (entry/exit)
   original_event_type?: "entry" | "exit";
-  // Accept all three IDs explicitly
   position_id: number;
   deal_id: number;
   order_id: number;
-  // Legacy field for backwards compatibility
   ticket?: number;
   symbol: string;
   direction: "buy" | "sell";
@@ -43,16 +37,20 @@ interface EventPayload {
   commission?: number;
   swap?: number;
   profit?: number;
-  // Accept both UTC timestamp and server_time
   timestamp: string;
   server_time?: string;
-  // NEW: Timezone offset from broker server
   timezone_offset_seconds?: number;
-  // NEW: Equity at entry for R% calculation
   equity_at_entry?: number;
-  // NEW: Entry details for orphan exit handling
   entry_price?: number;
   entry_time?: string;
+  spread?: number;
+  // Heartbeat fields
+  ea_version?: string;
+  open_positions_count?: number;
+  leverage?: number;
+  margin_free?: number;
+  margin_level?: number;
+  broker_utc_offset?: number;
   account_info?: AccountInfo;
   raw_payload?: Record<string, unknown>;
 }
@@ -60,70 +58,44 @@ interface EventPayload {
 // Helper: Get pip size for a symbol (5-digit vs 3-digit pricing)
 function getPipSize(symbol: string): number {
   const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  
-  // JPY pairs
   if (normalized.includes('JPY')) return 0.01;
-  
-  // Precious metals
   if (normalized.includes('XAU') || normalized.includes('GOLD')) return 0.1;
   if (normalized.includes('XAG') || normalized.includes('SILVER')) return 0.01;
-  
-  // US Indices - quoted in points
   if (normalized.includes('SP500') || normalized.includes('SPX') || normalized.includes('US500')) return 0.01;
   if (normalized.includes('NAS') || normalized.includes('USTEC') || normalized.includes('US100')) return 0.01;
   if (normalized.includes('US30') || normalized.includes('DJ30') || normalized.includes('DOW')) return 1.0;
   if (normalized.includes('DAX') || normalized.includes('DE40') || normalized.includes('GER40')) return 0.1;
   if (normalized.includes('FTSE') || normalized.includes('UK100')) return 0.1;
-  
-  // Oil
   if (normalized.includes('OIL') || normalized.includes('BRENT') || normalized.includes('WTI') || 
       normalized.includes('USOIL') || normalized.includes('XTIUSD')) return 0.01;
-  
-  // Crypto
   if (normalized.includes('BTC') || normalized.includes('BITCOIN')) return 1.0;
   if (normalized.includes('ETH')) return 0.01;
-  
-  // Default forex
   return 0.0001;
 }
 
 // Helper: Get approximate pip value in USD for a given lot size
 function getPipValue(symbol: string, lots: number): number {
   const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  
-  // JPY pairs: ~$7-8 per pip per standard lot
   if (normalized.includes('JPY')) return lots * 7.5;
-  
-  // Precious metals
   if (normalized.includes('XAU') || normalized.includes('GOLD')) return lots * 10;
   if (normalized.includes('XAG') || normalized.includes('SILVER')) return lots * 50;
-  
-  // US Indices - pip value per lot (approximations)
   if (normalized.includes('SP500') || normalized.includes('SPX') || normalized.includes('US500')) return lots * 0.50;
   if (normalized.includes('NAS') || normalized.includes('USTEC') || normalized.includes('US100')) return lots * 0.20;
   if (normalized.includes('US30') || normalized.includes('DJ30') || normalized.includes('DOW')) return lots * 0.10;
   if (normalized.includes('DAX') || normalized.includes('DE40') || normalized.includes('GER40')) return lots * 0.10;
-  
-  // Oil: ~$10 per pip per lot
   if (normalized.includes('OIL') || normalized.includes('BRENT') || normalized.includes('WTI') ||
       normalized.includes('USOIL') || normalized.includes('XTIUSD')) return lots * 10;
-  
-  // Crypto
   if (normalized.includes('BTC') || normalized.includes('BITCOIN')) return lots * 1.0;
   if (normalized.includes('ETH')) return lots * 1.0;
-  
-  // Default forex: $10 per pip per standard lot
   return lots * 10;
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Get API key from header
     const apiKey = req.headers.get("x-api-key");
     if (!apiKey) {
       console.error("Missing API key");
@@ -133,12 +105,10 @@ serve(async (req) => {
       );
     }
 
-    // Create Supabase client with service role for account lookup
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Parse request body first to get account_info
     const payload: EventPayload = await req.json();
     console.log("Received event:", payload.idempotency_key, payload.event_type, "position:", payload.position_id, "deal:", payload.deal_id);
 
@@ -154,8 +124,6 @@ serve(async (req) => {
     if ((accountError || !account) && payload.account_info) {
       console.log("No account found, attempting auto-creation...");
       
-      // Get user_id from api_key - check if this is a setup token
-      // FIX: Add expires_at check to prevent use of expired tokens
       const { data: setupToken, error: tokenError } = await supabase
         .from("setup_tokens")
         .select("user_id, used, sync_history_enabled, sync_history_from, copier_role, master_account_id")
@@ -179,22 +147,15 @@ serve(async (req) => {
         );
       }
 
-      // Detect prop firm from server name
       let propFirm = null;
       const serverLower = payload.account_info.server.toLowerCase();
-      if (serverLower.includes("ftmo")) {
-        propFirm = "ftmo";
-      } else if (serverLower.includes("fundednext")) {
-        propFirm = "fundednext";
-      }
+      if (serverLower.includes("ftmo")) propFirm = "ftmo";
+      else if (serverLower.includes("fundednext")) propFirm = "fundednext";
 
-      // Determine copier settings from setup token
       const copierRole = setupToken.copier_role || 'independent';
       const isCopierAccount = copierRole !== 'independent';
-      // Determine ea_type: if copier role specified, use it; otherwise default to journal
       const eaType = copierRole !== 'independent' ? copierRole : (payload.ea_type || 'journal');
 
-      // Create the account with sync settings and copier settings from setup token
       const accountName = `${payload.account_info.broker} - ${payload.account_info.login}`;
       const { data: newAccount, error: createError } = await supabase
         .from("accounts")
@@ -212,11 +173,9 @@ serve(async (req) => {
           is_active: true,
           sync_history_enabled: setupToken.sync_history_enabled ?? true,
           sync_history_from: setupToken.sync_history_from,
-          // Copier-specific fields from setup token
           copier_role: copierRole,
           copier_enabled: isCopierAccount,
           master_account_id: setupToken.master_account_id || null,
-          // Track which EA type is running
           ea_type: eaType,
         })
         .select("id, user_id, terminal_id")
@@ -230,7 +189,6 @@ serve(async (req) => {
         );
       }
 
-      // Mark setup token as used
       await supabase
         .from("setup_tokens")
         .update({ used: true, used_at: new Date().toISOString() })
@@ -238,10 +196,7 @@ serve(async (req) => {
 
       account = newAccount;
       console.log("Auto-created account:", account.id, accountName, 
-        "sync_history_enabled:", setupToken.sync_history_enabled, 
-        "sync_history_from:", setupToken.sync_history_from,
-        "copier_role:", copierRole,
-        "master_account_id:", setupToken.master_account_id);
+        "copier_role:", copierRole);
     } else if (accountError || !account) {
       console.error("Invalid API key:", accountError);
       return new Response(
@@ -261,26 +216,44 @@ serve(async (req) => {
     // Update equity and ea_type if provided
     if (payload.account_info?.equity || payload.ea_type) {
       const updateData: Record<string, unknown> = {};
-      if (payload.account_info?.equity) {
-        updateData.equity_current = payload.account_info.equity;
-      }
-      if (payload.ea_type) {
-        updateData.ea_type = payload.ea_type;
-      }
+      if (payload.account_info?.equity) updateData.equity_current = payload.account_info.equity;
+      if (payload.ea_type) updateData.ea_type = payload.ea_type;
       if (Object.keys(updateData).length > 0) {
-        await supabase
-          .from("accounts")
-          .update(updateData)
-          .eq("id", account.id);
+        await supabase.from("accounts").update(updateData).eq("id", account.id);
       }
     }
 
-    // Handle position_snapshot event - reconcile stale open trades
+    // ==========================================
+    // Handle heartbeat event — update account health, no event/trade processing
+    // ==========================================
+    if (payload.event_type === "heartbeat") {
+      console.log("Heartbeat received from terminal:", payload.terminal_id, 
+        "equity:", payload.account_info?.equity, "positions:", payload.open_positions_count,
+        "ea_version:", payload.ea_version);
+
+      const heartbeatUpdate: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (payload.account_info?.equity) heartbeatUpdate.equity_current = payload.account_info.equity;
+
+      await supabase.from("accounts").update(heartbeatUpdate).eq("id", account.id);
+
+      return new Response(
+        JSON.stringify({
+          status: "accepted",
+          message: "Heartbeat received",
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ==========================================
+    // Handle position_snapshot event
+    // ==========================================
     if (payload.event_type === "position_snapshot") {
       const openTickets = payload.open_position_tickets || [];
       console.log("Position snapshot received:", openTickets.length, "open positions from terminal:", payload.terminal_id);
 
-      // Find all trades marked as open for this account
       const { data: openTrades, error: openTradesError } = await supabase
         .from("trades")
         .select("id, ticket, symbol, is_open")
@@ -295,7 +268,6 @@ serve(async (req) => {
         );
       }
 
-      // Find trades that are open in DB but NOT in the EA's open list
       const staleTrades = (openTrades || []).filter(
         (trade: any) => trade.ticket && !openTickets.includes(trade.ticket)
       );
@@ -304,7 +276,6 @@ serve(async (req) => {
       for (const staleTrade of staleTrades) {
         console.log("Closing stale trade:", staleTrade.id, "ticket:", staleTrade.ticket, "symbol:", staleTrade.symbol);
         
-        // Mark trade as closed with best-effort data
         const { error: updateError } = await supabase
           .from("trades")
           .update({
@@ -314,14 +285,11 @@ serve(async (req) => {
           })
           .eq("id", staleTrade.id);
 
-        if (!updateError) {
-          closedCount++;
-        } else {
-          console.error("Failed to close stale trade:", staleTrade.id, updateError);
-        }
+        if (!updateError) closedCount++;
+        else console.error("Failed to close stale trade:", staleTrade.id, updateError);
       }
 
-      console.log("Position snapshot reconciliation: closed", closedCount, "stale trades out of", staleTrades.length, "candidates");
+      console.log("Position snapshot reconciliation: closed", closedCount, "stale trades");
 
       return new Response(
         JSON.stringify({
@@ -337,42 +305,27 @@ serve(async (req) => {
 
     // SERVER-SIDE FILTERING: Skip history_sync events older than sync_history_from
     if (payload.event_type === "history_sync") {
-      // Fetch account sync settings
       const { data: accountSettings } = await supabase
         .from("accounts")
         .select("sync_history_enabled, sync_history_from")
         .eq("id", account.id)
         .single();
 
-      // Skip if sync is disabled
       if (accountSettings && accountSettings.sync_history_enabled === false) {
         console.log("History sync disabled, skipping event:", payload.idempotency_key);
         return new Response(
-          JSON.stringify({ 
-            status: "skipped", 
-            reason: "history_sync_disabled",
-            message: "Historical sync is disabled for this account" 
-          }),
+          JSON.stringify({ status: "skipped", reason: "history_sync_disabled", message: "Historical sync is disabled for this account" }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      // Skip if event is older than sync_history_from
       if (accountSettings?.sync_history_from) {
         const eventTime = new Date(payload.timestamp);
         const syncCutoff = new Date(accountSettings.sync_history_from);
-
         if (eventTime < syncCutoff) {
-          console.log("Event before sync cutoff, skipping:", 
-            payload.idempotency_key, 
-            "event:", eventTime.toISOString(), 
-            "cutoff:", syncCutoff.toISOString());
+          console.log("Event before sync cutoff, skipping:", payload.idempotency_key);
           return new Response(
-            JSON.stringify({ 
-              status: "skipped", 
-              reason: "before_sync_cutoff",
-              message: "Event is older than configured sync date" 
-            }),
+            JSON.stringify({ status: "skipped", reason: "before_sync_cutoff", message: "Event is older than configured sync date" }),
             { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -389,33 +342,26 @@ serve(async (req) => {
     if (existingEvent) {
       console.log("Duplicate event:", payload.idempotency_key);
       return new Response(
-        JSON.stringify({ 
-          status: "duplicate", 
-          event_id: existingEvent.id,
-          message: "Event already processed" 
-        }),
+        JSON.stringify({ status: "duplicate", event_id: existingEvent.id, message: "Event already processed" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Map new event types to database enum values
-    // For history_sync, use the original_event_type to determine actual event
+    // Map event types to database enum values
     let dbEventType = payload.event_type;
     let effectiveEventType = payload.event_type;
     
     if (payload.event_type === "history_sync") {
-      // History sync events use original_event_type for processing
       effectiveEventType = payload.original_event_type || "entry";
       dbEventType = effectiveEventType === "entry" ? "open" : "close";
-      console.log("Processing history sync event, original type:", effectiveEventType);
     } else if (payload.event_type === "entry") {
       dbEventType = "open";
     } else if (payload.event_type === "exit") {
-      // Will be determined as partial_close or close during processing
-      dbEventType = "close"; // Default, will be updated if partial
+      dbEventType = "close";
+    } else if (payload.event_type === "modify") {
+      dbEventType = "modify";
     }
 
-    // Use position_id as the trade grouping key (was previously called ticket)
     const tradeTicket = payload.position_id || payload.ticket;
 
     // Insert event
@@ -437,19 +383,20 @@ serve(async (req) => {
         swap: payload.swap || 0,
         profit: payload.profit,
         event_timestamp: payload.timestamp,
-      raw_payload: {
-        ...payload.raw_payload,
-        // Store all IDs in raw_payload for reference
-        position_id: payload.position_id,
-        deal_id: payload.deal_id,
-        order_id: payload.order_id,
-        server_time: payload.server_time,
-        timezone_offset_seconds: payload.timezone_offset_seconds,
-        equity_at_entry: payload.equity_at_entry,
-        // Store entry details for orphan exit handling
-        entry_price: payload.entry_price,
-        entry_time: payload.entry_time,
-      },
+        raw_payload: {
+          ...payload.raw_payload,
+          position_id: payload.position_id,
+          deal_id: payload.deal_id,
+          order_id: payload.order_id,
+          server_time: payload.server_time,
+          timezone_offset_seconds: payload.timezone_offset_seconds,
+          equity_at_entry: payload.equity_at_entry,
+          entry_price: payload.entry_price,
+          entry_time: payload.entry_time,
+          spread: payload.spread,
+          ea_version: payload.ea_version,
+          broker_utc_offset: payload.broker_utc_offset,
+        },
         processed: false,
       })
       .select()
@@ -489,12 +436,11 @@ serve(async (req) => {
 
 async function processEvent(supabase: any, event: any, userId: string, originalPayload: EventPayload) {
   const { event_type, ticket, account_id, lot_size } = event;
-  // For history_sync, use original_event_type; otherwise use the payload event_type
   const effectiveEventType = originalPayload.event_type === "history_sync" 
     ? originalPayload.original_event_type 
     : originalPayload.event_type;
 
-  // Find existing trade for this position_id (ticket in DB)
+  // Find existing trade for this position_id
   const { data: existingTrade } = await supabase
     .from("trades")
     .select("*")
@@ -502,10 +448,8 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
     .eq("account_id", account_id)
     .single();
 
-  // Determine session from timestamp - use America/New_York (DST-aware)
+  // Determine session from timestamp
   const eventDate = new Date(event.event_timestamp);
-  
-  // Use Intl.DateTimeFormat to get the hour in America/New_York timezone (handles DST)
   const etFormatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
     hour: 'numeric',
@@ -518,32 +462,13 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
   const etMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
   const etTime = etHour + etMinute / 60;
   
-  // Session detection priority (London takes precedence in the 03:00-04:00 overlap):
-  // - London: 03:00 - 08:00 ET (checked first to capture 03:00-04:00)
-  // - Tokyo: 19:00 - 03:00 ET (after London close)
-  // - New York AM: 08:00 - 12:00 ET
-  // - New York PM: 12:00 - 17:00 ET
-  // - Off Hours: 17:00 - 19:00 ET
   let session = "off_hours";
-  if (etTime >= 3 && etTime < 8) {
-    session = "london";
-  } else if (etTime >= 8 && etTime < 12) {
-    session = "new_york_am";
-  } else if (etTime >= 12 && etTime < 17) {
-    session = "new_york_pm";
-  } else if (etTime >= 19 || etTime < 3) {
-    session = "tokyo";
-  }
-  
-  console.log("Session detection:", { 
-    utcTime: eventDate.toISOString(), 
-    etHour, 
-    etMinute, 
-    etTime: etTime.toFixed(2), 
-    session 
-  });
+  if (etTime >= 3 && etTime < 8) session = "london";
+  else if (etTime >= 8 && etTime < 12) session = "new_york_am";
+  else if (etTime >= 12 && etTime < 17) session = "new_york_pm";
+  else if (etTime >= 19 || etTime < 3) session = "tokyo";
 
-  // Fetch account data for balance/equity tracking
+  // Fetch account data
   const { data: accountData } = await supabase
     .from("accounts")
     .select("balance_start, equity_current")
@@ -552,16 +477,35 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
   
   const currentEquity = accountData?.equity_current || accountData?.balance_start || 0;
 
-  // Handle entry event (open) - including history_sync entries
+  // ==========================================
+  // Handle MODIFY event — update SL/TP on existing trade
+  // ==========================================
+  if (effectiveEventType === "modify" || event_type === "modify") {
+    if (existingTrade) {
+      const updateData: Record<string, unknown> = {};
+      if (event.sl) updateData.sl_final = event.sl;
+      if (event.tp) updateData.tp_final = event.tp;
+      
+      await supabase.from("trades").update(updateData).eq("id", existingTrade.id);
+      console.log("Processed SL/TP modify for position:", ticket, 
+        "SL:", event.sl, "TP:", event.tp,
+        "previous_sl:", originalPayload.raw_payload?.previous_sl,
+        "previous_tp:", originalPayload.raw_payload?.previous_tp);
+    } else {
+      console.log("Modify event for unknown position:", ticket, "- ignoring");
+    }
+    await supabase.from("events").update({ processed: true }).eq("id", event.id);
+    return;
+  }
+
+  // Handle entry event (open)
   if (effectiveEventType === "entry" || event_type === "open") {
     if (existingTrade) {
-      // Trade already exists - might be adding to position
       console.log("Trade already exists for position:", ticket);
     } else {
       // Use equity_at_entry from payload if provided, otherwise use current equity
       const equityAtEntry = originalPayload.equity_at_entry || currentEquity;
       
-      // Create new trade - store original_lots, balance_at_entry, and equity_at_entry
       await supabase.from("trades").insert({
         user_id: userId,
         account_id: account_id,
@@ -579,66 +523,55 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         tp_final: event.tp,
         session: session,
         is_open: true,
-        balance_at_entry: currentEquity, // Keep for backwards compatibility
-        equity_at_entry: equityAtEntry, // NEW: Actual equity snapshot for R% calculation
+        balance_at_entry: currentEquity,
+        equity_at_entry: equityAtEntry,
       });
       console.log("Created new trade for position:", ticket, "equity_at_entry:", equityAtEntry);
     }
   } 
-  // Handle exit event - determine if partial or full close (including history_sync exits)
+  // Handle exit event
   else if (effectiveEventType === "exit" || event_type === "close" || event_type === "partial_close") {
     if (!existingTrade) {
       // ORPHAN EXIT: Create a closed trade from exit event data
       console.log("Orphan exit event - creating closed trade for position:", ticket);
       
-      // Extract entry details from raw_payload if available
       const rawPayload = event.raw_payload || {};
       const entryPrice = rawPayload.entry_price || originalPayload.entry_price || event.price;
       const entryTime = rawPayload.entry_time || originalPayload.entry_time || event.event_timestamp;
       
-      // Calculate duration
       const entryDate = new Date(entryTime);
       const exitDate = new Date(event.event_timestamp);
       const duration = Math.floor((exitDate.getTime() - entryDate.getTime()) / 1000);
       
-      // Calculate net PnL
       const grossPnl = event.profit || 0;
       const commission = event.commission || 0;
       const swap = event.swap || 0;
       const netPnl = grossPnl - commission - Math.abs(swap);
       
-      // R% calculation using actual risk (|entry - SL| × lots × pip value)
       let rMultiple = null;
       const equityAtEntry = rawPayload.equity_at_entry || originalPayload.equity_at_entry || currentEquity;
       const slPrice = event.sl;
       
       if (slPrice && entryPrice && slPrice !== entryPrice) {
-        // Calculate risk in pips
         const pipSize = getPipSize(event.symbol);
         const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
-        // Calculate pip value (approximate - for Forex pairs ending in USD, 1 standard lot = $10/pip)
         const pipValue = getPipValue(event.symbol, lot_size);
         const riskAmount = stopDistancePips * pipValue;
-        
         if (riskAmount > 0) {
-          // R = Net PnL / Risk Amount (as a ratio, stored as percentage)
           rMultiple = Math.round((netPnl / riskAmount) * 100) / 100;
-          console.log("R calc (orphan):", { stopDistancePips, pipValue, riskAmount, netPnl, rMultiple });
         }
       } else if (equityAtEntry && equityAtEntry > 0) {
-        // Fallback to equity-based if no SL
         rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
       }
       
-      // Create closed trade
-      const { data: newTrade, error: tradeError } = await supabase.from("trades").insert({
+      await supabase.from("trades").insert({
         user_id: userId,
         account_id: account_id,
         terminal_id: event.terminal_id,
         ticket: ticket,
         symbol: event.symbol,
         direction: event.direction,
-        total_lots: 0, // Closed
+        total_lots: 0,
         original_lots: lot_size,
         entry_price: entryPrice,
         entry_time: entryTime,
@@ -658,25 +591,18 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         is_open: false,
         balance_at_entry: currentEquity,
         equity_at_entry: equityAtEntry,
-      }).select().single();
+      });
       
-      if (tradeError) {
-        console.error("Failed to create orphan trade:", tradeError);
-      } else {
-        console.log("Created closed trade from orphan exit:", ticket, "PnL:", netPnl, "R%:", rMultiple);
-      }
-      
-      // Mark event as processed
+      console.log("Created closed trade from orphan exit:", ticket, "PnL:", netPnl);
       await supabase.from("events").update({ processed: true }).eq("id", event.id);
       return;
     }
 
     // Calculate remaining lots after this exit
     const remainingLots = existingTrade.total_lots - lot_size;
-    const isPartialClose = remainingLots > 0.001; // Small tolerance for floating point
+    const isPartialClose = remainingLots > 0.001;
 
     if (isPartialClose) {
-      // Partial close - add to partial_closes array
       const partialCloses = existingTrade.partial_closes || [];
       partialCloses.push({
         time: event.event_timestamp,
@@ -689,12 +615,10 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       await supabase.from("trades").update({
         partial_closes: partialCloses,
         total_lots: remainingLots,
-        // Update SL/TP if provided
         sl_final: event.sl || existingTrade.sl_final,
         tp_final: event.tp || existingTrade.tp_final,
       }).eq("id", existingTrade.id);
 
-      // Update event type to partial_close
       await supabase.from("events").update({ event_type: "partial_close" }).eq("id", event.id);
       console.log("Processed partial close for position:", ticket, "remaining lots:", remainingLots);
     } else {
@@ -703,56 +627,44 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         (new Date(event.event_timestamp).getTime() - new Date(existingTrade.entry_time).getTime()) / 1000
       );
       
-      // Calculate total PnL including partials
       let totalGrossPnl = event.profit || 0;
       let totalCommission = event.commission || 0;
       let totalSwap = event.swap || 0;
       
-      // Add PnL from partial closes
       if (existingTrade.partial_closes) {
         for (const partial of existingTrade.partial_closes) {
           totalGrossPnl += partial.pnl || 0;
         }
       }
-      // Add existing commission/swap
       totalCommission += existingTrade.commission || 0;
       totalSwap += existingTrade.swap || 0;
       
       const netPnl = totalGrossPnl - totalCommission - Math.abs(totalSwap);
       
-      // Calculate R-multiple using actual risk (|entry - SL| × lots × pip value)
       let rMultiple = null;
       const slPrice = existingTrade.sl_initial || existingTrade.sl_final;
       const entryPrice = existingTrade.entry_price;
       const originalLots = existingTrade.original_lots || existingTrade.total_lots;
       
       if (slPrice && entryPrice && slPrice !== entryPrice) {
-        // Calculate risk in pips
         const pipSize = getPipSize(existingTrade.symbol);
         const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
-        // Calculate pip value based on lots
         const pipValue = getPipValue(existingTrade.symbol, originalLots);
         const riskAmount = stopDistancePips * pipValue;
-        
         if (riskAmount > 0) {
-          // R = Net PnL / Risk Amount (as a ratio, e.g., 1.5R, -0.5R)
           rMultiple = Math.round((netPnl / riskAmount) * 100) / 100;
-          console.log("R calc:", { symbol: existingTrade.symbol, entry: entryPrice, sl: slPrice, stopDistancePips, pipValue, lots: originalLots, riskAmount, netPnl, rMultiple });
         }
       } else {
-        // Fallback to equity-based if no SL (stored as percentage)
         const equityAtEntry = existingTrade.equity_at_entry || existingTrade.balance_at_entry;
         if (equityAtEntry && equityAtEntry > 0) {
           rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
         }
       }
 
-      // Update account equity_current after trade closes
+      // Update account equity
       const equityForUpdate = existingTrade.equity_at_entry || existingTrade.balance_at_entry || currentEquity;
       const newEquity = equityForUpdate + netPnl;
-      await supabase.from("accounts").update({
-        equity_current: newEquity
-      }).eq("id", account_id);
+      await supabase.from("accounts").update({ equity_current: newEquity }).eq("id", account_id);
 
       await supabase.from("trades").update({
         exit_price: event.price,
@@ -764,21 +676,13 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         r_multiple_actual: rMultiple,
         duration_seconds: duration,
         is_open: false,
-        total_lots: 0, // All closed
+        total_lots: 0,
         sl_final: event.sl || existingTrade.sl_final,
         tp_final: event.tp || existingTrade.tp_final,
       }).eq("id", existingTrade.id);
       
-      console.log("Processed full close for position:", ticket, "PnL:", netPnl, "R:", rMultiple, "equity:", equityForUpdate, "new equity:", newEquity);
+      console.log("Processed full close for position:", ticket, "PnL:", netPnl, "R:", rMultiple);
     }
-  }
-  // Handle legacy modify event
-  else if (event_type === "modify" && existingTrade) {
-    await supabase.from("trades").update({
-      sl_final: event.sl,
-      tp_final: event.tp,
-    }).eq("id", existingTrade.id);
-    console.log("Processed modify for position:", ticket);
   }
 
   // Mark event as processed
