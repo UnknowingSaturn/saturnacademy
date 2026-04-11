@@ -7,11 +7,24 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Clock,
-  Timer
+  Timer,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatBrokerDateTimeET } from "@/lib/time";
 import { TradeProgressBar } from "./TradeProgressBar";
+import { useUpdateTrade } from "@/hooks/useTrades";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface LiveTradeCardProps {
   trade: Trade & {
