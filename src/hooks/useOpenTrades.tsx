@@ -190,7 +190,7 @@ export function useOpenTrades() {
         };
       });
     },
-    refetchInterval: 60000, // Reduced to 60s since we have realtime now
+    refetchInterval: 15000, // 15s for faster stale-trade detection
   });
 }
 

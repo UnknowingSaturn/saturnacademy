@@ -3,10 +3,15 @@ import { Trade, Playbook } from "@/types/trading";
 import { useTradeCompliance, ComplianceRule } from "@/hooks/useTradeCompliance";
 import { useUpsertTradeReview } from "@/hooks/useTrades";
 import { useLiveTrades } from "@/contexts/LiveTradesContext";
+import { useUserSettings } from "@/hooks/useUserSettings";
+import { LiveTradeQuestion, DEFAULT_LIVE_TRADE_QUESTIONS } from "@/types/settings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Collapsible,
   CollapsibleContent,
@@ -24,11 +29,12 @@ import {
   Lightbulb,
   TriangleAlert,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  MessageSquare,
+  Star
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ComplianceScoreRing } from "@/components/live/ComplianceScoreRing";
-import { QuickNoteInput } from "@/components/live/QuickNoteInput";
 
 interface LiveTradeCompliancePanelProps {
   trade: Trade;
@@ -43,15 +49,22 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     unregisterPendingSave
   } = useLiveTrades();
   
+  const { data: userSettings } = useUserSettings();
+  const liveQuestions: LiveTradeQuestion[] = userSettings?.live_trade_questions || DEFAULT_LIVE_TRADE_QUESTIONS;
+  
   const existingReview = trade.review;
   const cachedState = getComplianceState(trade.id);
   
   const [manualAnswers, setManualAnswers] = useState<Record<string, boolean>>(
     cachedState?.manualAnswers || existingReview?.checklist_answers || {}
   );
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>(
+    cachedState?.questionAnswers || {}
+  );
   const [autoVerifiedOpen, setAutoVerifiedOpen] = useState(false);
   
   const pendingSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const questionSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upsertReview = useUpsertTradeReview();
 
   const compliance = useTradeCompliance(trade, playbook, manualAnswers);
@@ -62,6 +75,17 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     compliance.checklistQuestions.length;
   const completedRules = [...compliance.confirmationRules, ...compliance.invalidationRules, ...compliance.checklistQuestions]
     .filter(r => r.status === 'passed').length;
+
+  // Load existing question answers from review
+  useEffect(() => {
+    if (existingReview && !cachedState?.questionAnswers) {
+      const loaded: Record<string, string> = {};
+      if (existingReview.emotional_state_before) loaded['emotional_state'] = existingReview.emotional_state_before;
+      if (existingReview.thoughts) loaded['entry_reasoning'] = existingReview.thoughts;
+      if (existingReview.psychology_notes) loaded['market_context'] = existingReview.psychology_notes;
+      if (Object.keys(loaded).length > 0) setQuestionAnswers(loaded);
+    }
+  }, [existingReview, cachedState]);
 
   // Sync manual answers to context when they change
   useEffect(() => {
@@ -76,7 +100,7 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     setAutoVerifiedOpen(!allPassed);
   }, [compliance.autoVerified]);
 
-  // Auto-save when manual answers change (silently) - uses upsert
+  // Auto-save checklist answers (debounced)
   useEffect(() => {
     if (Object.keys(manualAnswers).length === 0) return;
     if (upsertReview.isPending) return;
@@ -89,7 +113,6 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
         playbook_id: playbook.id,
         checklist_answers: manualAnswers,
         score: Object.values(manualAnswers).filter(Boolean).length,
-        // Preserve existing values
         ...(existingReview && {
           regime: existingReview.regime,
           emotional_state_before: existingReview.emotional_state_before,
@@ -101,24 +124,56 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
       try {
         await upsertReview.mutateAsync({ review: reviewData, silent: true });
         unregisterPendingSave(trade.id, 'compliance');
-      } catch (error) {
+      } catch {
         unregisterPendingSave(trade.id, 'compliance');
       }
     }, 500);
     
     return () => {
-      if (pendingSaveRef.current) {
-        clearTimeout(pendingSaveRef.current);
-      }
+      if (pendingSaveRef.current) clearTimeout(pendingSaveRef.current);
     };
   }, [manualAnswers, trade.id, playbook.id, existingReview, upsertReview.isPending, registerPendingSave, unregisterPendingSave]);
+
+  // Auto-save question answers (debounced)
+  useEffect(() => {
+    if (Object.keys(questionAnswers).length === 0) return;
+    
+    registerPendingSave(trade.id, 'questions');
+    
+    questionSaveRef.current = setTimeout(async () => {
+      const reviewData: any = {
+        trade_id: trade.id,
+        playbook_id: playbook.id,
+      };
+      
+      if (questionAnswers['emotional_state']) {
+        reviewData.emotional_state_before = questionAnswers['emotional_state'];
+      }
+      if (questionAnswers['entry_reasoning']) {
+        reviewData.thoughts = questionAnswers['entry_reasoning'];
+      }
+      if (questionAnswers['market_context']) {
+        reviewData.psychology_notes = questionAnswers['market_context'];
+      }
+
+      try {
+        await upsertReview.mutateAsync({ review: reviewData, silent: true });
+        unregisterPendingSave(trade.id, 'questions');
+      } catch {
+        unregisterPendingSave(trade.id, 'questions');
+      }
+    }, 800);
+    
+    return () => {
+      if (questionSaveRef.current) clearTimeout(questionSaveRef.current);
+    };
+  }, [questionAnswers, trade.id, playbook.id, registerPendingSave, unregisterPendingSave]);
 
   // Flush pending saves on unmount
   useEffect(() => {
     return () => {
       if (pendingSaveRef.current) {
         clearTimeout(pendingSaveRef.current);
-        // Synchronously save before unmount
         if (Object.keys(manualAnswers).length > 0) {
           upsertReview.mutate({
             review: {
@@ -132,6 +187,10 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
         }
         unregisterPendingSave(trade.id, 'compliance');
       }
+      if (questionSaveRef.current) {
+        clearTimeout(questionSaveRef.current);
+        unregisterPendingSave(trade.id, 'questions');
+      }
     };
   }, [manualAnswers, trade.id, playbook.id]);
 
@@ -140,6 +199,10 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
       ...prev,
       [ruleId]: !prev[ruleId],
     }));
+  };
+
+  const updateQuestionAnswer = (questionId: string, value: string) => {
+    setQuestionAnswers(prev => ({ ...prev, [questionId]: value }));
   };
 
   const getStatusIcon = (status: ComplianceRule['status']) => {
@@ -204,6 +267,52 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
       </span>
     </label>
   );
+
+  const renderQuestion = (q: LiveTradeQuestion) => {
+    const value = questionAnswers[q.id] || '';
+    
+    return (
+      <div key={q.id} className="space-y-1.5">
+        <label className="text-sm font-medium text-foreground">{q.label}</label>
+        {q.type === 'select' && q.options ? (
+          <Select value={value} onValueChange={v => updateQuestionAnswer(q.id, v)}>
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="Select..." />
+            </SelectTrigger>
+            <SelectContent>
+              {q.options.map(opt => (
+                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : q.type === 'rating' ? (
+          <div className="flex gap-1">
+            {[1, 2, 3, 4, 5].map(n => (
+              <button
+                key={n}
+                onClick={() => updateQuestionAnswer(q.id, String(n))}
+                className={cn(
+                  "h-9 w-9 rounded-md border transition-colors flex items-center justify-center",
+                  value === String(n) 
+                    ? "bg-primary text-primary-foreground border-primary" 
+                    : "border-border hover:bg-muted/50"
+                )}
+              >
+                <Star className={cn("h-4 w-4", value === String(n) ? "fill-current" : "")} />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <Textarea
+            value={value}
+            onChange={e => updateQuestionAnswer(q.id, e.target.value)}
+            placeholder="Type here..."
+            className="min-h-[60px] resize-none text-sm"
+          />
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -339,6 +448,23 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
             </Card>
           )}
 
+          {/* Live Trade Journal Questions */}
+          {liveQuestions.length > 0 && (
+            <Card className="border-border/50">
+              <CardHeader className="py-2.5 px-4">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-primary" />
+                  Trade Journal
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3 pt-0">
+                <div className="space-y-3">
+                  {liveQuestions.map(renderQuestion)}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Management Tips - Compact */}
           {compliance.managementRules.length > 0 && (
             <Card className="border-primary/20 bg-primary/5">
@@ -382,11 +508,6 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
               </CardContent>
             </Card>
           )}
-
-          {/* Quick Note Input */}
-          <div className="pt-2">
-            <QuickNoteInput tradeId={trade.id} />
-          </div>
         </div>
       </ScrollArea>
     </div>
