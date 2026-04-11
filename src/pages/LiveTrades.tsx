@@ -17,7 +17,7 @@ import {
   Radio,
   Loader2,
   Zap,
-  Shield,
+  
   RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
