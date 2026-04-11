@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
@@ -17,12 +17,13 @@ import {
   Radio,
   Loader2,
   Zap,
-  
-  RefreshCw
+  RefreshCw,
+  Settings
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
+import { JournalSettingsDialog } from "@/components/journal/JournalSettingsDialog";
 
 export default function LiveTrades() {
   const location = useLocation();
@@ -38,6 +39,7 @@ export default function LiveTrades() {
   }, [allOpenTrades, selectedAccountId]);
 
   const [selectedPlaybook, setSelectedPlaybook] = useState<Playbook | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (location.state?.selectedTradeId) {
@@ -106,6 +108,10 @@ export default function LiveTrades() {
             Real-time position monitoring & compliance
           </p>
         </div>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSettingsOpen(true)}>
+          <Settings className="h-3.5 w-3.5" />
+          Settings
+        </Button>
         <Button variant="outline" size="sm" className="gap-1.5" onClick={handleRefresh}>
           <RefreshCw className="h-3.5 w-3.5" />
           Refresh
@@ -224,6 +230,8 @@ export default function LiveTrades() {
           </div>
         </>
       )}
+
+      <JournalSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} defaultTab="live" />
     </div>
   );
 }
