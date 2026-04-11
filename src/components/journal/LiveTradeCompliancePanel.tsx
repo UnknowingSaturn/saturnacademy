@@ -51,7 +51,7 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
   );
   const [autoVerifiedOpen, setAutoVerifiedOpen] = useState(false);
   
-  const pendingSaveRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upsertReview = useUpsertTradeReview();
 
   const compliance = useTradeCompliance(trade, playbook, manualAnswers);
