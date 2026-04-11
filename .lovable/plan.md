@@ -1,130 +1,138 @@
 
 
-## Fix: Stale Live Trades When MT5 Closes and Reopens
+# TradeJournalBridge EA — Comprehensive Audit
 
-### Root Cause Analysis
+## 1. Redundant / Over-Engineered Areas
 
-The core problem is a **gap detection blind spot** in the EA:
+### 1a. Duplicate payload builders (HIGH)
+`BuildEventPayload()`, `BuildHistorySyncPayload()`, and `BuildOpenPositionPayload()` are ~90% identical — each builds the same JSON structure with minor variations. This is ~300 lines of near-copy-paste code. A single `BuildPayload()` with flags would cut this by 200+ lines and eliminate drift bugs (e.g. a field added to one but forgotten in another).
 
-1. **`OnTradeTransaction` only fires for live events** — if MT5 is closed when a trade closes, the event is never captured
-2. **`SyncOpenPositions()` only sends entry events** for currently open positions — it never checks if previously-open trades have closed
-3. **`SyncHistoricalDeals()` runs every 24h** and scans 90 days of deals, but it doesn't specifically target the gap period when the EA was offline
-4. **No reconciliation loop** — there's no periodic check comparing MT5's actual open positions against what the database thinks is open
+### 1b. Duplicate filter logic (MEDIUM)
+Symbol/magic filtering is copy-pasted in `OnTradeTransaction`, `ReconcileClosedPositions`, `SyncHistoricalDeals`, `SendPositionSnapshot`, and `SyncOpenPositions` — 5 places. Should be a single `PassesFilter(symbol, magic)` function.
 
-Result: trades that closed while MT5 was offline remain stuck as `is_open: true` in the database forever.
+### 1c. Duplicate account-type detection (LOW)
+The `live/demo/prop` detection block (checking server name for "demo", "ftmo", etc.) is repeated in 4 payload builders. Should be one `DetectAccountType()` function.
+
+### 1d. `OnTick()` as backup queue processor (MEDIUM)
+`OnTick()` duplicates `OnTimer()` queue processing. Since `EventSetTimer(30)` is already reliable, the `OnTick()` backup adds unnecessary CPU load on every tick across all symbols. The timer alone is sufficient.
+
+### 1e. `g_processedDeals` in-memory dedup vs server-side idempotency (LOW)
+The EA maintains a 1000-entry in-memory array AND the server already handles idempotency via `idempotency_key`. The client-side array is a useful optimisation to avoid network calls, but the linear O(n) scan on every deal is inefficient. A hash set or sorted array with binary search would be better, or simply rely on server 409s.
 
 ---
 
-### Solution: Position Reconciliation (EA + Backend)
+## 2. Bugs and Gaps
 
-#### Part 1: New EA Function — `ReconcileClosedPositions()`
+### 2a. `equity_at_entry` is wrong for history sync (HIGH)
+`BuildOpenPositionPayload()` sends the CURRENT equity as `equity_at_entry`, not the equity at the time the trade was opened. This means R% calculations for synced trades use today's equity, not the equity when the trade was taken. For historical sync, this field should be omitted (let backend calculate from balance history or skip R%).
 
-Add a function that runs **on startup** (after `SyncOpenPositions`) that:
+### 2b. Broker UTC offset is static — fails during DST (HIGH)
+`InpBrokerUTCOffset` is a fixed integer input. Most brokers shift between UTC+2 and UTC+3 for daylight savings. This causes all timestamps to be off by 1 hour for ~6 months of the year. Should use `TimeGMTOffset()` which returns the actual current offset, or compute `TimeCurrent() - TimeGMT()` dynamically.
 
-1. Scans deal history for the gap period (since last EA run, tracked via a file)
-2. Finds all **exit deals** that occurred while the EA was offline
-3. Sends these as normal `exit` events to `ingest-events`
-4. This naturally closes the stale trades in the database
+### 2c. No SL/TP modification tracking (MEDIUM)
+When a user moves their SL or TP on an open trade, no event is sent. The database keeps the original SL/TP from entry. This means R-multiple calculations can be wrong if the user tightens their stop. `OnTradeTransaction` should handle `TRADE_TRANSACTION_POSITION` events for SL/TP changes and send a `modify` event.
+
+### 2d. Partial close creates orphaned records (MEDIUM)
+When a position is partially closed, `DEAL_ENTRY_OUT` fires with a partial lot size, but the remaining position keeps the same ticket. The EA sends this as a plain `exit`, but the backend may fully close the trade. Need to send lot_size context so the backend can handle partial vs full close correctly. (The backend may already handle this via lot comparison — needs verification.)
+
+### 2e. `SyncOpenPositions` sends `deal_id: 0` and `order_id: 0` (MEDIUM)
+Open position sync uses position ticket as the only ID and hard-codes `deal_id` and `order_id` to 0. The entry deal IS available via `HistorySelectByPosition()` — the EA should look it up and send the real deal ID for proper idempotency matching.
+
+### 2f. No commission tracking for open positions (LOW)
+`BuildOpenPositionPayload` sends `commission: 0`. The actual commission from the entry deal is available via history lookup.
+
+### 2g. Queue file corruption risk (LOW)
+The queue file uses `|` as delimiter with `{{PIPE}}` escaping, and `FILE_SHARE_WRITE` allows concurrent writes. If MT5 crashes mid-write, the file can be corrupted. No integrity check exists on read.
+
+### 2h. Log file grows unbounded (LOW)
+`TradeJournal.log` is opened with `FILE_READ|FILE_WRITE` and appended to forever. No rotation or size limit.
+
+---
+
+## 3. Missing Industry-Standard Features
+
+### 3a. Auto-detect broker timezone (HIGH priority)
+Replace manual `InpBrokerUTCOffset` with automatic detection using `TimeGMT()` and `TimeCurrent()`. This eliminates user configuration errors and handles DST automatically.
+
+### 3b. SL/TP modification events (HIGH)
+Track `TRADE_TRANSACTION_POSITION` in `OnTradeTransaction` to detect SL/TP changes on open positions. Send a `modify` event to keep the database in sync. Critical for accurate R-multiple tracking.
+
+### 3c. Heartbeat / health check event (MEDIUM)
+Send a periodic lightweight `heartbeat` event (every 5-10 min) containing: account balance, equity, number of open positions, EA version. This enables the frontend to show "last seen" status and detect disconnected terminals.
+
+### 3d. Spread capture at entry (MEDIUM)
+Capture `SymbolInfoInteger(symbol, SYMBOL_SPREAD)` at trade time and include in the payload. Useful for analytics (e.g., "was the spread unusually wide?").
+
+### 3e. Account leverage and margin info (LOW)
+Send `ACCOUNT_LEVERAGE`, `ACCOUNT_MARGIN_FREE`, and `ACCOUNT_MARGIN_LEVEL` in account_info. Useful for risk analysis and prop firm compliance monitoring.
+
+### 3f. EA self-update version check (LOW)
+On startup, call a version-check endpoint. If a newer EA version exists, print a prominent message to the Experts tab. Prevents users from running stale EA versions.
+
+### 3g. Graceful shutdown — flush queue (LOW)
+In `OnDeinit`, attempt to flush any pending queue items before shutting down (with a short timeout). Currently queued items just wait for next startup.
+
+---
+
+## 4. Recommended Refactors (No New Features)
+
+| Refactor | Impact | Effort |
+|----------|--------|--------|
+| Consolidate 3 payload builders into 1 | Eliminates 200+ LOC, prevents field drift | Medium |
+| Extract `PassesFilter()` helper | DRY, fewer bugs when filters change | Low |
+| Extract `DetectAccountType()` helper | DRY | Low |
+| Extract `GetAccountPayload()` helper | DRY (account_info JSON block repeated 4x) | Low |
+| Remove `OnTick()` backup queue processing | Reduces CPU, timer is sufficient | Low |
+| Replace linear `IsDealProcessed` scan with sorted array + binary search | O(log n) instead of O(n) | Low |
+| Add log file rotation (max 1MB, keep 2 files) | Prevents disk fill | Low |
+
+---
+
+## 5. Summary Priority Matrix
 
 ```text
-OnInit flow:
-  1. SyncOpenPositions()     — ensures open trades exist in DB
-  2. ReconcileClosedPositions() — NEW: finds exits that happened while offline
-  3. Normal operation begins
+Priority  | Issue                              | Type
+----------|------------------------------------|----------
+CRITICAL  | DST-broken timestamps              | Bug fix
+CRITICAL  | Wrong equity_at_entry on sync       | Bug fix
+HIGH      | Consolidate payload builders       | Refactor
+HIGH      | SL/TP modification tracking        | New feature
+HIGH      | Auto-detect broker timezone        | New feature
+MEDIUM    | Heartbeat events                   | New feature
+MEDIUM    | Spread capture                     | New feature
+MEDIUM    | Partial close handling              | Bug fix
+MEDIUM    | Real deal_id for open pos sync     | Bug fix
+MEDIUM    | Remove OnTick backup               | Cleanup
+LOW       | Log rotation                       | Cleanup
+LOW       | Queue file integrity               | Robustness
+LOW       | Leverage/margin in payload         | Enhancement
+LOW       | EA version check                   | Enhancement
 ```
-
-Key implementation:
-- Store `last_active_time` in a file (updated every OnTimer tick)
-- On startup, scan history from `last_active_time` to now
-- Send any exit deals found as regular `exit` events (idempotency handles duplicates)
-
-#### Part 2: New EA Function — Periodic Position Snapshot via `OnTimer`
-
-Add to the existing `OnTimer()` handler:
-
-1. Every 60 seconds, update a `last_active_time` file
-2. Every 5 minutes, do a lightweight reconciliation: compare `PositionsTotal()` against a cached list of known open position tickets
-3. If a position disappears from MT5's open list, scan its deal history and send the exit event
-
-```text
-OnTimer flow (every 30s):
-  1. Update last_active_time file
-  2. ProcessQueue() (existing)
-  3. Every 5th tick: compare open positions vs cached list
-     → If position missing: find exit deal, send exit event
-```
-
-#### Part 3: New Backend Event — `position_snapshot` (Optional Enhancement)
-
-Add a lightweight endpoint where the EA sends the list of currently open position IDs. The backend:
-
-1. Compares against `trades` where `is_open = true` and `account_id` matches
-2. Any trade in DB that's NOT in the EA's open list gets marked for investigation
-3. Runs a best-effort close using the most recent exit event data
-
-This is a safety net for edge cases where exit deals can't be found in MT5 history.
-
-#### Part 4: Frontend — Already Handled
-
-The `useOpenTrades` hook already has Supabase Realtime subscription on the `trades` table. Once the backend updates `is_open: false`, the frontend will automatically remove the trade from the live view. No frontend changes needed.
 
 ---
 
-### Implementation Files
+## 6. Proposed Implementation Plan
 
-| File | Action | Changes |
-|------|--------|---------|
-| `mt5-bridge/TradeJournalBridge.mq5` | **Modify** | Add `ReconcileClosedPositions()`, periodic position tracking in `OnTimer()`, `last_active_time` file management |
-| `public/TradeJournalBridge.mq5` | **Modify** | Mirror changes from mt5-bridge |
-| `supabase/functions/ingest-events/index.ts` | **Modify** | Add `position_snapshot` event type handler that reconciles open trades |
+If approved, I would implement changes in this order:
 
----
+**Phase 1 — Bug fixes + Refactors (EA only)**
+- Auto-detect broker timezone (replace `InpBrokerUTCOffset` with dynamic calculation, keep input as optional override)
+- Fix `equity_at_entry` for history/open-position sync (omit or mark as estimated)
+- Consolidate payload builders into single function
+- Extract shared helpers (`PassesFilter`, `DetectAccountType`, `GetAccountPayload`)
+- Remove `OnTick()` backup
+- Look up real deal_id for open position sync
 
-### Detailed EA Changes
+**Phase 2 — New features (EA + Backend)**
+- SL/TP modification tracking (`modify` event type)
+- Heartbeat event with account health data
+- Spread capture at trade time
+- Add leverage/margin to account_info
 
-**New global variables:**
-```mql5
-string g_lastActiveFile = "";      // Tracks when EA was last running
-ulong  g_knownOpenPositions[];     // Cached list of open position tickets  
-int    g_reconcileCounter = 0;     // Timer counter for periodic reconciliation
-```
+**Phase 3 — Robustness**
+- Log rotation
+- Queue file integrity checks
+- Graceful shutdown queue flush
 
-**New function: `ReconcileClosedPositions()`**
-- Reads `last_active_time` from file
-- Calls `HistorySelect(lastActiveTime, TimeCurrent())`
-- Iterates all deals, finds `DEAL_ENTRY_OUT` deals
-- For each exit deal, builds and sends a normal exit event payload
-- Idempotency keys prevent duplicates if the deal was already processed
-
-**New function: `UpdateLastActiveTime()`**
-- Writes current `TimeCurrent()` to file every timer tick
-- Used on next startup to determine the offline gap
-
-**Modified `OnTimer()`:**
-- Calls `UpdateLastActiveTime()` every tick
-- Every 10th tick (~5 min): calls `CheckForClosedPositions()` which compares current open positions against `g_knownOpenPositions[]`
-
-**New function: `CheckForClosedPositions()`**
-- Gets current open position tickets from MT5
-- Compares against `g_knownOpenPositions[]`
-- For any missing positions, finds exit deal and sends exit event
-- Updates `g_knownOpenPositions[]`
-
-**New function: `SendPositionSnapshot()`**
-- Builds JSON array of currently open position IDs
-- Sends to `ingest-events` with `event_type: "position_snapshot"`
-- Backend uses this as ground truth to close orphaned trades
-
----
-
-### Edge Cases Handled
-
-| Scenario | How It's Fixed |
-|----------|---------------|
-| Trade closes while MT5 is fully closed | `ReconcileClosedPositions()` on startup scans the gap period |
-| Trade closes while EA is removed but MT5 is open | Same — gap detection finds the exit deal on next EA attach |
-| MT5 crashes mid-trade | `CheckForClosedPositions()` periodic check catches it within 5 min |
-| Trade closed on mobile/web terminal | Exit deal appears in MT5 history — reconciliation finds it |
-| Multiple trades close while offline | All exit deals are scanned and sent individually |
-| Internet was down when trade closed | Queue retry handles failed sends; reconciliation re-sends on reconnect |
+Each phase produces a compilable, backward-compatible EA. The backend (`ingest-events`) would need minor additions to handle `modify` and `heartbeat` event types.
 
