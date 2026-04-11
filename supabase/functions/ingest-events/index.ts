@@ -22,8 +22,10 @@ interface EventPayload {
   account_id?: string;
   // EA type to distinguish between journal/master/receiver
   ea_type?: "journal" | "master" | "receiver";
-  // Accept all event types including history_sync
-  event_type: "entry" | "exit" | "history_sync" | "open" | "modify" | "partial_close" | "close";
+  // Accept all event types including history_sync and position_snapshot
+  event_type: "entry" | "exit" | "history_sync" | "open" | "modify" | "partial_close" | "close" | "position_snapshot";
+  // For position_snapshot: array of currently open position ticket IDs
+  open_position_tickets?: number[];
   // For history_sync, this contains the actual event type (entry/exit)
   original_event_type?: "entry" | "exit";
   // Accept all three IDs explicitly
