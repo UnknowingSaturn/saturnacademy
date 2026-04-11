@@ -1,96 +1,125 @@
 
 
-# Comprehensive Codebase Review — Findings & Plan
+# Comprehensive Page Audit & Fixes
 
-## Summary: Overall Health
+## Summary
 
-The codebase is in **good shape** after the v3.00 EA refactor. Build is clean (no errors or warnings), both EA file copies are identical (checksums match), all database enums are aligned, and edge functions respond correctly. Below are the remaining issues found, organized by priority.
-
----
-
-## Issues Found
-
-### 1. Position Snapshot — Stale Trade Close Sets `total_lots: 0` Without PnL (MEDIUM)
-
-**File:** `supabase/functions/ingest-events/index.ts` lines 279-286
-
-When the position snapshot closes stale trades, it sets `total_lots: 0` and `exit_time: now()` but does NOT set `net_pnl`, `gross_pnl`, `exit_price`, or `is_open: false` fields correctly. The `exit_time` is set to "now" rather than the actual close time. This creates trades with `is_open: false` but no PnL data — they'll show as 0RR/0PnL in analytics.
-
-**Fix:** When closing stale trades via snapshot, set `net_pnl: 0` explicitly and add a note in `raw_payload` that it was snapshot-closed. The actual PnL was already captured by the exit event (if it was sent by reconciliation). If not, mark the trade with a flag so the user knows the data is incomplete.
-
-### 2. `BuildOpenPositionPayload` Is a Separate Function (LOW — Redundancy)
-
-**File:** `mt5-bridge/TradeJournalBridge.mq5` lines 998-1080
-
-The plan called for consolidating ALL payload builders into `BuildPayload()`. The `BuildOpenPositionPayload()` function still exists as a separate ~80-line function. It's used only by `SyncOpenPositions()` for currently open positions (which need position data, not deal data). This is technically justified since open positions don't have a deal ticket to pass to `BuildPayload()`, but it duplicates JSON construction.
-
-**Fix:** Leave as-is — the separation is architecturally justified. Open position sync reads from `PositionGet*` functions while `BuildPayload` reads from `HistoryDealGet*`. Merging would add unnecessary complexity.
-
-### 3. Browserslist Data Is 10 Months Old (LOW)
-
-**Dev server log:** `caniuse-lite is 10 months old`
-
-**Fix:** Run `npx update-browserslist-db@latest` to update. Non-functional, cosmetic warning only.
-
-### 4. Leaked Password Protection Disabled (WARN — Security)
-
-**Source:** Supabase linter
-
-Leaked password protection checks passwords against known breach databases. Currently disabled.
-
-**Fix:** Enable via Lovable Cloud auth settings (no code change needed — this is a project-level toggle).
-
-### 5. No Google Sign-In (LOW — Best Practice)
-
-The Auth page only supports email/password. Per project guidelines, Google sign-in should be offered unless explicitly excluded.
-
-**Fix:** Add Google OAuth button to the Auth page and configure auth provider.
+Three main areas of work: (1) Add date-period filtering to the Journal page, (2) Replace the AI chat in Live Trades with a structured questionnaire system, and (3) Fix gaps across all pages.
 
 ---
 
-## Verified — No Issues Found
+## Part 1: Journal — Date Period Filter (Default: Current Month)
 
-| Area | Status | Details |
-|------|--------|---------|
-| EA file copies in sync | OK | Both `mt5-bridge/` and `public/` have identical checksums |
-| Build output | OK | Vite builds cleanly, no TypeScript errors |
-| `NodeJS.Timeout` fix | OK | All instances replaced with `ReturnType<typeof setTimeout>` |
-| Database enums | OK | `event_type` includes `modify`, `ea_type` includes `journal/master/receiver` |
-| `ingest-events` edge function | OK | Returns 401 without API key, handles heartbeat/modify/snapshot events |
-| RLS policies | OK | All tables have user-scoped RLS, no public read on sensitive data |
-| Auto-timezone detection | OK | `GetBrokerUTCOffset()` uses `TimeCurrent() - TimeGMT()` with manual override |
-| `equity_at_entry` fix | OK | Only sent for live entries, omitted for history sync |
-| Binary search for dedup | OK | `IsDealProcessed()` uses binary search, `MarkDealProcessed()` inserts sorted |
-| `OnTick()` removed | OK | Line 528 confirms removal |
-| Log rotation | OK | `RotateLogIfNeeded()` at lines 1419-1467 |
-| Queue integrity checksums | OK | Checksum added on write, validated on read |
-| Graceful shutdown flush | OK | `OnDeinit()` calls `ProcessQueue()` |
-| Heartbeat event | OK | Sends every N ticks with leverage, margin, EA version |
-| SL/TP modification tracking | OK | `HandlePositionModification()` with cached value comparison |
-| Spread capture | OK | `SymbolInfoInteger(symbol, SYMBOL_SPREAD)` in `BuildPayload()` and modify handler |
-| Realtime subscription | OK | `useOpenTrades` subscribes to `postgres_changes` on trades table |
-| Console errors | OK | No errors in dev server log |
-| Edge function health | OK | All 13 functions deployed, `ingest-events` responds correctly |
+**Problem:** Journal loads ALL trades with no date scoping, causing slow loads and overwhelming UX.
+
+**Solution:**
+- Add a period selector (This Week / This Month / Custom Range) to `Journal.tsx`, defaulting to "This Month"
+- Add prev/next navigation arrows like Dashboard already has
+- Filter `filteredTrades` by `entry_time` within the selected period
+- Show period label (e.g. "April 2026") in the header area
+
+**Files:** `src/pages/Journal.tsx`
 
 ---
 
-## Recommended Actions
+## Part 2: Live Trades — Remove AI Chat, Add Structured Questionnaire
 
-### Must Fix (1 item)
-1. **Position snapshot stale close** — add `net_pnl: 0` and incomplete-data flag to snapshot-closed trades in `ingest-events`
+**Problem:** The `LiveJournalChat` component calls an AI edge function for every trade, which is slow, expensive, and produces inconsistent journaling. Users need a fast, structured way to document trades.
 
-### Should Fix (1 item)
-2. **Enable leaked password protection** — toggle in auth settings
+**Solution:**
+- Remove the `LiveJournalChat` component and the Journal/Compliance tab split
+- Replace with a single structured questionnaire panel that uses the playbook's `checklist_questions` plus a set of default journaling questions
+- Default questions: emotional state (before), market regime, entry reasoning (free text), setup confidence (1-5), notes
+- Questions are answered inline with dropdowns, toggles, and short text inputs — no AI round-trips
+- Answers auto-save to `trade_reviews` (same as current compliance panel does)
+- Keep the compliance checks (session/symbol validation) integrated into the same panel rather than a separate tab
+- Add a "Live Trade Questions" configuration section to `JournalSettingsDialog` where users can add/edit/reorder their default live trade questions
 
-### Nice to Have (2 items)
-3. **Add Google sign-in** to Auth page
-4. **Update browserslist** — `npx update-browserslist-db@latest`
+**Files to modify:**
+- `src/pages/LiveTrades.tsx` — remove Journal tab, replace with unified panel
+- `src/components/journal/LiveTradeCompliancePanel.tsx` — extend to include journaling questions
+- `src/components/journal/JournalSettingsDialog.tsx` — add "Live Questions" tab
+- New: `src/components/journal/settings/LiveQuestionsPanel.tsx`
+
+**Files to remove (dead code after change):**
+- `src/components/live/LiveJournalChat.tsx`
+- `src/components/live/QuickNoteInput.tsx` (if only used by chat)
+- `supabase/functions/live-journal-chat/index.ts` (edge function no longer needed)
 
 ---
 
-## Implementation Details
+## Part 3: Page-by-Page Gap Analysis & Fixes
 
-The only code change needed is in `supabase/functions/ingest-events/index.ts` (the stale trade close in the `position_snapshot` handler). The password protection and Google auth are configuration changes.
+### Dashboard
+- **OK overall.** Already has period selector, equity curve, session breakdown.
+- **Gap:** No "custom date range" option — only week/month. Add a date picker for custom ranges.
+- **Gap:** No account starting balance prompt when `balance_start` is 0 — equity curve shows misleading flat line.
 
-Shall I proceed with fixing the position snapshot handler and enabling leaked password protection?
+### Analytics
+- **OK.** AI-powered, has refresh, multiple sections.
+- **Gap:** No date filtering — always analyzes ALL trades. Should respect the same period filter or at least offer a date range selector.
+- **Minor:** The `refetch` button re-calls the edge function but doesn't pass any period context.
+
+### Playbooks
+- **Over-engineered:** The create/edit dialog is ~880 lines in a single file with 20+ state variables. This works but is hard to maintain.
+- **Gap:** No way to archive/deactivate a playbook without deleting it (toggle exists in schema `is_active` but no UI toggle).
+- **Action:** Add an active/inactive toggle to PlaybookCard. No refactor needed for now.
+
+### Import
+- **Gap:** CSV parser is naive — doesn't handle quoted commas, multi-line values. Not critical but worth noting.
+- **Gap:** No account association — imported trades have no `account_id`, so they don't appear when filtering by account.
+- **Action:** Add account selector to import flow.
+
+### Accounts
+- **OK.** Has danger zone, fresh start, recover trades.
+- **Gap:** No "last seen" / heartbeat indicator from the EA. The EA now sends heartbeats but the UI doesn't show them.
+- **Action:** Add a "Last seen: X minutes ago" badge to AccountCard using the latest heartbeat event timestamp.
+
+### Live Trades
+- **Bug:** Closed trades can get stuck showing as open if the realtime subscription misses the update (e.g. browser was backgrounded). The `refetchInterval: 60000` is the only fallback.
+- **Action:** Reduce refetch interval to 15s for the Live Trades page, or add a "Refresh" button.
+
+### Copier
+- **OK for preview/demo mode.** No critical gaps.
+
+---
+
+## Part 4: Code Cleanup
+
+- Remove `src/components/live/LiveJournalChat.tsx` (replaced)
+- Remove `supabase/functions/live-journal-chat/index.ts` (no longer called)
+- Remove unused imports from `LiveTrades.tsx` (`Bot` icon, etc.)
+- Check if `QuickNoteInput.tsx` is used elsewhere — if not, remove
+
+---
+
+## Database Changes
+
+- Add a `live_trade_questions` table or store in `user_settings` as a JSON column. Using `user_settings` is simpler — add a `live_trade_questions` jsonb column with a default set of questions.
+
+**Migration:**
+```sql
+ALTER TABLE user_settings 
+ADD COLUMN live_trade_questions jsonb 
+DEFAULT '[
+  {"id":"emotional_state","type":"select","label":"How are you feeling?","options":["Focused","Calm","Confident","Anxious","FOMO","Frustrated"]},
+  {"id":"setup_confidence","type":"rating","label":"Setup confidence (1-5)"},
+  {"id":"entry_reasoning","type":"text","label":"Why did you enter this trade?"},
+  {"id":"market_context","type":"text","label":"Market context / regime"}
+]'::jsonb;
+```
+
+---
+
+## Implementation Order
+
+1. Database migration (add `live_trade_questions` column)
+2. Journal date period filter
+3. Live Trades restructure (remove AI chat, add questionnaire)
+4. Live Questions settings panel
+5. Account heartbeat indicator
+6. Import account selector
+7. Playbook active/inactive toggle
+8. Code cleanup & dead code removal
+9. Reduce live trades refetch interval
 
