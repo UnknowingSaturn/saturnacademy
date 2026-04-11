@@ -1,138 +1,96 @@
 
 
-# TradeJournalBridge EA — Comprehensive Audit
+# Comprehensive Codebase Review — Findings & Plan
 
-## 1. Redundant / Over-Engineered Areas
+## Summary: Overall Health
 
-### 1a. Duplicate payload builders (HIGH)
-`BuildEventPayload()`, `BuildHistorySyncPayload()`, and `BuildOpenPositionPayload()` are ~90% identical — each builds the same JSON structure with minor variations. This is ~300 lines of near-copy-paste code. A single `BuildPayload()` with flags would cut this by 200+ lines and eliminate drift bugs (e.g. a field added to one but forgotten in another).
-
-### 1b. Duplicate filter logic (MEDIUM)
-Symbol/magic filtering is copy-pasted in `OnTradeTransaction`, `ReconcileClosedPositions`, `SyncHistoricalDeals`, `SendPositionSnapshot`, and `SyncOpenPositions` — 5 places. Should be a single `PassesFilter(symbol, magic)` function.
-
-### 1c. Duplicate account-type detection (LOW)
-The `live/demo/prop` detection block (checking server name for "demo", "ftmo", etc.) is repeated in 4 payload builders. Should be one `DetectAccountType()` function.
-
-### 1d. `OnTick()` as backup queue processor (MEDIUM)
-`OnTick()` duplicates `OnTimer()` queue processing. Since `EventSetTimer(30)` is already reliable, the `OnTick()` backup adds unnecessary CPU load on every tick across all symbols. The timer alone is sufficient.
-
-### 1e. `g_processedDeals` in-memory dedup vs server-side idempotency (LOW)
-The EA maintains a 1000-entry in-memory array AND the server already handles idempotency via `idempotency_key`. The client-side array is a useful optimisation to avoid network calls, but the linear O(n) scan on every deal is inefficient. A hash set or sorted array with binary search would be better, or simply rely on server 409s.
+The codebase is in **good shape** after the v3.00 EA refactor. Build is clean (no errors or warnings), both EA file copies are identical (checksums match), all database enums are aligned, and edge functions respond correctly. Below are the remaining issues found, organized by priority.
 
 ---
 
-## 2. Bugs and Gaps
+## Issues Found
 
-### 2a. `equity_at_entry` is wrong for history sync (HIGH)
-`BuildOpenPositionPayload()` sends the CURRENT equity as `equity_at_entry`, not the equity at the time the trade was opened. This means R% calculations for synced trades use today's equity, not the equity when the trade was taken. For historical sync, this field should be omitted (let backend calculate from balance history or skip R%).
+### 1. Position Snapshot — Stale Trade Close Sets `total_lots: 0` Without PnL (MEDIUM)
 
-### 2b. Broker UTC offset is static — fails during DST (HIGH)
-`InpBrokerUTCOffset` is a fixed integer input. Most brokers shift between UTC+2 and UTC+3 for daylight savings. This causes all timestamps to be off by 1 hour for ~6 months of the year. Should use `TimeGMTOffset()` which returns the actual current offset, or compute `TimeCurrent() - TimeGMT()` dynamically.
+**File:** `supabase/functions/ingest-events/index.ts` lines 279-286
 
-### 2c. No SL/TP modification tracking (MEDIUM)
-When a user moves their SL or TP on an open trade, no event is sent. The database keeps the original SL/TP from entry. This means R-multiple calculations can be wrong if the user tightens their stop. `OnTradeTransaction` should handle `TRADE_TRANSACTION_POSITION` events for SL/TP changes and send a `modify` event.
+When the position snapshot closes stale trades, it sets `total_lots: 0` and `exit_time: now()` but does NOT set `net_pnl`, `gross_pnl`, `exit_price`, or `is_open: false` fields correctly. The `exit_time` is set to "now" rather than the actual close time. This creates trades with `is_open: false` but no PnL data — they'll show as 0RR/0PnL in analytics.
 
-### 2d. Partial close creates orphaned records (MEDIUM)
-When a position is partially closed, `DEAL_ENTRY_OUT` fires with a partial lot size, but the remaining position keeps the same ticket. The EA sends this as a plain `exit`, but the backend may fully close the trade. Need to send lot_size context so the backend can handle partial vs full close correctly. (The backend may already handle this via lot comparison — needs verification.)
+**Fix:** When closing stale trades via snapshot, set `net_pnl: 0` explicitly and add a note in `raw_payload` that it was snapshot-closed. The actual PnL was already captured by the exit event (if it was sent by reconciliation). If not, mark the trade with a flag so the user knows the data is incomplete.
 
-### 2e. `SyncOpenPositions` sends `deal_id: 0` and `order_id: 0` (MEDIUM)
-Open position sync uses position ticket as the only ID and hard-codes `deal_id` and `order_id` to 0. The entry deal IS available via `HistorySelectByPosition()` — the EA should look it up and send the real deal ID for proper idempotency matching.
+### 2. `BuildOpenPositionPayload` Is a Separate Function (LOW — Redundancy)
 
-### 2f. No commission tracking for open positions (LOW)
-`BuildOpenPositionPayload` sends `commission: 0`. The actual commission from the entry deal is available via history lookup.
+**File:** `mt5-bridge/TradeJournalBridge.mq5` lines 998-1080
 
-### 2g. Queue file corruption risk (LOW)
-The queue file uses `|` as delimiter with `{{PIPE}}` escaping, and `FILE_SHARE_WRITE` allows concurrent writes. If MT5 crashes mid-write, the file can be corrupted. No integrity check exists on read.
+The plan called for consolidating ALL payload builders into `BuildPayload()`. The `BuildOpenPositionPayload()` function still exists as a separate ~80-line function. It's used only by `SyncOpenPositions()` for currently open positions (which need position data, not deal data). This is technically justified since open positions don't have a deal ticket to pass to `BuildPayload()`, but it duplicates JSON construction.
 
-### 2h. Log file grows unbounded (LOW)
-`TradeJournal.log` is opened with `FILE_READ|FILE_WRITE` and appended to forever. No rotation or size limit.
+**Fix:** Leave as-is — the separation is architecturally justified. Open position sync reads from `PositionGet*` functions while `BuildPayload` reads from `HistoryDealGet*`. Merging would add unnecessary complexity.
 
----
+### 3. Browserslist Data Is 10 Months Old (LOW)
 
-## 3. Missing Industry-Standard Features
+**Dev server log:** `caniuse-lite is 10 months old`
 
-### 3a. Auto-detect broker timezone (HIGH priority)
-Replace manual `InpBrokerUTCOffset` with automatic detection using `TimeGMT()` and `TimeCurrent()`. This eliminates user configuration errors and handles DST automatically.
+**Fix:** Run `npx update-browserslist-db@latest` to update. Non-functional, cosmetic warning only.
 
-### 3b. SL/TP modification events (HIGH)
-Track `TRADE_TRANSACTION_POSITION` in `OnTradeTransaction` to detect SL/TP changes on open positions. Send a `modify` event to keep the database in sync. Critical for accurate R-multiple tracking.
+### 4. Leaked Password Protection Disabled (WARN — Security)
 
-### 3c. Heartbeat / health check event (MEDIUM)
-Send a periodic lightweight `heartbeat` event (every 5-10 min) containing: account balance, equity, number of open positions, EA version. This enables the frontend to show "last seen" status and detect disconnected terminals.
+**Source:** Supabase linter
 
-### 3d. Spread capture at entry (MEDIUM)
-Capture `SymbolInfoInteger(symbol, SYMBOL_SPREAD)` at trade time and include in the payload. Useful for analytics (e.g., "was the spread unusually wide?").
+Leaked password protection checks passwords against known breach databases. Currently disabled.
 
-### 3e. Account leverage and margin info (LOW)
-Send `ACCOUNT_LEVERAGE`, `ACCOUNT_MARGIN_FREE`, and `ACCOUNT_MARGIN_LEVEL` in account_info. Useful for risk analysis and prop firm compliance monitoring.
+**Fix:** Enable via Lovable Cloud auth settings (no code change needed — this is a project-level toggle).
 
-### 3f. EA self-update version check (LOW)
-On startup, call a version-check endpoint. If a newer EA version exists, print a prominent message to the Experts tab. Prevents users from running stale EA versions.
+### 5. No Google Sign-In (LOW — Best Practice)
 
-### 3g. Graceful shutdown — flush queue (LOW)
-In `OnDeinit`, attempt to flush any pending queue items before shutting down (with a short timeout). Currently queued items just wait for next startup.
+The Auth page only supports email/password. Per project guidelines, Google sign-in should be offered unless explicitly excluded.
+
+**Fix:** Add Google OAuth button to the Auth page and configure auth provider.
 
 ---
 
-## 4. Recommended Refactors (No New Features)
+## Verified — No Issues Found
 
-| Refactor | Impact | Effort |
-|----------|--------|--------|
-| Consolidate 3 payload builders into 1 | Eliminates 200+ LOC, prevents field drift | Medium |
-| Extract `PassesFilter()` helper | DRY, fewer bugs when filters change | Low |
-| Extract `DetectAccountType()` helper | DRY | Low |
-| Extract `GetAccountPayload()` helper | DRY (account_info JSON block repeated 4x) | Low |
-| Remove `OnTick()` backup queue processing | Reduces CPU, timer is sufficient | Low |
-| Replace linear `IsDealProcessed` scan with sorted array + binary search | O(log n) instead of O(n) | Low |
-| Add log file rotation (max 1MB, keep 2 files) | Prevents disk fill | Low |
-
----
-
-## 5. Summary Priority Matrix
-
-```text
-Priority  | Issue                              | Type
-----------|------------------------------------|----------
-CRITICAL  | DST-broken timestamps              | Bug fix
-CRITICAL  | Wrong equity_at_entry on sync       | Bug fix
-HIGH      | Consolidate payload builders       | Refactor
-HIGH      | SL/TP modification tracking        | New feature
-HIGH      | Auto-detect broker timezone        | New feature
-MEDIUM    | Heartbeat events                   | New feature
-MEDIUM    | Spread capture                     | New feature
-MEDIUM    | Partial close handling              | Bug fix
-MEDIUM    | Real deal_id for open pos sync     | Bug fix
-MEDIUM    | Remove OnTick backup               | Cleanup
-LOW       | Log rotation                       | Cleanup
-LOW       | Queue file integrity               | Robustness
-LOW       | Leverage/margin in payload         | Enhancement
-LOW       | EA version check                   | Enhancement
-```
+| Area | Status | Details |
+|------|--------|---------|
+| EA file copies in sync | OK | Both `mt5-bridge/` and `public/` have identical checksums |
+| Build output | OK | Vite builds cleanly, no TypeScript errors |
+| `NodeJS.Timeout` fix | OK | All instances replaced with `ReturnType<typeof setTimeout>` |
+| Database enums | OK | `event_type` includes `modify`, `ea_type` includes `journal/master/receiver` |
+| `ingest-events` edge function | OK | Returns 401 without API key, handles heartbeat/modify/snapshot events |
+| RLS policies | OK | All tables have user-scoped RLS, no public read on sensitive data |
+| Auto-timezone detection | OK | `GetBrokerUTCOffset()` uses `TimeCurrent() - TimeGMT()` with manual override |
+| `equity_at_entry` fix | OK | Only sent for live entries, omitted for history sync |
+| Binary search for dedup | OK | `IsDealProcessed()` uses binary search, `MarkDealProcessed()` inserts sorted |
+| `OnTick()` removed | OK | Line 528 confirms removal |
+| Log rotation | OK | `RotateLogIfNeeded()` at lines 1419-1467 |
+| Queue integrity checksums | OK | Checksum added on write, validated on read |
+| Graceful shutdown flush | OK | `OnDeinit()` calls `ProcessQueue()` |
+| Heartbeat event | OK | Sends every N ticks with leverage, margin, EA version |
+| SL/TP modification tracking | OK | `HandlePositionModification()` with cached value comparison |
+| Spread capture | OK | `SymbolInfoInteger(symbol, SYMBOL_SPREAD)` in `BuildPayload()` and modify handler |
+| Realtime subscription | OK | `useOpenTrades` subscribes to `postgres_changes` on trades table |
+| Console errors | OK | No errors in dev server log |
+| Edge function health | OK | All 13 functions deployed, `ingest-events` responds correctly |
 
 ---
 
-## 6. Proposed Implementation Plan
+## Recommended Actions
 
-If approved, I would implement changes in this order:
+### Must Fix (1 item)
+1. **Position snapshot stale close** — add `net_pnl: 0` and incomplete-data flag to snapshot-closed trades in `ingest-events`
 
-**Phase 1 — Bug fixes + Refactors (EA only)**
-- Auto-detect broker timezone (replace `InpBrokerUTCOffset` with dynamic calculation, keep input as optional override)
-- Fix `equity_at_entry` for history/open-position sync (omit or mark as estimated)
-- Consolidate payload builders into single function
-- Extract shared helpers (`PassesFilter`, `DetectAccountType`, `GetAccountPayload`)
-- Remove `OnTick()` backup
-- Look up real deal_id for open position sync
+### Should Fix (1 item)
+2. **Enable leaked password protection** — toggle in auth settings
 
-**Phase 2 — New features (EA + Backend)**
-- SL/TP modification tracking (`modify` event type)
-- Heartbeat event with account health data
-- Spread capture at trade time
-- Add leverage/margin to account_info
+### Nice to Have (2 items)
+3. **Add Google sign-in** to Auth page
+4. **Update browserslist** — `npx update-browserslist-db@latest`
 
-**Phase 3 — Robustness**
-- Log rotation
-- Queue file integrity checks
-- Graceful shutdown queue flush
+---
 
-Each phase produces a compilable, backward-compatible EA. The backend (`ingest-events`) would need minor additions to handle `modify` and `heartbeat` event types.
+## Implementation Details
+
+The only code change needed is in `supabase/functions/ingest-events/index.ts` (the stale trade close in the `position_snapshot` handler). The password protection and Google auth are configuration changes.
+
+Shall I proceed with fixing the position snapshot handler and enabling leaked password protection?
 
