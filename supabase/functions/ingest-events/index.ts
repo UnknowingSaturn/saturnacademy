@@ -275,6 +275,66 @@ serve(async (req) => {
       }
     }
 
+    // Handle position_snapshot event - reconcile stale open trades
+    if (payload.event_type === "position_snapshot") {
+      const openTickets = payload.open_position_tickets || [];
+      console.log("Position snapshot received:", openTickets.length, "open positions from terminal:", payload.terminal_id);
+
+      // Find all trades marked as open for this account
+      const { data: openTrades, error: openTradesError } = await supabase
+        .from("trades")
+        .select("id, ticket, symbol, is_open")
+        .eq("account_id", account.id)
+        .eq("is_open", true);
+
+      if (openTradesError) {
+        console.error("Failed to fetch open trades for snapshot:", openTradesError);
+        return new Response(
+          JSON.stringify({ status: "error", message: "Failed to fetch open trades" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Find trades that are open in DB but NOT in the EA's open list
+      const staleTrades = (openTrades || []).filter(
+        (trade: any) => trade.ticket && !openTickets.includes(trade.ticket)
+      );
+
+      let closedCount = 0;
+      for (const staleTrade of staleTrades) {
+        console.log("Closing stale trade:", staleTrade.id, "ticket:", staleTrade.ticket, "symbol:", staleTrade.symbol);
+        
+        // Mark trade as closed with best-effort data
+        const { error: updateError } = await supabase
+          .from("trades")
+          .update({
+            is_open: false,
+            exit_time: new Date().toISOString(),
+            total_lots: 0,
+          })
+          .eq("id", staleTrade.id);
+
+        if (!updateError) {
+          closedCount++;
+        } else {
+          console.error("Failed to close stale trade:", staleTrade.id, updateError);
+        }
+      }
+
+      console.log("Position snapshot reconciliation: closed", closedCount, "stale trades out of", staleTrades.length, "candidates");
+
+      return new Response(
+        JSON.stringify({
+          status: "accepted",
+          message: `Snapshot processed: ${closedCount} stale trades closed`,
+          open_in_mt5: openTickets.length,
+          open_in_db: (openTrades || []).length,
+          stale_closed: closedCount,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // SERVER-SIDE FILTERING: Skip history_sync events older than sync_history_from
     if (payload.event_type === "history_sync") {
       // Fetch account sync settings
