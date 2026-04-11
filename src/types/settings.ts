@@ -1,8 +1,13 @@
 export interface LiveTradeQuestion {
   id: string;
-  type: 'select' | 'rating' | 'text';
+  type: 'select' | 'rating' | 'text' | 'screenshot' | 'checkbox' | 'number';
   label: string;
   options?: string[];
+  maxItems?: number;
+  required?: boolean;
+  placeholder?: string;
+  min?: number;
+  max?: number;
 }
 
 export const DEFAULT_LIVE_TRADE_QUESTIONS: LiveTradeQuestion[] = [
@@ -10,6 +15,7 @@ export const DEFAULT_LIVE_TRADE_QUESTIONS: LiveTradeQuestion[] = [
   { id: 'setup_confidence', type: 'rating', label: 'Setup confidence (1-5)' },
   { id: 'entry_reasoning', type: 'text', label: 'Why did you enter this trade?' },
   { id: 'market_context', type: 'text', label: 'Market context / regime' },
+  { id: 'trade_screenshots', type: 'screenshot', label: 'Trade screenshots', maxItems: 5 },
 ];
 
 export interface UserSettings {
