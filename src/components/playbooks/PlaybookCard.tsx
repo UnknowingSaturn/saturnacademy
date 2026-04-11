@@ -117,6 +117,7 @@ export const PlaybookCard = React.forwardRef<HTMLDivElement, PlaybookCardProps>(
             >
               <Trash2 className="w-4 h-4" />
             </Button>
+            </div>
           </div>
         </div>
       </CardHeader>
