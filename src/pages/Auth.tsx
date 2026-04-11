@@ -119,7 +119,20 @@ export default function Auth() {
     }
   };
 
-  if (showForgotPassword) {
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    const result = await lovable.auth.signInWithOAuth("google", {
+      redirect_uri: window.location.origin,
+    });
+    if (result.error) {
+      setIsLoading(false);
+      toast({ title: "Google sign in failed", description: String(result.error), variant: "destructive" });
+    } else if (!result.redirected) {
+      setIsLoading(false);
+      navigate("/dashboard");
+    }
+  };
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-8">
