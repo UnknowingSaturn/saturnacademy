@@ -281,7 +281,9 @@ serve(async (req) => {
           .update({
             is_open: false,
             exit_time: new Date().toISOString(),
-            total_lots: 0,
+            net_pnl: 0,
+            gross_pnl: 0,
+            partial_closes: JSON.stringify([{ type: "snapshot_closed", note: "Closed by position snapshot reconciliation — PnL data may be incomplete" }]),
           })
           .eq("id", staleTrade.id);
 
