@@ -63,7 +63,7 @@ export function LiveJournalChat({ trade, playbook }: LiveJournalChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
-  const pendingSaveRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const upsertReview = useUpsertTradeReview();
   const { uploadScreenshot, isUploading } = useScreenshots();
