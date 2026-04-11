@@ -274,12 +274,45 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     </label>
   );
 
+  const { uploadScreenshot, deleteScreenshot, isUploading } = useScreenshots();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingForQuestion, setUploadingForQuestion] = useState<string | null>(null);
+
+  const handleScreenshotUpload = useCallback(async (questionId: string, files: FileList, maxItems: number) => {
+    const existing: string[] = JSON.parse(questionAnswers[questionId] || '[]');
+    const remaining = maxItems - existing.length;
+    if (remaining <= 0) return;
+    
+    setUploadingForQuestion(questionId);
+    const filesToUpload = Array.from(files).slice(0, remaining);
+    const urls: string[] = [...existing];
+    
+    for (const file of filesToUpload) {
+      const url = await uploadScreenshot(file, trade.id, 'trade');
+      if (url) urls.push(url);
+    }
+    
+    updateQuestionAnswer(questionId, JSON.stringify(urls));
+    setUploadingForQuestion(null);
+  }, [questionAnswers, trade.id, uploadScreenshot, updateQuestionAnswer]);
+
+  const handleScreenshotDelete = useCallback(async (questionId: string, url: string) => {
+    const success = await deleteScreenshot(url);
+    if (success) {
+      const existing: string[] = JSON.parse(questionAnswers[questionId] || '[]');
+      updateQuestionAnswer(questionId, JSON.stringify(existing.filter(u => u !== url)));
+    }
+  }, [questionAnswers, deleteScreenshot, updateQuestionAnswer]);
+
   const renderQuestion = (q: LiveTradeQuestion) => {
     const value = questionAnswers[q.id] || '';
     
     return (
       <div key={q.id} className="space-y-1.5">
-        <label className="text-sm font-medium text-foreground">{q.label}</label>
+        <label className="text-sm font-medium text-foreground">
+          {q.label}
+          {q.required && <span className="text-loss ml-1">*</span>}
+        </label>
         {q.type === 'select' && q.options ? (
           <Select value={value} onValueChange={v => updateQuestionAnswer(q.id, v)}>
             <SelectTrigger className="h-9">
@@ -293,7 +326,7 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
           </Select>
         ) : q.type === 'rating' ? (
           <div className="flex gap-1">
-            {[1, 2, 3, 4, 5].map(n => (
+            {Array.from({ length: (q.max || 5) - (q.min || 1) + 1 }, (_, i) => (q.min || 1) + i).map(n => (
               <button
                 key={n}
                 onClick={() => updateQuestionAnswer(q.id, String(n))}
@@ -308,11 +341,85 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
               </button>
             ))}
           </div>
+        ) : q.type === 'screenshot' ? (
+          <div className="space-y-2">
+            {(() => {
+              const urls: string[] = (() => { try { return JSON.parse(value || '[]'); } catch { return []; } })();
+              const maxItems = q.maxItems || 5;
+              const canUpload = urls.length < maxItems;
+              return (
+                <>
+                  {urls.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      {urls.map((url, i) => (
+                        <div key={i} className="relative group rounded-md overflow-hidden border border-border aspect-video">
+                          <img src={url} alt={`Screenshot ${i + 1}`} className="w-full h-full object-cover" />
+                          <button
+                            onClick={() => handleScreenshotDelete(q.id, url)}
+                            className="absolute top-1 right-1 h-5 w-5 rounded-full bg-background/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="h-3 w-3 text-loss" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={e => {
+                      if (e.target.files?.length) {
+                        handleScreenshotUpload(q.id, e.target.files, maxItems);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                  {canUpload && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 w-full"
+                      disabled={isUploading && uploadingForQuestion === q.id}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      {isUploading && uploadingForQuestion === q.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ImagePlus className="h-3.5 w-3.5" />
+                      )}
+                      Upload ({urls.length}/{maxItems})
+                    </Button>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        ) : q.type === 'checkbox' ? (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={value === 'true'}
+              onCheckedChange={checked => updateQuestionAnswer(q.id, String(checked))}
+            />
+            <span className="text-sm text-muted-foreground">Yes</span>
+          </div>
+        ) : q.type === 'number' ? (
+          <Input
+            type="number"
+            value={value}
+            onChange={e => updateQuestionAnswer(q.id, e.target.value)}
+            placeholder={q.placeholder || "Enter a number..."}
+            min={q.min}
+            max={q.max}
+            className="h-9"
+          />
         ) : (
           <Textarea
             value={value}
             onChange={e => updateQuestionAnswer(q.id, e.target.value)}
-            placeholder="Type here..."
+            placeholder={q.placeholder || "Type here..."}
             className="min-h-[60px] resize-none text-sm"
           />
         )}
