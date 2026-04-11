@@ -39,6 +39,7 @@ export default function LiveTrades() {
   }, [allOpenTrades, selectedAccountId]);
 
   const [selectedPlaybook, setSelectedPlaybook] = useState<Playbook | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (location.state?.selectedTradeId) {
@@ -107,6 +108,10 @@ export default function LiveTrades() {
             Real-time position monitoring & compliance
           </p>
         </div>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSettingsOpen(true)}>
+          <Settings className="h-3.5 w-3.5" />
+          Settings
+        </Button>
         <Button variant="outline" size="sm" className="gap-1.5" onClick={handleRefresh}>
           <RefreshCw className="h-3.5 w-3.5" />
           Refresh
