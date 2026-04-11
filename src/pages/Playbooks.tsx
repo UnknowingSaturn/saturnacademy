@@ -859,6 +859,7 @@ export default function Playbooks() {
               onEdit={openEditDialog}
               onDuplicate={handleDuplicatePlaybook}
               onDelete={handleDelete}
+              onToggleActive={(id, isActive) => updatePlaybook.mutate({ id, is_active: isActive })}
             />
           ))}
         </div>
