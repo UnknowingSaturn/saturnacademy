@@ -10,10 +10,11 @@ import { LiveQuestionsPanel } from "./settings/LiveQuestionsPanel";
 interface JournalSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  defaultTab?: string;
 }
 
-export function JournalSettingsDialog({ open, onOpenChange }: JournalSettingsDialogProps) {
-  const [activeTab, setActiveTab] = useState("sessions");
+export function JournalSettingsDialog({ open, onOpenChange, defaultTab }: JournalSettingsDialogProps) {
+  const [activeTab, setActiveTab] = useState(defaultTab || "sessions");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
