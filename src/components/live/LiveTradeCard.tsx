@@ -7,11 +7,24 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Clock,
-  Timer
+  Timer,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatBrokerDateTimeET } from "@/lib/time";
 import { TradeProgressBar } from "./TradeProgressBar";
+import { useUpdateTrade } from "@/hooks/useTrades";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface LiveTradeCardProps {
   trade: Trade & {
@@ -35,6 +48,7 @@ function formatDuration(seconds: number): string {
 
 export function LiveTradeCard({ trade, isSelected, onClick, showAccountBadge = false }: LiveTradeCardProps) {
   const [duration, setDuration] = useState(0);
+  const updateTrade = useUpdateTrade();
 
   // Live duration timer
   useEffect(() => {
@@ -46,10 +60,21 @@ export function LiveTradeCard({ trade, isSelected, onClick, showAccountBadge = f
     };
 
     updateDuration();
-    const interval = setInterval(updateDuration, 60000); // Update every minute
+    const interval = setInterval(updateDuration, 60000);
     
     return () => clearInterval(interval);
   }, [trade.entry_time]);
+
+  const handleCloseTrade = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    updateTrade.mutate({
+      id: trade.id,
+      is_open: false,
+      exit_time: new Date().toISOString(),
+      net_pnl: 0,
+      gross_pnl: 0,
+    });
+  };
 
   const getStatusBadge = () => {
     if (!trade.playbook_id) {
@@ -87,12 +112,39 @@ export function LiveTradeCard({ trade, isSelected, onClick, showAccountBadge = f
     <button
       onClick={onClick}
       className={cn(
-        "w-full p-4 rounded-xl border transition-all text-left space-y-3",
+        "w-full p-4 rounded-xl border transition-all text-left space-y-3 relative group",
         isSelected
           ? "border-primary bg-primary/5 shadow-sm"
           : "border-border/50 hover:border-border hover:bg-muted/30"
       )}
     >
+      {/* Close / Dismiss button */}
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <div
+            role="button"
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </div>
+        </AlertDialogTrigger>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close this trade?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the trade from the live view and mark it as closed with $0 P&L. Use this for stuck trades that are no longer open in your terminal.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCloseTrade}>
+              Close Trade
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Header Row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -159,7 +211,7 @@ export function LiveTradeCard({ trade, isSelected, onClick, showAccountBadge = f
       {(trade.sl_initial || trade.tp_initial) && (
         <TradeProgressBar
           entryPrice={trade.entry_price}
-          currentPrice={trade.entry_price} // Would need live price feed
+          currentPrice={trade.entry_price}
           stopLoss={trade.sl_initial}
           takeProfit={trade.tp_initial}
           direction={trade.direction}
