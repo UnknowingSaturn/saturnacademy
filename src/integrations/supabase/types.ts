@@ -1265,6 +1265,7 @@ export type Database = {
           created_at: string
           default_filters: Json
           id: string
+          live_trade_questions: Json | null
           updated_at: string
           user_id: string
           visible_columns: Json
@@ -1274,6 +1275,7 @@ export type Database = {
           created_at?: string
           default_filters?: Json
           id?: string
+          live_trade_questions?: Json | null
           updated_at?: string
           user_id: string
           visible_columns?: Json
@@ -1283,6 +1285,7 @@ export type Database = {
           created_at?: string
           default_filters?: Json
           id?: string
+          live_trade_questions?: Json | null
           updated_at?: string
           user_id?: string
           visible_columns?: Json

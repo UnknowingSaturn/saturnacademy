@@ -18,9 +18,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { SessionType, Trade, TradeType } from "@/types/trading";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { SessionType, Trade } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
-import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, FileText, Clock, CheckCircle } from "lucide-react";
+import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, CheckCircle, ChevronLeft, ChevronRight, CalendarIcon } from "lucide-react";
+import { 
+  startOfMonth, endOfMonth, startOfWeek, endOfWeek, 
+  addMonths, subMonths, addWeeks, subWeeks,
+  format, isWithinInterval, parseISO
+} from "date-fns";
+import { cn } from "@/lib/utils";
+
+type PeriodType = "week" | "month" | "custom";
 
 export default function Journal() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -35,6 +45,12 @@ export default function Journal() {
   const [activeFilters, setActiveFilters] = useState<FilterCondition[]>([]);
   const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
   const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
+
+  // Period filter state
+  const [periodType, setPeriodType] = useState<PeriodType>("month");
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [customFrom, setCustomFrom] = useState<Date | undefined>();
+  const [customTo, setCustomTo] = useState<Date | undefined>();
 
   const { data: trades, isLoading } = useTrades();
   const { data: settings } = useUserSettings();
@@ -54,9 +70,50 @@ export default function Journal() {
     setSearchParams(searchParams);
   };
 
+  // Period calculations
+  const periodRange = useMemo(() => {
+    if (periodType === "week") {
+      return { start: startOfWeek(currentDate, { weekStartsOn: 1 }), end: endOfWeek(currentDate, { weekStartsOn: 1 }) };
+    } else if (periodType === "month") {
+      return { start: startOfMonth(currentDate), end: endOfMonth(currentDate) };
+    } else if (customFrom && customTo) {
+      return { start: customFrom, end: customTo };
+    }
+    return { start: startOfMonth(currentDate), end: endOfMonth(currentDate) };
+  }, [periodType, currentDate, customFrom, customTo]);
+
+  const periodLabel = useMemo(() => {
+    if (periodType === "week") {
+      return `${format(periodRange.start, "MMM d")} – ${format(periodRange.end, "MMM d, yyyy")}`;
+    } else if (periodType === "month") {
+      return format(currentDate, "MMMM yyyy");
+    } else if (customFrom && customTo) {
+      return `${format(customFrom, "MMM d")} – ${format(customTo, "MMM d, yyyy")}`;
+    }
+    return format(currentDate, "MMMM yyyy");
+  }, [periodType, currentDate, periodRange, customFrom, customTo]);
+
+  const navigatePeriod = (direction: -1 | 1) => {
+    if (periodType === "week") {
+      setCurrentDate(prev => direction === 1 ? addWeeks(prev, 1) : subWeeks(prev, 1));
+    } else if (periodType === "month") {
+      setCurrentDate(prev => direction === 1 ? addMonths(prev, 1) : subMonths(prev, 1));
+    }
+  };
+
   // Apply all filters
   const filteredTrades = useMemo(() => {
     let result = trades || [];
+
+    // Period filter — filter by entry_time
+    result = result.filter(trade => {
+      try {
+        const entryDate = parseISO(trade.entry_time);
+        return isWithinInterval(entryDate, { start: periodRange.start, end: periodRange.end });
+      } catch {
+        return false;
+      }
+    });
 
     // Global account filter
     if (selectedAccountId !== "all") {
@@ -65,7 +122,7 @@ export default function Journal() {
       );
     }
 
-    // Model/Strategy filter (from URL) - now matches by playbook_id
+    // Model/Strategy filter (from URL)
     if (modelFilter) {
       result = result.filter(trade => trade.playbook_id === modelFilter || trade.playbook?.name === modelFilter);
     }
@@ -127,7 +184,7 @@ export default function Journal() {
     }
 
     return result;
-  }, [trades, symbolFilter, sessionFilter, resultFilter, tradeTypeFilter, modelFilter, activeFilters, selectedAccountId]);
+  }, [trades, symbolFilter, sessionFilter, resultFilter, tradeTypeFilter, modelFilter, activeFilters, selectedAccountId, periodRange]);
 
   const getTradeValue = (trade: Trade, column: string): any => {
     switch (column) {
@@ -183,6 +240,57 @@ export default function Journal() {
           </Button>
           <ManualTradeForm />
         </div>
+      </div>
+
+      {/* Period Selector */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <ToggleGroup type="single" value={periodType} onValueChange={(v) => v && setPeriodType(v as PeriodType)}>
+          <ToggleGroupItem value="week" className="px-3 text-xs">Week</ToggleGroupItem>
+          <ToggleGroupItem value="month" className="px-3 text-xs">Month</ToggleGroupItem>
+          <ToggleGroupItem value="custom" className="px-3 text-xs">Custom</ToggleGroupItem>
+        </ToggleGroup>
+
+        {periodType !== "custom" ? (
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigatePeriod(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-medium min-w-[160px] text-center">{periodLabel}</span>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigatePeriod(1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className={cn("gap-1.5 text-xs", !customFrom && "text-muted-foreground")}>
+                  <CalendarIcon className="h-3.5 w-3.5" />
+                  {customFrom ? format(customFrom, "MMM d, yyyy") : "From"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={customFrom} onSelect={setCustomFrom} initialFocus className="p-3 pointer-events-auto" />
+              </PopoverContent>
+            </Popover>
+            <span className="text-xs text-muted-foreground">–</span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className={cn("gap-1.5 text-xs", !customTo && "text-muted-foreground")}>
+                  <CalendarIcon className="h-3.5 w-3.5" />
+                  {customTo ? format(customTo, "MMM d, yyyy") : "To"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={customTo} onSelect={setCustomTo} initialFocus className="p-3 pointer-events-auto" />
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
+
+        <Badge variant="secondary" className="text-xs">
+          {filteredTrades.length} trade{filteredTrades.length !== 1 ? 's' : ''}
+        </Badge>
       </div>
 
       {/* Active/Archived Tabs */}
@@ -283,8 +391,8 @@ export default function Journal() {
           ) : viewMode === "table" ? (
             filteredTrades.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
-                <p>No trades found</p>
-                <p className="text-sm">Import trades or add them manually to get started</p>
+                <p>No trades found for {periodLabel}</p>
+                <p className="text-sm">Try a different period or adjust your filters</p>
               </div>
             ) : (
             <TradeTable 

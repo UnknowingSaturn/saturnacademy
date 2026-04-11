@@ -5,6 +5,7 @@ import { PlaybookStats } from "@/hooks/usePlaybookStats";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Edit, Trash2, ExternalLink, TrendingUp, TrendingDown, Target, BarChart3, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,10 +16,11 @@ interface PlaybookCardProps {
   onEdit: (playbook: Playbook) => void;
   onDuplicate: (playbook: Playbook) => void;
   onDelete: (id: string) => void;
+  onToggleActive?: (id: string, isActive: boolean) => void;
 }
 
 export const PlaybookCard = React.forwardRef<HTMLDivElement, PlaybookCardProps>(
-  function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDuplicate, onDelete }, ref) {
+  function PlaybookCard({ playbook, stats, onViewDetails, onEdit, onDuplicate, onDelete, onToggleActive }, ref) {
   const navigate = useNavigate();
   
   const handleViewTrades = () => {
@@ -40,6 +42,7 @@ export const PlaybookCard = React.forwardRef<HTMLDivElement, PlaybookCardProps>(
       ref={ref}
       className={cn(
         "group relative border-border/50 hover:border-primary/50 transition-all cursor-pointer overflow-hidden",
+        !playbook.is_active && "opacity-60",
         stats && stats.totalTrades > 0 && (isProfit ? "hover:shadow-profit/10" : "hover:shadow-destructive/10")
       )}
       onClick={handleCardClick}
@@ -77,7 +80,16 @@ export const PlaybookCard = React.forwardRef<HTMLDivElement, PlaybookCardProps>(
               <CardDescription className="line-clamp-2">{playbook.description}</CardDescription>
             )}
           </div>
-          <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-1 shrink-0">
+            {onToggleActive && (
+              <Switch
+                checked={playbook.is_active !== false}
+                onCheckedChange={(checked) => { onToggleActive(playbook.id, checked); }}
+                onClick={(e) => e.stopPropagation()}
+                className="scale-75"
+              />
+            )}
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <Button
               variant="ghost"
               size="icon"
@@ -105,6 +117,7 @@ export const PlaybookCard = React.forwardRef<HTMLDivElement, PlaybookCardProps>(
             >
               <Trash2 className="w-4 h-4" />
             </Button>
+            </div>
           </div>
         </div>
       </CardHeader>

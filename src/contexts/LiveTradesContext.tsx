@@ -13,6 +13,7 @@ interface ChatState {
 
 interface ComplianceState {
   manualAnswers: Record<string, boolean>;
+  questionAnswers?: Record<string, string>;
 }
 
 interface LiveTradesState {
@@ -39,8 +40,8 @@ interface LiveTradesContextValue {
   updateManualAnswers: (tradeId: string, answers: Record<string, boolean>) => void;
   
   // Pending saves tracking for flush on navigation
-  registerPendingSave: (tradeId: string, type: 'chat' | 'compliance') => void;
-  unregisterPendingSave: (tradeId: string, type: 'chat' | 'compliance') => void;
+  registerPendingSave: (tradeId: string, type: 'chat' | 'compliance' | 'questions') => void;
+  unregisterPendingSave: (tradeId: string, type: 'chat' | 'compliance' | 'questions') => void;
   hasPendingSave: (tradeId: string) => boolean;
 }
 
