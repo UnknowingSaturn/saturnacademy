@@ -7,31 +7,31 @@ import { useLiveTrades } from "@/contexts/LiveTradesContext";
 import { Playbook } from "@/types/trading";
 import { ModelSelectionPrompt } from "@/components/journal/ModelSelectionPrompt";
 import { LiveTradeCompliancePanel } from "@/components/journal/LiveTradeCompliancePanel";
-import { LiveJournalChat } from "@/components/live/LiveJournalChat";
-import { TradeSummaryBar } from "@/components/live/TradeSummaryBar";
-import { LiveTradeCard } from "@/components/live/LiveTradeCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TradeSummaryBar } from "@/components/live/TradeSummaryBar";
+import { LiveTradeCard } from "@/components/live/LiveTradeCard";
 import { 
   Activity, 
   Radio,
   Loader2,
   Zap,
-  Bot,
-  Shield
+  Shield,
+  RefreshCw
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function LiveTrades() {
   const location = useLocation();
+  const queryClient = useQueryClient();
   const { data: allOpenTrades = [], isLoading } = useOpenTrades();
   const { data: playbooks = [] } = usePlaybooks();
   const { selectedAccountId, selectedAccount } = useAccountFilter();
   const { selectedTradeId, setSelectedTradeId } = useLiveTrades();
   
-  // Filter open trades by selected account
   const openTrades = useMemo(() => {
     if (selectedAccountId === 'all') return allOpenTrades;
     return allOpenTrades.filter(t => t.account_id === selectedAccountId);
@@ -39,7 +39,6 @@ export default function LiveTrades() {
 
   const [selectedPlaybook, setSelectedPlaybook] = useState<Playbook | null>(null);
 
-  // Handle initial trade selection from location state
   useEffect(() => {
     if (location.state?.selectedTradeId) {
       setSelectedTradeId(location.state.selectedTradeId);
@@ -48,22 +47,18 @@ export default function LiveTrades() {
 
   const selectedTrade = openTrades.find(t => t.id === selectedTradeId);
 
-  // Get max trades per session from the selected trade's playbook
   const maxDailyTrades = selectedPlaybook?.max_trades_per_session || undefined;
   
-  // Get account ID for trade summary bar
   const summaryAccountId = selectedAccountId !== 'all' 
     ? selectedAccountId 
     : selectedTrade?.account_id;
 
-  // Auto-select first trade if none selected
   useEffect(() => {
     if (!selectedTradeId && openTrades.length > 0) {
       setSelectedTradeId(openTrades[0].id);
     }
   }, [openTrades, selectedTradeId, setSelectedTradeId]);
 
-  // When trade is selected, find matching playbook
   useEffect(() => {
     if (selectedTrade?.playbook_id) {
       const pb = playbooks.find(p => p.id === selectedTrade.playbook_id);
@@ -77,6 +72,10 @@ export default function LiveTrades() {
 
   const handleModelSelected = (playbook: Playbook) => {
     setSelectedPlaybook(playbook);
+  };
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['open-trades'] });
   };
 
   if (isLoading) {
@@ -107,6 +106,10 @@ export default function LiveTrades() {
             Real-time position monitoring & compliance
           </p>
         </div>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={handleRefresh}>
+          <RefreshCw className="h-3.5 w-3.5" />
+          Refresh
+        </Button>
         {openTrades.length > 0 && (
           <Badge className="bg-profit/10 text-profit border-profit/30 gap-1.5">
             <Zap className="h-3 w-3" />
@@ -131,10 +134,8 @@ export default function LiveTrades() {
         </Card>
       ) : (
         <>
-          {/* Summary Bar */}
           <TradeSummaryBar trades={openTrades} maxDailyTrades={maxDailyTrades} accountId={summaryAccountId} />
 
-          {/* Main Content */}
           <div className="flex-1 grid lg:grid-cols-5 gap-4 min-h-0">
             {/* Left Panel - Trade List */}
             <Card className="lg:col-span-2 flex flex-col border-border/50">
@@ -159,7 +160,7 @@ export default function LiveTrades() {
               </ScrollArea>
             </Card>
 
-            {/* Right Panel - Compliance View */}
+            {/* Right Panel - Compliance & Journaling (unified) */}
             <Card className="lg:col-span-3 flex flex-col border-border/50">
               {selectedTrade ? (
                 <>
@@ -204,30 +205,10 @@ export default function LiveTrades() {
                         onModelSelected={handleModelSelected}
                       />
                     ) : (
-                      <Tabs defaultValue="journal" className="h-full flex flex-col">
-                        <TabsList className="grid w-full grid-cols-2 mb-3">
-                          <TabsTrigger value="journal" className="gap-1.5">
-                            <Bot className="h-3.5 w-3.5" />
-                            Journal
-                          </TabsTrigger>
-                          <TabsTrigger value="compliance" className="gap-1.5">
-                            <Shield className="h-3.5 w-3.5" />
-                            Compliance
-                          </TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="journal" className="flex-1 mt-0">
-                          <LiveJournalChat
-                            trade={selectedTrade}
-                            playbook={selectedPlaybook}
-                          />
-                        </TabsContent>
-                        <TabsContent value="compliance" className="flex-1 mt-0">
-                          <LiveTradeCompliancePanel
-                            trade={selectedTrade}
-                            playbook={selectedPlaybook}
-                          />
-                        </TabsContent>
-                      </Tabs>
+                      <LiveTradeCompliancePanel
+                        trade={selectedTrade}
+                        playbook={selectedPlaybook}
+                      />
                     )}
                   </CardContent>
                 </>

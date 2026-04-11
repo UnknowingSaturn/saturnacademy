@@ -5,6 +5,7 @@ import { SessionConfigPanel } from "./settings/SessionConfigPanel";
 import { PropertyOptionsPanel } from "./settings/PropertyOptionsPanel";
 import { ColumnConfigPanel } from "./settings/ColumnConfigPanel";
 import { FilterPresetsPanel } from "./settings/FilterPresetsPanel";
+import { LiveQuestionsPanel } from "./settings/LiveQuestionsPanel";
 
 interface JournalSettingsDialogProps {
   open: boolean;
@@ -22,11 +23,12 @@ export function JournalSettingsDialog({ open, onOpenChange }: JournalSettingsDia
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid grid-cols-4 w-full">
+          <TabsList className="grid grid-cols-5 w-full">
             <TabsTrigger value="sessions">Sessions</TabsTrigger>
             <TabsTrigger value="properties">Properties</TabsTrigger>
             <TabsTrigger value="columns">Columns</TabsTrigger>
             <TabsTrigger value="filters">Filters</TabsTrigger>
+            <TabsTrigger value="live">Live Q's</TabsTrigger>
           </TabsList>
 
           <div className="flex-1 overflow-y-auto mt-4">
@@ -44,6 +46,10 @@ export function JournalSettingsDialog({ open, onOpenChange }: JournalSettingsDia
 
             <TabsContent value="filters" className="mt-0 h-full">
               <FilterPresetsPanel />
+            </TabsContent>
+
+            <TabsContent value="live" className="mt-0 h-full">
+              <LiveQuestionsPanel />
             </TabsContent>
           </div>
         </Tabs>
