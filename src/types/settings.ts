@@ -1,22 +1,3 @@
-export interface LiveTradeQuestion {
-  id: string;
-  type: 'select' | 'rating' | 'text' | 'screenshot' | 'checkbox' | 'number';
-  label: string;
-  options?: string[];
-  maxItems?: number;
-  required?: boolean;
-  placeholder?: string;
-  min?: number;
-  max?: number;
-}
-
-export const DEFAULT_LIVE_TRADE_QUESTIONS: LiveTradeQuestion[] = [
-  { id: 'emotional_state', type: 'select', label: 'How are you feeling?', options: ['Focused', 'Calm', 'Confident', 'Anxious', 'FOMO', 'Frustrated'] },
-  { id: 'setup_confidence', type: 'rating', label: 'Setup confidence (1-5)' },
-  { id: 'entry_reasoning', type: 'text', label: 'Why did you enter this trade?' },
-  { id: 'market_context', type: 'text', label: 'Market context / regime' },
-  { id: 'trade_screenshots', type: 'screenshot', label: 'Trade screenshots', maxItems: 5 },
-];
 
 export interface UserSettings {
   id: string;
@@ -24,7 +5,6 @@ export interface UserSettings {
   visible_columns: string[];
   column_order: string[];
   default_filters: FilterCondition[];
-  live_trade_questions: LiveTradeQuestion[];
   created_at: string;
   updated_at: string;
 }

@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SessionConfigPanel } from "./settings/SessionConfigPanel";
 import { PropertyOptionsPanel } from "./settings/PropertyOptionsPanel";
 import { ColumnConfigPanel } from "./settings/ColumnConfigPanel";
 import { FilterPresetsPanel } from "./settings/FilterPresetsPanel";
-import { LiveQuestionsPanel } from "./settings/LiveQuestionsPanel";
 
 interface JournalSettingsDialogProps {
   open: boolean;
@@ -16,6 +15,10 @@ interface JournalSettingsDialogProps {
 export function JournalSettingsDialog({ open, onOpenChange, defaultTab }: JournalSettingsDialogProps) {
   const [activeTab, setActiveTab] = useState(defaultTab || "sessions");
 
+  useEffect(() => {
+    if (open && defaultTab) setActiveTab(defaultTab);
+  }, [open, defaultTab]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
@@ -24,12 +27,11 @@ export function JournalSettingsDialog({ open, onOpenChange, defaultTab }: Journa
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid grid-cols-5 w-full">
+          <TabsList className="grid grid-cols-4 w-full">
             <TabsTrigger value="sessions">Sessions</TabsTrigger>
             <TabsTrigger value="properties">Properties</TabsTrigger>
             <TabsTrigger value="columns">Columns</TabsTrigger>
             <TabsTrigger value="filters">Filters</TabsTrigger>
-            <TabsTrigger value="live">Live Q's</TabsTrigger>
           </TabsList>
 
           <div className="flex-1 overflow-y-auto mt-4">
@@ -47,10 +49,6 @@ export function JournalSettingsDialog({ open, onOpenChange, defaultTab }: Journa
 
             <TabsContent value="filters" className="mt-0 h-full">
               <FilterPresetsPanel />
-            </TabsContent>
-
-            <TabsContent value="live" className="mt-0 h-full">
-              <LiveQuestionsPanel />
             </TabsContent>
           </div>
         </Tabs>
