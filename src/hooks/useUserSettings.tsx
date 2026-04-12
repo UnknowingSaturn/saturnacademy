@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { UserSettings, SessionDefinition, PropertyOption, FilterCondition, LiveTradeQuestion, DEFAULT_VISIBLE_COLUMNS, DEFAULT_SESSIONS, DEFAULT_PROPERTY_OPTIONS, DEFAULT_LIVE_TRADE_QUESTIONS } from "@/types/settings";
+import { UserSettings, SessionDefinition, PropertyOption, FilterCondition, DEFAULT_VISIBLE_COLUMNS, DEFAULT_SESSIONS, DEFAULT_PROPERTY_OPTIONS } from "@/types/settings";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
 
@@ -12,7 +12,6 @@ const transformSettings = (row: any): UserSettings => ({
   visible_columns: row.visible_columns || DEFAULT_VISIBLE_COLUMNS,
   column_order: row.column_order || DEFAULT_VISIBLE_COLUMNS,
   default_filters: row.default_filters || [],
-  live_trade_questions: row.live_trade_questions || DEFAULT_LIVE_TRADE_QUESTIONS,
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -72,7 +71,6 @@ export function useUserSettings() {
           visible_columns: DEFAULT_VISIBLE_COLUMNS,
           column_order: DEFAULT_VISIBLE_COLUMNS,
           default_filters: [] as FilterCondition[],
-          live_trade_questions: DEFAULT_LIVE_TRADE_QUESTIONS,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as UserSettings;
@@ -97,7 +95,7 @@ export function useUpdateUserSettings() {
       if (updates.visible_columns) dbUpdates.visible_columns = updates.visible_columns;
       if (updates.column_order) dbUpdates.column_order = updates.column_order;
       if (updates.default_filters) dbUpdates.default_filters = updates.default_filters as any;
-      if (updates.live_trade_questions) dbUpdates.live_trade_questions = updates.live_trade_questions as any;
+      
 
       // Check if settings exist
       const { data: existing } = await supabase

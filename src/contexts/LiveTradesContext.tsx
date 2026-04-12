@@ -13,7 +13,6 @@ interface ChatState {
 
 interface ComplianceState {
   manualAnswers: Record<string, boolean>;
-  questionAnswers?: Record<string, string>;
 }
 
 interface LiveTradesState {
