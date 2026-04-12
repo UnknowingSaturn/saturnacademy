@@ -1,20 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Trade, Playbook } from "@/types/trading";
 import { useTradeCompliance, ComplianceRule } from "@/hooks/useTradeCompliance";
 import { useUpsertTradeReview } from "@/hooks/useTrades";
 import { useLiveTrades } from "@/contexts/LiveTradesContext";
-import { useUserSettings } from "@/hooks/useUserSettings";
-import { useScreenshots } from "@/hooks/useScreenshots";
-import { LiveTradeQuestion, DEFAULT_LIVE_TRADE_QUESTIONS } from "@/types/settings";
+import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
+import { TradeProperties } from "./TradeProperties";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Collapsible,
   CollapsibleContent,
@@ -33,14 +27,12 @@ import {
   TriangleAlert,
   ChevronDown,
   ChevronRight,
-  MessageSquare,
-  Star,
-  ImagePlus,
-  Trash2,
-  Loader2
+  Image as ImageIcon,
+  SlidersHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ComplianceScoreRing } from "@/components/live/ComplianceScoreRing";
+import { TradeScreenshot } from "@/types/trading";
 
 interface LiveTradeCompliancePanelProps {
   trade: Trade;
@@ -55,22 +47,15 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     unregisterPendingSave
   } = useLiveTrades();
   
-  const { data: userSettings } = useUserSettings();
-  const liveQuestions: LiveTradeQuestion[] = userSettings?.live_trade_questions || DEFAULT_LIVE_TRADE_QUESTIONS;
-  
   const existingReview = trade.review;
   const cachedState = getComplianceState(trade.id);
   
   const [manualAnswers, setManualAnswers] = useState<Record<string, boolean>>(
     cachedState?.manualAnswers || existingReview?.checklist_answers || {}
   );
-  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>(
-    cachedState?.questionAnswers || {}
-  );
   const [autoVerifiedOpen, setAutoVerifiedOpen] = useState(false);
   
   const pendingSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const questionSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upsertReview = useUpsertTradeReview();
 
   const compliance = useTradeCompliance(trade, playbook, manualAnswers);
@@ -81,17 +66,6 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     compliance.checklistQuestions.length;
   const completedRules = [...compliance.confirmationRules, ...compliance.invalidationRules, ...compliance.checklistQuestions]
     .filter(r => r.status === 'passed').length;
-
-  // Load existing question answers from review
-  useEffect(() => {
-    if (existingReview && !cachedState?.questionAnswers) {
-      const loaded: Record<string, string> = {};
-      if (existingReview.emotional_state_before) loaded['emotional_state'] = existingReview.emotional_state_before;
-      if (existingReview.thoughts) loaded['entry_reasoning'] = existingReview.thoughts;
-      if (existingReview.psychology_notes) loaded['market_context'] = existingReview.psychology_notes;
-      if (Object.keys(loaded).length > 0) setQuestionAnswers(loaded);
-    }
-  }, [existingReview, cachedState]);
 
   // Sync manual answers to context when they change
   useEffect(() => {
@@ -140,41 +114,6 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     };
   }, [manualAnswers, trade.id, playbook.id, existingReview, upsertReview.isPending, registerPendingSave, unregisterPendingSave]);
 
-  // Auto-save question answers (debounced)
-  useEffect(() => {
-    if (Object.keys(questionAnswers).length === 0) return;
-    
-    registerPendingSave(trade.id, 'questions');
-    
-    questionSaveRef.current = setTimeout(async () => {
-      const reviewData: any = {
-        trade_id: trade.id,
-        playbook_id: playbook.id,
-      };
-      
-      if (questionAnswers['emotional_state']) {
-        reviewData.emotional_state_before = questionAnswers['emotional_state'];
-      }
-      if (questionAnswers['entry_reasoning']) {
-        reviewData.thoughts = questionAnswers['entry_reasoning'];
-      }
-      if (questionAnswers['market_context']) {
-        reviewData.psychology_notes = questionAnswers['market_context'];
-      }
-
-      try {
-        await upsertReview.mutateAsync({ review: reviewData, silent: true });
-        unregisterPendingSave(trade.id, 'questions');
-      } catch {
-        unregisterPendingSave(trade.id, 'questions');
-      }
-    }, 800);
-    
-    return () => {
-      if (questionSaveRef.current) clearTimeout(questionSaveRef.current);
-    };
-  }, [questionAnswers, trade.id, playbook.id, registerPendingSave, unregisterPendingSave]);
-
   // Flush pending saves on unmount
   useEffect(() => {
     return () => {
@@ -193,10 +132,6 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
         }
         unregisterPendingSave(trade.id, 'compliance');
       }
-      if (questionSaveRef.current) {
-        clearTimeout(questionSaveRef.current);
-        unregisterPendingSave(trade.id, 'questions');
-      }
     };
   }, [manualAnswers, trade.id, playbook.id]);
 
@@ -205,10 +140,6 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
       ...prev,
       [ruleId]: !prev[ruleId],
     }));
-  };
-
-  const updateQuestionAnswer = (questionId: string, value: string) => {
-    setQuestionAnswers(prev => ({ ...prev, [questionId]: value }));
   };
 
   const getStatusIcon = (status: ComplianceRule['status']) => {
@@ -274,157 +205,24 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     </label>
   );
 
-  const { uploadScreenshot, deleteScreenshot, isUploading } = useScreenshots();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadingForQuestion, setUploadingForQuestion] = useState<string | null>(null);
-
-  const handleScreenshotUpload = useCallback(async (questionId: string, files: FileList, maxItems: number) => {
-    const existing: string[] = JSON.parse(questionAnswers[questionId] || '[]');
-    const remaining = maxItems - existing.length;
-    if (remaining <= 0) return;
-    
-    setUploadingForQuestion(questionId);
-    const filesToUpload = Array.from(files).slice(0, remaining);
-    const urls: string[] = [...existing];
-    
-    for (const file of filesToUpload) {
-      const url = await uploadScreenshot(file, trade.id, 'trade');
-      if (url) urls.push(url);
-    }
-    
-    updateQuestionAnswer(questionId, JSON.stringify(urls));
-    setUploadingForQuestion(null);
-  }, [questionAnswers, trade.id, uploadScreenshot, updateQuestionAnswer]);
-
-  const handleScreenshotDelete = useCallback(async (questionId: string, url: string) => {
-    const success = await deleteScreenshot(url);
-    if (success) {
-      const existing: string[] = JSON.parse(questionAnswers[questionId] || '[]');
-      updateQuestionAnswer(questionId, JSON.stringify(existing.filter(u => u !== url)));
-    }
-  }, [questionAnswers, deleteScreenshot, updateQuestionAnswer]);
-
-  const renderQuestion = (q: LiveTradeQuestion) => {
-    const value = questionAnswers[q.id] || '';
-    
-    return (
-      <div key={q.id} className="space-y-1.5">
-        <label className="text-sm font-medium text-foreground">
-          {q.label}
-          {q.required && <span className="text-loss ml-1">*</span>}
-        </label>
-        {q.type === 'select' && q.options ? (
-          <Select value={value} onValueChange={v => updateQuestionAnswer(q.id, v)}>
-            <SelectTrigger className="h-9">
-              <SelectValue placeholder="Select..." />
-            </SelectTrigger>
-            <SelectContent>
-              {q.options.map(opt => (
-                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : q.type === 'rating' ? (
-          <div className="flex gap-1">
-            {Array.from({ length: (q.max || 5) - (q.min || 1) + 1 }, (_, i) => (q.min || 1) + i).map(n => (
-              <button
-                key={n}
-                onClick={() => updateQuestionAnswer(q.id, String(n))}
-                className={cn(
-                  "h-9 w-9 rounded-md border transition-colors flex items-center justify-center",
-                  value === String(n) 
-                    ? "bg-primary text-primary-foreground border-primary" 
-                    : "border-border hover:bg-muted/50"
-                )}
-              >
-                <Star className={cn("h-4 w-4", value === String(n) ? "fill-current" : "")} />
-              </button>
-            ))}
-          </div>
-        ) : q.type === 'screenshot' ? (
-          <div className="space-y-2">
-            {(() => {
-              const urls: string[] = (() => { try { return JSON.parse(value || '[]'); } catch { return []; } })();
-              const maxItems = q.maxItems || 5;
-              const canUpload = urls.length < maxItems;
-              return (
-                <>
-                  {urls.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2">
-                      {urls.map((url, i) => (
-                        <div key={i} className="relative group rounded-md overflow-hidden border border-border aspect-video">
-                          <img src={url} alt={`Screenshot ${i + 1}`} className="w-full h-full object-cover" />
-                          <button
-                            onClick={() => handleScreenshotDelete(q.id, url)}
-                            className="absolute top-1 right-1 h-5 w-5 rounded-full bg-background/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <Trash2 className="h-3 w-3 text-loss" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={e => {
-                      if (e.target.files?.length) {
-                        handleScreenshotUpload(q.id, e.target.files, maxItems);
-                        e.target.value = '';
-                      }
-                    }}
-                  />
-                  {canUpload && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5 w-full"
-                      disabled={isUploading && uploadingForQuestion === q.id}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      {isUploading && uploadingForQuestion === q.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <ImagePlus className="h-3.5 w-3.5" />
-                      )}
-                      Upload ({urls.length}/{maxItems})
-                    </Button>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-        ) : q.type === 'checkbox' ? (
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={value === 'true'}
-              onCheckedChange={checked => updateQuestionAnswer(q.id, String(checked))}
-            />
-            <span className="text-sm text-muted-foreground">Yes</span>
-          </div>
-        ) : q.type === 'number' ? (
-          <Input
-            type="number"
-            value={value}
-            onChange={e => updateQuestionAnswer(q.id, e.target.value)}
-            placeholder={q.placeholder || "Enter a number..."}
-            min={q.min}
-            max={q.max}
-            className="h-9"
-          />
-        ) : (
-          <Textarea
-            value={value}
-            onChange={e => updateQuestionAnswer(q.id, e.target.value)}
-            placeholder={q.placeholder || "Type here..."}
-            className="min-h-[60px] resize-none text-sm"
-          />
-        )}
-      </div>
-    );
+  // Handle screenshots change - saves directly to trade_reviews
+  const screenshots: TradeScreenshot[] = (existingReview?.screenshots as TradeScreenshot[]) || [];
+  
+  const handleScreenshotsChange = async (newScreenshots: TradeScreenshot[]) => {
+    await upsertReview.mutateAsync({
+      review: {
+        trade_id: trade.id,
+        playbook_id: playbook.id,
+        screenshots: newScreenshots as any,
+        ...(existingReview && {
+          checklist_answers: existingReview.checklist_answers,
+          regime: existingReview.regime,
+          emotional_state_before: existingReview.emotional_state_before,
+          psychology_notes: existingReview.psychology_notes,
+        }),
+      },
+      silent: true,
+    });
   };
 
   return (
@@ -561,22 +359,29 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
             </Card>
           )}
 
-          {/* Live Trade Journal Questions */}
-          {liveQuestions.length > 0 && (
-            <Card className="border-border/50">
-              <CardHeader className="py-2.5 px-4">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-primary" />
-                  Trade Journal
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-3 pt-0">
-                <div className="space-y-3">
-                  {liveQuestions.map(renderQuestion)}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* Screenshots - Direct Journal Integration */}
+          <Card className="border-border/50">
+            <CardContent className="px-4 py-3">
+              <TradeScreenshotGallery
+                tradeId={trade.id}
+                screenshots={screenshots}
+                onScreenshotsChange={handleScreenshotsChange}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Trade Properties - Direct Journal Integration */}
+          <Card className="border-border/50">
+            <CardHeader className="py-2.5 px-4">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4 text-primary" />
+                Trade Properties
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-3 pt-0">
+              <TradeProperties trade={trade} />
+            </CardContent>
+          </Card>
 
           {/* Management Tips - Compact */}
           {compliance.managementRules.length > 0 && (
