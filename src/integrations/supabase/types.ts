@@ -911,6 +911,47 @@ export type Database = {
           },
         ]
       }
+      strategy_conversations: {
+        Row: {
+          created_at: string
+          id: string
+          messages: Json
+          model: string
+          playbook_id: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          messages?: Json
+          model?: string
+          playbook_id?: string | null
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          messages?: Json
+          model?: string
+          playbook_id?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_conversations_playbook_id_fkey"
+            columns: ["playbook_id"]
+            isOneToOne: false
+            referencedRelation: "playbooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trade_comments: {
         Row: {
           content: string
