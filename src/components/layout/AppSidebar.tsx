@@ -13,7 +13,8 @@ import {
   ChevronDown,
   Check,
   Building2,
-  Settings
+  Settings,
+  Sparkles
 } from "lucide-react";
 import { AccountSettingsDialog } from "./AccountSettingsDialog";
 import { NavLink } from "@/components/NavLink";
@@ -53,6 +54,7 @@ const mainItems = [
 ];
 
 const toolItems = [
+  { title: "Strategy Lab", url: "/strategy-lab", icon: Sparkles },
   { title: "Trade Copier", url: "/copier", icon: Copy },
   { title: "Import Trades", url: "/import", icon: Upload },
   { title: "Accounts", url: "/accounts", icon: Wallet },
