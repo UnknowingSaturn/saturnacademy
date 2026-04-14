@@ -1,89 +1,89 @@
 
 
-# Strategy Lab: AI Trading Advisor with AMT Knowledge Base
+# Strategy Lab Robustness Upgrade: AI-Driven Playbook Tweaking + Gap Analysis
 
-## What You Get
+## Gaps Found in Current Implementation
 
-A dedicated `/strategy-lab` page with a full-featured AI chat environment that:
-- Has deep Auction Market Theory (AMT) knowledge baked into its system prompt (value areas, POC, volume profiles, market profiles, TPOs, initial balance, single prints, poor highs/lows, excess, balance/imbalance, etc.)
-- Pulls your actual playbook rules and journal trade history into every conversation for context
-- Can generate and refine MQL5 EA code based on your strategies
-- Supports conversation persistence so you can pick up where you left off
+1. **No playbook modification from Strategy Lab** — The AI can suggest changes but cannot apply them. The user must manually copy suggestions and go to the Playbooks page to edit.
 
-## Architecture
+2. **No tool calling / structured output** — The LLM responds with free text only. It cannot execute actions like "update confirmation rule #3" or "add a new failure mode." This is the biggest gap for a robust refinement environment.
 
-```text
-┌─────────────────────┐     ┌──────────────────────────┐
-│  Strategy Lab Page   │     │  strategy-lab Edge Fn     │
-│                      │     │                           │
-│  Chat Interface      │────▶│  AMT Knowledge Prompt     │
-│  + Playbook Selector │     │  + User's Playbook Rules  │
-│  + Journal Context   │     │  + Recent Trade Stats     │
-│  + Code Viewer       │◀────│  + Gemini 2.5 Pro         │
-│  + Conversation List │     │  + Streaming SSE          │
-└─────────────────────┘     └──────────────────────────┘
-```
+3. **No backtest result upload/analysis** — There's no way to import MT5 Strategy Tester results for the AI to analyze.
 
-## The AMT Knowledge Base
+4. **No "Apply Suggestion" workflow** — When the AI suggests a rule change, there's no inline button to accept/reject and write it to the playbook.
 
-Instead of a separate vector DB (which adds complexity and cost), the system prompt will contain a comprehensive, curated AMT reference covering:
-- **Market Profile**: TPO charts, initial balance, value area (VA), POC, single prints, poor highs/lows, excess
-- **Volume Profile**: VPOC, HVN, LVN, developing vs composite profiles, naked POCs
-- **Auction Theory**: Balance vs imbalance, initiative vs responsive activity, rotational vs trending days
-- **Day Types**: Normal, normal variation, trend, double distribution, P-shape, b-shape
-- **Practical Application**: How to identify rotation entries at VA extremes, breakout entries beyond balance, mean reversion at POC
+5. **No checklist gap detection** — The AI doesn't analyze whether checklist questions cover all entry/confirmation/invalidation rules (a common oversight).
 
-This is ~3-4K tokens of dense reference material that stays in the system prompt. Gemini 2.5 Pro handles this context size easily.
+6. **No conversation export** — Can't export a strategy refinement session as markdown for reference.
 
-## Implementation
+7. **Quick actions are static** — They don't adapt based on whether a playbook is selected or what data is available.
 
-### Phase 1: Edge Function — `strategy-lab`
-- Rich AMT system prompt (~3K tokens of curated theory)
-- Fetches user's playbooks from DB (rules, symbols, sessions)
-- Fetches recent trade stats (last 30 trades: win rate by session/symbol, common mistakes from journal)
-- Streams responses via SSE using Gemini 2.5 Pro (best for complex reasoning)
-- Supports conversation modes: "refine strategy", "generate EA code", "analyze performance", "teach AMT concept"
+8. **No abort/cancel stream** — Can't stop a long response mid-stream.
 
-### Phase 2: Database — Conversation Persistence
-- New table: `strategy_conversations` (id, user_id, title, playbook_id, messages JSONB, created_at, updated_at)
-- Lets users save/resume conversations, review past strategy discussions
+## Plan
 
-### Phase 3: Frontend — Strategy Lab Page
-- `/strategy-lab` route with sidebar listing saved conversations
-- Playbook selector dropdown — loads relevant rules into context
-- Chat interface with markdown rendering (code blocks for MQL5)
-- Quick action buttons: "Generate EA from this playbook", "Analyze my recent performance", "Explain this AMT concept"
-- Code viewer panel that renders MQL5 output with syntax highlighting and a copy/download button
+### Step 1: Add Playbook Mutation via Tool Calling in Edge Function
 
-### Phase 4: Context Injection
-- When a playbook is selected, the edge function automatically includes:
-  - All playbook rules (entry, confirmation, invalidation, management, failure modes)
-  - Symbol and session filters
-  - Last 20 trades matching that playbook: win/loss, R-multiples, common journal notes
-  - Aggregate stats: win rate, avg R, best/worst sessions
+Update `strategy-lab/index.ts` to use LLM tool calling. Define tools the AI can invoke:
+
+- `update_playbook_rules` — Updates specific rule arrays (confirmation, invalidation, management, failure modes)
+- `update_risk_limits` — Updates max R, max daily loss, max trades per session
+- `update_filters` — Updates symbol/session/regime filters
+- `add_checklist_question` — Adds a new checklist question
+- `analyze_gaps` — Triggers a structured gap analysis of the playbook
+
+When the AI calls a tool, the edge function executes the mutation via service role client and returns the result. The streamed response includes both the AI's reasoning AND the applied changes.
+
+The frontend detects tool call results in the stream and shows inline confirmation cards ("Applied: Added failure mode 'Entering during news event'" with an Undo button).
+
+### Step 2: Add Playbook Mutation Confirmation UI
+
+New component `AppliedChangeCard.tsx` — rendered inline in chat messages when the AI applies a playbook change. Shows:
+- What changed (field, old value, new value)
+- Undo button (reverts via `useUpdatePlaybook`)
+- Status indicator (applied / reverted)
+
+Update `MessageContent` in `StrategyChat.tsx` to detect `[PLAYBOOK_UPDATE:...]` markers in AI responses and render `AppliedChangeCard` components.
+
+### Step 3: Add Gap Analysis Quick Action
+
+New quick action: "Analyze Playbook Gaps" — sends a structured prompt asking the AI to:
+- Check if every entry rule has a corresponding confirmation
+- Check if every confirmation has an invalidation
+- Check if failure modes cover common mistakes from journal data
+- Check if risk limits are set
+- Check if checklist questions cover all rule categories
+- Suggest missing rules based on AMT theory and the trader's actual performance data
+
+### Step 4: Contextual Quick Actions
+
+Make quick actions dynamic based on state:
+- No playbook selected: "Teach AMT", "Design New Strategy"
+- Playbook selected, no trades: "Analyze Gaps", "Generate EA", "Add Missing Rules"
+- Playbook selected, has trades: "Analyze Performance", "Refine Based on Results", "Generate EA", "Analyze Gaps"
+
+### Step 5: Stream Abort + Conversation Export
+
+- Add AbortController to `handleSend` — new Stop button replaces Send during streaming
+- Add export button in conversation list — downloads conversation as `.md` file
+
+### Step 6: Backtest Report Upload
+
+Add a file upload button in the chat input area. When a user uploads an MT5 HTML report:
+- Parse it client-side (extract key metrics table from the HTML)
+- Send parsed metrics as part of the next message context
+- The AI analyzes the backtest results against the playbook rules and journal data
 
 ## Files to Create/Modify
 
-| File | Purpose |
-|------|---------|
-| `supabase/functions/strategy-lab/index.ts` | Edge function with AMT knowledge + playbook/journal context + streaming |
-| `src/pages/StrategyLab.tsx` | Main page with chat UI |
-| `src/components/strategy-lab/StrategyChat.tsx` | Chat interface with markdown + code rendering |
-| `src/components/strategy-lab/ConversationList.tsx` | Saved conversation sidebar |
-| `src/components/strategy-lab/CodeViewer.tsx` | MQL5 code display with copy/download |
-| `src/App.tsx` | Add `/strategy-lab` route |
-| `src/components/layout/AppSidebar.tsx` | Add Strategy Lab nav item |
-| DB migration | `strategy_conversations` table with RLS |
+| File | Change |
+|------|--------|
+| `supabase/functions/strategy-lab/index.ts` | Add tool definitions, handle tool calls, execute playbook mutations via service role |
+| `src/components/strategy-lab/StrategyChat.tsx` | Dynamic quick actions, abort button, file upload for reports, render applied changes |
+| `src/components/strategy-lab/AppliedChangeCard.tsx` | New — inline change confirmation with undo |
+| `src/components/strategy-lab/ReportUpload.tsx` | New — MT5 HTML report parser + upload button |
+| `src/components/strategy-lab/ConversationList.tsx` | Add export button |
+| `src/pages/StrategyLab.tsx` | Wire abort controller, pass playbook mutation callbacks, invalidate playbook queries on changes |
 
-## Model Choice
-
-Using `google/gemini-2.5-pro` for this — it has the largest context window, strongest reasoning, and handles the combination of AMT theory + playbook rules + trade history + code generation best. The cost per message is ~$0.01, acceptable for strategy refinement work.
-
-## What This Is NOT
-
-- Not a real-time trading signal generator (that stays in the EA)
-- Not a vector database RAG system (overkill — curated prompt knowledge is better for a focused domain like AMT)
-- Not a backtester (MT5 Strategy Tester handles that locally)
-
-It's a **strategy refinement workbench** — think of it as having a senior AMT trader available 24/7 who knows your exact playbooks and performance history.
+No database migrations needed — playbook mutations use existing `playbooks` table. Tool calling uses the existing Lovable AI gateway.
 
