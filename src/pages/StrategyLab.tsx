@@ -92,18 +92,18 @@ export default function StrategyLab() {
     if (convId) {
       await supabase
         .from("strategy_conversations")
-        .update({ messages: msgs as unknown as Record<string, unknown>[], playbook_id: playbookId, title })
+        .update({ messages: JSON.parse(JSON.stringify(msgs)), playbook_id: playbookId, title })
         .eq("id", convId);
       return convId;
     } else {
       const { data } = await supabase
         .from("strategy_conversations")
-        .insert({
+        .insert([{
           user_id: user!.id,
           title,
           playbook_id: playbookId,
-          messages: msgs as unknown as Record<string, unknown>[],
-        })
+          messages: JSON.parse(JSON.stringify(msgs)),
+        }])
         .select("id")
         .single();
       const newId = data!.id;
