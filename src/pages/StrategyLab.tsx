@@ -21,7 +21,7 @@ const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/strategy-lab
 
 export default function StrategyLab() {
   const { user } = useAuth();
-  const { playbooks } = usePlaybooks();
+  const { data: playbooks } = usePlaybooks();
   const { toast } = useToast();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
