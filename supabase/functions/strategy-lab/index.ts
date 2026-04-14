@@ -106,6 +106,244 @@ When generating MQL5 Expert Advisors:
 Always explain your reasoning using AMT concepts. Reference specific profile structures, day types, and auction dynamics when analyzing setups or suggesting improvements.
 `;
 
+const TOOL_DEFINITIONS = [
+  {
+    type: "function",
+    function: {
+      name: "update_playbook_rules",
+      description: "Update specific rule arrays on the active playbook. Use this when the user agrees to a rule change or asks you to add/remove/modify rules. Supported fields: confirmation_rules, invalidation_rules, management_rules, failure_modes.",
+      parameters: {
+        type: "object",
+        properties: {
+          field: {
+            type: "string",
+            enum: ["confirmation_rules", "invalidation_rules", "management_rules", "failure_modes"],
+            description: "Which rule array to update",
+          },
+          action: {
+            type: "string",
+            enum: ["add", "remove", "replace"],
+            description: "Whether to add a new rule, remove an existing one, or replace the entire array",
+          },
+          value: {
+            type: "string",
+            description: "For 'add': the new rule text. For 'remove': the exact rule text to remove.",
+          },
+          values: {
+            type: "array",
+            items: { type: "string" },
+            description: "For 'replace': the complete new array of rules.",
+          },
+        },
+        required: ["field", "action"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_risk_limits",
+      description: "Update risk management limits on the active playbook.",
+      parameters: {
+        type: "object",
+        properties: {
+          max_r_per_trade: { type: "number", description: "Maximum R per trade" },
+          max_daily_loss_r: { type: "number", description: "Maximum daily loss in R" },
+          max_trades_per_session: { type: "integer", description: "Maximum trades per session" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_filters",
+      description: "Update symbol, session, or regime filters on the active playbook.",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol_filter: { type: "array", items: { type: "string" }, description: "Symbols to trade" },
+          session_filter: { type: "array", items: { type: "string" }, description: "Sessions to trade in" },
+          valid_regimes: { type: "array", items: { type: "string" }, description: "Valid market regimes" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_checklist_question",
+      description: "Add a new pre-trade checklist question to the active playbook.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: { type: "string", description: "The checklist question text" },
+          category: { type: "string", description: "Category: entry, confirmation, risk, context" },
+        },
+        required: ["question"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_playbook_description",
+      description: "Update the playbook name or description.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "New playbook name" },
+          description: { type: "string", description: "New playbook description" },
+        },
+      },
+    },
+  },
+];
+
+async function executeToolCall(
+  toolName: string,
+  args: Record<string, unknown>,
+  playbookId: string,
+  serviceClient: ReturnType<typeof createClient>
+): Promise<{ success: boolean; message: string; change?: Record<string, unknown> }> {
+  try {
+    // Fetch current playbook
+    const { data: playbook, error: fetchErr } = await serviceClient
+      .from("playbooks")
+      .select("*")
+      .eq("id", playbookId)
+      .single();
+
+    if (fetchErr || !playbook) {
+      return { success: false, message: "Could not find playbook" };
+    }
+
+    switch (toolName) {
+      case "update_playbook_rules": {
+        const field = args.field as string;
+        const action = args.action as string;
+        const currentRules = (playbook[field] as string[]) || [];
+        let newRules: string[];
+        let changeDesc: string;
+
+        if (action === "add" && args.value) {
+          newRules = [...currentRules, args.value as string];
+          changeDesc = `Added to ${field}: "${args.value}"`;
+        } else if (action === "remove" && args.value) {
+          newRules = currentRules.filter((r) => r !== args.value);
+          changeDesc = `Removed from ${field}: "${args.value}"`;
+        } else if (action === "replace" && args.values) {
+          newRules = args.values as string[];
+          changeDesc = `Replaced ${field} with ${newRules.length} rules`;
+        } else {
+          return { success: false, message: "Invalid action/value combination" };
+        }
+
+        const { error } = await serviceClient
+          .from("playbooks")
+          .update({ [field]: newRules })
+          .eq("id", playbookId);
+
+        if (error) return { success: false, message: error.message };
+        return {
+          success: true,
+          message: changeDesc,
+          change: { field, action, old_value: currentRules, new_value: newRules },
+        };
+      }
+
+      case "update_risk_limits": {
+        const updates: Record<string, unknown> = {};
+        const changes: string[] = [];
+
+        if (args.max_r_per_trade !== undefined) {
+          updates.max_r_per_trade = args.max_r_per_trade;
+          changes.push(`max_r_per_trade: ${playbook.max_r_per_trade ?? "unset"} → ${args.max_r_per_trade}`);
+        }
+        if (args.max_daily_loss_r !== undefined) {
+          updates.max_daily_loss_r = args.max_daily_loss_r;
+          changes.push(`max_daily_loss_r: ${playbook.max_daily_loss_r ?? "unset"} → ${args.max_daily_loss_r}`);
+        }
+        if (args.max_trades_per_session !== undefined) {
+          updates.max_trades_per_session = args.max_trades_per_session;
+          changes.push(`max_trades_per_session: ${playbook.max_trades_per_session ?? "unset"} → ${args.max_trades_per_session}`);
+        }
+
+        const { error } = await serviceClient
+          .from("playbooks")
+          .update(updates)
+          .eq("id", playbookId);
+
+        if (error) return { success: false, message: error.message };
+        return { success: true, message: `Updated: ${changes.join(", ")}`, change: { updates, old: { max_r_per_trade: playbook.max_r_per_trade, max_daily_loss_r: playbook.max_daily_loss_r, max_trades_per_session: playbook.max_trades_per_session } } };
+      }
+
+      case "update_filters": {
+        const updates: Record<string, unknown> = {};
+        const changes: string[] = [];
+
+        if (args.symbol_filter) {
+          updates.symbol_filter = args.symbol_filter;
+          changes.push(`symbol_filter → [${(args.symbol_filter as string[]).join(", ")}]`);
+        }
+        if (args.session_filter) {
+          updates.session_filter = args.session_filter;
+          changes.push(`session_filter → [${(args.session_filter as string[]).join(", ")}]`);
+        }
+        if (args.valid_regimes) {
+          updates.valid_regimes = args.valid_regimes;
+          changes.push(`valid_regimes → [${(args.valid_regimes as string[]).join(", ")}]`);
+        }
+
+        const { error } = await serviceClient
+          .from("playbooks")
+          .update(updates)
+          .eq("id", playbookId);
+
+        if (error) return { success: false, message: error.message };
+        return { success: true, message: `Updated filters: ${changes.join(", ")}`, change: { updates } };
+      }
+
+      case "add_checklist_question": {
+        const currentChecklist = (playbook.checklist_questions as Array<Record<string, unknown>>) || [];
+        const newQuestion = {
+          id: crypto.randomUUID(),
+          text: args.question as string,
+          category: (args.category as string) || "general",
+        };
+        const newChecklist = [...currentChecklist, newQuestion];
+
+        const { error } = await serviceClient
+          .from("playbooks")
+          .update({ checklist_questions: newChecklist })
+          .eq("id", playbookId);
+
+        if (error) return { success: false, message: error.message };
+        return { success: true, message: `Added checklist question: "${args.question}"`, change: { question: newQuestion } };
+      }
+
+      case "update_playbook_description": {
+        const updates: Record<string, unknown> = {};
+        if (args.name) updates.name = args.name;
+        if (args.description) updates.description = args.description;
+
+        const { error } = await serviceClient
+          .from("playbooks")
+          .update(updates)
+          .eq("id", playbookId);
+
+        if (error) return { success: false, message: error.message };
+        return { success: true, message: `Updated playbook: ${Object.keys(updates).join(", ")}`, change: updates };
+      }
+
+      default:
+        return { success: false, message: `Unknown tool: ${toolName}` };
+    }
+  } catch (e) {
+    return { success: false, message: e instanceof Error ? e.message : "Tool execution failed" };
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -121,10 +359,14 @@ serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey, {
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
+
+    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     const {
       data: { user },
@@ -137,7 +379,7 @@ serve(async (req) => {
       });
     }
 
-    const { messages, playbook_id, conversation_id } = await req.json();
+    const { messages, playbook_id, conversation_id, backtest_metrics } = await req.json();
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: "Messages required" }), {
@@ -213,7 +455,6 @@ ${JSON.stringify(playbook.checklist_questions || [], null, 2)}
         const totalPnl = trades.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
         const avgR = trades.filter((t) => t.r_multiple_actual != null).reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0) / Math.max(1, trades.filter((t) => t.r_multiple_actual != null).length);
 
-        // Session breakdown
         const sessionStats: Record<string, { wins: number; total: number }> = {};
         for (const t of trades) {
           const s = t.session || "unknown";
@@ -222,7 +463,6 @@ ${JSON.stringify(playbook.checklist_questions || [], null, 2)}
           if ((t.net_pnl ?? 0) > 0) sessionStats[s].wins++;
         }
 
-        // Symbol breakdown
         const symbolStats: Record<string, { wins: number; total: number }> = {};
         for (const t of trades) {
           if (!symbolStats[t.symbol]) symbolStats[t.symbol] = { wins: 0, total: 0 };
@@ -277,6 +517,35 @@ ${allDidWell.slice(0, 8).map((m) => `- ${m}`).join("\n") || "None recorded"}
       console.error("Failed to fetch review context:", e);
     }
 
+    // Backtest metrics context
+    let backtestContext = "";
+    if (backtest_metrics) {
+      backtestContext = `
+## Backtest Report Metrics (uploaded by user)
+${backtest_metrics}
+`;
+    }
+
+    const toolInstructions = playbook_id
+      ? `
+## Tool Usage Instructions
+
+You have tools to directly modify the active playbook. Use them when:
+- The user explicitly asks you to update, add, or remove rules
+- The user agrees to a suggestion you've made
+- You're running a gap analysis and the user wants you to fix issues
+
+When you use a tool, also explain what you changed and why in your response text. The user will see an inline confirmation card.
+
+DO NOT use tools speculatively — only when the user has confirmed or explicitly requested a change. If you're suggesting changes, describe them first and ask the user if they want you to apply them.
+
+After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the frontend knows to refresh.
+`
+      : `
+## Note
+No playbook is currently selected, so you cannot use playbook modification tools. You can still discuss AMT theory, analyze general performance, and help design new strategies.
+`;
+
     const systemPrompt = `${AMT_KNOWLEDGE}
 
 ${playbookContext}
@@ -285,17 +554,21 @@ ${journalContext}
 
 ${reviewContext}
 
+${backtestContext}
+
+${toolInstructions}
+
 ## Your Behavior
 
 1. When the user asks to generate an EA, produce complete, compilable MQL5 code in a single code block with language tag \`\`\`mql5.
 2. When analyzing performance, reference the journal data above and identify patterns using AMT concepts.
-3. When refining strategies, suggest specific rule changes with AMT reasoning.
+3. When refining strategies, suggest specific rule changes with AMT reasoning. If the user agrees, use the tools to apply them.
 4. Always be specific — reference actual numbers from the journal data, actual rules from the playbook.
 5. If no playbook is selected, you can still discuss AMT theory and help design new strategies.
 6. Format responses with clear headers and bullet points for readability.
+7. When asked to analyze gaps, systematically check: entry rules have confirmations, confirmations have invalidations, failure modes cover journal mistakes, risk limits are set, checklist covers all categories.
 `;
 
-    // Call Lovable AI Gateway
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       return new Response(JSON.stringify({ error: "AI service not configured" }), {
@@ -304,21 +577,28 @@ ${reviewContext}
       });
     }
 
+    // First call: may return tool calls or content
+    const aiPayload: Record<string, unknown> = {
+      model: "google/gemini-2.5-pro",
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...messages,
+      ],
+      stream: true,
+      reasoning: { effort: "high" },
+    };
+
+    if (playbook_id) {
+      aiPayload.tools = TOOL_DEFINITIONS;
+    }
+
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages,
-        ],
-        stream: true,
-        reasoning: { effort: "high" },
-      }),
+      body: JSON.stringify(aiPayload),
     });
 
     if (!aiResponse.ok) {
@@ -343,7 +623,177 @@ ${reviewContext}
       });
     }
 
-    return new Response(aiResponse.body, {
+    // We need to handle tool calls. Since we're streaming, we need to collect the full
+    // response first to check for tool calls, then either stream through or handle tools.
+    // Strategy: read the stream, detect tool_calls in finish_reason, execute them,
+    // then make a follow-up call with tool results.
+
+    const reader = aiResponse.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let collectedContent = "";
+    let toolCalls: Array<{ id: string; function: { name: string; arguments: string } }> = [];
+    let hasToolCalls = false;
+    const toolCallBuffers: Record<number, { id: string; name: string; args: string }> = {};
+
+    // Read through the stream to detect tool calls
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let newlineIndex: number;
+      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+        let line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6).trim();
+        if (jsonStr === "[DONE]") continue;
+
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const choice = parsed.choices?.[0];
+          if (choice?.delta?.content) {
+            collectedContent += choice.delta.content;
+          }
+          if (choice?.delta?.tool_calls) {
+            hasToolCalls = true;
+            for (const tc of choice.delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              if (!toolCallBuffers[idx]) {
+                toolCallBuffers[idx] = { id: tc.id || "", name: tc.function?.name || "", args: "" };
+              }
+              if (tc.id) toolCallBuffers[idx].id = tc.id;
+              if (tc.function?.name) toolCallBuffers[idx].name = tc.function.name;
+              if (tc.function?.arguments) toolCallBuffers[idx].args += tc.function.arguments;
+            }
+          }
+        } catch {
+          // ignore partial JSON
+        }
+      }
+    }
+
+    if (hasToolCalls && playbook_id) {
+      // Execute all tool calls
+      toolCalls = Object.values(toolCallBuffers).map((tc) => ({
+        id: tc.id,
+        function: { name: tc.name, arguments: tc.args },
+      }));
+
+      const toolResults: Array<{ tool_call_id: string; role: string; content: string }> = [];
+      const appliedChanges: Array<{ tool: string; result: Record<string, unknown> }> = [];
+
+      for (const tc of toolCalls) {
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(tc.function.arguments);
+        } catch {
+          args = {};
+        }
+
+        const result = await executeToolCall(tc.function.name, args, playbook_id, serviceClient);
+        toolResults.push({
+          tool_call_id: tc.id,
+          role: "tool",
+          content: JSON.stringify(result),
+        });
+        appliedChanges.push({ tool: tc.function.name, result });
+      }
+
+      // Follow-up call with tool results
+      const followUpMessages = [
+        { role: "system", content: systemPrompt },
+        ...messages,
+        {
+          role: "assistant",
+          content: collectedContent || null,
+          tool_calls: toolCalls.map((tc) => ({
+            id: tc.id,
+            type: "function",
+            function: tc.function,
+          })),
+        },
+        ...toolResults,
+      ];
+
+      const followUpResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-pro",
+          messages: followUpMessages,
+          stream: true,
+        }),
+      });
+
+      if (!followUpResponse.ok) {
+        // Fall back to returning the tool results as text
+        const changesSummary = appliedChanges
+          .map((c) => `[TOOL_RESULT:${JSON.stringify({ tool: c.tool, ...c.result })}]`)
+          .join("\n");
+        const fallbackContent = `${collectedContent}\n\n${changesSummary}\n\n[PLAYBOOK_UPDATED]`;
+        
+        const encoder = new TextEncoder();
+        const sseData = `data: ${JSON.stringify({ choices: [{ delta: { content: fallbackContent }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
+        
+        return new Response(encoder.encode(sseData), {
+          headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+        });
+      }
+
+      // Prepend tool result markers to the stream
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      const enc = new TextEncoder();
+
+      // Send tool result markers first
+      for (const change of appliedChanges) {
+        const marker = `data: ${JSON.stringify({
+          choices: [{
+            delta: { content: `\n[TOOL_RESULT:${JSON.stringify({ tool: change.tool, ...change.result })}]\n` },
+            finish_reason: null,
+          }],
+        })}\n\n`;
+        await writer.write(enc.encode(marker));
+      }
+
+      // Then pipe the follow-up stream
+      const followUpReader = followUpResponse.body!.getReader();
+      (async () => {
+        try {
+          while (true) {
+            const { done, value } = await followUpReader.read();
+            if (done) break;
+            await writer.write(value);
+          }
+        } finally {
+          await writer.close();
+        }
+      })();
+
+      return new Response(readable, {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      });
+    }
+
+    // No tool calls — reconstruct the stream from collected content
+    const encoder = new TextEncoder();
+    const chunks: string[] = [];
+    // Split content into smaller chunks for streaming feel
+    const chunkSize = 20;
+    for (let i = 0; i < collectedContent.length; i += chunkSize) {
+      const chunk = collectedContent.slice(i, i + chunkSize);
+      chunks.push(`data: ${JSON.stringify({ choices: [{ delta: { content: chunk }, finish_reason: null }] })}\n\n`);
+    }
+    chunks.push(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`);
+    chunks.push("data: [DONE]\n\n");
+
+    return new Response(encoder.encode(chunks.join("")), {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {
