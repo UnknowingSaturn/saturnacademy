@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
@@ -16,6 +16,7 @@ import {
 import { Sparkles, PanelLeftClose, PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/strategy-lab`;
 
@@ -23,6 +24,7 @@ export default function StrategyLab() {
   const { user } = useAuth();
   const { data: playbooks } = usePlaybooks();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -30,10 +32,11 @@ export default function StrategyLab() {
   const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>("none");
   const [isStreaming, setIsStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [backtestMetrics, setBacktestMetrics] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const selectedPlaybook = playbooks?.find((p) => p.id === selectedPlaybookId);
 
-  // Load conversations
   useEffect(() => {
     if (!user) return;
     loadConversations();
@@ -47,7 +50,6 @@ export default function StrategyLab() {
     if (data) setConversations(data);
   };
 
-  // Load active conversation messages
   useEffect(() => {
     if (!activeConversationId) {
       setMessages([]);
@@ -72,6 +74,7 @@ export default function StrategyLab() {
     setActiveConversationId(null);
     setMessages([]);
     setSelectedPlaybookId("none");
+    setBacktestMetrics(null);
   };
 
   const handleDeleteConversation = async (id: string) => {
@@ -83,9 +86,30 @@ export default function StrategyLab() {
     loadConversations();
   };
 
+  const handleExportConversation = async (id: string) => {
+    const { data } = await supabase
+      .from("strategy_conversations")
+      .select("title, messages")
+      .eq("id", id)
+      .single();
+    if (!data) return;
+
+    const msgs = data.messages as unknown as ChatMessage[];
+    const md = `# ${data.title}\n\n${msgs
+      .map((m) => `## ${m.role === "user" ? "You" : "Strategy Lab AI"}\n\n${m.content}`)
+      .join("\n\n---\n\n")}`;
+
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${data.title.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const saveConversation = async (msgs: ChatMessage[], convId: string | null): Promise<string> => {
     const playbookId = selectedPlaybookId === "none" ? null : selectedPlaybookId;
-    // Generate title from first user message
     const firstUserMsg = msgs.find((m) => m.role === "user");
     const title = firstUserMsg?.content.slice(0, 60) || "New Conversation";
 
@@ -112,6 +136,11 @@ export default function StrategyLab() {
     }
   };
 
+  const handleAbort = useCallback(() => {
+    abortControllerRef.current?.abort();
+    setIsStreaming(false);
+  }, []);
+
   const handleSend = useCallback(
     async (input: string) => {
       if (isStreaming) return;
@@ -120,6 +149,9 @@ export default function StrategyLab() {
       const newMessages = [...messages, userMsg];
       setMessages(newMessages);
       setIsStreaming(true);
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
       let assistantContent = "";
 
@@ -138,7 +170,9 @@ export default function StrategyLab() {
             messages: newMessages,
             playbook_id: selectedPlaybookId === "none" ? null : selectedPlaybookId,
             conversation_id: activeConversationId,
+            backtest_metrics: backtestMetrics,
           }),
+          signal: controller.signal,
         });
 
         if (!resp.ok) {
@@ -215,23 +249,43 @@ export default function StrategyLab() {
           }
         }
 
+        // Check if playbook was updated — invalidate queries
+        if (assistantContent.includes("[PLAYBOOK_UPDATED]") || assistantContent.includes("[TOOL_RESULT:")) {
+          queryClient.invalidateQueries({ queryKey: ["playbooks"] });
+        }
+
+        // Clear backtest metrics after use
+        if (backtestMetrics) setBacktestMetrics(null);
+
         // Save conversation
         const finalMessages = [...newMessages, { role: "assistant" as const, content: assistantContent }];
         await saveConversation(finalMessages, activeConversationId);
         loadConversations();
       } catch (e: unknown) {
+        if (e instanceof DOMException && e.name === "AbortError") {
+          // User cancelled — save what we have
+          if (assistantContent) {
+            const partialMessages = [...newMessages, { role: "assistant" as const, content: assistantContent }];
+            await saveConversation(partialMessages, activeConversationId);
+            loadConversations();
+          }
+          return;
+        }
         const msg = e instanceof Error ? e.message : "Unknown error";
         toast({ title: "Error", description: msg, variant: "destructive" });
       } finally {
         setIsStreaming(false);
+        abortControllerRef.current = null;
       }
     },
-    [messages, isStreaming, selectedPlaybookId, activeConversationId, user]
+    [messages, isStreaming, selectedPlaybookId, activeConversationId, user, backtestMetrics, queryClient]
   );
+
+  // Determine if we have trade data for the selected playbook
+  const hasTradeData = false; // We can't know client-side without a query, so the edge fn handles it
 
   return (
     <div className="flex h-[calc(100vh-3rem)] overflow-hidden">
-      {/* Conversation sidebar */}
       <div
         className={cn(
           "border-r border-border bg-card transition-all duration-200 shrink-0",
@@ -244,12 +298,11 @@ export default function StrategyLab() {
           onSelect={setActiveConversationId}
           onNew={handleNewConversation}
           onDelete={handleDeleteConversation}
+          onExport={handleExportConversation}
         />
       </div>
 
-      {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card">
           <Button
             variant="ghost"
@@ -282,12 +335,15 @@ export default function StrategyLab() {
           </div>
         </div>
 
-        {/* Chat */}
         <StrategyChat
           messages={messages}
           isStreaming={isStreaming}
           onSend={handleSend}
+          onAbort={handleAbort}
+          onBacktestMetrics={setBacktestMetrics}
           playbookName={selectedPlaybook?.name}
+          hasPlaybook={selectedPlaybookId !== "none"}
+          hasTradeData={hasTradeData}
         />
       </div>
     </div>
