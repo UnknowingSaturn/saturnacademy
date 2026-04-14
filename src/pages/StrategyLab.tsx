@@ -4,8 +4,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import { StrategyChat, type ChatMessage } from "@/components/strategy-lab/StrategyChat";
 import { ConversationList, type Conversation } from "@/components/strategy-lab/ConversationList";
+import { CodeLab } from "@/components/strategy-lab/CodeLab";
+import { BacktestDashboard } from "@/components/strategy-lab/BacktestDashboard";
+import { PerformancePanel } from "@/components/strategy-lab/PerformancePanel";
+import { GapAnalysis } from "@/components/strategy-lab/GapAnalysis";
 import {
   Select,
   SelectContent,
@@ -13,10 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Sparkles, PanelLeftClose, PanelLeft } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Sparkles, PanelLeftClose, PanelLeft, MessageSquare, Code, BarChart3, TrendingUp, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useQueryClient } from "@tanstack/react-query";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/strategy-lab`;
 
@@ -33,6 +38,7 @@ export default function StrategyLab() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [backtestMetrics, setBacktestMetrics] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("chat");
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const selectedPlaybook = playbooks?.find((p) => p.id === selectedPlaybookId);
@@ -171,6 +177,7 @@ export default function StrategyLab() {
             playbook_id: selectedPlaybookId === "none" ? null : selectedPlaybookId,
             conversation_id: activeConversationId,
             backtest_metrics: backtestMetrics,
+            mode: "chat",
           }),
           signal: controller.signal,
         });
@@ -249,21 +256,17 @@ export default function StrategyLab() {
           }
         }
 
-        // Check if playbook was updated — invalidate queries
         if (assistantContent.includes("[PLAYBOOK_UPDATED]") || assistantContent.includes("[TOOL_RESULT:")) {
           queryClient.invalidateQueries({ queryKey: ["playbooks"] });
         }
 
-        // Clear backtest metrics after use
         if (backtestMetrics) setBacktestMetrics(null);
 
-        // Save conversation
         const finalMessages = [...newMessages, { role: "assistant" as const, content: assistantContent }];
         await saveConversation(finalMessages, activeConversationId);
         loadConversations();
       } catch (e: unknown) {
         if (e instanceof DOMException && e.name === "AbortError") {
-          // User cancelled — save what we have
           if (assistantContent) {
             const partialMessages = [...newMessages, { role: "assistant" as const, content: assistantContent }];
             await saveConversation(partialMessages, activeConversationId);
@@ -281,70 +284,138 @@ export default function StrategyLab() {
     [messages, isStreaming, selectedPlaybookId, activeConversationId, user, backtestMetrics, queryClient]
   );
 
-  // Determine if we have trade data for the selected playbook
-  const hasTradeData = false; // We can't know client-side without a query, so the edge fn handles it
+  const hasTradeData = false;
+
+  const showSidebar = activeTab === "chat" && sidebarOpen;
 
   return (
     <div className="flex h-[calc(100vh-3rem)] overflow-hidden">
-      <div
-        className={cn(
-          "border-r border-border bg-card transition-all duration-200 shrink-0",
-          sidebarOpen ? "w-64" : "w-0 overflow-hidden"
-        )}
-      >
-        <ConversationList
-          conversations={conversations}
-          activeId={activeConversationId}
-          onSelect={setActiveConversationId}
-          onNew={handleNewConversation}
-          onDelete={handleDeleteConversation}
-          onExport={handleExportConversation}
-        />
-      </div>
+      {/* Conversation sidebar — only for Chat tab */}
+      {activeTab === "chat" && (
+        <div
+          className={cn(
+            "border-r border-border bg-card transition-all duration-200 shrink-0",
+            showSidebar ? "w-64" : "w-0 overflow-hidden"
+          )}
+        >
+          <ConversationList
+            conversations={conversations}
+            activeId={activeConversationId}
+            onSelect={setActiveConversationId}
+            onNew={handleNewConversation}
+            onDelete={handleDeleteConversation}
+            onExport={handleExportConversation}
+          />
+        </div>
+      )}
 
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-          >
-            {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
-          </Button>
+        {/* Header with tabs */}
+        <div className="border-b border-border bg-card">
+          <div className="flex items-center gap-3 px-4 py-2">
+            {activeTab === "chat" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+              >
+                {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+              </Button>
+            )}
 
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            <h1 className="font-semibold text-foreground">Strategy Lab</h1>
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              <h1 className="font-semibold text-foreground">Strategy Lab</h1>
+            </div>
+
+            <div className="ml-auto flex items-center gap-3">
+              <Select value={selectedPlaybookId} onValueChange={setSelectedPlaybookId}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Select playbook" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No playbook</SelectItem>
+                  {playbooks?.map((pb) => (
+                    <SelectItem key={pb.id} value={pb.id}>
+                      {pb.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          <div className="ml-auto flex items-center gap-3">
-            <Select value={selectedPlaybookId} onValueChange={setSelectedPlaybookId}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Select playbook" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No playbook</SelectItem>
-                {playbooks?.map((pb) => (
-                  <SelectItem key={pb.id} value={pb.id}>
-                    {pb.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Tab bar */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="px-4">
+            <TabsList className="h-9">
+              <TabsTrigger value="chat" className="gap-1.5 text-xs">
+                <MessageSquare className="h-3.5 w-3.5" />
+                Chat
+              </TabsTrigger>
+              <TabsTrigger value="code" className="gap-1.5 text-xs">
+                <Code className="h-3.5 w-3.5" />
+                Code Lab
+              </TabsTrigger>
+              <TabsTrigger value="backtest" className="gap-1.5 text-xs">
+                <BarChart3 className="h-3.5 w-3.5" />
+                Backtester
+              </TabsTrigger>
+              <TabsTrigger value="performance" className="gap-1.5 text-xs">
+                <TrendingUp className="h-3.5 w-3.5" />
+                Performance
+              </TabsTrigger>
+              <TabsTrigger value="gaps" className="gap-1.5 text-xs">
+                <Shield className="h-3.5 w-3.5" />
+                Gap Analysis
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
 
-        <StrategyChat
-          messages={messages}
-          isStreaming={isStreaming}
-          onSend={handleSend}
-          onAbort={handleAbort}
-          onBacktestMetrics={setBacktestMetrics}
-          playbookName={selectedPlaybook?.name}
-          hasPlaybook={selectedPlaybookId !== "none"}
-          hasTradeData={hasTradeData}
-        />
+        {/* Tab content */}
+        <div className="flex-1 min-h-0">
+          {activeTab === "chat" && (
+            <StrategyChat
+              messages={messages}
+              isStreaming={isStreaming}
+              onSend={handleSend}
+              onAbort={handleAbort}
+              onBacktestMetrics={setBacktestMetrics}
+              playbookName={selectedPlaybook?.name}
+              hasPlaybook={selectedPlaybookId !== "none"}
+              hasTradeData={hasTradeData}
+            />
+          )}
+
+          {activeTab === "code" && (
+            <CodeLab
+              selectedPlaybookId={selectedPlaybookId}
+              playbookName={selectedPlaybook?.name}
+            />
+          )}
+
+          {activeTab === "backtest" && (
+            <BacktestDashboard
+              selectedPlaybookId={selectedPlaybookId}
+              playbookName={selectedPlaybook?.name}
+            />
+          )}
+
+          {activeTab === "performance" && (
+            <PerformancePanel
+              selectedPlaybookId={selectedPlaybookId}
+              playbookName={selectedPlaybook?.name}
+            />
+          )}
+
+          {activeTab === "gaps" && (
+            <GapAnalysis
+              selectedPlaybookId={selectedPlaybookId}
+              playbookName={selectedPlaybook?.name}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
