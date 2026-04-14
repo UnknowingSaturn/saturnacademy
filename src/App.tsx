@@ -21,6 +21,7 @@ import Accounts from "./pages/Accounts";
 import LiveTrades from "./pages/LiveTrades";
 import Copier from "./pages/Copier";
 import CopierPreview from "./pages/CopierPreview";
+import StrategyLab from "./pages/StrategyLab";
 
 const queryClient = new QueryClient();
 
@@ -66,6 +67,7 @@ const AppRoutes = React.forwardRef<HTMLDivElement, object>(
         <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
         <Route path="/copier" element={<ProtectedRoute><Copier /></ProtectedRoute>} />
         <Route path="/copier-preview" element={<ProtectedRoute><CopierPreview /></ProtectedRoute>} />
+        <Route path="/strategy-lab" element={<ProtectedRoute><StrategyLab /></ProtectedRoute>} />
         <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
         <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
