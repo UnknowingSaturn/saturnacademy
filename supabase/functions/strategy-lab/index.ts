@@ -207,7 +207,6 @@ async function executeToolCall(
   serviceClient: ReturnType<typeof createClient>
 ): Promise<{ success: boolean; message: string; change?: Record<string, unknown> }> {
   try {
-    // Fetch current playbook
     const { data: playbook, error: fetchErr } = await serviceClient
       .from("playbooks")
       .select("*")
@@ -275,7 +274,7 @@ async function executeToolCall(
           .eq("id", playbookId);
 
         if (error) return { success: false, message: error.message };
-        return { success: true, message: `Updated: ${changes.join(", ")}`, change: { updates, old: { max_r_per_trade: playbook.max_r_per_trade, max_daily_loss_r: playbook.max_daily_loss_r, max_trades_per_session: playbook.max_trades_per_session } } };
+        return { success: true, message: `Updated: ${changes.join(", ")}`, change: { updates } };
       }
 
       case "update_filters": {
@@ -344,6 +343,257 @@ async function executeToolCall(
   }
 }
 
+// Mode-specific system prompt builders
+function buildCodeGenPrompt(playbookContext: string) {
+  return `${AMT_KNOWLEDGE}
+
+${playbookContext}
+
+## Your Role: MQL5 Code Generator
+
+You are an expert MQL5 developer specializing in trading Expert Advisors. Your SOLE focus is producing high-quality, compilable MQL5 code.
+
+### Code Standards
+- Always produce COMPLETE, compilable MQL5 code — never partial snippets
+- Wrap all EA code in a single \`\`\`mql5 code block
+- Structure: input parameters → global variables → OnInit() → OnDeinit() → OnTick() → helper functions
+- Use descriptive variable names and comprehensive comments
+- Include proper error handling with GetLastError()
+- Implement magic number for trade identification
+- Use CTrade class for order management
+- Add Print() statements for debugging key decisions
+
+### When the user asks to modify code
+- Show the complete updated code, not just the changed parts
+- Explain what changed and why
+- If the change affects risk management, highlight the implications
+
+### Risk Management Requirements
+- Always include: max daily loss check, max spread filter, max trades per day
+- Position sizing based on account balance percentage
+- Proper stop loss and take profit implementation
+- Session time filters when applicable
+
+Do NOT use tool calling. Focus entirely on code generation and iteration.`;
+}
+
+function buildBacktestPrompt(playbookContext: string, metricsContext: string, journalContext: string) {
+  return `${AMT_KNOWLEDGE}
+
+${playbookContext}
+
+${metricsContext}
+
+${journalContext}
+
+## Your Role: Backtest Analyst
+
+You are a quantitative analyst specializing in strategy backtesting interpretation. Your job is to:
+
+1. **Interpret Metrics**: Explain what each metric means for the strategy's viability
+2. **Identify Weaknesses**: Spot concerning patterns (high drawdown, low Sharpe, profit factor issues)
+3. **Compare to Playbook**: Check if backtest results align with the playbook's rules
+4. **Suggest Improvements**: Recommend specific parameter changes or rule modifications
+5. **Cross-Reference Journal**: Compare backtest performance to live trading results
+
+### Key Metrics to Focus On
+- Profit Factor > 1.5 for viable strategies
+- Sharpe Ratio > 1.0 for acceptable risk-adjusted returns
+- Max Drawdown < 20% of equity for most strategies
+- Win Rate in context of Risk:Reward ratio
+- Recovery Factor for resilience assessment
+
+Format your analysis with clear sections and specific numbers. Always relate findings back to AMT concepts.`;
+}
+
+function buildPerformancePrompt(playbookContext: string, journalContext: string, reviewContext: string) {
+  return `${AMT_KNOWLEDGE}
+
+${playbookContext}
+
+${journalContext}
+
+${reviewContext}
+
+## Your Role: Performance Analyst
+
+You are a trading performance coach who uses data-driven analysis to identify patterns, edge decay, and improvement opportunities.
+
+### Analysis Framework
+1. **Edge Analysis**: Is the strategy's edge growing, stable, or decaying? Look at rolling win rate and R-multiple trends.
+2. **Session Analysis**: Which sessions produce the best/worst results? Cross-reference with AMT session dynamics.
+3. **Symbol Analysis**: Performance by instrument. Are some symbols better suited to this strategy?
+4. **Psychology Patterns**: Correlation between emotional states and outcomes (from journal reviews).
+5. **Rule Compliance**: Are losses happening when rules are followed or broken?
+6. **Time Patterns**: Day of week, time of day, time since session open effects.
+
+### Output Format
+- Start with a summary scorecard
+- Use specific numbers from the data
+- Provide 3-5 actionable recommendations ranked by impact
+- Reference AMT concepts to explain WHY patterns exist`;
+}
+
+function buildGapAnalysisPrompt(playbookContext: string, journalContext: string, reviewContext: string) {
+  return `${AMT_KNOWLEDGE}
+
+${playbookContext}
+
+${journalContext}
+
+${reviewContext}
+
+## Your Role: Playbook Auditor
+
+You perform systematic gap analysis on trading playbooks. Check EVERY item below:
+
+### Audit Checklist
+1. **Entry Rules**: Are entry conditions specific and measurable? Do they reference specific AMT concepts (value area, POC, IB)?
+2. **Confirmation Rules**: Does every entry condition have at least one confirmation? Are confirmations from different timeframes/sources?
+3. **Invalidation Rules**: Does every entry have a clear invalidation? Is the invalidation specific enough to act on?
+4. **Management Rules**: Are there rules for: trailing stops, partial closes, time-based exits, breakeven moves?
+5. **Failure Modes**: Do failure modes cover: overtrading, FOMO entries, moving stops, averaging down, news events?
+6. **Risk Limits**: Are max R per trade, max daily loss, and max trades per session all set?
+7. **Filters**: Are session filters set? Symbol filters? Regime filters?
+8. **Checklist Questions**: Do questions cover: market context, setup quality, emotional state, news awareness?
+9. **Description**: Is the strategy clearly described with its edge, ideal conditions, and expected behavior?
+
+### Cross-Reference with Journal
+- Check if common journal mistakes have corresponding failure modes
+- Check if losing patterns have corresponding invalidation rules
+- Verify that the best-performing setups are clearly defined in entry rules
+
+When you identify gaps, use the tools to fix them if the user has a playbook selected. Present findings as a structured report with a completeness score.`;
+}
+
+async function fetchPlaybookContext(supabase: ReturnType<typeof createClient>, playbook_id: string | null): Promise<string> {
+  if (!playbook_id) return "";
+  const { data: playbook } = await supabase
+    .from("playbooks")
+    .select("*")
+    .eq("id", playbook_id)
+    .single();
+
+  if (!playbook) return "";
+  return `
+## Active Playbook: "${playbook.name}"
+${playbook.description ? `Description: ${playbook.description}` : ""}
+
+### Entry Zone Rules
+${JSON.stringify(playbook.entry_zone_rules || {}, null, 2)}
+
+### Confirmation Rules
+${(playbook.confirmation_rules || []).map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}
+
+### Invalidation Rules
+${(playbook.invalidation_rules || []).map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}
+
+### Management Rules
+${(playbook.management_rules || []).map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}
+
+### Failure Modes
+${(playbook.failure_modes || []).map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}
+
+### Risk Limits
+- Max R per trade: ${playbook.max_r_per_trade ?? "not set"}
+- Max daily loss (R): ${playbook.max_daily_loss_r ?? "not set"}
+- Max trades per session: ${playbook.max_trades_per_session ?? "not set"}
+
+### Filters
+- Symbols: ${(playbook.symbol_filter || []).join(", ") || "all"}
+- Sessions: ${(playbook.session_filter || []).join(", ") || "all"}
+- Valid regimes: ${(playbook.valid_regimes || []).join(", ") || "all"}
+
+### Checklist Questions
+${JSON.stringify(playbook.checklist_questions || [], null, 2)}
+`;
+}
+
+async function fetchJournalContext(supabase: ReturnType<typeof createClient>, playbook_id: string | null): Promise<string> {
+  try {
+    const query = supabase
+      .from("trades")
+      .select("symbol, direction, session, net_pnl, r_multiple_actual, entry_time, exit_time, is_open, playbook_id")
+      .eq("is_open", false)
+      .order("exit_time", { ascending: false })
+      .limit(50);
+
+    if (playbook_id) query.eq("playbook_id", playbook_id);
+
+    const { data: trades } = await query;
+    if (!trades || trades.length === 0) return "";
+
+    const wins = trades.filter((t) => (t.net_pnl ?? 0) > 0).length;
+    const losses = trades.filter((t) => (t.net_pnl ?? 0) < 0).length;
+    const totalPnl = trades.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
+    const rTrades = trades.filter((t) => t.r_multiple_actual != null);
+    const avgR = rTrades.reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0) / Math.max(1, rTrades.length);
+
+    const sessionStats: Record<string, { wins: number; total: number }> = {};
+    for (const t of trades) {
+      const s = t.session || "unknown";
+      if (!sessionStats[s]) sessionStats[s] = { wins: 0, total: 0 };
+      sessionStats[s].total++;
+      if ((t.net_pnl ?? 0) > 0) sessionStats[s].wins++;
+    }
+
+    const symbolStats: Record<string, { wins: number; total: number; pnl: number }> = {};
+    for (const t of trades) {
+      if (!symbolStats[t.symbol]) symbolStats[t.symbol] = { wins: 0, total: 0, pnl: 0 };
+      symbolStats[t.symbol].total++;
+      symbolStats[t.symbol].pnl += t.net_pnl ?? 0;
+      if ((t.net_pnl ?? 0) > 0) symbolStats[t.symbol].wins++;
+    }
+
+    return `
+## Recent Trading Performance (Last ${trades.length} closed trades${playbook_id ? " for this playbook" : ""})
+
+- Win rate: ${((wins / trades.length) * 100).toFixed(1)}% (${wins}W / ${losses}L)
+- Total P&L: ${totalPnl.toFixed(2)}
+- Average R-multiple: ${avgR.toFixed(2)}R
+
+### By Session
+${Object.entries(sessionStats).map(([s, v]) => `- ${s}: ${((v.wins / v.total) * 100).toFixed(0)}% win rate (${v.total} trades)`).join("\n")}
+
+### By Symbol
+${Object.entries(symbolStats).map(([s, v]) => `- ${s}: ${((v.wins / v.total) * 100).toFixed(0)}% win rate, P&L: ${v.pnl.toFixed(2)} (${v.total} trades)`).join("\n")}
+`;
+  } catch (e) {
+    console.error("Failed to fetch journal context:", e);
+    return "";
+  }
+}
+
+async function fetchReviewContext(supabase: ReturnType<typeof createClient>): Promise<string> {
+  try {
+    const { data: reviews } = await supabase
+      .from("trade_reviews")
+      .select("mistakes, did_well, thoughts, playbook_id")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (!reviews || reviews.length === 0) return "";
+
+    const allMistakes = reviews.flatMap((r) => (Array.isArray(r.mistakes) ? r.mistakes : [])).filter(Boolean);
+    const allDidWell = reviews.flatMap((r) => (Array.isArray(r.did_well) ? r.did_well : [])).filter(Boolean);
+
+    if (allMistakes.length === 0 && allDidWell.length === 0) return "";
+
+    return `
+## Journal Review Insights (Recent)
+
+### Common Mistakes
+${allMistakes.slice(0, 8).map((m) => `- ${m}`).join("\n") || "None recorded"}
+
+### What's Working Well
+${allDidWell.slice(0, 8).map((m) => `- ${m}`).join("\n") || "None recorded"}
+`;
+  } catch (e) {
+    console.error("Failed to fetch review context:", e);
+    return "";
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -379,7 +629,7 @@ serve(async (req) => {
       });
     }
 
-    const { messages, playbook_id, conversation_id, backtest_metrics } = await req.json();
+    const { messages, playbook_id, conversation_id, backtest_metrics, mode = "chat" } = await req.json();
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: "Messages required" }), {
@@ -388,146 +638,41 @@ serve(async (req) => {
       });
     }
 
-    // Fetch playbook context if selected
-    let playbookContext = "";
-    if (playbook_id) {
-      const { data: playbook } = await supabase
-        .from("playbooks")
-        .select("*")
-        .eq("id", playbook_id)
-        .single();
+    // Fetch context in parallel
+    const [playbookContext, journalContext, reviewContext] = await Promise.all([
+      fetchPlaybookContext(supabase, playbook_id),
+      fetchJournalContext(supabase, playbook_id),
+      fetchReviewContext(supabase),
+    ]);
 
-      if (playbook) {
-        playbookContext = `
-## Active Playbook: "${playbook.name}"
-${playbook.description ? `Description: ${playbook.description}` : ""}
+    const backtestContext = backtest_metrics ? `\n## Backtest Report Metrics (uploaded by user)\n${backtest_metrics}\n` : "";
 
-### Entry Zone Rules
-${JSON.stringify(playbook.entry_zone_rules || {}, null, 2)}
+    // Build system prompt based on mode
+    let systemPrompt: string;
+    let useTools = false;
 
-### Confirmation Rules
-${(playbook.confirmation_rules || []).map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}
+    switch (mode) {
+      case "code_generation":
+        systemPrompt = buildCodeGenPrompt(playbookContext);
+        break;
 
-### Invalidation Rules
-${(playbook.invalidation_rules || []).map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}
+      case "backtest_analysis":
+        systemPrompt = buildBacktestPrompt(playbookContext, backtestContext, journalContext);
+        break;
 
-### Management Rules
-${(playbook.management_rules || []).map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}
+      case "performance_analysis":
+        systemPrompt = buildPerformancePrompt(playbookContext, journalContext, reviewContext);
+        break;
 
-### Failure Modes
-${(playbook.failure_modes || []).map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}
+      case "gap_analysis":
+        systemPrompt = buildGapAnalysisPrompt(playbookContext, journalContext, reviewContext);
+        useTools = !!playbook_id;
+        break;
 
-### Risk Limits
-- Max R per trade: ${playbook.max_r_per_trade ?? "not set"}
-- Max daily loss (R): ${playbook.max_daily_loss_r ?? "not set"}
-- Max trades per session: ${playbook.max_trades_per_session ?? "not set"}
-
-### Filters
-- Symbols: ${(playbook.symbol_filter || []).join(", ") || "all"}
-- Sessions: ${(playbook.session_filter || []).join(", ") || "all"}
-- Valid regimes: ${(playbook.valid_regimes || []).join(", ") || "all"}
-
-### Checklist Questions
-${JSON.stringify(playbook.checklist_questions || [], null, 2)}
-`;
-      }
-    }
-
-    // Fetch recent trade stats
-    let journalContext = "";
-    try {
-      const query = supabase
-        .from("trades")
-        .select("symbol, direction, session, net_pnl, r_multiple_actual, entry_time, exit_time, is_open, playbook_id")
-        .eq("is_open", false)
-        .order("exit_time", { ascending: false })
-        .limit(30);
-
-      if (playbook_id) {
-        query.eq("playbook_id", playbook_id);
-      }
-
-      const { data: trades } = await query;
-
-      if (trades && trades.length > 0) {
-        const wins = trades.filter((t) => (t.net_pnl ?? 0) > 0).length;
-        const losses = trades.filter((t) => (t.net_pnl ?? 0) < 0).length;
-        const totalPnl = trades.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
-        const avgR = trades.filter((t) => t.r_multiple_actual != null).reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0) / Math.max(1, trades.filter((t) => t.r_multiple_actual != null).length);
-
-        const sessionStats: Record<string, { wins: number; total: number }> = {};
-        for (const t of trades) {
-          const s = t.session || "unknown";
-          if (!sessionStats[s]) sessionStats[s] = { wins: 0, total: 0 };
-          sessionStats[s].total++;
-          if ((t.net_pnl ?? 0) > 0) sessionStats[s].wins++;
-        }
-
-        const symbolStats: Record<string, { wins: number; total: number }> = {};
-        for (const t of trades) {
-          if (!symbolStats[t.symbol]) symbolStats[t.symbol] = { wins: 0, total: 0 };
-          symbolStats[t.symbol].total++;
-          if ((t.net_pnl ?? 0) > 0) symbolStats[t.symbol].wins++;
-        }
-
-        journalContext = `
-## Recent Trading Performance (Last ${trades.length} closed trades${playbook_id ? " for this playbook" : ""})
-
-- Win rate: ${((wins / trades.length) * 100).toFixed(1)}% (${wins}W / ${losses}L)
-- Total P&L: ${totalPnl.toFixed(2)}
-- Average R-multiple: ${avgR.toFixed(2)}R
-
-### By Session
-${Object.entries(sessionStats).map(([s, v]) => `- ${s}: ${((v.wins / v.total) * 100).toFixed(0)}% win rate (${v.total} trades)`).join("\n")}
-
-### By Symbol
-${Object.entries(symbolStats).map(([s, v]) => `- ${s}: ${((v.wins / v.total) * 100).toFixed(0)}% win rate (${v.total} trades)`).join("\n")}
-`;
-      }
-    } catch (e) {
-      console.error("Failed to fetch journal context:", e);
-    }
-
-    // Fetch recent trade review insights
-    let reviewContext = "";
-    try {
-      const { data: reviews } = await supabase
-        .from("trade_reviews")
-        .select("mistakes, did_well, thoughts, playbook_id")
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      if (reviews && reviews.length > 0) {
-        const allMistakes = reviews.flatMap((r) => (Array.isArray(r.mistakes) ? r.mistakes : [])).filter(Boolean);
-        const allDidWell = reviews.flatMap((r) => (Array.isArray(r.did_well) ? r.did_well : [])).filter(Boolean);
-
-        if (allMistakes.length > 0 || allDidWell.length > 0) {
-          reviewContext = `
-## Journal Review Insights (Recent)
-
-### Common Mistakes
-${allMistakes.slice(0, 8).map((m) => `- ${m}`).join("\n") || "None recorded"}
-
-### What's Working Well
-${allDidWell.slice(0, 8).map((m) => `- ${m}`).join("\n") || "None recorded"}
-`;
-        }
-      }
-    } catch (e) {
-      console.error("Failed to fetch review context:", e);
-    }
-
-    // Backtest metrics context
-    let backtestContext = "";
-    if (backtest_metrics) {
-      backtestContext = `
-## Backtest Report Metrics (uploaded by user)
-${backtest_metrics}
-`;
-    }
-
-    const toolInstructions = playbook_id
-      ? `
+      case "chat":
+      default: {
+        const toolInstructions = playbook_id
+          ? `
 ## Tool Usage Instructions
 
 You have tools to directly modify the active playbook. Use them when:
@@ -541,33 +686,13 @@ DO NOT use tools speculatively — only when the user has confirmed or explicitl
 
 After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the frontend knows to refresh.
 `
-      : `
-## Note
-No playbook is currently selected, so you cannot use playbook modification tools. You can still discuss AMT theory, analyze general performance, and help design new strategies.
-`;
+          : `\n## Note\nNo playbook is currently selected, so you cannot use playbook modification tools. You can still discuss AMT theory, analyze general performance, and help design new strategies.\n`;
 
-    const systemPrompt = `${AMT_KNOWLEDGE}
-
-${playbookContext}
-
-${journalContext}
-
-${reviewContext}
-
-${backtestContext}
-
-${toolInstructions}
-
-## Your Behavior
-
-1. When the user asks to generate an EA, produce complete, compilable MQL5 code in a single code block with language tag \`\`\`mql5.
-2. When analyzing performance, reference the journal data above and identify patterns using AMT concepts.
-3. When refining strategies, suggest specific rule changes with AMT reasoning. If the user agrees, use the tools to apply them.
-4. Always be specific — reference actual numbers from the journal data, actual rules from the playbook.
-5. If no playbook is selected, you can still discuss AMT theory and help design new strategies.
-6. Format responses with clear headers and bullet points for readability.
-7. When asked to analyze gaps, systematically check: entry rules have confirmations, confirmations have invalidations, failure modes cover journal mistakes, risk limits are set, checklist covers all categories.
-`;
+        systemPrompt = `${AMT_KNOWLEDGE}\n\n${playbookContext}\n\n${journalContext}\n\n${reviewContext}\n\n${backtestContext}\n\n${toolInstructions}\n\n## Your Behavior\n\n1. When the user asks to generate an EA, produce complete, compilable MQL5 code in a single code block with language tag \`\`\`mql5.\n2. When analyzing performance, reference the journal data above and identify patterns using AMT concepts.\n3. When refining strategies, suggest specific rule changes with AMT reasoning. If the user agrees, use the tools to apply them.\n4. Always be specific — reference actual numbers from the journal data, actual rules from the playbook.\n5. If no playbook is selected, you can still discuss AMT theory and help design new strategies.\n6. Format responses with clear headers and bullet points for readability.\n7. When asked to analyze gaps, systematically check: entry rules have confirmations, confirmations have invalidations, failure modes cover journal mistakes, risk limits are set, checklist covers all categories.\n`;
+        useTools = !!playbook_id;
+        break;
+      }
+    }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -577,7 +702,6 @@ ${toolInstructions}
       });
     }
 
-    // First call: may return tool calls or content
     const aiPayload: Record<string, unknown> = {
       model: "google/gemini-2.5-pro",
       messages: [
@@ -588,7 +712,7 @@ ${toolInstructions}
       reasoning: { effort: "high" },
     };
 
-    if (playbook_id) {
+    if (useTools) {
       aiPayload.tools = TOOL_DEFINITIONS;
     }
 
@@ -623,20 +747,14 @@ ${toolInstructions}
       });
     }
 
-    // We need to handle tool calls. Since we're streaming, we need to collect the full
-    // response first to check for tool calls, then either stream through or handle tools.
-    // Strategy: read the stream, detect tool_calls in finish_reason, execute them,
-    // then make a follow-up call with tool results.
-
+    // Read stream, detect tool calls
     const reader = aiResponse.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let collectedContent = "";
-    let toolCalls: Array<{ id: string; function: { name: string; arguments: string } }> = [];
     let hasToolCalls = false;
     const toolCallBuffers: Record<number, { id: string; name: string; args: string }> = {};
 
-    // Read through the stream to detect tool calls
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -676,8 +794,7 @@ ${toolInstructions}
     }
 
     if (hasToolCalls && playbook_id) {
-      // Execute all tool calls
-      toolCalls = Object.values(toolCallBuffers).map((tc) => ({
+      const toolCalls = Object.values(toolCallBuffers).map((tc) => ({
         id: tc.id,
         function: { name: tc.name, arguments: tc.args },
       }));
@@ -687,33 +804,19 @@ ${toolInstructions}
 
       for (const tc of toolCalls) {
         let args: Record<string, unknown> = {};
-        try {
-          args = JSON.parse(tc.function.arguments);
-        } catch {
-          args = {};
-        }
-
+        try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
         const result = await executeToolCall(tc.function.name, args, playbook_id, serviceClient);
-        toolResults.push({
-          tool_call_id: tc.id,
-          role: "tool",
-          content: JSON.stringify(result),
-        });
+        toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
         appliedChanges.push({ tool: tc.function.name, result });
       }
 
-      // Follow-up call with tool results
       const followUpMessages = [
         { role: "system", content: systemPrompt },
         ...messages,
         {
           role: "assistant",
           content: collectedContent || null,
-          tool_calls: toolCalls.map((tc) => ({
-            id: tc.id,
-            type: "function",
-            function: tc.function,
-          })),
+          tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: "function", function: tc.function })),
         },
         ...toolResults,
       ];
@@ -732,37 +835,28 @@ ${toolInstructions}
       });
 
       if (!followUpResponse.ok) {
-        // Fall back to returning the tool results as text
         const changesSummary = appliedChanges
           .map((c) => `[TOOL_RESULT:${JSON.stringify({ tool: c.tool, ...c.result })}]`)
           .join("\n");
         const fallbackContent = `${collectedContent}\n\n${changesSummary}\n\n[PLAYBOOK_UPDATED]`;
-        
         const encoder = new TextEncoder();
         const sseData = `data: ${JSON.stringify({ choices: [{ delta: { content: fallbackContent }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
-        
         return new Response(encoder.encode(sseData), {
           headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
         });
       }
 
-      // Prepend tool result markers to the stream
       const { readable, writable } = new TransformStream();
       const writer = writable.getWriter();
       const enc = new TextEncoder();
 
-      // Send tool result markers first
       for (const change of appliedChanges) {
         const marker = `data: ${JSON.stringify({
-          choices: [{
-            delta: { content: `\n[TOOL_RESULT:${JSON.stringify({ tool: change.tool, ...change.result })}]\n` },
-            finish_reason: null,
-          }],
+          choices: [{ delta: { content: `\n[TOOL_RESULT:${JSON.stringify({ tool: change.tool, ...change.result })}]\n` }, finish_reason: null }],
         })}\n\n`;
         await writer.write(enc.encode(marker));
       }
 
-      // Then pipe the follow-up stream
       const followUpReader = followUpResponse.body!.getReader();
       (async () => {
         try {
@@ -781,10 +875,9 @@ ${toolInstructions}
       });
     }
 
-    // No tool calls — reconstruct the stream from collected content
+    // No tool calls — reconstruct the stream
     const encoder = new TextEncoder();
     const chunks: string[] = [];
-    // Split content into smaller chunks for streaming feel
     const chunkSize = 20;
     for (let i = 0; i < collectedContent.length; i += chunkSize) {
       const chunk = collectedContent.slice(i, i + chunkSize);

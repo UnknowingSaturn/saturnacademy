@@ -275,6 +275,57 @@ export type Database = {
           },
         ]
       }
+      backtest_results: {
+        Row: {
+          created_at: string
+          equity_curve: Json | null
+          id: string
+          metrics: Json | null
+          name: string
+          playbook_id: string | null
+          report_html: string | null
+          strategy_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          equity_curve?: Json | null
+          id?: string
+          metrics?: Json | null
+          name?: string
+          playbook_id?: string | null
+          report_html?: string | null
+          strategy_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          equity_curve?: Json | null
+          id?: string
+          metrics?: Json | null
+          name?: string
+          playbook_id?: string | null
+          report_html?: string | null
+          strategy_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "backtest_results_playbook_id_fkey"
+            columns: ["playbook_id"]
+            isOneToOne: false
+            referencedRelation: "playbooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "backtest_results_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "generated_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       copier_config_versions: {
         Row: {
           config_hash: string
@@ -554,6 +605,50 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      generated_strategies: {
+        Row: {
+          created_at: string
+          id: string
+          mql5_code: string
+          name: string
+          notes: string | null
+          parameters: Json | null
+          playbook_id: string | null
+          user_id: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          mql5_code?: string
+          name?: string
+          notes?: string | null
+          parameters?: Json | null
+          playbook_id?: string | null
+          user_id: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          mql5_code?: string
+          name?: string
+          notes?: string | null
+          parameters?: Json | null
+          playbook_id?: string | null
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generated_strategies_playbook_id_fkey"
+            columns: ["playbook_id"]
+            isOneToOne: false
+            referencedRelation: "playbooks"
             referencedColumns: ["id"]
           },
         ]
