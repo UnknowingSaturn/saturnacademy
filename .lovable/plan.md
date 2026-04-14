@@ -1,89 +1,126 @@
 
 
-# Strategy Lab Robustness Upgrade: AI-Driven Playbook Tweaking + Gap Analysis
+# Strategy Lab Overhaul: From Chat to Full Trading Workbench
 
-## Gaps Found in Current Implementation
+## The Problem
 
-1. **No playbook modification from Strategy Lab** — The AI can suggest changes but cannot apply them. The user must manually copy suggestions and go to the Playbooks page to edit.
+The current Strategy Lab is a single-panel chat interface. It's functional for conversations but lacks the workspace feel needed for serious strategy development — no code editor, no backtest viewer, no dedicated agent modes, no visual analysis.
 
-2. **No tool calling / structured output** — The LLM responds with free text only. It cannot execute actions like "update confirmation rule #3" or "add a new failure mode." This is the biggest gap for a robust refinement environment.
+## The Solution: Multi-Panel Workbench with Specialized AI Agents
 
-3. **No backtest result upload/analysis** — There's no way to import MT5 Strategy Tester results for the AI to analyze.
+Transform `/strategy-lab` into a tabbed workspace with distinct modules, each powered by a purpose-built AI agent mode. The single edge function stays but routes to different system prompts based on the active mode.
 
-4. **No "Apply Suggestion" workflow** — When the AI suggests a rule change, there's no inline button to accept/reject and write it to the playbook.
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  Strategy Lab                                    [Playbook ▼]│
+├──────┬──────┬──────┬──────┬──────┐                          │
+│ Chat │ Code │ Back │ Anal │ Gaps │  ← Tab bar               │
+│      │ Lab  │ test │ ysis │      │                          │
+├──────┴──────┴──────┴──────┴──────┴──────────────────────────┤
+│                                                             │
+│  Each tab = full-height panel with its own UI + AI agent    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
 
-5. **No checklist gap detection** — The AI doesn't analyze whether checklist questions cover all entry/confirmation/invalidation rules (a common oversight).
+## Five Workbench Modules
 
-6. **No conversation export** — Can't export a strategy refinement session as markdown for reference.
+### 1. Strategy Chat (existing, enhanced)
+- What it is now, but scoped as the "general advisor" tab
+- AMT discussion, playbook refinement, rule tweaks with tool calling
+- Conversation persistence stays as-is
 
-7. **Quick actions are static** — They don't adapt based on whether a playbook is selected or what data is available.
+### 2. Code Lab (NEW)
+- **Split-pane**: AI chat on left, live code editor on right
+- Code editor with MQL5 syntax display, line numbers, copy/download
+- AI agent mode: `code_generation` — system prompt focused exclusively on producing and iterating MQL5 EAs
+- Workflow: describe what you want → AI generates full EA → displayed in editor → ask for changes → AI patches the code
+- Version history: each generated EA saved to new `generated_strategies` table
+- Download button produces `.mq5` file ready for MT5
 
-8. **No abort/cancel stream** — Can't stop a long response mid-stream.
+### 3. Backtester (NEW)
+- Upload MT5 Strategy Tester HTML reports (reuse existing `ReportUpload` parser)
+- Parsed metrics displayed in a dashboard: equity curve chart, key stats cards (Profit Factor, Sharpe, Max DD, Win Rate, Total Trades)
+- Compare multiple backtest runs side-by-side
+- AI agent mode: `backtest_analysis` — analyzes uploaded results against playbook rules and journal performance, suggests parameter tweaks
+- Results saved to new `backtest_results` table
 
-## Plan
+### 4. Performance Analysis (NEW)
+- Auto-loads journal trade data for selected playbook
+- Visual dashboard: win rate by session, by symbol, equity curve, R-multiple distribution
+- AI agent mode: `performance_analysis` — deep-dives into patterns, correlations, edge decay
+- "Ask about my performance" chat embedded below the charts
 
-### Step 1: Add Playbook Mutation via Tool Calling in Edge Function
+### 5. Gap Analysis (NEW)
+- One-click full playbook audit
+- Structured output: checklist of all rule categories with pass/fail/warning
+- Shows gaps as cards: "Missing invalidation for entry rule #3", "No failure mode for news events"
+- AI can auto-fix gaps with tool calling (same tools already built)
+- Displays a completeness score (e.g., 72% — 18/25 criteria met)
 
-Update `strategy-lab/index.ts` to use LLM tool calling. Define tools the AI can invoke:
+## Database Changes
 
-- `update_playbook_rules` — Updates specific rule arrays (confirmation, invalidation, management, failure modes)
-- `update_risk_limits` — Updates max R, max daily loss, max trades per session
-- `update_filters` — Updates symbol/session/regime filters
-- `add_checklist_question` — Adds a new checklist question
-- `analyze_gaps` — Triggers a structured gap analysis of the playbook
+### New table: `generated_strategies`
+```sql
+- id UUID PK
+- user_id UUID FK → auth.users
+- playbook_id UUID FK → playbooks (nullable)
+- name TEXT
+- version INT DEFAULT 1
+- mql5_code TEXT
+- parameters JSONB
+- notes TEXT
+- created_at TIMESTAMPTZ
+```
 
-When the AI calls a tool, the edge function executes the mutation via service role client and returns the result. The streamed response includes both the AI's reasoning AND the applied changes.
+### New table: `backtest_results`
+```sql
+- id UUID PK
+- user_id UUID FK → auth.users
+- strategy_id UUID FK → generated_strategies (nullable)
+- playbook_id UUID FK → playbooks (nullable)
+- name TEXT
+- metrics JSONB (profit_factor, sharpe, max_dd, win_rate, total_trades, etc.)
+- equity_curve JSONB (array of {date, equity} points)
+- report_html TEXT (raw upload for re-parsing)
+- created_at TIMESTAMPTZ
+```
 
-The frontend detects tool call results in the stream and shows inline confirmation cards ("Applied: Added failure mode 'Entering during news event'" with an Undo button).
+Both tables get RLS: users can only access their own rows.
 
-### Step 2: Add Playbook Mutation Confirmation UI
+## Edge Function Changes
 
-New component `AppliedChangeCard.tsx` — rendered inline in chat messages when the AI applies a playbook change. Shows:
-- What changed (field, old value, new value)
-- Undo button (reverts via `useUpdatePlaybook`)
-- Status indicator (applied / reverted)
+Update `strategy-lab/index.ts` to accept a `mode` parameter:
+- `chat` (default) — current behavior
+- `code_generation` — stripped-down prompt focused on MQL5 code output, no tool calling
+- `backtest_analysis` — prompt includes uploaded metrics, focuses on interpreting results
+- `performance_analysis` — prompt emphasizes journal data patterns
+- `gap_analysis` — non-streaming, returns structured JSON gap report via tool calling
 
-Update `MessageContent` in `StrategyChat.tsx` to detect `[PLAYBOOK_UPDATE:...]` markers in AI responses and render `AppliedChangeCard` components.
+## Frontend Files
 
-### Step 3: Add Gap Analysis Quick Action
+| File | What |
+|------|------|
+| `src/pages/StrategyLab.tsx` | Overhaul: tab-based layout, shared playbook selector, route each tab to its module |
+| `src/components/strategy-lab/StrategyChat.tsx` | Minor: scoped as "Chat" tab |
+| `src/components/strategy-lab/CodeLab.tsx` | **NEW** — split pane with chat + code editor + version list |
+| `src/components/strategy-lab/CodeEditor.tsx` | **NEW** — enhanced code viewer with line numbers, larger display |
+| `src/components/strategy-lab/BacktestDashboard.tsx` | **NEW** — upload, metrics cards, equity curve chart, comparison, AI chat |
+| `src/components/strategy-lab/PerformancePanel.tsx` | **NEW** — auto-loaded charts + journal stats + AI Q&A |
+| `src/components/strategy-lab/GapAnalysis.tsx` | **NEW** — one-click audit UI with score ring + gap cards + auto-fix |
+| `src/components/strategy-lab/StrategyVersionList.tsx` | **NEW** — sidebar list of saved EA versions |
+| `supabase/functions/strategy-lab/index.ts` | Add mode routing, add code-gen and gap-analysis prompt variants |
+| DB migration | 2 new tables + RLS policies |
 
-New quick action: "Analyze Playbook Gaps" — sends a structured prompt asking the AI to:
-- Check if every entry rule has a corresponding confirmation
-- Check if every confirmation has an invalidation
-- Check if failure modes cover common mistakes from journal data
-- Check if risk limits are set
-- Check if checklist questions cover all rule categories
-- Suggest missing rules based on AMT theory and the trader's actual performance data
+## Implementation Order
 
-### Step 4: Contextual Quick Actions
+1. **Database**: Create `generated_strategies` and `backtest_results` tables with RLS
+2. **Edge function**: Add `mode` routing with specialized prompts for each agent
+3. **Page overhaul**: Convert `StrategyLab.tsx` to tabbed layout
+4. **Code Lab tab**: Split-pane code generation + version management
+5. **Backtest tab**: Upload, parse, display metrics, AI analysis
+6. **Performance tab**: Journal data visualization + AI Q&A
+7. **Gap Analysis tab**: Structured audit + auto-fix
 
-Make quick actions dynamic based on state:
-- No playbook selected: "Teach AMT", "Design New Strategy"
-- Playbook selected, no trades: "Analyze Gaps", "Generate EA", "Add Missing Rules"
-- Playbook selected, has trades: "Analyze Performance", "Refine Based on Results", "Generate EA", "Analyze Gaps"
-
-### Step 5: Stream Abort + Conversation Export
-
-- Add AbortController to `handleSend` — new Stop button replaces Send during streaming
-- Add export button in conversation list — downloads conversation as `.md` file
-
-### Step 6: Backtest Report Upload
-
-Add a file upload button in the chat input area. When a user uploads an MT5 HTML report:
-- Parse it client-side (extract key metrics table from the HTML)
-- Send parsed metrics as part of the next message context
-- The AI analyzes the backtest results against the playbook rules and journal data
-
-## Files to Create/Modify
-
-| File | Change |
-|------|--------|
-| `supabase/functions/strategy-lab/index.ts` | Add tool definitions, handle tool calls, execute playbook mutations via service role |
-| `src/components/strategy-lab/StrategyChat.tsx` | Dynamic quick actions, abort button, file upload for reports, render applied changes |
-| `src/components/strategy-lab/AppliedChangeCard.tsx` | New — inline change confirmation with undo |
-| `src/components/strategy-lab/ReportUpload.tsx` | New — MT5 HTML report parser + upload button |
-| `src/components/strategy-lab/ConversationList.tsx` | Add export button |
-| `src/pages/StrategyLab.tsx` | Wire abort controller, pass playbook mutation callbacks, invalidate playbook queries on changes |
-
-No database migrations needed — playbook mutations use existing `playbooks` table. Tool calling uses the existing Lovable AI gateway.
+This keeps everything within the existing `/strategy-lab` route — no new pages needed. The single edge function handles all modes, keeping deployment simple.
 
