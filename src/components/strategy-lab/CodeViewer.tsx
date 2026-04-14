@@ -38,7 +38,7 @@ export function CodeViewer({ code, language = "mql5", filename }: CodeViewerProp
         </span>
         <div className="flex gap-1">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy}>
-            {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
           </Button>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleDownload}>
             <Download className="h-3.5 w-3.5" />
