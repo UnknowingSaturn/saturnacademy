@@ -1,126 +1,113 @@
 
 
-# Strategy Lab Overhaul: From Chat to Full Trading Workbench
+# Playbook-to-Alpha Simulation Engine
 
-## The Problem
+## What This Does
 
-The current Strategy Lab is a single-panel chat interface. It's functional for conversations but lacks the workspace feel needed for serious strategy development — no code editor, no backtest viewer, no dedicated agent modes, no visual analysis.
+Adds a new **Simulator** tab to Strategy Lab that converts your playbook rules into an executable trading alpha (a set of deterministic signal functions), runs simulations against your actual historical trade data and synthetic price data, and shows results — all powered by AI code generation + server-side script execution.
 
-## The Solution: Multi-Panel Workbench with Specialized AI Agents
-
-Transform `/strategy-lab` into a tabbed workspace with distinct modules, each powered by a purpose-built AI agent mode. The single edge function stays but routes to different system prompts based on the active mode.
+## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│  Strategy Lab                                    [Playbook ▼]│
-├──────┬──────┬──────┬──────┬──────┐                          │
-│ Chat │ Code │ Back │ Anal │ Gaps │  ← Tab bar               │
-│      │ Lab  │ test │ ysis │      │                          │
-├──────┴──────┴──────┴──────┴──────┴──────────────────────────┤
-│                                                             │
-│  Each tab = full-height panel with its own UI + AI agent    │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────┐     ┌──────────────────────────────┐
+│  Simulator Tab (UI)  │     │  simulate-alpha Edge Function │
+│                      │     │                               │
+│  Playbook Selector   │────▶│  1. AI converts playbook →    │
+│  Run Simulation btn  │     │     TypeScript alpha function  │
+│  Parameter Tweaks    │     │  2. Runs alpha against trade   │
+│  Results Dashboard   │◀────│     history (from DB)          │
+│  Equity Curve Chart  │     │  3. Returns simulation results │
+│  Trade-by-Trade Log  │     │     (metrics + equity curve +  │
+│  AI Analysis Chat    │     │      trade list)               │
+└──────────────────────┘     └──────────────────────────────┘
 ```
 
-## Five Workbench Modules
+## How It Works
 
-### 1. Strategy Chat (existing, enhanced)
-- What it is now, but scoped as the "general advisor" tab
-- AMT discussion, playbook refinement, rule tweaks with tool calling
-- Conversation persistence stays as-is
+### Step 1: Playbook → Alpha Function (AI-Generated)
 
-### 2. Code Lab (NEW)
-- **Split-pane**: AI chat on left, live code editor on right
-- Code editor with MQL5 syntax display, line numbers, copy/download
-- AI agent mode: `code_generation` — system prompt focused exclusively on producing and iterating MQL5 EAs
-- Workflow: describe what you want → AI generates full EA → displayed in editor → ask for changes → AI patches the code
-- Version history: each generated EA saved to new `generated_strategies` table
-- Download button produces `.mq5` file ready for MT5
+The AI (Gemini 2.5 Pro) reads the playbook's rules and converts them into a deterministic TypeScript signal function:
 
-### 3. Backtester (NEW)
-- Upload MT5 Strategy Tester HTML reports (reuse existing `ReportUpload` parser)
-- Parsed metrics displayed in a dashboard: equity curve chart, key stats cards (Profit Factor, Sharpe, Max DD, Win Rate, Total Trades)
-- Compare multiple backtest runs side-by-side
-- AI agent mode: `backtest_analysis` — analyzes uploaded results against playbook rules and journal performance, suggests parameter tweaks
-- Results saved to new `backtest_results` table
+```typescript
+// AI generates this from playbook rules
+function shouldEnter(candle, profile, context): Signal | null {
+  // From confirmation_rules: "Price reclaims VAL with volume"
+  if (candle.close > profile.val && candle.volume > profile.avgVolume * 1.2) {
+    // From entry_zone_rules: { min_percentile: 20, max_percentile: 40 }
+    if (context.pricePercentile >= 0.2 && context.pricePercentile <= 0.4) {
+      return { direction: 'buy', sl: profile.val - atr, tp: profile.poc };
+    }
+  }
+  return null;
+}
+```
 
-### 4. Performance Analysis (NEW)
-- Auto-loads journal trade data for selected playbook
-- Visual dashboard: win rate by session, by symbol, equity curve, R-multiple distribution
-- AI agent mode: `performance_analysis` — deep-dives into patterns, correlations, edge decay
-- "Ask about my performance" chat embedded below the charts
+This alpha code is saved to `generated_strategies` so it can be iterated on.
 
-### 5. Gap Analysis (NEW)
-- One-click full playbook audit
-- Structured output: checklist of all rule categories with pass/fail/warning
-- Shows gaps as cards: "Missing invalidation for entry rule #3", "No failure mode for news events"
-- AI can auto-fix gaps with tool calling (same tools already built)
-- Displays a completeness score (e.g., 72% — 18/25 criteria met)
+### Step 2: Simulation Engine (Edge Function)
+
+A new edge function `simulate-alpha` that:
+
+1. **Fetches the user's closed trades** from the DB as the price/event dataset
+2. **Runs the alpha function** against each trade's entry conditions to see if the alpha would have taken the same trades (or different ones)
+3. **Computes metrics**: hit rate, average R, profit factor, max drawdown, Sharpe ratio
+4. **Returns structured results** as JSON (not a stream — simulations are compute-bound, not conversational)
+
+The simulation uses the user's actual trade history as the ground truth dataset — comparing "what my alpha would have done" vs "what I actually did." This is the most valuable backtest because it uses real market conditions you actually traded in.
+
+### Step 3: Results Dashboard
+
+Visual display of simulation output:
+- **Metrics cards**: Win rate, PF, Sharpe, max DD, total trades filtered vs taken
+- **Equity curve**: Chart comparing alpha equity vs actual equity
+- **Trade log**: Table showing each trade with alpha signal (take/skip), actual result, and whether the alpha agreed
+- **Agreement score**: How often the alpha agrees with your actual entries (measures rule-following)
+
+### Step 4: AI Refinement Loop
+
+After simulation results come back, the AI can:
+- Analyze where the alpha diverged from actual trades
+- Suggest rule tweaks to improve the alpha
+- Re-run simulation with modified parameters
+- Compare multiple alpha versions side-by-side
 
 ## Database Changes
 
-### New table: `generated_strategies`
+### New table: `simulation_runs`
 ```sql
-- id UUID PK
-- user_id UUID FK → auth.users
-- playbook_id UUID FK → playbooks (nullable)
-- name TEXT
-- version INT DEFAULT 1
-- mql5_code TEXT
-- parameters JSONB
-- notes TEXT
-- created_at TIMESTAMPTZ
+id UUID PK
+user_id UUID FK
+playbook_id UUID FK (nullable)
+strategy_id UUID FK → generated_strategies (nullable)
+alpha_code TEXT — the TypeScript alpha function
+parameters JSONB — tunable inputs
+results JSONB — metrics, equity curve, trade signals
+status TEXT — 'running' | 'completed' | 'failed'
+created_at TIMESTAMPTZ
 ```
+RLS: users can only access their own rows.
 
-### New table: `backtest_results`
-```sql
-- id UUID PK
-- user_id UUID FK → auth.users
-- strategy_id UUID FK → generated_strategies (nullable)
-- playbook_id UUID FK → playbooks (nullable)
-- name TEXT
-- metrics JSONB (profit_factor, sharpe, max_dd, win_rate, total_trades, etc.)
-- equity_curve JSONB (array of {date, equity} points)
-- report_html TEXT (raw upload for re-parsing)
-- created_at TIMESTAMPTZ
-```
-
-Both tables get RLS: users can only access their own rows.
-
-## Edge Function Changes
-
-Update `strategy-lab/index.ts` to accept a `mode` parameter:
-- `chat` (default) — current behavior
-- `code_generation` — stripped-down prompt focused on MQL5 code output, no tool calling
-- `backtest_analysis` — prompt includes uploaded metrics, focuses on interpreting results
-- `performance_analysis` — prompt emphasizes journal data patterns
-- `gap_analysis` — non-streaming, returns structured JSON gap report via tool calling
-
-## Frontend Files
+## Files to Create/Modify
 
 | File | What |
 |------|------|
-| `src/pages/StrategyLab.tsx` | Overhaul: tab-based layout, shared playbook selector, route each tab to its module |
-| `src/components/strategy-lab/StrategyChat.tsx` | Minor: scoped as "Chat" tab |
-| `src/components/strategy-lab/CodeLab.tsx` | **NEW** — split pane with chat + code editor + version list |
-| `src/components/strategy-lab/CodeEditor.tsx` | **NEW** — enhanced code viewer with line numbers, larger display |
-| `src/components/strategy-lab/BacktestDashboard.tsx` | **NEW** — upload, metrics cards, equity curve chart, comparison, AI chat |
-| `src/components/strategy-lab/PerformancePanel.tsx` | **NEW** — auto-loaded charts + journal stats + AI Q&A |
-| `src/components/strategy-lab/GapAnalysis.tsx` | **NEW** — one-click audit UI with score ring + gap cards + auto-fix |
-| `src/components/strategy-lab/StrategyVersionList.tsx` | **NEW** — sidebar list of saved EA versions |
-| `supabase/functions/strategy-lab/index.ts` | Add mode routing, add code-gen and gap-analysis prompt variants |
-| DB migration | 2 new tables + RLS policies |
+| `supabase/functions/simulate-alpha/index.ts` | **NEW** — AI alpha generation + simulation engine |
+| `src/components/strategy-lab/SimulatorPanel.tsx` | **NEW** — Simulator tab UI with parameter controls, results dashboard, equity chart, trade log |
+| `src/pages/StrategyLab.tsx` | Add Simulator tab |
+| DB migration | `simulation_runs` table with RLS |
+
+## Why This Approach
+
+1. **No external data feeds needed** — uses your own trade history as the dataset
+2. **No paid services** — runs on the existing edge function + Lovable AI
+3. **Closed loop** — alpha comes from your playbook, tests against your trades, AI suggests improvements, you tweak the playbook, re-run
+4. **Deterministic** — the alpha function is plain TypeScript, inspectable and editable
+5. **Comparable** — "would my rules have filtered out my losing trades?" is the most actionable question for a discretionary trader refining a playbook into a systematic strategy
 
 ## Implementation Order
 
-1. **Database**: Create `generated_strategies` and `backtest_results` tables with RLS
-2. **Edge function**: Add `mode` routing with specialized prompts for each agent
-3. **Page overhaul**: Convert `StrategyLab.tsx` to tabbed layout
-4. **Code Lab tab**: Split-pane code generation + version management
-5. **Backtest tab**: Upload, parse, display metrics, AI analysis
-6. **Performance tab**: Journal data visualization + AI Q&A
-7. **Gap Analysis tab**: Structured audit + auto-fix
-
-This keeps everything within the existing `/strategy-lab` route — no new pages needed. The single edge function handles all modes, keeping deployment simple.
+1. Database migration for `simulation_runs`
+2. Edge function: AI alpha generation + simulation execution
+3. Simulator tab UI with results visualization
+4. Wire AI analysis of simulation results into the chat
 
