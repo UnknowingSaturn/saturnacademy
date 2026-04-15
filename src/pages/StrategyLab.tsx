@@ -32,6 +32,7 @@ export default function StrategyLab() {
   const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>("none");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState("chat");
+  const [hasTradeData, setHasTradeData] = useState(false);
 
   const selectedPlaybook = playbooks?.find((p) => p.id === selectedPlaybookId);
 
