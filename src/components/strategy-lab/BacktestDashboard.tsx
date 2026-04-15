@@ -109,8 +109,14 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
 
       if (!user) return;
       const playbookId = selectedPlaybookId === "none" ? null : selectedPlaybookId;
-      const existingVersion = versions.find((v) => v.playbook_id === playbookId);
-      const version = existingVersion ? existingVersion.version + 1 : 1;
+      const { data: existing } = await supabase
+        .from("generated_strategies")
+        .select("version")
+        .eq("playbook_id", playbookId ?? "")
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const version = existing ? existing.version + 1 : 1;
 
       const { data } = await supabase
         .from("generated_strategies")
@@ -123,8 +129,19 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
         loadVersions();
       }
     },
-    [user, selectedPlaybookId, playbookName, versions]
+    [user, selectedPlaybookId, playbookName]
   );
+
+  const loadVersions = useCallback(async () => {
+    const query = supabase
+      .from("generated_strategies")
+      .select("id, name, version, created_at, playbook_id")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (selectedPlaybookId !== "none") query.eq("playbook_id", selectedPlaybookId);
+    const { data } = await query;
+    if (data) setVersions(data);
+  }, [selectedPlaybookId]);
 
   const {
     messages,
@@ -141,18 +158,7 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
 
   useEffect(() => {
     if (user) loadVersions();
-  }, [user, selectedPlaybookId]);
-
-  const loadVersions = async () => {
-    const query = supabase
-      .from("generated_strategies")
-      .select("id, name, version, created_at, playbook_id")
-      .order("created_at", { ascending: false })
-      .limit(50);
-    if (selectedPlaybookId !== "none") query.eq("playbook_id", selectedPlaybookId);
-    const { data } = await query;
-    if (data) setVersions(data);
-  };
+  }, [user, loadVersions]);
 
   const handleSelectVersion = async (id: string) => {
     setActiveVersionId(id);
