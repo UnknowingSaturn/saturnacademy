@@ -166,7 +166,6 @@ export default function StrategyLab() {
     URL.revokeObjectURL(url);
   };
 
-  const [hasTradeData, setHasTradeData] = useState(false);
 
   useEffect(() => {
     if (!user) return;
