@@ -6,9 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { StrategyChat, type ChatMessage } from "./StrategyChat";
 import { ReportUpload } from "./ReportUpload";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Upload, TrendingUp, TrendingDown, Target, BarChart3, Activity } from "lucide-react";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/strategy-lab`;
 

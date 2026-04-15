@@ -68,7 +68,7 @@ export function CodeLab({ selectedPlaybookId, playbookName }: CodeLabProps) {
   };
 
   const extractCode = (content: string): string | null => {
-    const match = content.match(/```mql5\n([\s\S]*?)```/);
+    const match = content.match(/```(?:mql5|cpp|MQL5)\n([\s\S]*?)```/i);
     return match ? match[1].trim() : null;
   };
 

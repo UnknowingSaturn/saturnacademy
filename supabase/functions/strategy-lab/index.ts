@@ -747,13 +747,14 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
       });
     }
 
-    // Read stream, detect tool calls
+    // Read stream, detect tool calls, keep raw SSE lines for passthrough
     const reader = aiResponse.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let collectedContent = "";
     let hasToolCalls = false;
     const toolCallBuffers: Record<number, { id: string; name: string; args: string }> = {};
+    const rawSseLines: string[] = [];
 
     while (true) {
       const { done, value } = await reader.read();
@@ -766,6 +767,7 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
         buffer = buffer.slice(newlineIndex + 1);
         if (line.endsWith("\r")) line = line.slice(0, -1);
         if (!line.startsWith("data: ")) continue;
+        rawSseLines.push(line + "\n\n");
         const jsonStr = line.slice(6).trim();
         if (jsonStr === "[DONE]") continue;
 
@@ -875,18 +877,9 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
       });
     }
 
-    // No tool calls — reconstruct the stream
+    // No tool calls — replay the original SSE lines directly
     const encoder = new TextEncoder();
-    const chunks: string[] = [];
-    const chunkSize = 20;
-    for (let i = 0; i < collectedContent.length; i += chunkSize) {
-      const chunk = collectedContent.slice(i, i + chunkSize);
-      chunks.push(`data: ${JSON.stringify({ choices: [{ delta: { content: chunk }, finish_reason: null }] })}\n\n`);
-    }
-    chunks.push(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`);
-    chunks.push("data: [DONE]\n\n");
-
-    return new Response(encoder.encode(chunks.join("")), {
+    return new Response(encoder.encode(rawSseLines.join("")), {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {

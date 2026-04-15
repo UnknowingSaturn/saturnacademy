@@ -285,7 +285,23 @@ export default function StrategyLab() {
     [messages, isStreaming, selectedPlaybookId, activeConversationId, user, backtestMetrics, queryClient]
   );
 
-  const hasTradeData = false;
+  const [hasTradeData, setHasTradeData] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const checkTradeData = async () => {
+      const query = supabase
+        .from("trades")
+        .select("id", { count: "exact", head: true })
+        .eq("is_open", false);
+      if (selectedPlaybookId !== "none") {
+        query.eq("playbook_id", selectedPlaybookId);
+      }
+      const { count } = await query;
+      setHasTradeData((count ?? 0) > 0);
+    };
+    checkTradeData();
+  }, [user, selectedPlaybookId]);
 
   const showSidebar = activeTab === "chat" && sidebarOpen;
 
