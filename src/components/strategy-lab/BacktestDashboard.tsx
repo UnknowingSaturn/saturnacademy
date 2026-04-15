@@ -123,27 +123,10 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
         loadVersions();
       }
     },
-    [user, selectedPlaybookId, playbookName, versions]
+    [user, selectedPlaybookId, playbookName]
   );
 
-  const {
-    messages,
-    isStreaming,
-    handleSend,
-    handleAbort,
-    resetMessages,
-  } = useStrategyLabChat({
-    mode: rawMetricsStr ? "backtest_analysis" : "code_generation",
-    selectedPlaybookId,
-    extraBody,
-    onContentComplete: extractAndSaveCode,
-  });
-
-  useEffect(() => {
-    if (user) loadVersions();
-  }, [user, selectedPlaybookId]);
-
-  const loadVersions = async () => {
+  const loadVersions = useCallback(async () => {
     const query = supabase
       .from("generated_strategies")
       .select("id, name, version, created_at, playbook_id")
