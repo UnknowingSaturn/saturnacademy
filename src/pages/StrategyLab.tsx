@@ -386,6 +386,10 @@ export default function StrategyLab() {
                 <Shield className="h-3.5 w-3.5" />
                 Gap Analysis
               </TabsTrigger>
+              <TabsTrigger value="backtest-alpha" className="gap-1.5 text-xs">
+                <Zap className="h-3.5 w-3.5" />
+                Backtest Alpha
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
