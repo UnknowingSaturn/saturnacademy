@@ -135,7 +135,24 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
     if (selectedPlaybookId !== "none") query.eq("playbook_id", selectedPlaybookId);
     const { data } = await query;
     if (data) setVersions(data);
-  };
+  }, [selectedPlaybookId]);
+
+  const {
+    messages,
+    isStreaming,
+    handleSend,
+    handleAbort,
+    resetMessages,
+  } = useStrategyLabChat({
+    mode: rawMetricsStr ? "backtest_analysis" : "code_generation",
+    selectedPlaybookId,
+    extraBody,
+    onContentComplete: extractAndSaveCode,
+  });
+
+  useEffect(() => {
+    if (user) loadVersions();
+  }, [user, loadVersions]);
 
   const handleSelectVersion = async (id: string) => {
     setActiveVersionId(id);
