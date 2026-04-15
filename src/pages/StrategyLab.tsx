@@ -420,6 +420,13 @@ export default function StrategyLab() {
               playbookName={selectedPlaybook?.name}
             />
           )}
+
+          {activeTab === "simulator" && (
+            <SimulatorPanel
+              selectedPlaybookId={selectedPlaybookId}
+              playbookName={selectedPlaybook?.name}
+            />
+          )}
         </div>
       </div>
     </div>
