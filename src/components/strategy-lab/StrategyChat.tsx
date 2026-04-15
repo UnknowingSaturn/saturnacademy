@@ -24,6 +24,7 @@ interface StrategyChatProps {
   isStreaming: boolean;
   onSend: (message: string) => void;
   onAbort?: () => void;
+  onBacktestMetrics?: (metrics: string) => void;
   playbookName?: string;
   hasPlaybook: boolean;
   hasTradeData: boolean;
@@ -81,7 +82,7 @@ function MessageContent({ content }: { content: string }) {
   );
 }
 
-export function StrategyChat({ messages, isStreaming, onSend, onAbort, playbookName, hasPlaybook, hasTradeData }: StrategyChatProps) {
+export function StrategyChat({ messages, isStreaming, onSend, onAbort, onBacktestMetrics, playbookName, hasPlaybook, hasTradeData }: StrategyChatProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
