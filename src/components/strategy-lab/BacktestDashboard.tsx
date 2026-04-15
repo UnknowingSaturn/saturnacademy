@@ -122,8 +122,8 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
       const name = nameMatch
         ? nameMatch[1].trim().slice(0, 50)
         : playbookName || "Generated EA";
-      const safeName = name.replace(/[^a-zA-Z0-9]/g, "_");
-      setCurrentFilename(`${safeName}.mq5`);
+      const safeName = name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/^_+|_+$/g, "");
+      setCurrentFilename(`${safeName || "Strategy"}.mq5`);
 
       // Auto-advance to "run" phase
       setPhase("run");
