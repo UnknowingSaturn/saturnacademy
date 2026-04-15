@@ -109,8 +109,14 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
 
       if (!user) return;
       const playbookId = selectedPlaybookId === "none" ? null : selectedPlaybookId;
-      const existingVersion = versions.find((v) => v.playbook_id === playbookId);
-      const version = existingVersion ? existingVersion.version + 1 : 1;
+      const { data: existing } = await supabase
+        .from("generated_strategies")
+        .select("version")
+        .eq("playbook_id", playbookId ?? "")
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const version = existing ? existing.version + 1 : 1;
 
       const { data } = await supabase
         .from("generated_strategies")
