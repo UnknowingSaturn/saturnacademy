@@ -1,10 +1,10 @@
 import * as React from "react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
-import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { useStrategyLabChat } from "@/hooks/useStrategyLabChat";
 import { StrategyChat, type ChatMessage } from "@/components/strategy-lab/StrategyChat";
 import { ConversationList, type Conversation } from "@/components/strategy-lab/ConversationList";
 import { BacktestDashboard } from "@/components/strategy-lab/BacktestDashboard";
@@ -22,64 +22,116 @@ import { Sparkles, PanelLeftClose, PanelLeft, MessageSquare, FlaskConical, Trend
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/strategy-lab`;
-
 export default function StrategyLab() {
   const { user } = useAuth();
   const { data: playbooks } = usePlaybooks();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>("none");
-  const [isStreaming, setIsStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [backtestMetrics, setBacktestMetrics] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("chat");
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   const selectedPlaybook = playbooks?.find((p) => p.id === selectedPlaybookId);
 
-  useEffect(() => {
-    if (!user) return;
-    loadConversations();
-  }, [user]);
+  // Conversation persistence helpers
+  const saveConversation = useCallback(async (msgs: ChatMessage[], convId: string | null): Promise<string> => {
+    const playbookId = selectedPlaybookId === "none" ? null : selectedPlaybookId;
+    const firstUserMsg = msgs.find((m) => m.role === "user");
+    const title = firstUserMsg?.content.slice(0, 60) || "New Conversation";
 
-  const loadConversations = async () => {
+    if (convId) {
+      await supabase
+        .from("strategy_conversations")
+        .update({ messages: JSON.parse(JSON.stringify(msgs)), playbook_id: playbookId, title })
+        .eq("id", convId);
+      return convId;
+    } else {
+      const { data } = await supabase
+        .from("strategy_conversations")
+        .insert([{
+          user_id: user!.id,
+          title,
+          playbook_id: playbookId,
+          messages: JSON.parse(JSON.stringify(msgs)),
+        }])
+        .select("id")
+        .single();
+      const newId = data!.id;
+      setActiveConversationId(newId);
+      return newId;
+    }
+  }, [selectedPlaybookId, user]);
+
+  const loadConversations = useCallback(async () => {
     const { data } = await supabase
       .from("strategy_conversations")
       .select("id, title, playbook_id, updated_at")
       .order("updated_at", { ascending: false });
     if (data) setConversations(data);
-  };
+  }, []);
+
+  // Use the shared SSE streaming hook
+  const {
+    messages,
+    setMessages,
+    isStreaming,
+    handleSend: hookSend,
+    handleAbort,
+  } = useStrategyLabChat({
+    mode: "chat",
+    selectedPlaybookId,
+    onContentComplete: useCallback(async (content: string) => {
+      // Save conversation after stream completes
+      const currentMsgs = [...(messagesRef.current), { role: "assistant" as const, content }];
+      await saveConversation(currentMsgs, activeConversationIdRef.current);
+      loadConversations();
+    }, [saveConversation, loadConversations]),
+    onPlaybookUpdated: useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ["playbooks"] });
+    }, [queryClient]),
+  });
+
+  // Refs to access latest values in callbacks
+  const messagesRef = React.useRef(messages);
+  messagesRef.current = messages;
+  const activeConversationIdRef = React.useRef(activeConversationId);
+  activeConversationIdRef.current = activeConversationId;
+
+  // Wrap hookSend to also save on abort
+  const handleSend = useCallback(async (input: string) => {
+    await hookSend(input);
+  }, [hookSend]);
+
+  useEffect(() => {
+    if (!user) return;
+    loadConversations();
+  }, [user, loadConversations]);
 
   useEffect(() => {
     if (!activeConversationId) {
       setMessages([]);
       return;
     }
-    loadMessages(activeConversationId);
-  }, [activeConversationId]);
-
-  const loadMessages = async (id: string) => {
-    const { data } = await supabase
-      .from("strategy_conversations")
-      .select("messages, playbook_id")
-      .eq("id", id)
-      .single();
-    if (data) {
-      setMessages((data.messages as unknown as ChatMessage[]) || []);
-      if (data.playbook_id) setSelectedPlaybookId(data.playbook_id);
-    }
-  };
+    const loadMessages = async () => {
+      const { data } = await supabase
+        .from("strategy_conversations")
+        .select("messages, playbook_id")
+        .eq("id", activeConversationId)
+        .single();
+      if (data) {
+        setMessages((data.messages as unknown as ChatMessage[]) || []);
+        if (data.playbook_id) setSelectedPlaybookId(data.playbook_id);
+      }
+    };
+    loadMessages();
+  }, [activeConversationId, setMessages]);
 
   const handleNewConversation = () => {
     setActiveConversationId(null);
     setMessages([]);
     setSelectedPlaybookId("none");
-    setBacktestMetrics(null);
   };
 
   const handleDeleteConversation = async (id: string) => {
@@ -112,176 +164,6 @@ export default function StrategyLab() {
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  const saveConversation = async (msgs: ChatMessage[], convId: string | null): Promise<string> => {
-    const playbookId = selectedPlaybookId === "none" ? null : selectedPlaybookId;
-    const firstUserMsg = msgs.find((m) => m.role === "user");
-    const title = firstUserMsg?.content.slice(0, 60) || "New Conversation";
-
-    if (convId) {
-      await supabase
-        .from("strategy_conversations")
-        .update({ messages: JSON.parse(JSON.stringify(msgs)), playbook_id: playbookId, title })
-        .eq("id", convId);
-      return convId;
-    } else {
-      const { data } = await supabase
-        .from("strategy_conversations")
-        .insert([{
-          user_id: user!.id,
-          title,
-          playbook_id: playbookId,
-          messages: JSON.parse(JSON.stringify(msgs)),
-        }])
-        .select("id")
-        .single();
-      const newId = data!.id;
-      setActiveConversationId(newId);
-      return newId;
-    }
-  };
-
-  const handleAbort = useCallback(() => {
-    abortControllerRef.current?.abort();
-    setIsStreaming(false);
-  }, []);
-
-  const handleSend = useCallback(
-    async (input: string) => {
-      if (isStreaming) return;
-
-      const userMsg: ChatMessage = { role: "user", content: input };
-      const newMessages = [...messages, userMsg];
-      setMessages(newMessages);
-      setIsStreaming(true);
-
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
-      let assistantContent = "";
-
-      try {
-        const session = await supabase.auth.getSession();
-        const token = session.data.session?.access_token;
-
-        const resp = await fetch(CHAT_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          },
-          body: JSON.stringify({
-            messages: newMessages,
-            playbook_id: selectedPlaybookId === "none" ? null : selectedPlaybookId,
-            conversation_id: activeConversationId,
-            backtest_metrics: backtestMetrics,
-            mode: "chat",
-          }),
-          signal: controller.signal,
-        });
-
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({ error: "Request failed" }));
-          throw new Error(err.error || `HTTP ${resp.status}`);
-        }
-
-        if (!resp.body) throw new Error("No response body");
-
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        const updateAssistant = (content: string) => {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant") {
-              return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content } : m));
-            }
-            return [...prev, { role: "assistant", content }];
-          });
-        };
-
-        let streamDone = false;
-        while (!streamDone) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          let newlineIndex: number;
-          while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-            let line = buffer.slice(0, newlineIndex);
-            buffer = buffer.slice(newlineIndex + 1);
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            if (line.startsWith(":") || line.trim() === "") continue;
-            if (!line.startsWith("data: ")) continue;
-
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === "[DONE]") {
-              streamDone = true;
-              break;
-            }
-
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                assistantContent += delta;
-                updateAssistant(assistantContent);
-              }
-            } catch {
-              buffer = line + "\n" + buffer;
-              break;
-            }
-          }
-        }
-
-        // Flush remaining buffer
-        if (buffer.trim()) {
-          for (let raw of buffer.split("\n")) {
-            if (!raw) continue;
-            if (raw.endsWith("\r")) raw = raw.slice(0, -1);
-            if (!raw.startsWith("data: ")) continue;
-            const jsonStr = raw.slice(6).trim();
-            if (jsonStr === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                assistantContent += delta;
-                updateAssistant(assistantContent);
-              }
-            } catch { /* ignore */ }
-          }
-        }
-
-        if (assistantContent.includes("[PLAYBOOK_UPDATED]") || assistantContent.includes("[TOOL_RESULT:")) {
-          queryClient.invalidateQueries({ queryKey: ["playbooks"] });
-        }
-
-        if (backtestMetrics) setBacktestMetrics(null);
-
-        const finalMessages = [...newMessages, { role: "assistant" as const, content: assistantContent }];
-        await saveConversation(finalMessages, activeConversationId);
-        loadConversations();
-      } catch (e: unknown) {
-        if (e instanceof DOMException && e.name === "AbortError") {
-          if (assistantContent) {
-            const partialMessages = [...newMessages, { role: "assistant" as const, content: assistantContent }];
-            await saveConversation(partialMessages, activeConversationId);
-            loadConversations();
-          }
-          return;
-        }
-        const msg = e instanceof Error ? e.message : "Unknown error";
-        toast({ title: "Error", description: msg, variant: "destructive" });
-      } finally {
-        setIsStreaming(false);
-        abortControllerRef.current = null;
-      }
-    },
-    [messages, isStreaming, selectedPlaybookId, activeConversationId, user, backtestMetrics, queryClient]
-  );
 
   const [hasTradeData, setHasTradeData] = useState(false);
 
@@ -392,7 +274,6 @@ export default function StrategyLab() {
               isStreaming={isStreaming}
               onSend={handleSend}
               onAbort={handleAbort}
-              onBacktestMetrics={setBacktestMetrics}
               playbookName={selectedPlaybook?.name}
               hasPlaybook={selectedPlaybookId !== "none"}
               hasTradeData={hasTradeData}
