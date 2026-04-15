@@ -19,7 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Sparkles, PanelLeftClose, PanelLeft, MessageSquare, Code, BarChart3, TrendingUp, Shield } from "lucide-react";
+import { Sparkles, PanelLeftClose, PanelLeft, MessageSquare, Code, BarChart3, TrendingUp, Shield, Zap } from "lucide-react";
+import { SimulatorPanel } from "@/components/strategy-lab/SimulatorPanel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -369,6 +370,10 @@ export default function StrategyLab() {
                 <Shield className="h-3.5 w-3.5" />
                 Gap Analysis
               </TabsTrigger>
+              <TabsTrigger value="simulator" className="gap-1.5 text-xs">
+                <Zap className="h-3.5 w-3.5" />
+                Simulator
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -411,6 +416,13 @@ export default function StrategyLab() {
 
           {activeTab === "gaps" && (
             <GapAnalysis
+              selectedPlaybookId={selectedPlaybookId}
+              playbookName={selectedPlaybook?.name}
+            />
+          )}
+
+          {activeTab === "simulator" && (
+            <SimulatorPanel
               selectedPlaybookId={selectedPlaybookId}
               playbookName={selectedPlaybook?.name}
             />

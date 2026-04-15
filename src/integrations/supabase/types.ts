@@ -1006,6 +1006,60 @@ export type Database = {
           },
         ]
       }
+      simulation_runs: {
+        Row: {
+          alpha_code: string
+          created_at: string
+          error_message: string | null
+          id: string
+          parameters: Json | null
+          playbook_id: string | null
+          results: Json | null
+          status: string
+          strategy_id: string | null
+          user_id: string
+        }
+        Insert: {
+          alpha_code?: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          parameters?: Json | null
+          playbook_id?: string | null
+          results?: Json | null
+          status?: string
+          strategy_id?: string | null
+          user_id: string
+        }
+        Update: {
+          alpha_code?: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          parameters?: Json | null
+          playbook_id?: string | null
+          results?: Json | null
+          status?: string
+          strategy_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "simulation_runs_playbook_id_fkey"
+            columns: ["playbook_id"]
+            isOneToOne: false
+            referencedRelation: "playbooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "simulation_runs_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "generated_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       strategy_conversations: {
         Row: {
           created_at: string
