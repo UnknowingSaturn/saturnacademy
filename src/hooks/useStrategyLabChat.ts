@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { ChatMessage } from "@/components/strategy-lab/StrategyChat";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/strategy-lab`;
+const STREAM_TIMEOUT_MS = 90_000;
 
 interface UseStrategyLabChatOptions {
   mode: string;
@@ -24,11 +25,20 @@ export function useStrategyLabChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearStreamTimeout = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
 
   const handleAbort = useCallback(() => {
+    clearStreamTimeout();
     abortControllerRef.current?.abort();
     setIsStreaming(false);
-  }, []);
+  }, [clearStreamTimeout]);
 
   const resetMessages = useCallback(() => {
     setMessages([]);
@@ -46,6 +56,16 @@ export function useStrategyLabChat({
       const controller = new AbortController();
       abortControllerRef.current = controller;
       let assistantContent = "";
+
+      // Set up timeout
+      timeoutRef.current = setTimeout(() => {
+        controller.abort();
+        toast({
+          title: "Request timed out",
+          description: "The AI is taking too long. Try again — the service may be under load.",
+          variant: "destructive",
+        });
+      }, STREAM_TIMEOUT_MS);
 
       try {
         const session = await supabase.auth.getSession();
@@ -143,6 +163,16 @@ export function useStrategyLabChat({
           }
         }
 
+        // Check for empty response
+        if (!assistantContent.trim()) {
+          toast({
+            title: "Empty response",
+            description: "AI returned an empty response. Try again or simplify your request.",
+            variant: "destructive",
+          });
+          return;
+        }
+
         if (
           assistantContent.includes("[PLAYBOOK_UPDATED]") ||
           assistantContent.includes("[TOOL_RESULT:")
@@ -157,11 +187,12 @@ export function useStrategyLabChat({
         const msg = e instanceof Error ? e.message : "Unknown error";
         toast({ title: "Error", description: msg, variant: "destructive" });
       } finally {
+        clearStreamTimeout();
         setIsStreaming(false);
         abortControllerRef.current = null;
       }
     },
-    [messages, isStreaming, selectedPlaybookId, mode, extraBody, onContentComplete, onPlaybookUpdated, toast]
+    [messages, isStreaming, selectedPlaybookId, mode, extraBody, onContentComplete, onPlaybookUpdated, toast, clearStreamTimeout]
   );
 
   return {
