@@ -1,102 +1,90 @@
 
 
-# Robust EA Development Pipeline
+# What You Actually Need vs. What's Noise
 
-## The Problem
+## Your Setup (as described)
 
-The current approach sends one massive prompt (AMT knowledge + playbook + all rules) to `gemini-2.5-pro` with `reasoning: high`, asks it to generate a complete EA in one shot, and hopes for the best. This fails because:
+You trade **continuation setups before London open (~02:00 EST)** when price is **trending on the intermediary timeframe** or when price **reacts from a higher timeframe level (4H/Daily FVG)**. This is a discretionary-mechanical hybrid — the HTF context and level identification are discretionary, but the entry trigger, session filter, risk management, and exit rules are mechanical.
 
-1. **Latency**: 30-60s before first token. Often times out with no feedback.
-2. **No validation loop**: A single prompt cannot produce a robust EA. The AI has no way to verify its own output.
-3. **Verbose output**: No conciseness instructions, so it explains every line instead of focusing on correct code.
-4. **No error feedback**: If the stream fails or returns empty, the user sees nothing.
+## What Already Works
 
-## The Right Approach: Iterative Refinement, Not Single-Shot
+Your current system already has:
+- **Playbook rules storage** (confirmation, invalidation, management, failure modes) — stored in DB
+- **AI code generation** (Build phase) — generates MQL5 from playbook context via Lovable AI
+- **Alpha Builder flow** — AI asks clarifying questions before generating code
+- **Version history** — saves each EA iteration to `generated_strategies`
+- **Backtest report upload** (HTML parsing) — extracts metrics from MT5 Strategy Tester reports
+- **AI backtest analysis** (Analyze phase) — reviews metrics against playbook expectations
+- **Tool calling** — AI can modify playbook rules directly during conversation
+- **Journal cross-reference** — AI sees your last 50 trades and review insights when analyzing
 
-The robustness comes from the **process**, not from making the AI think harder. The MT5 Strategy Tester is the ultimate validator — the AI's job is to produce compilable, well-structured code quickly so the human can test it, upload results, and iterate.
+## What's Needed vs. Not Needed
 
-The pipeline should be:
+### ESSENTIAL — Directly impacts EA quality and backtest robustness
 
-```text
-Playbook Rules
-     ↓
-AI asks clarifying questions about ambiguous rules
-     ↓
-AI generates complete EA (fast, focused)
-     ↓
-User compiles & runs in MT5 Strategy Tester
-     ↓
-User uploads HTML report
-     ↓
-AI analyzes results against playbook expectations
-     ↓
-AI suggests specific parameter/logic changes
-     ↓
-AI generates updated EA (with full diff explanation)
-     ↓
-Repeat until metrics meet thresholds
-```
+| Feature | Why | Status |
+|---------|-----|--------|
+| **Multi-platform code gen (MT5 only)** | You trade MT5. MT4/Pine/Python are distractions. Skip them entirely. | Already MT5-only ✅ |
+| **Enhanced metric parsing** | Current parser extracts 7 metrics via regex. Need all 14 (Expectancy, Avg Win/Loss, Best/Worst Trade, Avg Duration, Recovery Factor) to properly evaluate an EA. | Needs work |
+| **Equity curve chart** | Visual inspection of the equity curve catches problems no single metric reveals — drawdown clustering, regime sensitivity, time decay. Industry standard for any backtest review. | Needs building |
+| **Trade distribution charts** | Win/Loss by hour-of-day is critical for YOUR setup — you need to verify the EA only trades in your pre-London window and that edge concentrates there. Day-of-week distribution catches calendar effects. | Needs building |
+| **Monte Carlo simulation** | The single most important robustness check. A backtest is one path through history. Monte Carlo reshuffles trade order to show whether your results survive different sequencing. Probability of ruin and expected drawdown range tell you if the EA is deployable. | Needs building |
+| **CSV trade log import** | MT5 Strategy Tester also exports CSV/detailed trade lists. Parsing these gives you per-trade data (entry time, exit time, P&L) needed for the equity curve and distribution charts — the HTML report alone only gives summary metrics. | Needs building |
+| **Enhanced AI analysis prompt** | Current prompt is generic. Should explicitly output: strengths, weaknesses, session concentration analysis, drawdown clustering detection, curve-fitting verdict, and specific parameter change suggestions. | Needs improvement |
 
-This loop already exists in the 3-phase UI. The fix is making each step **reliable and fast** rather than trying to make one step do everything.
+### NOT NEEDED — Adds complexity without improving EA quality
 
-## Changes
+| Feature | Why Skip |
+|---------|----------|
+| **MT4/Pine Script/Python platform selector** | You use MT5. Adding 3 more platforms bloats the prompt and code surface area. Can always add later. |
+| **Walk-forward analysis** | Requires multiple CSV uploads with carefully defined in-sample/out-of-sample windows. This is a Phase 2 feature after you have a working Monte Carlo pipeline. It's also largely manual work in MT5 (running multiple passes). |
+| **Playbook Builder restructuring (6 new form sections)** | Your playbook rules are free-text lists right now. The AI reads them as context and generates code from them. Adding 25 dropdown/multi-select fields (HTF bias, entry triggers, SL method, etc.) creates a rigid schema that doesn't match how discretionary-mechanical strategies actually work. Your description — "continuation before London when trending ITF or reacting from 4H FVG" — is better captured as a free-text rule the AI interprets than as 6 separate dropdown values. |
+| **"Regenerate with Notes" UI** | The chat already supports follow-up messages. Typing "fix the session filter to use 02:00-06:00 EST" in the chat does exactly what a "regenerate with notes" button would do. |
+| **Dark/light mode toggle** | Already dark theme. Cosmetic. |
+| **localStorage persistence + JSON export** | Everything already persists in the database. |
 
-### 1. Per-Mode Model Selection (Edge Function)
+## The Plan: Backtest Lab Enhancement Only
 
-Instead of using `gemini-2.5-pro` with `high` reasoning for everything:
+Focus on making the **Analyze phase** a proper backtest laboratory. The Build phase and EA generation are already solid.
 
-| Mode | Model | Reasoning | Rationale |
-|------|-------|-----------|-----------|
-| `code_generation` | `google/gemini-2.5-flash` | `medium` | Code generation needs speed and accuracy, not deep philosophical reasoning. Flash is excellent at structured code output. |
-| `backtest_analysis` | `google/gemini-2.5-flash` | `medium` | Structured metric interpretation — speed matters for iteration. |
-| `chat` | `google/gemini-2.5-pro` | `medium` | Deep AMT discussions benefit from Pro, but `high` reasoning is overkill and causes timeouts. |
-| `gap_analysis` | `google/gemini-2.5-pro` | `medium` | Needs tool calling + systematic analysis. |
-| `performance_analysis` | `google/gemini-2.5-flash` | `medium` | Data-driven, structured output. |
+### What gets built
 
-This does NOT reduce quality — it reduces latency from 30-60s to 3-5s first token, enabling faster iteration cycles. More iterations = better EAs.
+**1. Enhanced metric parsing** (`ReportUpload.tsx`)
+Expand the HTML parser to extract all 14 standard metrics from MT5 Strategy Tester reports. Add fallback patterns for different MT5 report formats.
 
-### 2. Focused Code Generation Prompt (Edge Function)
+**2. CSV trade log parser** (new: `backtest/CSVImport.tsx`)
+File upload that parses MT5 detailed trade export (Date, Type, Lots, Price, SL, TP, Profit, Balance). Computes all 14 metrics from raw trades. Produces structured trade array for charts.
 
-The `buildCodeGenPrompt` currently includes 107 lines of AMT theory that the model already knows. For code generation, trim to:
-- Playbook context (the actual rules)
-- MQL5 code standards section (structure, required inputs, risk management)
-- Conciseness instruction: "Output the complete MQL5 code in a single code block. Keep explanations to 2-3 sentences before the code and a brief 'what to test' summary after. Do NOT explain every function."
+**3. Metrics grid** (new: `backtest/BacktestMetricsGrid.tsx`)
+14-card grid replacing the current 7-card strip. Color-coded thresholds (green/amber/red) based on industry standards: Profit Factor >1.5 green / >1.0 amber / <1.0 red, Max DD <15% green / <25% amber / >25% red, etc.
 
-The AMT knowledge stays in `chat` and `gap_analysis` modes where it's actually needed.
+**4. Equity curve chart** (new: `backtest/EquityCurveChart.tsx`)
+Recharts line chart showing balance/equity over time. Toggle overlays: drawdown periods (red shading), individual trade markers. Zoomable via brush component.
 
-### 3. Alpha Builder Conversation Flow (Edge Function)
+**5. Trade distribution charts** (new: `backtest/TradeDistributionCharts.tsx`)
+Three charts: Win/Loss by hour of day (bar), P&L distribution histogram, consecutive wins/losses streaks. All Recharts. Critical for validating session-filtered strategies like yours.
 
-When the user says "build my alpha" or "generate EA", the code_generation prompt already instructs the AI to ask clarifying questions. But it also says "Generate the complete EA with all rules implemented" — contradictory. Fix:
+**6. Monte Carlo simulation** (new: `backtest/MonteCarloPanel.tsx`)
+Client-side: shuffle trade P&L array 1000 times, compute equity paths per shuffle, extract P10/P50/P90 percentile bands. Display: fan chart (Recharts area), probability of ruin (DD >20%), expected max drawdown range, median final equity. Runs in ~200ms for 500 trades.
 
-Add explicit instruction: "If the user's first message is about building/generating an EA, start by listing each playbook rule and asking which are mechanically codeable vs. discretionary. Only generate code after the user confirms the rule mapping. For subsequent messages in the same conversation (refinement requests), generate the complete updated EA immediately."
+**7. Tabbed analyze phase** (`BacktestDashboard.tsx`)
+Replace current flat layout with tabs: **Overview** (metrics grid) | **Equity Curve** | **Distribution** | **Monte Carlo** | **AI Analysis** (existing chat). CSV import alongside existing HTML upload.
 
-This ensures the first generation is deliberate, while refinement iterations are fast.
+**8. Enhanced backtest analysis prompt** (`strategy-lab/index.ts`)
+Update `buildBacktestPrompt` to request structured output: strengths, weaknesses, session concentration analysis, drawdown clustering, curve-fitting assessment, specific parameter recommendations, and a deploy/iterate/abandon verdict.
 
-### 4. Timeout and Error Handling (Frontend Hook)
-
-In `useStrategyLabChat.ts`:
-- Add a 90-second timeout using `setTimeout` that calls `controller.abort()`
-- If the stream completes but `assistantContent` is empty, show: "AI returned an empty response. Try again or simplify your request."
-- If the fetch times out, show: "Request timed out. Try again — the AI service may be under load."
-- Clear the timeout on successful completion
-
-### 5. CodeViewer forwardRef Fix
-
-Wrap `CodeViewer` with `React.forwardRef` to eliminate the console warning when rendered inside chat messages.
-
-## Files Changed
+### Files changed
 
 | File | Change |
 |------|--------|
-| `supabase/functions/strategy-lab/index.ts` | Per-mode model/reasoning selection; trim AMT from code_generation prompt; add alpha-builder conversation flow instruction |
-| `src/hooks/useStrategyLabChat.ts` | Add 90s timeout, empty response error toast |
-| `src/components/strategy-lab/CodeViewer.tsx` | Wrap with forwardRef |
+| `src/components/strategy-lab/backtest/BacktestMetricsGrid.tsx` | **NEW** |
+| `src/components/strategy-lab/backtest/CSVImport.tsx` | **NEW** |
+| `src/components/strategy-lab/backtest/EquityCurveChart.tsx` | **NEW** |
+| `src/components/strategy-lab/backtest/TradeDistributionCharts.tsx` | **NEW** |
+| `src/components/strategy-lab/backtest/MonteCarloPanel.tsx` | **NEW** |
+| `src/components/strategy-lab/BacktestDashboard.tsx` | Tabbed analyze phase, CSV import option |
+| `src/components/strategy-lab/ReportUpload.tsx` | Enhanced 14-metric parsing |
+| `supabase/functions/strategy-lab/index.ts` | Enhanced backtest analysis prompt |
 
-## What This Does NOT Change
-
-- The 3-phase pipeline (Build → Run → Analyze) stays exactly as-is
-- The tool-calling system for playbook modifications stays
-- The AMT knowledge base stays for chat/gap analysis modes
-- The backtest report parsing and metrics display stays
-- No database changes
+No database migrations. No new dependencies (Recharts already installed). No playbook schema changes.
 
