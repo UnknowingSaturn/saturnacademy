@@ -1,90 +1,77 @@
 
 
-# What You Actually Need vs. What's Noise
+# Comprehensive Review: Backtest Lab Enhancement
 
-## Your Setup (as described)
+## Summary
 
-You trade **continuation setups before London open (~02:00 EST)** when price is **trending on the intermediary timeframe** or when price **reacts from a higher timeframe level (4H/Daily FVG)**. This is a discretionary-mechanical hybrid — the HTF context and level identification are discretionary, but the entry trigger, session filter, risk management, and exit rules are mechanical.
+The implementation is clean and well-integrated. All 8 planned items from the approved plan were implemented. There are a few minor issues to fix.
 
-## What Already Works
+## Findings by Category
 
-Your current system already has:
-- **Playbook rules storage** (confirmation, invalidation, management, failure modes) — stored in DB
-- **AI code generation** (Build phase) — generates MQL5 from playbook context via Lovable AI
-- **Alpha Builder flow** — AI asks clarifying questions before generating code
-- **Version history** — saves each EA iteration to `generated_strategies`
-- **Backtest report upload** (HTML parsing) — extracts metrics from MT5 Strategy Tester reports
-- **AI backtest analysis** (Analyze phase) — reviews metrics against playbook expectations
-- **Tool calling** — AI can modify playbook rules directly during conversation
-- **Journal cross-reference** — AI sees your last 50 trades and review insights when analyzing
+### 1. Functional Verification — PASS (with minor issues)
 
-## What's Needed vs. Not Needed
+**Working correctly:**
+- `BacktestMetricsGrid` — 14 metrics with color-coded thresholds, properly typed
+- `CSVImport` — auto-detects columns, computes all metrics, handles edge cases
+- `EquityCurveChart` — Recharts with drawdown overlay, trade markers, brush zoom
+- `TradeDistributionCharts` — 4 charts (hour, day, histogram, streaks), all using Recharts
+- `MonteCarloPanel` — 1000-path simulation with P10/P50/P90 bands, probability of ruin
+- `BacktestDashboard` — 3-phase pipeline (Build → Run → Analyze) with tabbed analyze phase
+- `ReportUpload` — enhanced with 26 regex patterns for MT5 HTML reports
+- Edge function `strategy-lab` — enhanced backtest analysis prompt with structured verdict
 
-### ESSENTIAL — Directly impacts EA quality and backtest robustness
+**Minor issues to fix:**
 
-| Feature | Why | Status |
-|---------|-----|--------|
-| **Multi-platform code gen (MT5 only)** | You trade MT5. MT4/Pine/Python are distractions. Skip them entirely. | Already MT5-only ✅ |
-| **Enhanced metric parsing** | Current parser extracts 7 metrics via regex. Need all 14 (Expectancy, Avg Win/Loss, Best/Worst Trade, Avg Duration, Recovery Factor) to properly evaluate an EA. | Needs work |
-| **Equity curve chart** | Visual inspection of the equity curve catches problems no single metric reveals — drawdown clustering, regime sensitivity, time decay. Industry standard for any backtest review. | Needs building |
-| **Trade distribution charts** | Win/Loss by hour-of-day is critical for YOUR setup — you need to verify the EA only trades in your pre-London window and that edge concentrates there. Day-of-week distribution catches calendar effects. | Needs building |
-| **Monte Carlo simulation** | The single most important robustness check. A backtest is one path through history. Monte Carlo reshuffles trade order to show whether your results survive different sequencing. Probability of ruin and expected drawdown range tell you if the EA is deployable. | Needs building |
-| **CSV trade log import** | MT5 Strategy Tester also exports CSV/detailed trade lists. Parsing these gives you per-trade data (entry time, exit time, P&L) needed for the equity curve and distribution charts — the HTML report alone only gives summary metrics. | Needs building |
-| **Enhanced AI analysis prompt** | Current prompt is generic. Should explicitly output: strengths, weaknesses, session concentration analysis, drawdown clustering detection, curve-fitting verdict, and specific parameter change suggestions. | Needs improvement |
+1. **Unused `useMemo` import in `MonteCarloPanel.tsx`** — Line 1 imports `useMemo` but it's never used. Should be removed.
 
-### NOT NEEDED — Adds complexity without improving EA quality
+2. **`CSVImportRow` type in `src/types/trading.ts`** is unrelated to the backtest lab `CSVImport` — it's used by the Journal import page. Not a problem, just confirming no confusion.
 
-| Feature | Why Skip |
-|---------|----------|
-| **MT4/Pine Script/Python platform selector** | You use MT5. Adding 3 more platforms bloats the prompt and code surface area. Can always add later. |
-| **Walk-forward analysis** | Requires multiple CSV uploads with carefully defined in-sample/out-of-sample windows. This is a Phase 2 feature after you have a working Monte Carlo pipeline. It's also largely manual work in MT5 (running multiple passes). |
-| **Playbook Builder restructuring (6 new form sections)** | Your playbook rules are free-text lists right now. The AI reads them as context and generates code from them. Adding 25 dropdown/multi-select fields (HTF bias, entry triggers, SL method, etc.) creates a rigid schema that doesn't match how discretionary-mechanical strategies actually work. Your description — "continuation before London when trending ITF or reacting from 4H FVG" — is better captured as a free-text rule the AI interprets than as 6 separate dropdown values. |
-| **"Regenerate with Notes" UI** | The chat already supports follow-up messages. Typing "fix the session filter to use 02:00-06:00 EST" in the chat does exactly what a "regenerate with notes" button would do. |
-| **Dark/light mode toggle** | Already dark theme. Cosmetic. |
-| **localStorage persistence + JSON export** | Everything already persists in the database. |
+3. **`loadVersions` missing from `useEffect` deps** — In `BacktestDashboard.tsx` line 143-144, `loadVersions` is called in the effect but not in the dependency array. React will warn about this. Should either add it or wrap `loadVersions` in `useCallback`.
 
-## The Plan: Backtest Lab Enhancement Only
+4. **`extractAndSaveCode` dependency on `versions`** — Line 126 includes `versions` in the dependency array, which means the callback recreates on every version list change. This is functionally fine but could cause unnecessary re-renders.
 
-Focus on making the **Analyze phase** a proper backtest laboratory. The Build phase and EA generation are already solid.
+### 2. Code Cleanup — CLEAN
 
-### What gets built
+No unused components, old implementations, or deprecated code found related to the backtest lab changes. The new components are self-contained and don't duplicate existing functionality.
 
-**1. Enhanced metric parsing** (`ReportUpload.tsx`)
-Expand the HTML parser to extract all 14 standard metrics from MT5 Strategy Tester reports. Add fallback patterns for different MT5 report formats.
+### 3. Database Integrity — PASS
 
-**2. CSV trade log parser** (new: `backtest/CSVImport.tsx`)
-File upload that parses MT5 detailed trade export (Date, Type, Lots, Price, SL, TP, Profit, Balance). Computes all 14 metrics from raw trades. Produces structured trade array for charts.
+No database changes were made (as planned). All backtest data flows through existing tables (`generated_strategies`, `backtest_results`, `strategy_conversations`) or lives in component state (trade records for charts). RLS policies are correctly in place on all relevant tables.
 
-**3. Metrics grid** (new: `backtest/BacktestMetricsGrid.tsx`)
-14-card grid replacing the current 7-card strip. Color-coded thresholds (green/amber/red) based on industry standards: Profit Factor >1.5 green / >1.0 amber / <1.0 red, Max DD <15% green / <25% amber / >25% red, etc.
+### 4. Error & Performance Review
 
-**4. Equity curve chart** (new: `backtest/EquityCurveChart.tsx`)
-Recharts line chart showing balance/equity over time. Toggle overlays: drawdown periods (red shading), individual trade markers. Zoomable via brush component.
+- **Monte Carlo performance** — The simulation stores all 1000 paths in memory (`allPaths` array). For 500 trades × 1000 paths = 500K numbers, this is fine (~4MB). For 2000+ trades it could use more memory. The `setTimeout` wrapper prevents UI blocking. Acceptable for now.
+- **Chart rendering** — The equity curve samples every Nth point (`step = max(1, floor(numTrades/100))`) to cap chart data at ~100 points. Good optimization.
+- **No console warnings** from the new code based on review.
 
-**5. Trade distribution charts** (new: `backtest/TradeDistributionCharts.tsx`)
-Three charts: Win/Loss by hour of day (bar), P&L distribution histogram, consecutive wins/losses streaks. All Recharts. Critical for validating session-filtered strategies like yours.
+### 5. Edge Function Health — PASS
 
-**6. Monte Carlo simulation** (new: `backtest/MonteCarloPanel.tsx`)
-Client-side: shuffle trade P&L array 1000 times, compute equity paths per shuffle, extract P10/P50/P90 percentile bands. Display: fan chart (Recharts area), probability of ruin (DD >20%), expected max drawdown range, median final equity. Runs in ~200ms for 500 trades.
+The `strategy-lab` edge function has been properly updated with:
+- Enhanced `buildBacktestPrompt` with structured output format (DEPLOY/ITERATE/ABANDON verdict)
+- Session concentration analysis, drawdown clustering, curve-fitting assessment sections
+- Specific metric thresholds documented in the prompt
+- CORS headers present, error handling for 429/402 status codes
 
-**7. Tabbed analyze phase** (`BacktestDashboard.tsx`)
-Replace current flat layout with tabs: **Overview** (metrics grid) | **Equity Curve** | **Distribution** | **Monte Carlo** | **AI Analysis** (existing chat). CSV import alongside existing HTML upload.
+### 6. Regression Risk — LOW
 
-**8. Enhanced backtest analysis prompt** (`strategy-lab/index.ts`)
-Update `buildBacktestPrompt` to request structured output: strengths, weaknesses, session concentration analysis, drawdown clustering, curve-fitting assessment, specific parameter recommendations, and a deploy/iterate/abandon verdict.
+The changes are additive:
+- New components added under `src/components/strategy-lab/backtest/`
+- `BacktestDashboard.tsx` was modified but the 3-phase pipeline structure is preserved
+- `ReportUpload.tsx` regex patterns were expanded (additive, no removal)
+- Edge function prompt was enhanced (additive)
+- No existing routes, hooks, or pages were modified
 
-### Files changed
+### 7. What to Fix
 
-| File | Change |
-|------|--------|
-| `src/components/strategy-lab/backtest/BacktestMetricsGrid.tsx` | **NEW** |
-| `src/components/strategy-lab/backtest/CSVImport.tsx` | **NEW** |
-| `src/components/strategy-lab/backtest/EquityCurveChart.tsx` | **NEW** |
-| `src/components/strategy-lab/backtest/TradeDistributionCharts.tsx` | **NEW** |
-| `src/components/strategy-lab/backtest/MonteCarloPanel.tsx` | **NEW** |
-| `src/components/strategy-lab/BacktestDashboard.tsx` | Tabbed analyze phase, CSV import option |
-| `src/components/strategy-lab/ReportUpload.tsx` | Enhanced 14-metric parsing |
-| `supabase/functions/strategy-lab/index.ts` | Enhanced backtest analysis prompt |
+| Issue | File | Fix |
+|-------|------|-----|
+| Unused `useMemo` import | `MonteCarloPanel.tsx:1` | Remove `useMemo` from import |
+| Missing `loadVersions` in useEffect deps | `BacktestDashboard.tsx:143` | Wrap `loadVersions` in `useCallback` and add to deps, or add `// eslint-disable-next-line` |
+| `extractAndSaveCode` unstable deps | `BacktestDashboard.tsx:126` | Move `versions` lookup inside the callback to avoid dep on the array |
 
-No database migrations. No new dependencies (Recharts already installed). No playbook schema changes.
+These are minor linting/optimization fixes — no functional bugs.
+
+### Verdict
+
+The implementation is production-ready. The three fixes above are housekeeping. All 8 planned features (enhanced metrics, CSV import, equity curve, distribution charts, Monte Carlo, tabbed analyze phase, enhanced report parsing, enhanced AI analysis prompt) are implemented and properly integrated.
 
