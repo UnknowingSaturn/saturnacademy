@@ -345,24 +345,26 @@ async function executeToolCall(
 
 // Mode-specific system prompt builders
 function buildCodeGenPrompt(playbookContext: string) {
-  return `${AMT_KNOWLEDGE}
-
-${playbookContext}
+  return `${playbookContext}
 
 ## Your Role: MQL5 Strategy Tester EA Generator
 
 You are an expert MQL5 developer specializing in Expert Advisors designed for the **MT5 Strategy Tester**. Your SOLE focus is producing production-quality, compilable MQL5 code optimized for backtesting.
 
+### Output Format Rules
+- Be concise. Output the complete MQL5 code in a single \`\`\`mql5 code block.
+- Before the code: 2-3 sentences explaining your approach and key design decisions.
+- After the code: a brief "What to test" summary (parameters to optimize, expected behavior).
+- Do NOT explain every function line by line. The code should be self-documenting via comments.
+
 ### Strategy Tester Requirements
 - Include \`#property tester_indicator\` pragmas where applicable
 - Implement \`OnTester()\` returning a custom metric (e.g. profit factor * recovery factor) for optimization
 - All tunable parameters MUST be \`input\` variables with sensible defaults and step values via comments
-- Add \`#property tester_everytick_calculate\` for precise backtesting when needed
 - Support both "Every tick" and "Open prices only" modes — document which is required
 
 ### Code Standards
 - Always produce COMPLETE, compilable MQL5 code — never partial snippets
-- Wrap all EA code in a single \`\`\`mql5 code block
 - Structure: input parameters → global variables → OnInit() → OnDeinit() → OnTick() → OnTester() → helper functions
 - Use descriptive variable names and comprehensive comments
 - Include proper error handling with GetLastError()
@@ -389,16 +391,18 @@ Every EA must expose these as \`input\` parameters:
 
 ### When the user asks to modify code
 - Show the complete updated code, not just the changed parts
-- Explain what changed and why
+- Explain what changed and why in 2-3 sentences
 - If the change affects risk management, highlight the implications
 
 ### Alpha Builder Mode
-When the user says "build my alpha" or describes playbook rules:
-1. Ask clarifying questions about each rule — what exactly defines each condition?
-2. Convert each rule into specific MQL5 logic
-3. For rules that require indicators (like volume profile, moving averages), implement them properly
-4. For rules that cannot be coded (subjective assessment), add an \`input bool\` toggle that defaults to true
-5. Generate the complete EA with all rules implemented
+When the user's first message is about building/generating an EA from playbook rules:
+1. List each playbook rule and ask which are mechanically codeable vs. discretionary
+2. Ask clarifying questions about ambiguous rule mechanics (e.g., "How do you define 'value area rejection' — is it a wick test, a close beyond, or a specific candle pattern?")
+3. Only generate code after the user confirms the rule mapping
+
+For subsequent messages in the same conversation (refinement, parameter changes, bug fixes):
+- Generate the complete updated EA immediately without re-asking questions
+- Show what changed and why
 
 Do NOT use tool calling. Focus entirely on code generation and iteration.`;
 }
@@ -728,14 +732,41 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
       });
     }
 
+    // Per-mode model selection for optimal latency vs quality
+    let modelId: string;
+    let reasoningEffort: string;
+    switch (mode) {
+      case "code_generation":
+        modelId = "google/gemini-2.5-flash";
+        reasoningEffort = "medium";
+        break;
+      case "backtest_analysis":
+        modelId = "google/gemini-2.5-flash";
+        reasoningEffort = "medium";
+        break;
+      case "performance_analysis":
+        modelId = "google/gemini-2.5-flash";
+        reasoningEffort = "medium";
+        break;
+      case "gap_analysis":
+        modelId = "google/gemini-2.5-pro";
+        reasoningEffort = "medium";
+        break;
+      case "chat":
+      default:
+        modelId = "google/gemini-2.5-pro";
+        reasoningEffort = "medium";
+        break;
+    }
+
     const aiPayload: Record<string, unknown> = {
-      model: "google/gemini-2.5-pro",
+      model: modelId,
       messages: [
         { role: "system", content: systemPrompt },
         ...messages,
       ],
       stream: true,
-      reasoning: { effort: "high" },
+      reasoning: { effort: reasoningEffort },
     };
 
     if (useTools) {
@@ -856,9 +887,10 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-pro",
+          model: modelId,
           messages: followUpMessages,
           stream: true,
+          reasoning: { effort: reasoningEffort },
         }),
       });
 
