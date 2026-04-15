@@ -1,36 +1,39 @@
 
 
-# Backtester Tab Test Results
-
-## What Was Tested
-
-1. **Navigation**: Strategy Lab page loads correctly with all 4 tabs (Chat, Backtester, Performance, Gap Analysis)
-2. **Playbook Selection**: Dropdown lists all 5 playbooks, selecting "LON Continuation" works
-3. **Phase 1 (Build EA)**: Three-panel layout renders (EA Versions | Chat | Code Editor). Quick actions appear contextually for a selected playbook. "Generate EA" sends the correct message to the `strategy-lab` edge function
-4. **Streaming**: The AI streamed a response, extracted the MQL5 code, and auto-advanced to Phase 2
-5. **Phase 2 (Run in MT5)**: Instructions display correctly with Download button, "Back to Builder" button, and HTML report upload button
-6. **Phase 3 (Analyze Results)**: Not tested (requires uploading a real MT5 HTML report)
+# Codebase Review & Cleanup Plan
 
 ## Issues Found
 
-**Minor: Download filename shows "Download _.mq5"** — the filename extraction regex didn't capture the EA name from the response, falling back to an underscore. The `extractAndSaveCode` function's name regex may not match the AI's output format.
+### 1. Dead Code: Orphaned Components (2 files)
+- **`src/components/strategy-lab/SimulatorPanel.tsx`** — The old metadata-only simulator. No longer imported anywhere. Contains a reference to the `simulate-alpha` edge function. Delete.
+- **`src/components/strategy-lab/CodeLab.tsx`** — The old standalone code lab. Functionality merged into `BacktestDashboard.tsx`. No longer imported. Delete.
 
-**No blocking issues** — the core 3-phase flow works correctly.
+### 2. Redundant Edge Function
+- **`supabase/functions/simulate-alpha/index.ts`** — Only called by the now-dead `SimulatorPanel`. The backtester flow uses `strategy-lab` exclusively. Delete the function and remove its entry from `supabase/config.toml`.
 
-## Recommended Fix
+### 3. Duplicated SSE Streaming Logic in StrategyLab.tsx
+- `src/pages/StrategyLab.tsx` lines 149-283 contain ~130 lines of manual SSE streaming code that is identical to `useStrategyLabChat.ts`. The hook was created specifically to deduplicate this. Refactor the Chat tab to use `useStrategyLabChat` instead, removing the duplicate `handleSend`, `handleAbort`, `abortControllerRef`, `isStreaming` state, and the inline SSE reader. The conversation persistence (save/load) stays but wraps the hook's callbacks.
 
-In `BacktestDashboard.tsx` line ~119, the fallback filename logic uses `playbookName || "Generated EA"` but the regex `nameMatch` often fails. A simple fix: default the filename to the playbook name directly when no match is found, producing `LON_Continuation.mq5` instead of `_.mq5`.
+### 4. Minor: `backtestMetrics` state in StrategyLab.tsx
+- `backtestMetrics` state (line 39) was used by the old simulator flow. The Chat tab still passes `setBacktestMetrics` as `onBacktestMetrics` to `StrategyChat`, but it is never consumed after the simulator was removed. Clean up: remove `backtestMetrics` state and the `onBacktestMetrics` prop from the Chat tab's `StrategyChat` usage (the Backtester tab handles its own metrics independently).
 
-### Change
-In `src/components/strategy-lab/BacktestDashboard.tsx`, update the name extraction fallback:
+### 5. No Database or RLS Issues
+- All tables and RLS policies are correctly aligned. No orphaned tables from the changes. `simulation_runs`, `generated_strategies`, `backtest_results` are all still valid and used.
 
-```typescript
-const name = nameMatch
-  ? nameMatch[1].trim().slice(0, 50)
-  : playbookName || "Generated EA";
-const safeName = name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/^_+|_+$/g, "");
-setCurrentFilename(`${safeName || "Strategy"}.mq5`);
-```
+### 6. No Console Errors
+- Console logs show only a benign `RESET_BLANK_CHECK` warning (Lovable internal). No application errors.
 
-The regex `replace(/[^a-zA-Z0-9]/g, "_")` strips spaces to underscores, but the original code also strips periods, hyphens, etc. — that's fine. The actual bug is the regex `[^a-zA-Z0-9]` produces leading/trailing underscores or empty strings if the name is unusual. Adding a guard for empty results fixes it.
+---
+
+## Changes
+
+| File | Action |
+|------|--------|
+| `src/components/strategy-lab/SimulatorPanel.tsx` | **DELETE** |
+| `src/components/strategy-lab/CodeLab.tsx` | **DELETE** |
+| `supabase/functions/simulate-alpha/index.ts` | **DELETE** |
+| `supabase/config.toml` | Remove `[functions.simulate-alpha]` block |
+| `src/pages/StrategyLab.tsx` | Refactor Chat tab to use `useStrategyLabChat` hook; remove ~130 lines of duplicate SSE code; remove unused `backtestMetrics` state |
+
+No database migrations needed. No breaking changes to any active feature.
 
