@@ -7,7 +7,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { StrategyChat, type ChatMessage } from "@/components/strategy-lab/StrategyChat";
 import { ConversationList, type Conversation } from "@/components/strategy-lab/ConversationList";
-import { CodeLab } from "@/components/strategy-lab/CodeLab";
 import { BacktestDashboard } from "@/components/strategy-lab/BacktestDashboard";
 import { PerformancePanel } from "@/components/strategy-lab/PerformancePanel";
 import { GapAnalysis } from "@/components/strategy-lab/GapAnalysis";
@@ -18,9 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Sparkles, PanelLeftClose, PanelLeft, MessageSquare, Code, BarChart3, TrendingUp, Shield, Zap } from "lucide-react";
-import { BacktestPanel } from "@/components/strategy-lab/BacktestPanel";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sparkles, PanelLeftClose, PanelLeft, MessageSquare, FlaskConical, TrendingUp, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -370,12 +368,8 @@ export default function StrategyLab() {
                 <MessageSquare className="h-3.5 w-3.5" />
                 Chat
               </TabsTrigger>
-              <TabsTrigger value="code" className="gap-1.5 text-xs">
-                <Code className="h-3.5 w-3.5" />
-                Code Lab
-              </TabsTrigger>
-              <TabsTrigger value="backtest" className="gap-1.5 text-xs">
-                <BarChart3 className="h-3.5 w-3.5" />
+              <TabsTrigger value="backtester" className="gap-1.5 text-xs">
+                <FlaskConical className="h-3.5 w-3.5" />
                 Backtester
               </TabsTrigger>
               <TabsTrigger value="performance" className="gap-1.5 text-xs">
@@ -385,10 +379,6 @@ export default function StrategyLab() {
               <TabsTrigger value="gaps" className="gap-1.5 text-xs">
                 <Shield className="h-3.5 w-3.5" />
                 Gap Analysis
-              </TabsTrigger>
-              <TabsTrigger value="backtest-alpha" className="gap-1.5 text-xs">
-                <Zap className="h-3.5 w-3.5" />
-                Backtest Alpha
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -409,14 +399,7 @@ export default function StrategyLab() {
             />
           )}
 
-          {activeTab === "code" && (
-            <CodeLab
-              selectedPlaybookId={selectedPlaybookId}
-              playbookName={selectedPlaybook?.name}
-            />
-          )}
-
-          {activeTab === "backtest" && (
+          {activeTab === "backtester" && (
             <BacktestDashboard
               selectedPlaybookId={selectedPlaybookId}
               playbookName={selectedPlaybook?.name}
@@ -432,13 +415,6 @@ export default function StrategyLab() {
 
           {activeTab === "gaps" && (
             <GapAnalysis
-              selectedPlaybookId={selectedPlaybookId}
-              playbookName={selectedPlaybook?.name}
-            />
-          )}
-
-          {activeTab === "backtest-alpha" && (
-            <BacktestPanel
               selectedPlaybookId={selectedPlaybookId}
               playbookName={selectedPlaybook?.name}
             />
