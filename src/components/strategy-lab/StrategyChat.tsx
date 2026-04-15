@@ -81,7 +81,7 @@ function MessageContent({ content }: { content: string }) {
   );
 }
 
-export function StrategyChat({ messages, isStreaming, onSend, onAbort, onBacktestMetrics, playbookName, hasPlaybook, hasTradeData }: StrategyChatProps) {
+export function StrategyChat({ messages, isStreaming, onSend, onAbort, playbookName, hasPlaybook, hasTradeData }: StrategyChatProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
