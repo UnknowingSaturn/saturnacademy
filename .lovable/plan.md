@@ -1,74 +1,94 @@
 
 
-# Comprehensive Codebase Audit: Strategy Lab & Related Features
+# Backtester: Interactive Alpha Builder via Chat
 
-## Findings Summary
+## The Problem
 
-### 1. Critical Issues
+The current Simulator tab fires a single API call that asks AI to guess take/skip decisions — no user interaction, no iterative refinement, no real backtesting. You want a **conversational alpha builder** where the AI chats with you to understand your playbook rules deeply, converts them into a deterministic alpha, then runs it against your trade history as a proper backtest.
 
-**Missing Edge Function Config**
-- `simulate-alpha` is NOT listed in `supabase/config.toml`. It needs `verify_jwt = false` to match the other functions. Without this, the function may reject requests from the frontend since it handles JWT validation in code.
+## The Solution: Two-Phase Backtester Tab
 
-**Hardcoded `hasTradeData = false` in StrategyLab.tsx (line 288)**
-- The chat tab always shows "no trade data" quick actions because `hasTradeData` is hardcoded to `false`. It should query the trades table to determine if the user has trade data for the selected playbook. This means contextual quick actions never switch to the "has trade data" variant.
+Replace the current "Simulator" tab with a "Backtest" tab that has two phases:
 
-### 2. Unused Imports (Code Cleanup)
+```text
+Phase 1: Alpha Builder (Chat)          Phase 2: Backtest Results
+┌──────────────────────────────┐       ┌──────────────────────────────┐
+│ AI: "Your playbook has 3     │       │ ┌─────────────────────────┐  │
+│ confirmation rules. Let's    │       │ │ Equity Curve Chart      │  │
+│ convert each one. Rule 1:    │       │ │ (alpha vs actual)       │  │
+│ 'Price reclaims VAL' — what  │       │ └─────────────────────────┘  │
+│ defines reclaim? A close     │       │ Win: 62% | PF: 1.8 | DD: 3%│
+│ above? A wick?"              │       │ Sharpe: 1.2 | Trades: 47    │
+│                              │       │                              │
+│ You: "Close above on M5"    │       │ Trade Log:                   │
+│                              │       │ ✅ EURUSD Buy +2.1R          │
+│ AI: "Got it. Rule 2:         │       │ ❌ NAS100 Sell -1R (skipped) │
+│ 'Volume above average' —     │       │ ✅ GBPUSD Buy +0.8R          │
+│ what multiplier?"            │       │                              │
+│                              │       │ [Refine Alpha] [Export]      │
+│ [Build Alpha & Run Backtest] │       │                              │
+└──────────────────────────────┘       └──────────────────────────────┘
+```
 
-| File | Unused Imports |
-|------|---------------|
-| `src/components/strategy-lab/PerformancePanel.tsx` | `TrendingUp, TrendingDown, Target, BarChart3, Clock, Layers` from lucide-react (none used in JSX) |
-| `src/components/strategy-lab/BacktestDashboard.tsx` | `ResizablePanelGroup, ResizablePanel, ResizableHandle` from resizable (never used); `Button` is also unused |
-| `src/components/strategy-lab/GapAnalysis.tsx` | `useEffect` is used, but `useCallback, useRef` are used. All look used. `usePlaybooks` imported but the `playbooks` var is used. No issues here. |
-| `src/components/strategy-lab/CodeEditor.tsx` | `onCodeChange` prop defined but never wired — dead prop |
+### How It Works
 
-### 3. Database & Security
+1. **User selects playbook** and clicks "Build Alpha"
+2. **AI reads the playbook rules** and asks clarifying questions one by one — "What exactly counts as reclaiming VAL?", "What's your volume threshold?", "How do you define the entry zone?"
+3. **User answers** in natural language
+4. **AI generates a structured alpha definition** (JSON with deterministic filter rules) and shows it for confirmation
+5. **User confirms** → AI runs the alpha against their trade history
+6. **Results display** with equity curve, metrics, trade-by-trade log
+7. **User can refine** — "skip trades where R:R is below 2" → re-runs
 
-- **Supabase linter**: No issues found. All tables have RLS enabled with appropriate policies.
-- **All new tables** (`generated_strategies`, `backtest_results`, `simulation_runs`) have correct user-scoped RLS policies for all CRUD operations.
-- **No orphaned tables** — all tables are actively referenced by the frontend or edge functions.
+### Alpha Definition Format
 
-### 4. Edge Function Issues
+The AI produces a structured JSON alpha (not executable code, but a rule set the edge function can evaluate deterministically):
 
-- **`simulate-alpha`**: Missing from `config.toml` (needs `verify_jwt = false` entry).
-- **All other edge functions**: Properly configured in `config.toml`.
-- **CORS headers**: Both `strategy-lab` and `simulate-alpha` have correct CORS headers matching the SDK requirements.
-- **Auth validation**: Both functions validate JWT in code via `supabase.auth.getUser()`.
+```json
+{
+  "filters": {
+    "symbols": ["NAS100", "EURUSD"],
+    "sessions": ["london", "new_york_am"],
+    "min_rr": 2.0,
+    "require_sl": true,
+    "max_trades_per_day": 3
+  },
+  "entry_rules": [
+    { "rule": "direction_matches_session_bias", "weight": 1.0 },
+    { "rule": "sl_distance_within_atr", "params": { "max_atr_multiple": 1.5 } }
+  ],
+  "exit_rules": [
+    { "rule": "tp_at_least_2r" }
+  ]
+}
+```
 
-### 5. Functional Issues
+Rules we CAN evaluate deterministically from trade data: symbol, session, R:R ratio, SL presence, daily trade count, direction, time-of-day. Rules we can't verify (chart-based like "reclaims VAL") get marked as **assumed_met** with a note.
 
-- **Stream re-emission in strategy-lab**: When there are no tool calls, the edge function reads the ENTIRE stream into memory, then re-emits it in 20-char chunks (lines 878-891). This adds latency and breaks the streaming UX. The original stream should be piped through directly.
-- **Code Lab version naming**: `extractCode` regex only matches ` ```mql5 ` blocks. If the AI uses ` ```MQL5 ` or ` ```cpp `, code won't be extracted. Should be case-insensitive.
-- **GapAnalysis.tsx**: The `useEffect` that computes gaps runs on the `playbook` object reference from react-query. Since react-query returns new references on every fetch, this will recompute on every render cycle where playbooks are refetched. Minor performance issue.
+## Changes
 
-### 6. UX/Consistency Issues
+### Edge Function: `simulate-alpha`
+- Accept a new `mode` parameter: `"build_alpha"` (streaming chat) or `"run_backtest"` (compute + return JSON)
+- `build_alpha` mode: Streams a conversation where AI asks about each rule, builds the alpha definition iteratively
+- `run_backtest` mode: Takes the finalized alpha JSON, runs deterministic filters against trade history, computes metrics
+- Deterministic evaluation (no AI guessing take/skip) — filters are applied programmatically
 
-- **No loading state in CodeLab** when loading versions from DB.
-- **PerformancePanel** imports 6 Lucide icons but uses none of them in the JSX — the stats cards use inline JSX without icon components.
+### Frontend: Replace `SimulatorPanel` → `BacktestPanel`
+- **Phase 1 UI**: Chat interface where AI asks about rules, shows the alpha definition being built, "Run Backtest" button when alpha is ready
+- **Phase 2 UI**: Results dashboard (reuse existing metrics cards, equity chart, trade log from current SimulatorPanel)
+- **Refinement loop**: After results, user can type changes → AI updates alpha → re-runs
 
-## Plan: Fixes to Apply
+### StrategyLab.tsx
+- Rename "Simulator" tab to "Backtest"
+- Swap `SimulatorPanel` for `BacktestPanel`
 
-### Step 1: Add `simulate-alpha` to config.toml
-Add the missing entry to `supabase/config.toml`.
+## Files to Modify
 
-### Step 2: Fix `hasTradeData` in StrategyLab.tsx
-Query the trades table to check if the user has closed trades for the selected playbook. Use a simple count query and set `hasTradeData` accordingly.
+| File | Action |
+|------|--------|
+| `supabase/functions/simulate-alpha/index.ts` | Rewrite: add `build_alpha` streaming mode + deterministic `run_backtest` mode |
+| `src/components/strategy-lab/SimulatorPanel.tsx` | Replace with `BacktestPanel.tsx` — chat-based alpha builder + results dashboard |
+| `src/pages/StrategyLab.tsx` | Rename tab, swap component |
 
-### Step 3: Remove unused imports
-- `PerformancePanel.tsx`: Remove `TrendingUp, TrendingDown, Target, BarChart3, Clock, Layers`
-- `BacktestDashboard.tsx`: Remove `ResizablePanelGroup, ResizablePanel, ResizableHandle`, remove `Button`
-- `CodeEditor.tsx`: Remove unused `onCodeChange` prop from interface (or keep for future use)
-
-### Step 4: Fix stream passthrough in strategy-lab edge function
-When there are no tool calls, instead of reading the entire response into memory and re-chunking, pipe the AI response body directly through to the client. This preserves real-time streaming.
-
-### Step 5: Make code extraction case-insensitive in CodeLab
-Change the regex from `/```mql5\n/` to `/```(?:mql5|MQL5|cpp)\n/i` to catch common variants.
-
-### Files to modify:
-- `supabase/config.toml` — add simulate-alpha entry
-- `src/pages/StrategyLab.tsx` — fix hasTradeData
-- `src/components/strategy-lab/PerformancePanel.tsx` — remove unused imports
-- `src/components/strategy-lab/BacktestDashboard.tsx` — remove unused imports
-- `src/components/strategy-lab/CodeLab.tsx` — case-insensitive code extraction
-- `supabase/functions/strategy-lab/index.ts` — fix stream passthrough for non-tool-call responses
+No database changes — uses existing `simulation_runs` table.
 
