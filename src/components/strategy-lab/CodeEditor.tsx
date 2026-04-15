@@ -6,11 +6,9 @@ import { Button } from "@/components/ui/button";
 interface CodeEditorProps {
   code: string;
   filename?: string;
-  onCodeChange?: (code: string) => void;
-  readOnly?: boolean;
 }
 
-export function CodeEditor({ code, filename = "Strategy.mq5", onCodeChange, readOnly = true }: CodeEditorProps) {
+export function CodeEditor({ code, filename = "Strategy.mq5" }: CodeEditorProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {

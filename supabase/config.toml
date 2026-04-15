@@ -36,3 +36,6 @@ verify_jwt = false
 
 [functions.copier-setup-token]
 verify_jwt = false
+
+[functions.simulate-alpha]
+verify_jwt = false
