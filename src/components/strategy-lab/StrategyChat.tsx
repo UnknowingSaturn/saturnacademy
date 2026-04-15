@@ -24,7 +24,6 @@ interface StrategyChatProps {
   isStreaming: boolean;
   onSend: (message: string) => void;
   onAbort?: () => void;
-  onBacktestMetrics?: (metrics: string) => void;
   playbookName?: string;
   hasPlaybook: boolean;
   hasTradeData: boolean;
