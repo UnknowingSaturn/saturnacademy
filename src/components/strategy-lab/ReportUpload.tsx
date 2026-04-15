@@ -26,7 +26,6 @@ function parseHtmlReport(html: string): string {
     if (rows.length === 0) return;
 
     if (idx < 3) {
-      // First few tables usually contain summary metrics
       rows.forEach((row) => {
         const cells = row.querySelectorAll("td, th");
         const cellTexts = Array.from(cells).map((c) => c.textContent?.trim() || "");
@@ -40,7 +39,7 @@ function parseHtmlReport(html: string): string {
     }
   });
 
-  // Look for specific metric patterns in raw text if tables didn't capture much
+  // Enhanced regex patterns for all 14 metrics
   const bodyText = doc.body?.textContent || "";
   const patterns = [
     /Total Net Profit\s*[:\s]+([^\n]+)/i,
@@ -49,16 +48,26 @@ function parseHtmlReport(html: string): string {
     /Profit Factor\s*[:\s]+([^\n]+)/i,
     /Expected Payoff\s*[:\s]+([^\n]+)/i,
     /Maximal Drawdown\s*[:\s]+([^\n]+)/i,
+    /Maximum Drawdown\s*[:\s]+([^\n]+)/i,
     /Relative Drawdown\s*[:\s]+([^\n]+)/i,
     /Total Trades\s*[:\s]+([^\n]+)/i,
     /Short Positions.*?won\s*[:\s]+([^\n]+)/i,
     /Long Positions.*?won\s*[:\s]+([^\n]+)/i,
+    /Profit Trades.*?% of total\s*[:\s]+([^\n]+)/i,
+    /Loss Trades.*?% of total\s*[:\s]+([^\n]+)/i,
     /Largest profit trade\s*[:\s]+([^\n]+)/i,
     /Largest loss trade\s*[:\s]+([^\n]+)/i,
     /Average profit trade\s*[:\s]+([^\n]+)/i,
     /Average loss trade\s*[:\s]+([^\n]+)/i,
+    /Average consecutive wins\s*[:\s]+([^\n]+)/i,
+    /Average consecutive losses\s*[:\s]+([^\n]+)/i,
+    /Maximum consecutive wins\s*[:\s]+([^\n]+)/i,
+    /Maximum consecutive losses\s*[:\s]+([^\n]+)/i,
     /Sharpe Ratio\s*[:\s]+([^\n]+)/i,
     /Recovery Factor\s*[:\s]+([^\n]+)/i,
+    /Balance Drawdown Maximal\s*[:\s]+([^\n]+)/i,
+    /Equity Drawdown Maximal\s*[:\s]+([^\n]+)/i,
+    /Win Rate\s*[:\s]+([^\n]+)/i,
   ];
 
   const extracted: string[] = [];
@@ -67,8 +76,16 @@ function parseHtmlReport(html: string): string {
     if (m) extracted.push(`- ${m[0].trim()}`);
   }
 
-  if (extracted.length > 0 && lines.length < 5) {
-    lines.push("## Extracted Metrics");
+  // Compute win rate from profit/loss trade counts if not directly available
+  const profitTradesMatch = bodyText.match(/Profit Trades.*?(\d+)\s*\((\d+\.?\d*)%/i);
+  if (profitTradesMatch) {
+    extracted.push(`- Win Rate: ${profitTradesMatch[2]}%`);
+  }
+
+  if (extracted.length > 0) {
+    if (lines.length < 5) {
+      lines.push("## Extracted Metrics");
+    }
     lines.push(...extracted);
   }
 
@@ -97,7 +114,6 @@ export function ReportUpload({ onMetricsParsed, disabled }: ReportUploadProps) {
       toast({ title: "Parse error", description: "Could not parse the report file.", variant: "destructive" });
     }
 
-    // Reset input
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -111,14 +127,15 @@ export function ReportUpload({ onMetricsParsed, disabled }: ReportUploadProps) {
         onChange={handleFile}
       />
       <Button
-        variant="ghost"
-        size="icon"
-        className="h-[44px] w-[44px] shrink-0"
+        variant="outline"
+        size="sm"
+        className="text-xs"
         onClick={() => inputRef.current?.click()}
         disabled={disabled}
         title="Upload MT5 backtest report"
       >
-        <FileUp className="h-4 w-4" />
+        <FileUp className="h-3.5 w-3.5 mr-1.5" />
+        Upload HTML
       </Button>
     </>
   );
