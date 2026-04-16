@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import * as React from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -25,7 +26,8 @@ function toLocalInputValue(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function CloseLiveTradeDialog({ open, onOpenChange, trade }: CloseLiveTradeDialogProps) {
+export const CloseLiveTradeDialog = React.forwardRef<unknown, CloseLiveTradeDialogProps>(
+  function CloseLiveTradeDialog({ open, onOpenChange, trade }, _ref) {
   const updateTrade = useUpdateTrade();
   const [exitPrice, setExitPrice] = useState("");
   const [exitTime, setExitTime] = useState(() => toLocalInputValue(new Date()));
@@ -39,17 +41,14 @@ export function CloseLiveTradeDialog({ open, onOpenChange, trade }: CloseLiveTra
     }
   }, [open]);
 
-  // Auto-compute approximate P&L from exit price (simplified, user can override)
-  useEffect(() => {
-    if (!exitPrice) return;
+  // Show raw price delta as a reference (no fake $ figure — broker P&L varies by symbol)
+  const priceDelta = useMemo(() => {
     const exit = parseFloat(exitPrice);
     const entry = trade.entry_price;
-    if (!exit || !entry) return;
+    if (!exit || !entry) return null;
     const diff = trade.direction === "buy" ? exit - entry : entry - exit;
-    // Generic estimate: diff * lots * 10 (user overrides for non-FX)
-    const estimate = diff * trade.total_lots * 10;
-    setNetPnl(estimate.toFixed(2));
-  }, [exitPrice, trade.entry_price, trade.direction, trade.total_lots]);
+    return diff;
+  }, [exitPrice, trade.entry_price, trade.direction]);
 
   const isValid = !!exitPrice && !!exitTime && netPnl !== "";
 
