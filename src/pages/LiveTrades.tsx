@@ -12,12 +12,14 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TradeSummaryBar } from "@/components/live/TradeSummaryBar";
 import { LiveTradeCard } from "@/components/live/LiveTradeCard";
+import { StartLiveTradeDialog } from "@/components/live/StartLiveTradeDialog";
 import { 
   Activity, 
   Radio,
   Loader2,
   Zap,
   RefreshCw,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
