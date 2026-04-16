@@ -8,11 +8,13 @@ import {
   AlertCircle, 
   Clock,
   Timer,
-  X
+  X,
+  XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatBrokerDateTimeET } from "@/lib/time";
 import { TradeProgressBar } from "./TradeProgressBar";
+import { CloseLiveTradeDialog } from "./CloseLiveTradeDialog";
 import { useUpdateTrade } from "@/hooks/useTrades";
 import {
   AlertDialog,
@@ -48,6 +50,7 @@ function formatDuration(seconds: number): string {
 
 export function LiveTradeCard({ trade, isSelected, onClick, showAccountBadge = false }: LiveTradeCardProps) {
   const [duration, setDuration] = useState(0);
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const updateTrade = useUpdateTrade();
 
   // Live duration timer
@@ -118,32 +121,52 @@ export function LiveTradeCard({ trade, isSelected, onClick, showAccountBadge = f
           : "border-border/50 hover:border-border hover:bg-muted/30"
       )}
     >
-      {/* Close / Dismiss button */}
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <div
-            role="button"
-            onClick={(e) => e.stopPropagation()}
-            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive cursor-pointer"
-          >
-            <X className="h-3.5 w-3.5" />
-          </div>
-        </AlertDialogTrigger>
-        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Close this trade?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove the trade from the live view and mark it as closed with $0 P&L. Use this for stuck trades that are no longer open in your terminal.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleCloseTrade}>
-              Close Trade
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Action buttons (Close trade + Dismiss) */}
+      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div
+          role="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setCloseDialogOpen(true);
+          }}
+          className="p-1 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary cursor-pointer"
+          title="Close trade with exit price"
+        >
+          <XCircle className="h-3.5 w-3.5" />
+        </div>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <div
+              role="button"
+              onClick={(e) => e.stopPropagation()}
+              className="p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive cursor-pointer"
+              title="Dismiss stuck trade"
+            >
+              <X className="h-3.5 w-3.5" />
+            </div>
+          </AlertDialogTrigger>
+          <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Dismiss this trade?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will remove the trade from the live view and mark it as closed with $0 P&L. Use this for stuck trades that are no longer open in your terminal.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleCloseTrade}>
+                Dismiss
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+
+      <CloseLiveTradeDialog
+        open={closeDialogOpen}
+        onOpenChange={setCloseDialogOpen}
+        trade={trade}
+      />
 
       {/* Header Row */}
       <div className="flex items-center justify-between">
