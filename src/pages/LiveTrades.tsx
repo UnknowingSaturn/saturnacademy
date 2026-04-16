@@ -39,6 +39,7 @@ export default function LiveTrades() {
   }, [allOpenTrades, selectedAccountId]);
 
   const [selectedPlaybook, setSelectedPlaybook] = useState<Playbook | null>(null);
+  const [startDialogOpen, setStartDialogOpen] = useState(false);
 
   useEffect(() => {
     if (location.state?.selectedTradeId) {
@@ -111,6 +112,10 @@ export default function LiveTrades() {
           <RefreshCw className="h-3.5 w-3.5" />
           Refresh
         </Button>
+        <Button size="sm" className="gap-1.5" onClick={() => setStartDialogOpen(true)}>
+          <Plus className="h-3.5 w-3.5" />
+          Start Live Trade
+        </Button>
         {openTrades.length > 0 && (
           <Badge className="bg-profit/10 text-profit border-profit/30 gap-1.5">
             <Zap className="h-3 w-3" />
@@ -128,9 +133,13 @@ export default function LiveTrades() {
             <h3 className="text-lg font-medium text-foreground mb-2">
               No Open Trades
             </h3>
-            <p className="text-muted-foreground text-sm max-w-sm">
-              When you open positions, they'll appear here with live compliance tracking
+            <p className="text-muted-foreground text-sm max-w-sm mb-5">
+              Manually log a position you just opened, or connect MT5 EA to auto-sync.
             </p>
+            <Button onClick={() => setStartDialogOpen(true)} className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              Start Live Trade
+            </Button>
           </CardContent>
         </Card>
       ) : (
@@ -226,7 +235,11 @@ export default function LiveTrades() {
         </>
       )}
 
-      
+      <StartLiveTradeDialog
+        open={startDialogOpen}
+        onOpenChange={setStartDialogOpen}
+        onCreated={(id) => setSelectedTradeId(id)}
+      />
     </div>
   );
 }
