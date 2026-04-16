@@ -310,4 +310,4 @@ export const StartLiveTradeDialog = React.forwardRef<unknown, StartLiveTradeDial
       </DialogContent>
     </Dialog>
   );
-}
+});
