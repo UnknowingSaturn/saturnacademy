@@ -1,57 +1,48 @@
 
 
-# Manually Start a Live Trade (No-EA Users)
+# Cleanup & Validation: Live Trade Dialogs
 
-## What already exists
+## Findings
 
-Looking at the codebase, the infrastructure is mostly in place:
+### Console warnings (real bug)
+Two `Function components cannot be given refs` warnings fire on `LiveTrades` page:
+- `StartLiveTradeDialog` (rendered in `LiveTrades.tsx`)
+- The Radix `Dialog` it wraps (cascades from the same root cause)
 
-- **`trades` table** supports `is_open=true` with no exit price/time — that's exactly an open live trade
-- **`useOpenTrades`** hook already polls every 15s + subscribes to realtime, so any newly-inserted open trade appears on the Live Trades page automatically
-- **`useCreateTrade`** mutation already accepts `is_open` and persists everything needed
-- **`ManualTradeForm`** already has `trade_type: "executed"` mode where leaving exit price/time blank creates an open trade (line 90: `isOpen = !exitPrice || !exitTime`)
-- **`LiveTradeCompliancePanel`** + **`ModelSelectionPrompt`** then handle live journaling, screenshots, checklist, AI
+Cause: `lovable-tagger` injects refs into top-level page components and dialogs. The codebase already solves this via `src/lib/withForwardRef.tsx` (used in `App.tsx` for `QueryClientProvider`, `BrowserRouter`, etc., and in `useAuth.tsx`). The two new dialogs — `StartLiveTradeDialog` and `CloseLiveTradeDialog` — were created as plain function components and need the same wrapping.
 
-So technically a user can already start a live trade today by opening "Add Trade" on the Journal page and leaving the exit fields blank. But it's hidden, requires journal navigation, and the form is optimized for after-the-fact logging, not "I just clicked buy in my broker right now."
+### P&L estimate quality (minor UX)
+`CloseLiveTradeDialog` auto-fills `netPnl` with `diff × lots × 10`, which is only correct for 4-decimal major FX pairs. For JPY pairs, indices (NAS100, SP500), metals (XAUUSD), and crypto, this estimate is wildly wrong. The current copy says "Auto-estimated. Override with the actual broker P&L" but the bad pre-fill nudges users to accept it.
 
-## The right approach
+### Verified clean
+- `useCreateTrade` mutation accepts all fields passed (`is_open`, `trade_type`, `playbook_id`, `risk_percent`, `sl_initial`, `tp_initial`)
+- `useMemo` in `StartLiveTradeDialog` IS used (`defaultAccountId`, `computedLots`) — not dead code
+- RLS on `trades` is correct (`auth.uid() = user_id` per user, scoped) — no changes needed
+- No unused edge functions introduced; no tables to drop
+- `LiveTradeCard` close-action wiring is correct (`stopPropagation`, dialog open state)
 
-Add a **dedicated "Start Live Trade" entry point on the Live Trades page itself**, with a streamlined form built for the in-the-moment use case. This is the smallest change that makes manual live trading first-class for non-EA users.
+## Fixes
 
-### Key design choices
+### 1. Wrap new dialogs in `forwardRef` to silence warnings
+Convert `StartLiveTradeDialog` and `CloseLiveTradeDialog` from plain `function` exports to `React.forwardRef` components (matching the pattern used in `useAuth.tsx`'s `AuthProvider`). The ref is discarded; only purpose is satisfying `lovable-tagger`.
 
-**Entry point** — on the Live Trades page:
-- When there are open trades: a "Start Live Trade" button next to "Refresh" in the header
-- When the empty state shows ("No Open Trades"): replace the passive copy with a clear primary CTA "Start Live Trade" + a secondary line "or connect MT5 EA to auto-sync"
+### 2. Improve P&L auto-estimate in `CloseLiveTradeDialog`
+Drop the misleading auto-prefill. Replace it with:
+- Leave `netPnl` empty by default
+- Show a small inline hint below the field: `Δ price: 0.00200 × 0.10 lots` (raw delta + size, no fake $ figure)
+- Keep the field required so the user has to type the actual broker P&L
 
-**Form (new `StartLiveTradeDialog.tsx`)** — focused only on opening a position:
-- Account (auto-selected from current filter)
-- Symbol, Direction (buy/sell toggle)
-- Entry price (defaults to "now"), Entry time (defaults to current time, editable)
-- Stop loss, Take profit
-- Risk: choose **Risk %** OR **Lots** (same toggle pattern as ManualTradeForm). Risk % is the default since manual traders typically size by risk.
-- Playbook/Strategy (optional — pre-selects the AI compliance flow)
-- Submit creates trade with `is_open=true`, `trade_type='executed'`, no exit fields
+This removes the bad-by-default value while still giving the user reference info.
 
-**After creation** — auto-select the new trade in the right panel so the user immediately sees the compliance/journaling UI for it. Realtime + the existing 15s poll already handle list refresh.
-
-**Closing the trade** — already handled. The existing flow (manual close from journal/dismiss button) and the Trade Detail panel already let users add exit price/time, which flips `is_open` to false. Optional small win: add a "Close Trade" button directly on the live trade card that opens a tiny dialog asking exit price + time + final P&L. This lives next to the existing dismiss button.
-
-### What we are NOT building
-
-- No new tables, columns, RLS, or edge functions
-- No price feed / live quotes (out of scope; user inputs the entry price they got from their broker)
-- No mid-trade SL/TP modification tracking (the EA path captures that; manual users can edit via the existing Trade Detail panel)
-- No changes to the existing `ManualTradeForm` on the Journal page — it stays for after-the-fact logging
+### 3. No DB / edge function changes
+Database, RLS, and edge functions remain untouched.
 
 ## Files
 
 | File | Change |
 |------|--------|
-| `src/components/live/StartLiveTradeDialog.tsx` | **NEW** — focused open-position form (symbol/direction/entry/SL/TP/risk/playbook), reuses `useCreateTrade` |
-| `src/components/live/CloseLiveTradeDialog.tsx` | **NEW** — small dialog for exit price + time + P&L, reuses `useUpdateTrade` to set `is_open=false` |
-| `src/pages/LiveTrades.tsx` | Add "Start Live Trade" button in header + improved empty state CTA; auto-select newly created trade |
-| `src/components/live/LiveTradeCard.tsx` | Add small "Close" action button (opens `CloseLiveTradeDialog`) |
+| `src/components/live/StartLiveTradeDialog.tsx` | Wrap export in `React.forwardRef` |
+| `src/components/live/CloseLiveTradeDialog.tsx` | Wrap in `forwardRef`; remove fake P&L auto-prefill, replace with raw delta hint |
 
-No DB migrations. No edge function changes. No new dependencies.
+No other files affected. No migrations. No edge function redeploys.
 
