@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
@@ -36,7 +37,8 @@ function toLocalInputValue(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function StartLiveTradeDialog({ open, onOpenChange, onCreated }: StartLiveTradeDialogProps) {
+export const StartLiveTradeDialog = React.forwardRef<unknown, StartLiveTradeDialogProps>(
+  function StartLiveTradeDialog({ open, onOpenChange, onCreated }, _ref) {
   const createTrade = useCreateTrade();
   const { data: accounts = [] } = useAccounts();
   const { data: playbooks = [] } = usePlaybooks();

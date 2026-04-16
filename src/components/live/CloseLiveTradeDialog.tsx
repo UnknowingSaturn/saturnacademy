@@ -105,7 +105,9 @@ export const CloseLiveTradeDialog = React.forwardRef<unknown, CloseLiveTradeDial
               onChange={(e) => setNetPnl(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Auto-estimated. Override with the actual broker P&amp;L.
+              {priceDelta !== null
+                ? `Δ price: ${priceDelta >= 0 ? "+" : ""}${priceDelta.toFixed(5)} × ${trade.total_lots} lots — enter the actual broker P&L`
+                : "Enter the actual P&L from your broker."}
             </p>
           </div>
         </div>
@@ -122,4 +124,4 @@ export const CloseLiveTradeDialog = React.forwardRef<unknown, CloseLiveTradeDial
       </DialogContent>
     </Dialog>
   );
-}
+});
