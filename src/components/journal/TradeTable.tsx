@@ -224,7 +224,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   }).join(' ') + ' 40px';
 
   return (
-    <div className="border border-border rounded-lg overflow-x-auto">
+    <div className="border border-border rounded-lg overflow-x-auto overflow-y-visible">
       <div className="w-full">
         {/* Header */}
         <div 
