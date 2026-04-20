@@ -50,7 +50,7 @@ export function LiveTradesProvider({ children }: { children: React.ReactNode }) 
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [chatStates, setChatStates] = useState<Map<string, ChatState>>(new Map());
   const [complianceStates, setComplianceStates] = useState<Map<string, ComplianceState>>(new Map());
-  const pendingSavesRef = useRef<Map<string, Set<'chat' | 'compliance'>>>(new Map());
+  const pendingSavesRef = useRef<Map<string, Set<'chat' | 'compliance' | 'questions'>>>(new Map());
 
   // Chat state management
   const getChatState = useCallback((tradeId: string) => {
