@@ -240,12 +240,12 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
 
   // Handle screenshots change - saves directly to trade_reviews
   const screenshots: TradeScreenshot[] = (existingReview?.screenshots as TradeScreenshot[]) || [];
-  
+
   const handleScreenshotsChange = async (newScreenshots: TradeScreenshot[]) => {
     await upsertReview.mutateAsync({
       review: {
         trade_id: trade.id,
-        playbook_id: playbook.id,
+        ...(playbook ? { playbook_id: playbook.id } : {}),
         screenshots: newScreenshots as any,
         ...(existingReview && {
           checklist_answers: existingReview.checklist_answers,
@@ -256,6 +256,15 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
       },
       silent: true,
     });
+  };
+
+  const handleAttachPlaybook = async (playbookId: string) => {
+    if (!playbookId) return;
+    try {
+      await updateTrade.mutateAsync({ id: trade.id, playbook_id: playbookId });
+    } catch {
+      // mutation surfaces toast
+    }
   };
 
   return (
