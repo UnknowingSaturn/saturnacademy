@@ -102,18 +102,12 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   };
 
   const handleRegimeChange = async (regime: string) => {
+    // Partial upsert — only sends the field this handler owns. Other columns on the
+    // trade_reviews row are preserved by the mutation layer.
     await upsertReview.mutateAsync({
       review: {
         trade_id: trade.id,
         regime: regime as RegimeType,
-        // Preserve existing values
-        ...(trade.review && {
-          checklist_answers: trade.review.checklist_answers,
-          emotional_state_before: trade.review.emotional_state_before,
-          emotional_state_after: trade.review.emotional_state_after,
-          psychology_notes: trade.review.psychology_notes,
-          screenshots: trade.review.screenshots,
-        }),
       },
       silent: true,
     });
@@ -142,17 +136,11 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   };
 
   const handleEmotionChange = async (emotion: string) => {
+    // Partial upsert — only sends the field this handler owns.
     await upsertReview.mutateAsync({
       review: {
         trade_id: trade.id,
         emotional_state_before: emotion as EmotionalState,
-        // Preserve existing values
-        ...(trade.review && {
-          checklist_answers: trade.review.checklist_answers,
-          regime: trade.review.regime,
-          psychology_notes: trade.review.psychology_notes,
-          screenshots: trade.review.screenshots,
-        }),
       },
       silent: true,
     });

@@ -101,17 +101,31 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     setAutoVerifiedOpen(!allPassed);
   }, [compliance.autoVerified]);
 
-  // Helper: merge compliance answers with any existing __live_questions.* keys so we don't clobber them
-  const mergeWithLiveQuestions = (compliance: Record<string, boolean>) => {
-    const base = (existingReview?.checklist_answers || {}) as Record<string, any>;
+  // Fresh-read of checklist_answers from DB before merging — eliminates the stale-snapshot
+  // race when both compliance and live-questions panels write checklist_answers within the
+  // same debounce window.
+  const fetchFreshChecklistAnswers = async (tradeId: string): Promise<Record<string, any>> => {
+    const { supabase } = await import('@/integrations/supabase/client');
+    const { data } = await supabase
+      .from('trade_reviews')
+      .select('checklist_answers')
+      .eq('trade_id', tradeId)
+      .maybeSingle();
+    return ((data?.checklist_answers as Record<string, any>) || {});
+  };
+
+  // Merge compliance answers with any existing __live_questions.* keys from the freshest DB read.
+  const buildMergedAnswers = async (compliance: Record<string, boolean>) => {
+    const fresh = await fetchFreshChecklistAnswers(trade.id);
     const merged: Record<string, any> = { ...compliance };
-    for (const k of Object.keys(base)) {
-      if (k.startsWith('__live_questions.')) merged[k] = base[k];
+    for (const k of Object.keys(fresh)) {
+      if (k.startsWith('__live_questions.')) merged[k] = fresh[k];
     }
     return merged;
   };
 
-  // Auto-save checklist answers (debounced) — only when a playbook is attached
+  // Auto-save checklist answers (debounced) — only when a playbook is attached.
+  // Partial upsert: we only send checklist_answers + score; all other columns are preserved.
   useEffect(() => {
     if (!playbook) return;
     if (Object.keys(manualAnswers).length === 0) return;
@@ -120,21 +134,17 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     registerPendingSave(trade.id, 'compliance');
 
     pendingSaveRef.current = setTimeout(async () => {
-      const reviewData = {
-        trade_id: trade.id,
-        playbook_id: playbook.id,
-        checklist_answers: mergeWithLiveQuestions(manualAnswers),
-        score: Object.values(manualAnswers).filter(Boolean).length,
-        ...(existingReview && {
-          regime: existingReview.regime,
-          emotional_state_before: existingReview.emotional_state_before,
-          psychology_notes: existingReview.psychology_notes,
-          screenshots: existingReview.screenshots,
-        }),
-      };
-
       try {
-        await upsertReview.mutateAsync({ review: reviewData, silent: true });
+        const merged = await buildMergedAnswers(manualAnswers);
+        await upsertReview.mutateAsync({
+          review: {
+            trade_id: trade.id,
+            playbook_id: playbook.id,
+            checklist_answers: merged,
+            score: Object.values(manualAnswers).filter(Boolean).length,
+          },
+          silent: true,
+        });
         unregisterPendingSave(trade.id, 'compliance');
       } catch {
         unregisterPendingSave(trade.id, 'compliance');
@@ -144,29 +154,39 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     return () => {
       if (pendingSaveRef.current) clearTimeout(pendingSaveRef.current);
     };
-  }, [manualAnswers, trade.id, playbook?.id, existingReview, upsertReview.isPending, registerPendingSave, unregisterPendingSave]);
+  }, [manualAnswers, trade.id, playbook?.id, upsertReview.isPending, registerPendingSave, unregisterPendingSave]);
 
-  // Flush pending saves on unmount
+  // Flush pending saves on unmount — partial upsert preserves everything else.
   useEffect(() => {
     return () => {
       if (pendingSaveRef.current) {
         clearTimeout(pendingSaveRef.current);
         if (playbook && Object.keys(manualAnswers).length > 0) {
-          upsertReview.mutate({
-            review: {
-              trade_id: trade.id,
-              playbook_id: playbook.id,
-              checklist_answers: mergeWithLiveQuestions(manualAnswers),
-              score: Object.values(manualAnswers).filter(Boolean).length,
-            },
-            silent: true,
-          });
+          // Fire-and-forget; use the local snapshot since unmount can't await.
+          // Live-question keys may be momentarily lost on unmount race; the questions
+          // panel's own flush-on-unmount restores them. Trade-off accepted.
+          (async () => {
+            try {
+              const merged = await buildMergedAnswers(manualAnswers);
+              upsertReview.mutate({
+                review: {
+                  trade_id: trade.id,
+                  playbook_id: playbook.id,
+                  checklist_answers: merged,
+                  score: Object.values(manualAnswers).filter(Boolean).length,
+                },
+                silent: true,
+              });
+            } catch {
+              // ignore
+            }
+          })();
         }
         unregisterPendingSave(trade.id, 'compliance');
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [manualAnswers, trade.id, playbook?.id]);
+  }, [trade.id]);
 
   const toggleAnswer = (ruleId: string) => {
     setManualAnswers(prev => ({
@@ -242,17 +262,12 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
   const screenshots: TradeScreenshot[] = (existingReview?.screenshots as TradeScreenshot[]) || [];
 
   const handleScreenshotsChange = async (newScreenshots: TradeScreenshot[]) => {
+    // Partial upsert — only sends screenshots. All other fields preserved by mutation layer.
     await upsertReview.mutateAsync({
       review: {
         trade_id: trade.id,
         ...(playbook ? { playbook_id: playbook.id } : {}),
         screenshots: newScreenshots as any,
-        ...(existingReview && {
-          checklist_answers: existingReview.checklist_answers,
-          regime: existingReview.regime,
-          emotional_state_before: existingReview.emotional_state_before,
-          psychology_notes: existingReview.psychology_notes,
-        }),
       },
       silent: true,
     });

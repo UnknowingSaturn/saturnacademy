@@ -339,25 +339,31 @@ export function useUpsertTradeReview() {
   return useMutation({
     mutationFn: async (params: { review: Partial<TradeReview> & { trade_id: string }; silent?: boolean }) => {
       const { review, silent } = params;
+
+      // Build a partial payload — only include columns that the caller explicitly provided.
+      // Postgres UPSERT will only update the columns present in the INSERT payload, so omitted
+      // fields are preserved on existing rows. For first-insert, DB column defaults handle the
+      // missing fields ('{}'/'[]'/null/0/'none'). This is the single source of truth that prevents
+      // any panel from clobbering another panel's data.
+      const payload: Record<string, any> = { trade_id: review.trade_id };
+      if ('playbook_id' in review)            payload.playbook_id = review.playbook_id;
+      if ('score' in review)                  payload.score = review.score ?? 0;
+      if ('regime' in review)                 payload.regime = review.regime;
+      if ('news_risk' in review)              payload.news_risk = review.news_risk ?? 'none';
+      if ('emotional_state_before' in review) payload.emotional_state_before = review.emotional_state_before;
+      if ('emotional_state_after' in review)  payload.emotional_state_after = review.emotional_state_after;
+      if ('psychology_notes' in review)       payload.psychology_notes = review.psychology_notes;
+      if ('thoughts' in review)               payload.thoughts = review.thoughts;
+      if ('checklist_answers' in review)      payload.checklist_answers = (review.checklist_answers || {}) as unknown as Json;
+      if ('mistakes' in review)               payload.mistakes = (review.mistakes || []) as unknown as Json;
+      if ('did_well' in review)               payload.did_well = (review.did_well || []) as unknown as Json;
+      if ('to_improve' in review)             payload.to_improve = (review.to_improve || []) as unknown as Json;
+      if ('actionable_steps' in review)       payload.actionable_steps = (review.actionable_steps || []) as unknown as Json;
+      if ('screenshots' in review)            payload.screenshots = (review.screenshots || []) as unknown as Json;
+
       const { data, error } = await supabase
         .from('trade_reviews')
-        .upsert({
-          trade_id: review.trade_id,
-          playbook_id: review.playbook_id,
-          score: review.score ?? 0,
-          regime: review.regime,
-          news_risk: review.news_risk ?? 'none',
-          emotional_state_before: review.emotional_state_before,
-          emotional_state_after: review.emotional_state_after,
-          psychology_notes: review.psychology_notes,
-          thoughts: review.thoughts,
-          checklist_answers: (review.checklist_answers || {}) as unknown as Json,
-          mistakes: (review.mistakes || []) as unknown as Json,
-          did_well: (review.did_well || []) as unknown as Json,
-          to_improve: (review.to_improve || []) as unknown as Json,
-          actionable_steps: (review.actionable_steps || []) as unknown as Json,
-          screenshots: (review.screenshots || []) as unknown as Json,
-        }, { onConflict: 'trade_id' })
+        .upsert(payload as any, { onConflict: 'trade_id' })
         .select()
         .single();
 
