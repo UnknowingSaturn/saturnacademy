@@ -890,6 +890,117 @@ export type Database = {
           },
         ]
       }
+      report_schedule_runs: {
+        Row: {
+          attempted_at: string
+          error_message: string | null
+          id: string
+          period_start: string
+          report_id: string | null
+          report_type: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          attempted_at?: string
+          error_message?: string | null
+          id?: string
+          period_start: string
+          report_id?: string | null
+          report_type: string
+          status: string
+          user_id: string
+        }
+        Update: {
+          attempted_at?: string
+          error_message?: string | null
+          id?: string
+          period_start?: string
+          report_id?: string | null
+          report_type?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      reports: {
+        Row: {
+          account_id: string | null
+          consistency: Json
+          created_at: string
+          edge_clusters: Json
+          error_message: string | null
+          generated_at: string
+          goals: Json | null
+          grade: string | null
+          id: string
+          leak_clusters: Json
+          metrics: Json
+          period_end: string
+          period_start: string
+          prior_goals_evaluation: Json | null
+          psychology: Json
+          report_type: string
+          schema_suggestions: Json | null
+          sensei_model: string | null
+          sensei_notes: Json | null
+          status: string
+          updated_at: string
+          user_id: string
+          verdict: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          consistency?: Json
+          created_at?: string
+          edge_clusters?: Json
+          error_message?: string | null
+          generated_at?: string
+          goals?: Json | null
+          grade?: string | null
+          id?: string
+          leak_clusters?: Json
+          metrics?: Json
+          period_end: string
+          period_start: string
+          prior_goals_evaluation?: Json | null
+          psychology?: Json
+          report_type: string
+          schema_suggestions?: Json | null
+          sensei_model?: string | null
+          sensei_notes?: Json | null
+          status?: string
+          updated_at?: string
+          user_id: string
+          verdict?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          consistency?: Json
+          created_at?: string
+          edge_clusters?: Json
+          error_message?: string | null
+          generated_at?: string
+          goals?: Json | null
+          grade?: string | null
+          id?: string
+          leak_clusters?: Json
+          metrics?: Json
+          period_end?: string
+          period_start?: string
+          prior_goals_evaluation?: Json | null
+          psychology?: Json
+          report_type?: string
+          schema_suggestions?: Json | null
+          sensei_model?: string | null
+          sensei_notes?: Json | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+          verdict?: string | null
+        }
+        Relationships: []
+      }
       session_definitions: {
         Row: {
           color: string
