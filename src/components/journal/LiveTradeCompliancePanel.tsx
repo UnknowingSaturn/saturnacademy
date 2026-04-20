@@ -1,14 +1,23 @@
 import { useState, useEffect, useRef } from "react";
 import { Trade, Playbook } from "@/types/trading";
 import { useTradeCompliance, ComplianceRule } from "@/hooks/useTradeCompliance";
-import { useUpsertTradeReview } from "@/hooks/useTrades";
+import { useUpsertTradeReview, useUpdateTrade } from "@/hooks/useTrades";
+import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useLiveTrades } from "@/contexts/LiveTradesContext";
 import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
 import { TradeProperties } from "./TradeProperties";
+import { LiveTradeQuestionsPanel } from "./LiveTradeQuestionsPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   Collapsible,
   CollapsibleContent,
@@ -29,6 +38,7 @@ import {
   ChevronRight,
   Image as ImageIcon,
   SlidersHorizontal,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ComplianceScoreRing } from "@/components/live/ComplianceScoreRing";
@@ -36,7 +46,7 @@ import { TradeScreenshot } from "@/types/trading";
 
 interface LiveTradeCompliancePanelProps {
   trade: Trade;
-  playbook: Playbook;
+  playbook: Playbook | null;
 }
 
 export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeCompliancePanelProps) {
