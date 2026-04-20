@@ -122,14 +122,14 @@ export function LiveTradesProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   // Pending saves tracking
-  const registerPendingSave = useCallback((tradeId: string, type: 'chat' | 'compliance') => {
+  const registerPendingSave = useCallback((tradeId: string, type: 'chat' | 'compliance' | 'questions') => {
     if (!pendingSavesRef.current.has(tradeId)) {
       pendingSavesRef.current.set(tradeId, new Set());
     }
     pendingSavesRef.current.get(tradeId)!.add(type);
   }, []);
 
-  const unregisterPendingSave = useCallback((tradeId: string, type: 'chat' | 'compliance') => {
+  const unregisterPendingSave = useCallback((tradeId: string, type: 'chat' | 'compliance' | 'questions') => {
     pendingSavesRef.current.get(tradeId)?.delete(type);
     if (pendingSavesRef.current.get(tradeId)?.size === 0) {
       pendingSavesRef.current.delete(tradeId);
