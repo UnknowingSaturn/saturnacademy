@@ -26,8 +26,8 @@ export const ReportMetricsGrid = React.forwardRef<HTMLDivElement, ReportMetricsG
       label: 'Win Rate',
       value: `${metrics.winRate.toFixed(1)}%`,
       icon: Target,
-      color: metrics.winRate >= 50 ? 'text-emerald-400' : 'text-amber-400',
-      bgColor: metrics.winRate >= 50 ? 'bg-emerald-500/10' : 'bg-amber-500/10',
+      color: metrics.winRate >= 50 ? 'text-emerald-400' : 'text-muted-foreground',
+      bgColor: metrics.winRate >= 50 ? 'bg-emerald-500/10' : 'bg-muted/40',
     },
     {
       label: 'Profit Factor',

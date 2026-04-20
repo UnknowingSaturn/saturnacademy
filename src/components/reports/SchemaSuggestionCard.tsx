@@ -48,11 +48,11 @@ export function SchemaSuggestionCard({ suggestion }: Props) {
   };
 
   return (
-    <Card className="border-amber-500/20 bg-amber-500/5">
+    <Card className="border-primary/20 bg-primary/5">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Lightbulb className="w-4 h-4 text-amber-500" />
+            <Lightbulb className="w-4 h-4 text-primary" />
             <CardTitle className="text-sm">Suggested journal field</CardTitle>
           </div>
           <Badge variant="outline" className="text-xs">{suggestion.proposed_widget}</Badge>
