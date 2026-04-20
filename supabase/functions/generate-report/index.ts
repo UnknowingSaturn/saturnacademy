@@ -887,10 +887,19 @@ async function buildLlmContext(
     .filter(t => !reviews.has(t.id))
     .reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
 
+  // Re-humanize stored cluster labels at LLM-time so older reports (saved before the humanizer) get clean English
+  const rehumanize = (c: any) => {
+    const d = c?.dimensions || {};
+    if (d.session && d.symbol) {
+      return { ...c, label: humanizeClusterLabel(d.session, d.symbol, d.emotion || "unknown", d.playbook || "No playbook") };
+    }
+    return c;
+  };
+
   return {
     metrics: storedMetrics,
-    edge_clusters: storedEdges,
-    leak_clusters: storedLeaks,
+    edge_clusters: (storedEdges || []).map(rehumanize),
+    leak_clusters: (storedLeaks || []).map(rehumanize),
     consistency: storedConsistency,
     psychology: storedPsychology,
     review_excerpts: reviewExcerpts,
