@@ -24,7 +24,77 @@ const BANNED_PHRASES = [
   "stick to the plan",
   "patience is a virtue",
   "the market is always right",
+  "considerable decline",
+  "substantial negative",
+  "needs improvement",
+  "indicating a need for",
+  "review trades like",
+  "for entry optimizations",
+  "moving forward",
+  "going forward",
+  "in conclusion",
+  "overall performance",
 ];
+
+const BANNED_OPENERS = [
+  "your total r was",
+  "this period saw",
+  "it is observed that",
+  "this week saw",
+  "this month saw",
+  "during this period",
+  "overall, ",
+  "in summary",
+];
+
+// Humanize raw labels for the LLM so it never parrots `new_york_am · XAGUSD · unknown (No playbook)`.
+const SESSION_NAMES: Record<string, string> = {
+  tokyo: "Tokyo",
+  london: "London",
+  new_york: "NY",
+  new_york_am: "NY-AM",
+  new_york_pm: "NY-PM",
+  overlap_london_ny: "London/NY overlap",
+  off_hours: "off-hours",
+  unknown: "untagged session",
+};
+
+const SYMBOL_NICKNAMES: Record<string, string> = {
+  XAUUSD: "Gold",
+  XAGUSD: "Silver",
+  US30: "Dow",
+  NAS100: "Nasdaq",
+  SPX500: "S&P",
+  SP500: "S&P",
+  GER40: "DAX",
+  UK100: "FTSE",
+  BTCUSD: "Bitcoin",
+  ETHUSD: "Ethereum",
+};
+
+function humanSession(s: string | null | undefined): string {
+  if (!s) return "untagged session";
+  return SESSION_NAMES[s] ?? s.replace(/_/g, " ");
+}
+function humanSymbol(s: string): string {
+  return SYMBOL_NICKNAMES[s.toUpperCase()] ?? s;
+}
+function humanizeClusterLabel(session: string, symbol: string, emotion: string, playbook: string): string {
+  const parts = [humanSession(session), humanSymbol(symbol)];
+  if (emotion && emotion !== "unknown") parts.push(`feeling ${emotion}`);
+  if (playbook && playbook !== "No playbook" && playbook !== "Unnamed") parts.push(`playbook "${playbook}"`);
+  return parts.join(", ");
+}
+function formatClock(iso: string): string {
+  const d = new Date(iso);
+  const hh = d.getUTCHours().toString().padStart(2, "0");
+  const mm = d.getUTCMinutes().toString().padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+function formatDateShort(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
 
 // ------------------------------ helpers ------------------------------
 
@@ -175,7 +245,7 @@ function clusterTrades(trades: TradeRow[], reviews: Map<string, ReviewRow>, play
     const total_pnl = ts.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
     const expectancy_r = total_r / ts.length;
     const cluster = {
-      label: `${session} · ${symbol} · ${emotion} (${playbook})`,
+      label: humanizeClusterLabel(session, symbol, emotion, playbook),
       dimensions: { session, symbol, emotion, playbook },
       trades: ts.length,
       wins,
@@ -218,7 +288,7 @@ function behavioralLeaks(trades: TradeRow[]): any[] {
     const total_r = revenge.reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
     const total_pnl = revenge.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
     leaks.push({
-      label: `Revenge entries (≤30min after a loss)`,
+      label: `Revenge entries within 30 minutes of a loss`,
       pattern_type: 'revenge',
       description: `${revenge.length} trades opened within 30 minutes of a prior loss. ${wins} wins, ${(total_r).toFixed(1)}R total.`,
       trades: revenge.length,
@@ -487,6 +557,28 @@ function schemaSuggestions(trades: TradeRow[], reviews: Map<string, ReviewRow>, 
 
 // ------------------------------ LLM call ------------------------------
 
+function wordCount(s: string): number {
+  return (s || "").trim().split(/\s+/).filter(Boolean).length;
+}
+function alphaRatio(s: string): number {
+  if (!s) return 0;
+  const letters = (s.match(/[a-zA-Z]/g) || []).length;
+  return letters / s.length;
+}
+function rewriteVerdict(v: string): string {
+  let out = (v || "").trim();
+  const lower = out.toLowerCase();
+  for (const opener of BANNED_OPENERS) {
+    if (lower.startsWith(opener)) {
+      // strip the opener and capitalise the next clause
+      out = out.slice(opener.length).replace(/^[\s,:-]+/, "");
+      if (out.length) out = out[0].toUpperCase() + out.slice(1);
+      break;
+    }
+  }
+  return out;
+}
+
 async function callSensei(payload: any, model: string) {
   const apiKey = Deno.env.get("LOVABLE_API_KEY");
   if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
@@ -495,44 +587,74 @@ async function callSensei(payload: any, model: string) {
   const validEmotions: string[] = payload._valid_emotions;
   const validSymbols: string[] = payload._valid_symbols;
 
-  const systemPrompt = `You are a senior trading mentor reviewing a student's week/month.
+  const systemPrompt = `You are a senior trading mentor — a sensei — debriefing one specific trader after their week or month. You have read every trade in the file. You write like a coach who watched the tape over their shoulder, not a report generator.
 
-STRICT RULES — non-negotiable:
-1. You MUST cite specific trade IDs (UUIDs) in EVERY paragraph from the provided list. Do not invent IDs.
-2. You MAY ONLY use numbers (R values, percentages, counts, P&L) that appear verbatim in the supplied metrics object. Do not compute or estimate new numbers.
-3. Symbols, emotions, playbook names you reference MUST exist in the provided whitelists.
-4. NEVER use generic coaching phrases like "stay disciplined", "trust the process", "manage risk", "trust your edge", "consistency is key", etc.
-5. Tone: direct, specific, like a coach who watched the tape. No fluff. No motivation.
-6. Each section should be 2-4 sentences max. Quality over length.
-7. If sample size is small (<10 trades for a pattern), say so explicitly rather than assert.
+VOICE
+- Direct, second person ("you"), conversational. Dry wit allowed. Short sentences welcome.
+- Name the *behavior*, not the cluster. "You doubled down on Silver after losing on it" — not "the Silver cluster underperformed."
+- Quote the trader's own review words when they're vivid. Use them as evidence.
+- No hedging. No corporate speak. No motivational filler.
 
-OUTPUT: Use the provided tool to return structured sections. Do not return prose outside the tool call.`;
+HARD RULES (non-negotiable)
+1. EVERY paragraph must cite 1–3 specific trade IDs from the whitelist, anchored with their actual P&L/R-multiple/date — not just bare IDs.
+2. NEVER invent numbers. Only use values that appear verbatim in the supplied data.
+3. NEVER start the verdict or any section body with: "Your total R was…", "This period saw…", "It is observed that…", "During this period…", "Overall, …", "In summary…".
+4. NEVER use generic coaching clichés ("stay disciplined", "trust the process", "manage risk", "consistency is key", "trust your edge", "cut your losses", "let your winners run", "needs improvement", "indicating a need for", "moving forward", "for entry optimizations").
+5. Symbols, emotions, and playbook names you reference MUST appear in the whitelists.
+6. If a sample is small (n < 10 for a pattern), say so explicitly inside the paragraph instead of asserting it as fact.
+7. Each section body must be at least 50 words of actual prose — not a list of numbers and IDs.
 
-  const userPrompt = `Generate the Sensei's Notes for this period.
+REQUIRED STRUCTURE — produce these 5 sections, in this order, with these exact headings:
+  1. "The Verdict" — single paragraph (≤80 words). Names the single most important thing about the period in plain language.
+  2. "The Edge" — what specifically worked AND your honest read on *why* it likely worked, anchored in the cited trades' context (session, emotion, setup).
+  3. "The Bleed" — the dominant leak named as a behavior, not a cluster. Tell the story of the worst single trade or sequence.
+  4. "The Pattern Underneath" — cross-reference tilt sequences + emotion notes + revenge entries to name the *meta-pattern* the trader probably can't see themselves.
+  5. "The One Thing" — single highest-leverage change for next period. One concrete behavior, not a list.
 
-PRECOMPUTED METRICS (these are the ONLY numbers you may cite):
+VERDICT (the one-liner returned in the verdict field) is separate from "The Verdict" section. The verdict field is a punchy 1-sentence headline ≤25 words. "The Verdict" section expands on it.
+
+OUTPUT: Use the provided tool to return structured JSON. No prose outside the tool call.`;
+
+  const userPrompt = `Here is the trader's data for this period. Coach them.
+
+PRECOMPUTED METRICS (the only numbers you may cite):
 ${JSON.stringify(payload.metrics, null, 2)}
 
-EDGE CLUSTERS (what worked):
+WHAT WORKED — edge clusters (already humanized labels):
 ${JSON.stringify(payload.edge_clusters, null, 2)}
 
-LEAK CLUSTERS (what bled):
+WHAT BLED — leak clusters & behavioral patterns:
 ${JSON.stringify(payload.leak_clusters, null, 2)}
 
-CONSISTENCY:
+CONSISTENCY AUDIT:
 ${JSON.stringify(payload.consistency, null, 2)}
 
 PSYCHOLOGY:
 ${JSON.stringify(payload.psychology, null, 2)}
 
-REVIEW EXCERPTS (the trader's own words):
-${JSON.stringify(payload.review_excerpts.slice(0, 30), null, 2)}
+SYMBOL-LEVEL EXPECTANCY (ranked best→worst — useful for "Gold pays you, Silver bleeds you" style insights):
+${JSON.stringify(payload.symbol_expectancy, null, 2)}
 
-Whitelisted trade IDs you may cite: ${validTradeIds.length} ids available
+WORST TRADES — narrative context for each (their own words):
+${JSON.stringify(payload.worst_trade_narratives, null, 2)}
+
+LONGEST TILT SEQUENCE (chronological, plain English):
+${payload.tilt_narrative || "No qualifying tilt sequence (no 3+ consecutive losses)."}
+
+JOURNALING GAPS:
+- Reviewed trades: ${payload.psychology?.reviewed_count ?? 0}
+- Unreviewed trades: ${payload.psychology?.unreviewed_count ?? 0}
+- R impact of unreviewed trades: ${payload.unreviewed_r_impact ?? 0}R
+${(payload.psychology?.unreviewed_count ?? 0) > 5 ? "→ Significant journaling gap. Mention it in The One Thing if relevant." : ""}
+
+REVIEW EXCERPTS (the trader's own words across other trades):
+${JSON.stringify((payload.review_excerpts || []).slice(0, 20), null, 2)}
+
+Whitelisted trade IDs you may cite: ${validTradeIds.length} ids available.
 Whitelisted symbols: ${validSymbols.join(', ')}
 Whitelisted emotions: ${validEmotions.join(', ')}
 
-Produce 3-5 coaching sections. Also produce: a one-line verdict, a letter grade (A/B/C/D/F with optional +/-), and 3 measurable goals for next period.`;
+Write the 5 sections, the headline verdict, the letter grade, and 3 measurable goals.`;
 
   const tools = [{
     type: "function",
@@ -542,7 +664,7 @@ Produce 3-5 coaching sections. Also produce: a one-line verdict, a letter grade 
       parameters: {
         type: "object",
         properties: {
-          verdict: { type: "string", description: "ONE sentence summarising the period." },
+          verdict: { type: "string", description: "ONE punchy headline sentence (≤25 words). No banned openers." },
           grade: { type: "string", enum: ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F"] },
           sections: {
             type: "array",
@@ -550,12 +672,14 @@ Produce 3-5 coaching sections. Also produce: a one-line verdict, a letter grade 
               type: "object",
               properties: {
                 heading: { type: "string" },
-                body: { type: "string", description: "Markdown coaching paragraph(s). Must cite trade IDs." },
+                body: { type: "string", description: "Markdown coaching prose (≥50 words). Anchor every paragraph in cited trades." },
                 cited_trade_ids: { type: "array", items: { type: "string" } },
               },
               required: ["heading", "body", "cited_trade_ids"],
               additionalProperties: false,
             },
+            minItems: 5,
+            maxItems: 5,
           },
           goals: {
             type: "array",
@@ -586,6 +710,7 @@ Produce 3-5 coaching sections. Also produce: a one-line verdict, a letter grade 
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
+      temperature: 0.7,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -604,15 +729,24 @@ Produce 3-5 coaching sections. Also produce: a one-line verdict, a letter grade 
   if (!call) throw new Error("No tool call returned by model");
   const args = JSON.parse(call.function.arguments);
 
-  // Validate citations
+  // Validate citations & enforce prose-quality
   const validIdSet = new Set(validTradeIds);
   const sections = (args.sections || [])
     .map((s: any) => ({
-      ...s,
+      heading: s.heading,
+      body: s.body || "",
       cited_trade_ids: (s.cited_trade_ids || []).filter((id: string) => validIdSet.has(id)),
     }))
+    // strip sections with banned content / no citations / too short / number-heavy
     .filter((s: any) => s.cited_trade_ids.length > 0)
-    .filter((s: any) => !BANNED_PHRASES.some(p => s.body.toLowerCase().includes(p)));
+    .filter((s: any) => !BANNED_PHRASES.some(p => s.body.toLowerCase().includes(p)))
+    .filter((s: any) => {
+      const lower = s.body.toLowerCase().trim();
+      if (BANNED_OPENERS.some(o => lower.startsWith(o))) return false;
+      if (wordCount(s.body) < 40) return false;
+      if (alphaRatio(s.body) < 0.55) return false; // mostly numbers/IDs → reject
+      return true;
+    });
 
   // Goals stamped with status pending
   const goals = (args.goals || []).map((g: any) => ({
@@ -622,7 +756,7 @@ Produce 3-5 coaching sections. Also produce: a one-line verdict, a letter grade 
   }));
 
   return {
-    verdict: args.verdict,
+    verdict: rewriteVerdict(args.verdict || ""),
     grade: args.grade,
     sections,
     goals,
@@ -783,7 +917,7 @@ serve(async (req) => {
       prior_period_label: priorBlock ? `previous ${report_type === 'monthly' ? 'month' : report_type === 'weekly' ? 'week' : 'period'}` : null,
     };
 
-    // Build LLM payload
+    // Build LLM payload — enrich with worst-trade narrative, tilt narrative, symbol expectancy
     const reviewExcerpts = (reviewsArr || []).map((r: any) => ({
       trade_id: r.trade_id,
       mistakes: asArray(r.mistakes),
@@ -793,6 +927,75 @@ serve(async (req) => {
       psychology_notes: r.psychology_notes,
     })).filter((r: any) => r.mistakes.length || r.did_well.length || r.to_improve.length || r.thoughts || r.psychology_notes);
 
+    // Worst-trade narratives — top 3 losses with full review context + time gap to prior trade
+    const closedExec = (trades as TradeRow[]).filter(t => !t.is_open && t.trade_type === 'executed');
+    const sortedByR = [...closedExec].sort((a, b) => (a.r_multiple_actual ?? 0) - (b.r_multiple_actual ?? 0));
+    const sortedByTime = [...closedExec].sort((a, b) => a.entry_time.localeCompare(b.entry_time));
+    const worstTradeNarratives = sortedByR.slice(0, 3).map(t => {
+      const r = reviews.get(t.id);
+      const idx = sortedByTime.findIndex(x => x.id === t.id);
+      const prior = idx > 0 ? sortedByTime[idx - 1] : null;
+      const gapMin = prior ? Math.round((new Date(t.entry_time).getTime() - new Date(prior.exit_time || prior.entry_time).getTime()) / 60000) : null;
+      return {
+        trade_id: t.id,
+        trade_number: t.trade_number,
+        symbol: humanSymbol(t.symbol),
+        date: formatDateShort(t.entry_time),
+        clock: formatClock(t.entry_time),
+        r_multiple: t.r_multiple_actual,
+        net_pnl: t.net_pnl,
+        session: humanSession(t.session),
+        emotion_before: r?.emotional_state_before || null,
+        thoughts: r?.thoughts?.slice(0, 400) || null,
+        mistakes: asArray(r?.mistakes).slice(0, 5),
+        psychology_notes: r?.psychology_notes?.slice(0, 300) || null,
+        minutes_after_prior_trade: gapMin,
+        prior_trade_outcome_r: prior?.r_multiple_actual ?? null,
+      };
+    });
+
+    // Tilt narrative — longest tilt sequence as plain English chronology
+    const longestTilt = [...(psychology.tilt_sequences || [])].sort((a: any, b: any) => b.length - a.length)[0];
+    let tiltNarrative: string | null = null;
+    if (longestTilt && longestTilt.trade_ids?.length) {
+      const tiltTrades = longestTilt.trade_ids
+        .map((id: string) => closedExec.find(t => t.id === id))
+        .filter(Boolean) as TradeRow[];
+      tiltNarrative = tiltTrades
+        .map(t => `${formatClock(t.entry_time)} ${(t.r_multiple_actual ?? 0) >= 0 ? "won" : "lost"} ${(t.r_multiple_actual ?? 0).toFixed(1)}R on ${humanSymbol(t.symbol)}`)
+        .join(" → ");
+    }
+
+    // Symbol-level expectancy ranked
+    const bySymbol = new Map<string, TradeRow[]>();
+    for (const t of closedExec) {
+      const arr = bySymbol.get(t.symbol) ?? [];
+      arr.push(t);
+      bySymbol.set(t.symbol, arr);
+    }
+    const symbolExpectancy = Array.from(bySymbol.entries())
+      .filter(([, ts]) => ts.length >= 2)
+      .map(([sym, ts]) => {
+        const total_r = ts.reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
+        const total_pnl = ts.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
+        const wins = ts.filter(t => (t.net_pnl ?? 0) > 0).length;
+        return {
+          symbol: humanSymbol(sym),
+          raw_symbol: sym,
+          trades: ts.length,
+          win_rate: +(wins / ts.length * 100).toFixed(1),
+          expectancy_r: +(total_r / ts.length).toFixed(2),
+          total_r: +total_r.toFixed(2),
+          total_pnl: +total_pnl.toFixed(2),
+        };
+      })
+      .sort((a, b) => b.expectancy_r - a.expectancy_r);
+
+    // Unreviewed R impact
+    const unreviewedR = closedExec
+      .filter(t => !reviews.has(t.id))
+      .reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
+
     const llmPayload = {
       metrics,
       edge_clusters: edges,
@@ -800,6 +1003,10 @@ serve(async (req) => {
       consistency,
       psychology,
       review_excerpts: reviewExcerpts,
+      worst_trade_narratives: worstTradeNarratives,
+      tilt_narrative: tiltNarrative,
+      symbol_expectancy: symbolExpectancy,
+      unreviewed_r_impact: +unreviewedR.toFixed(2),
       _valid_trade_ids: tradeIds,
       _valid_symbols: Array.from(new Set(trades.map(t => t.symbol))),
       _valid_emotions: Array.from(new Set(Array.from(reviews.values()).map(r => r.emotional_state_before).filter(Boolean))) as string[],

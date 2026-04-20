@@ -2,7 +2,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { TrendingUp, TrendingDown, AlertCircle, Target, Brain, Activity, Sparkles, Trophy, Skull } from "lucide-react";
 import { format, parseISO } from "date-fns";
@@ -17,8 +16,17 @@ function formatNum(n: number | null | undefined, digits = 2): string {
   return n.toFixed(digits);
 }
 
+function gradeColors(grade: string | null | undefined) {
+  if (!grade) return { text: "text-muted-foreground", from: "from-muted/30" };
+  const l = grade[0];
+  if (l === "A") return { text: "text-success", from: "from-success/15" };
+  if (l === "B") return { text: "text-primary", from: "from-primary/15" };
+  if (l === "C") return { text: "text-warning", from: "from-warning/15" };
+  return { text: "text-destructive", from: "from-destructive/15" };
+}
+
 function DeltaCell({ value, invert = false }: { value: number | undefined; invert?: boolean }) {
-  if (value == null || !isFinite(value) || value === 0) return <span className="text-muted-foreground text-xs">—</span>;
+  if (value == null || !isFinite(value) || value === 0) return null;
   const positive = invert ? value < 0 : value > 0;
   const Icon = value > 0 ? TrendingUp : TrendingDown;
   return (
@@ -29,16 +37,13 @@ function DeltaCell({ value, invert = false }: { value: number | undefined; inver
   );
 }
 
-function MarkdownWithCitations({ text, citedIds }: { text: string; citedIds: string[] }) {
+function InlineProse({ text }: { text: string }) {
   return (
-    <div className="prose prose-sm prose-invert max-w-none text-foreground">
+    <div className="prose prose-sm max-w-none text-foreground/90 leading-relaxed
+                    prose-p:my-3 prose-p:leading-[1.7]
+                    prose-strong:text-foreground prose-strong:font-semibold
+                    prose-em:text-foreground/80">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-      {citedIds.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-1 not-prose">
-          <span className="text-xs text-muted-foreground mr-1">Cited:</span>
-          {citedIds.map(id => <CitedTradeChip key={id} tradeId={id} />)}
-        </div>
-      )}
     </div>
   );
 }
@@ -48,48 +53,157 @@ export function ReportView({ report }: Props) {
   const m = report.metrics?.current;
   const d = report.metrics?.deltas || {};
   const period = `${format(parseISO(report.period_start), "MMM d")} – ${format(parseISO(report.period_end), "MMM d, yyyy")}`;
-  const typeLabel = report.report_type.charAt(0).toUpperCase() + report.report_type.slice(1);
+  const typeLabel = report.report_type.toUpperCase();
+  const colors = gradeColors(report.grade);
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
-      {/* Header */}
-      <header className="space-y-2">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Sparkles className="w-4 h-4" />
-          <span>{typeLabel} Sensei Report · {period}</span>
-        </div>
-        <div className="flex items-start justify-between gap-4">
-          <h1 className="text-3xl font-bold leading-tight flex-1">{report.verdict || "Report"}</h1>
-          {report.grade && (
-            <div className="text-center shrink-0">
-              <div className="text-5xl font-bold text-primary">{report.grade}</div>
-              <div className="text-xs text-muted-foreground mt-1">grade</div>
+    <article className="max-w-4xl mx-auto pb-16">
+      {/* HERO */}
+      <header className={`relative overflow-hidden border-b border-border bg-gradient-to-br ${colors.from} via-background to-background`}>
+        <div className="px-8 pt-10 pb-12">
+          <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-muted-foreground mb-6">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{typeLabel} SENSEI · {period}</span>
+          </div>
+
+          <div className="flex items-start gap-8">
+            {report.grade && (
+              <div className="shrink-0 -mt-2">
+                <div className={`text-8xl font-black leading-none tabular-nums ${colors.text}`}>
+                  {report.grade}
+                </div>
+                <div className="mt-1 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">grade</div>
+              </div>
+            )}
+            <div className="flex-1 min-w-0 pt-1">
+              <p className="font-serif italic text-2xl md:text-3xl leading-snug text-foreground">
+                {report.verdict ? `“${report.verdict}”` : "Report ready."}
+              </p>
+            </div>
+          </div>
+
+          {!isEmpty && m && (
+            <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-3 text-sm">
+              <Stat label="Net P&L" value={`${m.total_pnl >= 0 ? "+" : ""}$${formatNum(m.total_pnl, 0)}`} positive={m.total_pnl >= 0} />
+              <Stat label="Total R" value={`${m.total_r >= 0 ? "+" : ""}${formatNum(m.total_r, 1)}R`} positive={m.total_r >= 0} />
+              <Stat label="Trades" value={`${m.trade_count}`} />
+              <Stat label="Win rate" value={`${formatNum(m.win_rate, 0)}%`} />
+              {m.checklist_compliance_pct != null && (
+                <Stat label="Checklist" value={`${formatNum(m.checklist_compliance_pct, 0)}%`} />
+              )}
             </div>
           )}
+
+          {report.status === "failed" && report.error_message && (
+            <Alert variant="destructive" className="mt-6">
+              <AlertCircle className="w-4 h-4" />
+              <AlertDescription className="text-xs">
+                Sensei narrative failed to generate: {report.error_message}. Computed metrics below are still valid.
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
-        {report.status === "failed" && report.error_message && (
-          <Alert variant="destructive">
-            <AlertCircle className="w-4 h-4" />
-            <AlertDescription className="text-xs">
-              Sensei narrative failed to generate: {report.error_message}. Computed metrics below are still valid.
-            </AlertDescription>
-          </Alert>
-        )}
       </header>
 
       {isEmpty ? (
-        <Card><CardContent className="py-12 text-center text-muted-foreground">No trades in this period.</CardContent></Card>
+        <div className="px-8 pt-12 text-center text-muted-foreground">No trades in this period.</div>
       ) : (
-        <>
-          {/* §2 Numbers */}
+        <div className="px-8 space-y-12 pt-10">
+
+          {/* §7 Sensei's Notes — promoted to the top, article style */}
+          {report.sensei_notes?.sections && report.sensei_notes.sections.length > 0 && (
+            <section className="border-l-4 border-primary pl-6 md:pl-8 space-y-8">
+              <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-primary uppercase">
+                <Sparkles className="w-3.5 h-3.5" /> Sensei's Notes
+              </div>
+              {report.sensei_notes.sections.map((s, i) => (
+                <div key={i} className="space-y-3">
+                  <h2 className="font-serif text-2xl font-semibold tracking-tight text-foreground">
+                    {s.heading}
+                  </h2>
+                  <InlineProse text={s.body} />
+                  {s.cited_trade_ids.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 pt-1">
+                      {s.cited_trade_ids.map(id => <CitedTradeChip key={id} tradeId={id} />)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </section>
+          )}
+
+          {/* §3 What worked — success-tinted */}
+          {report.edge_clusters.length > 0 && (
+            <Card className="border-success/30 bg-success/5">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-success" /> What worked
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {report.edge_clusters.map((c, i) => (
+                  <div key={i} className="flex items-start gap-3 pb-3 border-b border-success/15 last:border-0 last:pb-0">
+                    <div className="flex-1">
+                      <div className="font-medium text-sm">{c.label}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {c.trades} trades · {c.wins}W / {c.trades - c.wins}L · {formatNum(c.total_r, 1)}R · ${formatNum(c.total_pnl, 0)}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {c.trade_ids.slice(0, 8).map(id => <CitedTradeChip key={id} tradeId={id} />)}
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="border-success/40 text-success shrink-0 bg-background/50">
+                      +{formatNum(c.expectancy_r)}R/trade
+                    </Badge>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* §4 What bled — destructive-tinted */}
+          {report.leak_clusters.length > 0 && (
+            <Card className="border-destructive/30 bg-destructive/5">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Skull className="w-4 h-4 text-destructive" /> What bled
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {report.leak_clusters.map((c, i) => (
+                  <div key={i} className="flex items-start gap-3 pb-3 border-b border-destructive/15 last:border-0 last:pb-0">
+                    <div className="flex-1">
+                      <div className="font-medium text-sm">{c.label}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{c.description}</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {c.trades} trades · {c.wins}W / {c.trades - c.wins}L · {formatNum(c.total_r, 1)}R · ${formatNum(c.total_pnl, 0)}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {c.trade_ids.slice(0, 8).map(id => <CitedTradeChip key={id} tradeId={id} />)}
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="border-destructive/40 text-destructive shrink-0 bg-background/50">
+                      {c.pattern_type}
+                    </Badge>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* §2 Numbers — compact horizontal strip */}
           <Card>
-            <CardHeader><CardTitle className="text-base flex items-center gap-2"><Activity className="w-4 h-4" /> The numbers that matter</CardTitle></CardHeader>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Activity className="w-4 h-4" /> The numbers
+              </CardTitle>
+            </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
                 {[
-                  { label: "Net P&L", value: formatNum(m?.total_pnl), delta: d.total_pnl },
-                  { label: "Total R", value: formatNum(m?.total_r), delta: d.total_r },
-                  { label: "Trades", value: m?.trade_count ?? 0, delta: d.trade_count },
+                  { label: "Net P&L", value: `$${formatNum(m?.total_pnl, 0)}`, delta: d.total_pnl },
+                  { label: "Total R", value: `${formatNum(m?.total_r, 1)}R`, delta: d.total_r },
+                  { label: "Trades", value: `${m?.trade_count ?? 0}`, delta: d.trade_count },
                   { label: "Win rate", value: `${formatNum(m?.win_rate, 1)}%`, delta: d.win_rate },
                   { label: "Profit factor", value: formatNum(m?.profit_factor), delta: d.profit_factor },
                   { label: "Expectancy", value: `${formatNum(m?.expectancy_r)}R`, delta: d.expectancy_r },
@@ -97,130 +211,104 @@ export function ReportView({ report }: Props) {
                   { label: "Checklist", value: m?.checklist_compliance_pct != null ? `${formatNum(m.checklist_compliance_pct, 0)}%` : "—", delta: d.checklist_compliance_pct },
                 ].map((cell) => (
                   <div key={cell.label}>
-                    <div className="text-xs text-muted-foreground">{cell.label}</div>
-                    <div className="text-xl font-semibold mt-0.5">{cell.value}</div>
-                    <DeltaCell value={cell.delta as number | undefined} invert={cell.invert} />
+                    <div className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">{cell.label}</div>
+                    <div className="text-xl font-semibold mt-1 tabular-nums">{cell.value}</div>
+                    <div className="h-4 mt-0.5"><DeltaCell value={cell.delta as number | undefined} invert={cell.invert} /></div>
                   </div>
                 ))}
               </div>
             </CardContent>
           </Card>
 
-          {/* §3 What worked */}
-          {report.edge_clusters.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle className="text-base flex items-center gap-2"><Trophy className="w-4 h-4 text-success" /> What worked</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                {report.edge_clusters.map((c, i) => (
-                  <div key={i} className="flex items-start gap-3 pb-3 border-b border-border last:border-0 last:pb-0">
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">{c.label}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {c.trades} trades · {c.wins}W / {c.trades - c.wins}L · {formatNum(c.total_r)}R · ${formatNum(c.total_pnl)}
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-0.5">
-                        {c.trade_ids.slice(0, 8).map(id => <CitedTradeChip key={id} tradeId={id} />)}
-                      </div>
-                    </div>
-                    <Badge variant="outline" className="border-success/40 text-success shrink-0">+{formatNum(c.expectancy_r)}R/trade</Badge>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* §4 What bled */}
-          {report.leak_clusters.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle className="text-base flex items-center gap-2"><Skull className="w-4 h-4 text-destructive" /> What bled</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                {report.leak_clusters.map((c, i) => (
-                  <div key={i} className="flex items-start gap-3 pb-3 border-b border-border last:border-0 last:pb-0">
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">{c.label}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">{c.description}</div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {c.trades} trades · {c.wins}W / {c.trades - c.wins}L · {formatNum(c.total_r)}R · ${formatNum(c.total_pnl)}
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-0.5">
-                        {c.trade_ids.slice(0, 8).map(id => <CitedTradeChip key={id} tradeId={id} />)}
-                      </div>
-                    </div>
-                    <Badge variant="outline" className="border-destructive/40 text-destructive shrink-0">{c.pattern_type}</Badge>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* §5 Consistency */}
+          {/* §5 Consistency — horizontal stat row */}
           {report.consistency && Object.keys(report.consistency).length > 0 && (
             <Card>
-              <CardHeader><CardTitle className="text-base">Consistency audit</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Pair concentration (HHI)</div>
-                  <div className="mt-1">
-                    {formatNum(report.consistency.pair_concentration?.hhi, 2)}
-                    {report.consistency.pair_concentration?.flagged && <Badge variant="outline" className="ml-2 border-destructive/40 text-destructive text-xs">over-concentrated</Badge>}
-                  </div>
-                  {report.consistency.pair_concentration?.top_symbol && (
-                    <div className="text-xs text-muted-foreground">{report.consistency.pair_concentration.top_symbol} = {formatNum((report.consistency.pair_concentration.top_symbol_share ?? 0) * 100, 0)}%</div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Risk consistency</div>
-                  <div className="mt-1">
-                    σ {formatNum(report.consistency.risk_consistency?.risk_pct_stddev, 2)}%
-                    {report.consistency.risk_consistency?.flagged && <Badge variant="outline" className="ml-2 border-destructive/40 text-destructive text-xs">variable</Badge>}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Frequency vs 90d baseline</div>
-                  <div className="mt-1">
-                    {formatNum(report.consistency.frequency_drift?.trades_per_day)}/day
-                    <span className="text-muted-foreground"> (baseline {formatNum(report.consistency.frequency_drift?.baseline_trades_per_day)})</span>
-                    {report.consistency.frequency_drift?.flagged && <Badge variant="outline" className="ml-2 border-destructive/40 text-destructive text-xs">drift</Badge>}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Time discipline</div>
-                  <div className="mt-1">
-                    {report.consistency.time_discipline?.flagged_sessions?.length
-                      ? <span>Drifting in: {report.consistency.time_discipline.flagged_sessions.join(", ")}</span>
-                      : <span className="text-muted-foreground">Consistent across sessions</span>}
-                  </div>
+              <CardHeader className="pb-3"><CardTitle className="text-base">Consistency audit</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <ConsistencyStat
+                    label="Pair concentration"
+                    value={formatNum(report.consistency.pair_concentration?.hhi, 2)}
+                    sub={report.consistency.pair_concentration?.top_symbol
+                      ? `${report.consistency.pair_concentration.top_symbol} ${formatNum((report.consistency.pair_concentration.top_symbol_share ?? 0) * 100, 0)}%`
+                      : undefined}
+                    flagged={report.consistency.pair_concentration?.flagged}
+                    flagText="over-concentrated"
+                  />
+                  <ConsistencyStat
+                    label="Risk variance"
+                    value={`σ ${formatNum(report.consistency.risk_consistency?.risk_pct_stddev, 2)}%`}
+                    flagged={report.consistency.risk_consistency?.flagged}
+                    flagText="variable"
+                  />
+                  <ConsistencyStat
+                    label="Frequency"
+                    value={`${formatNum(report.consistency.frequency_drift?.trades_per_day)}/day`}
+                    sub={`baseline ${formatNum(report.consistency.frequency_drift?.baseline_trades_per_day)}`}
+                    flagged={report.consistency.frequency_drift?.flagged}
+                    flagText="drifting"
+                  />
+                  <ConsistencyStat
+                    label="Time discipline"
+                    value={report.consistency.time_discipline?.flagged_sessions?.length
+                      ? "Drifting"
+                      : "On-rhythm"}
+                    sub={report.consistency.time_discipline?.flagged_sessions?.join(", ") || undefined}
+                    flagged={!!report.consistency.time_discipline?.flagged_sessions?.length}
+                    flagText="off-rhythm"
+                  />
                 </div>
               </CardContent>
             </Card>
           )}
 
-          {/* §6 Psychology */}
+          {/* §6 Psychology — emotion heatmap */}
           {report.psychology && (report.psychology.top_emotions?.length || report.psychology.tilt_sequences?.length) && (
             <Card>
-              <CardHeader><CardTitle className="text-base flex items-center gap-2"><Brain className="w-4 h-4" /> Psychology patterns</CardTitle></CardHeader>
-              <CardContent className="space-y-4 text-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2"><Brain className="w-4 h-4" /> Psychology patterns</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5 text-sm">
                 {report.psychology.top_emotions?.length > 0 && (
                   <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Emotional states by frequency</div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                      {report.psychology.top_emotions.map(e => (
-                        <div key={e.state} className="border border-border rounded-md p-2">
-                          <div className="font-medium capitalize">{e.state}</div>
-                          <div className="text-xs text-muted-foreground">{e.count} trades · avg {formatNum(e.avg_r)}R {!e.sample_size_ok && "(small n)"}</div>
-                        </div>
-                      ))}
+                    <div className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase mb-2">
+                      Emotional state → outcome
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {report.psychology.top_emotions.map(e => {
+                        const positive = e.avg_r >= 0;
+                        return (
+                          <div
+                            key={e.state}
+                            className={`px-3 py-2 rounded-md border ${
+                              positive ? "border-success/40 bg-success/10" : "border-destructive/40 bg-destructive/10"
+                            }`}
+                          >
+                            <div className="text-xs font-semibold capitalize">{e.state}</div>
+                            <div className={`text-sm font-bold tabular-nums ${positive ? "text-success" : "text-destructive"}`}>
+                              {e.avg_r >= 0 ? "+" : ""}{formatNum(e.avg_r, 2)}R
+                            </div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5">
+                              {e.count} {e.count === 1 ? "trade" : "trades"}{!e.sample_size_ok && " · low n"}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
                 {report.psychology.common_mistake_phrases?.length > 0 && (
                   <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Recurring mistakes</div>
+                    <div className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase mb-2">
+                      Recurring self-noted mistakes
+                    </div>
                     <div className="space-y-1">
                       {report.psychology.common_mistake_phrases.map((p, i) => (
-                        <div key={i} className="text-sm flex items-center justify-between">
-                          <span>"{p.phrase}"</span>
-                          <span className="text-xs text-muted-foreground">{p.count}× · {formatNum(p.cost_r)}R</span>
+                        <div key={i} className="text-sm flex items-center justify-between border-b border-border/50 pb-1 last:border-0">
+                          <span className="italic text-foreground/80">"{p.phrase}"</span>
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {p.count}× · <span className={p.cost_r < 0 ? "text-destructive" : "text-success"}>{formatNum(p.cost_r, 1)}R</span>
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -228,32 +316,22 @@ export function ReportView({ report }: Props) {
                 )}
                 {report.psychology.tilt_sequences?.length > 0 && (
                   <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Tilt sequences (3+ losses in a row)</div>
-                    {report.psychology.tilt_sequences.map((t, i) => (
-                      <div key={i} className="text-sm">
-                        Started {format(parseISO(t.started_at), "MMM d, HH:mm")} · {t.length} trades · {formatNum(t.cumulative_r)}R
-                      </div>
-                    ))}
+                    <div className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase mb-2">
+                      Tilt sequences (3+ losses in a row)
+                    </div>
+                    <div className="space-y-1">
+                      {report.psychology.tilt_sequences.map((t, i) => (
+                        <div key={i} className="text-sm">
+                          <span className="text-muted-foreground">{format(parseISO(t.started_at), "MMM d, HH:mm")}</span>
+                          {" · "}
+                          <span>{t.length} trades</span>
+                          {" · "}
+                          <span className="text-destructive font-medium tabular-nums">{formatNum(t.cumulative_r, 1)}R</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* §7 Sensei's Notes */}
-          {report.sensei_notes?.sections && report.sensei_notes.sections.length > 0 && (
-            <Card className="border-primary/30">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" /> Sensei's notes</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {report.sensei_notes.sections.map((s, i) => (
-                  <div key={i}>
-                    <h3 className="font-semibold text-base mb-2">{s.heading}</h3>
-                    <MarkdownWithCitations text={s.body} citedIds={s.cited_trade_ids} />
-                    {i < report.sensei_notes!.sections.length - 1 && <Separator className="mt-6" />}
-                  </div>
-                ))}
               </CardContent>
             </Card>
           )}
@@ -261,7 +339,7 @@ export function ReportView({ report }: Props) {
           {/* Prior goals evaluation */}
           {report.prior_goals_evaluation?.goals && report.prior_goals_evaluation.goals.length > 0 && (
             <Card>
-              <CardHeader><CardTitle className="text-base">Last period's goals</CardTitle></CardHeader>
+              <CardHeader className="pb-3"><CardTitle className="text-base">Last period's goals</CardTitle></CardHeader>
               <CardContent className="space-y-2">
                 {report.prior_goals_evaluation.goals.map((g, i) => (
                   <div key={i} className="flex items-start justify-between gap-2 text-sm">
@@ -278,13 +356,17 @@ export function ReportView({ report }: Props) {
           {/* §9 Goals */}
           {report.goals && report.goals.length > 0 && (
             <Card>
-              <CardHeader><CardTitle className="text-base flex items-center gap-2"><Target className="w-4 h-4" /> Goals for next period</CardTitle></CardHeader>
-              <CardContent className="space-y-2">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2"><Target className="w-4 h-4" /> Goals for next period</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
                 {report.goals.map((g, i) => (
-                  <div key={g.id || i} className="flex items-start gap-2 text-sm">
-                    <span className="text-muted-foreground shrink-0">{i + 1}.</span>
-                    <span className="flex-1">{g.text}</span>
-                    <Badge variant="outline" className="text-xs">{g.metric} {g.comparator} {g.target}</Badge>
+                  <div key={g.id || i} className="flex items-start gap-3 text-sm">
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center">
+                      {i + 1}
+                    </span>
+                    <span className="flex-1 leading-snug">{g.text}</span>
+                    <Badge variant="outline" className="text-xs shrink-0 font-mono">{g.metric} {g.comparator} {g.target}</Badge>
                   </div>
                 ))}
               </CardContent>
@@ -295,12 +377,39 @@ export function ReportView({ report }: Props) {
           {report.schema_suggestions && report.schema_suggestions.length > 0 && (
             <div className="space-y-3">
               <h2 className="text-base font-semibold flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-primary" /> Make next month's report sharper
+                <Sparkles className="w-4 h-4 text-primary" /> Make next period's report sharper
               </h2>
               {report.schema_suggestions.map((s, i) => <SchemaSuggestionCard key={i} suggestion={s} />)}
             </div>
           )}
-        </>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function Stat({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
+  const colorClass = positive == null ? "text-foreground" : positive ? "text-success" : "text-destructive";
+  return (
+    <div>
+      <div className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">{label}</div>
+      <div className={`text-lg font-bold tabular-nums mt-0.5 ${colorClass}`}>{value}</div>
+    </div>
+  );
+}
+
+function ConsistencyStat({
+  label, value, sub, flagged, flagText,
+}: { label: string; value: string; sub?: string; flagged?: boolean; flagText: string }) {
+  return (
+    <div>
+      <div className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">{label}</div>
+      <div className="text-base font-semibold mt-1 tabular-nums">{value}</div>
+      {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
+      {flagged && (
+        <Badge variant="outline" className="mt-1.5 border-destructive/40 text-destructive text-[10px]">
+          {flagText}
+        </Badge>
       )}
     </div>
   );

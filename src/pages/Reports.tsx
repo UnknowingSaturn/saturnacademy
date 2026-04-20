@@ -47,13 +47,16 @@ const StrategyLabPage = React.forwardRef<HTMLDivElement, object>(function Report
         ) : selected ? (
           <ReportView report={selected} />
         ) : reports.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center px-6">
-            <Sparkles className="w-12 h-12 text-primary mb-4" />
-            <h2 className="text-2xl font-semibold mb-2">Your trading sensei is ready</h2>
-            <p className="text-muted-foreground max-w-md mb-6">
-              Every Saturday morning a weekly report will be waiting here, with a monthly recap on the 1st. Generate one now from any custom range to try it out.
-            </p>
-            <Button onClick={() => setGenOpen(true)}><Sparkles className="w-4 h-4 mr-2" /> Generate your first report</Button>
+          <div className="h-full flex items-center justify-center px-6">
+            <div className="max-w-lg text-center border-l-4 border-primary pl-8 py-6">
+              <p className="font-serif italic text-2xl leading-snug text-foreground mb-3">
+                "Reviewing tape is what separates pros from gamblers."
+              </p>
+              <p className="text-sm text-muted-foreground mb-6">
+                Every Saturday morning a weekly report will be waiting here, with a monthly recap on the 1st. Generate one now from any custom range to try it out.
+              </p>
+              <Button onClick={() => setGenOpen(true)}><Sparkles className="w-4 h-4 mr-2" /> Generate your first report</Button>
+            </div>
           </div>
         ) : (
           <div className="h-full flex items-center justify-center text-muted-foreground">Select a report</div>
