@@ -917,7 +917,7 @@ serve(async (req) => {
       prior_period_label: priorBlock ? `previous ${report_type === 'monthly' ? 'month' : report_type === 'weekly' ? 'week' : 'period'}` : null,
     };
 
-    // Build LLM payload
+    // Build LLM payload — enrich with worst-trade narrative, tilt narrative, symbol expectancy
     const reviewExcerpts = (reviewsArr || []).map((r: any) => ({
       trade_id: r.trade_id,
       mistakes: asArray(r.mistakes),
@@ -927,6 +927,75 @@ serve(async (req) => {
       psychology_notes: r.psychology_notes,
     })).filter((r: any) => r.mistakes.length || r.did_well.length || r.to_improve.length || r.thoughts || r.psychology_notes);
 
+    // Worst-trade narratives — top 3 losses with full review context + time gap to prior trade
+    const closedExec = (trades as TradeRow[]).filter(t => !t.is_open && t.trade_type === 'executed');
+    const sortedByR = [...closedExec].sort((a, b) => (a.r_multiple_actual ?? 0) - (b.r_multiple_actual ?? 0));
+    const sortedByTime = [...closedExec].sort((a, b) => a.entry_time.localeCompare(b.entry_time));
+    const worstTradeNarratives = sortedByR.slice(0, 3).map(t => {
+      const r = reviews.get(t.id);
+      const idx = sortedByTime.findIndex(x => x.id === t.id);
+      const prior = idx > 0 ? sortedByTime[idx - 1] : null;
+      const gapMin = prior ? Math.round((new Date(t.entry_time).getTime() - new Date(prior.exit_time || prior.entry_time).getTime()) / 60000) : null;
+      return {
+        trade_id: t.id,
+        trade_number: t.trade_number,
+        symbol: humanSymbol(t.symbol),
+        date: formatDateShort(t.entry_time),
+        clock: formatClock(t.entry_time),
+        r_multiple: t.r_multiple_actual,
+        net_pnl: t.net_pnl,
+        session: humanSession(t.session),
+        emotion_before: r?.emotional_state_before || null,
+        thoughts: r?.thoughts?.slice(0, 400) || null,
+        mistakes: asArray(r?.mistakes).slice(0, 5),
+        psychology_notes: r?.psychology_notes?.slice(0, 300) || null,
+        minutes_after_prior_trade: gapMin,
+        prior_trade_outcome_r: prior?.r_multiple_actual ?? null,
+      };
+    });
+
+    // Tilt narrative — longest tilt sequence as plain English chronology
+    const longestTilt = [...(psychology.tilt_sequences || [])].sort((a: any, b: any) => b.length - a.length)[0];
+    let tiltNarrative: string | null = null;
+    if (longestTilt && longestTilt.trade_ids?.length) {
+      const tiltTrades = longestTilt.trade_ids
+        .map((id: string) => closedExec.find(t => t.id === id))
+        .filter(Boolean) as TradeRow[];
+      tiltNarrative = tiltTrades
+        .map(t => `${formatClock(t.entry_time)} ${(t.r_multiple_actual ?? 0) >= 0 ? "won" : "lost"} ${(t.r_multiple_actual ?? 0).toFixed(1)}R on ${humanSymbol(t.symbol)}`)
+        .join(" → ");
+    }
+
+    // Symbol-level expectancy ranked
+    const bySymbol = new Map<string, TradeRow[]>();
+    for (const t of closedExec) {
+      const arr = bySymbol.get(t.symbol) ?? [];
+      arr.push(t);
+      bySymbol.set(t.symbol, arr);
+    }
+    const symbolExpectancy = Array.from(bySymbol.entries())
+      .filter(([, ts]) => ts.length >= 2)
+      .map(([sym, ts]) => {
+        const total_r = ts.reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
+        const total_pnl = ts.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
+        const wins = ts.filter(t => (t.net_pnl ?? 0) > 0).length;
+        return {
+          symbol: humanSymbol(sym),
+          raw_symbol: sym,
+          trades: ts.length,
+          win_rate: +(wins / ts.length * 100).toFixed(1),
+          expectancy_r: +(total_r / ts.length).toFixed(2),
+          total_r: +total_r.toFixed(2),
+          total_pnl: +total_pnl.toFixed(2),
+        };
+      })
+      .sort((a, b) => b.expectancy_r - a.expectancy_r);
+
+    // Unreviewed R impact
+    const unreviewedR = closedExec
+      .filter(t => !reviews.has(t.id))
+      .reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
+
     const llmPayload = {
       metrics,
       edge_clusters: edges,
@@ -934,6 +1003,10 @@ serve(async (req) => {
       consistency,
       psychology,
       review_excerpts: reviewExcerpts,
+      worst_trade_narratives: worstTradeNarratives,
+      tilt_narrative: tiltNarrative,
+      symbol_expectancy: symbolExpectancy,
+      unreviewed_r_impact: +unreviewedR.toFixed(2),
       _valid_trade_ids: tradeIds,
       _valid_symbols: Array.from(new Set(trades.map(t => t.symbol))),
       _valid_emotions: Array.from(new Set(Array.from(reviews.values()).map(r => r.emotional_state_before).filter(Boolean))) as string[],
