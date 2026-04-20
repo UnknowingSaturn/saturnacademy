@@ -730,24 +730,43 @@ Write the 5 sections, the headline verdict, the letter grade, and 3 measurable g
   if (!call) throw new Error("No tool call returned by model");
   const args = JSON.parse(call.function.arguments);
 
-  // Validate citations & enforce prose-quality
+  // Validate citations & enforce prose-quality (soft — keep partial sections, only hard-drop on banned opener)
   const validIdSet = new Set(validTradeIds);
-  const sections = (args.sections || [])
-    .map((s: any) => ({
-      heading: s.heading,
-      body: s.body || "",
-      cited_trade_ids: (s.cited_trade_ids || []).filter((id: string) => validIdSet.has(id)),
-    }))
-    // strip sections with banned content / no citations / too short / number-heavy
-    .filter((s: any) => s.cited_trade_ids.length > 0)
-    .filter((s: any) => !BANNED_PHRASES.some(p => s.body.toLowerCase().includes(p)))
-    .filter((s: any) => {
-      const lower = s.body.toLowerCase().trim();
-      if (BANNED_OPENERS.some(o => lower.startsWith(o))) return false;
-      if (wordCount(s.body) < 40) return false;
-      if (alphaRatio(s.body) < 0.55) return false; // mostly numbers/IDs → reject
-      return true;
-    });
+  const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+  const stripUuids = (s: string) => s
+    .replace(UUID_RE, "")
+    .replace(/\(\s*trade\s*id\s*:\s*[`'"]*\s*[`'"]*\s*\)/gi, "")
+    .replace(/\(\s*[`'"]*\s*[`'"]*\s*\)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .trim();
+
+  const rawSections = (args.sections || []).map((s: any) => ({
+    heading: s.heading || "",
+    body: stripUuids(s.body || ""),
+    cited_trade_ids: (s.cited_trade_ids || []).filter((id: string) => validIdSet.has(id)),
+  }));
+
+  const isVerdictSection = (heading: string) => /verdict/i.test(heading);
+
+  const filtered = rawSections.filter((s: any) => {
+    const lower = s.body.toLowerCase().trim();
+    // Hard-drop only on a banned opener (clear "recap-the-table" tell)
+    if (BANNED_OPENERS.some(o => lower.startsWith(o))) return false;
+    // Verdict section is allowed to summarize without citations
+    if (!isVerdictSection(s.heading) && s.cited_trade_ids.length === 0) {
+      (s as any)._quality_warning = "missing_citations";
+    }
+    if (BANNED_PHRASES.some(p => s.body.toLowerCase().includes(p))) {
+      (s as any)._quality_warning = "banned_phrase";
+    }
+    if (wordCount(s.body) < 40) (s as any)._quality_warning = "short_body";
+    if (alphaRatio(s.body) < 0.55) (s as any)._quality_warning = "low_alpha";
+    return true;
+  });
+
+  // If filtering left us with <5, fall back to raw sections (with UUIDs stripped) — better partial than blank
+  const sections = filtered.length >= 5 ? filtered : rawSections;
 
   // Goals stamped with status pending
   const goals = (args.goals || []).map((g: any) => ({
@@ -757,7 +776,7 @@ Write the 5 sections, the headline verdict, the letter grade, and 3 measurable g
   }));
 
   return {
-    verdict: rewriteVerdict(args.verdict || ""),
+    verdict: rewriteVerdict(stripUuids(args.verdict || "")),
     grade: args.grade,
     sections,
     goals,
