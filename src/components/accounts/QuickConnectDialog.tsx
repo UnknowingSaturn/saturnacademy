@@ -177,6 +177,7 @@ export const QuickConnectDialog = React.forwardRef<HTMLDivElement, QuickConnectD
               <p>2. Navigate to <strong>MQL5 → Experts</strong></p>
               <p>3. Copy the downloaded file here</p>
               <p>4. Restart MT5 or right-click Navigator → Refresh</p>
+              <p>5. Double-click the file to open it in MetaEditor and press <strong>F7</strong> to compile</p>
             </div>
           </div>
 
@@ -287,6 +288,9 @@ export const QuickConnectDialog = React.forwardRef<HTMLDivElement, QuickConnectD
                   Generate API Key
                 </Button>
               )}
+              <p className="text-xs text-muted-foreground">
+                When the EA settings dialog appears, also tick <strong>Allow Algo Trading</strong> under the <strong>Common</strong> tab.
+              </p>
             </div>
           </div>
 
@@ -304,7 +308,7 @@ export const QuickConnectDialog = React.forwardRef<HTMLDivElement, QuickConnectD
         <div className="flex justify-between items-center pt-2 border-t">
           <Button variant="link" size="sm" className="text-muted-foreground px-0" asChild>
             <a 
-              href="https://docs.lovable.dev" 
+              href="/mt5-bridge/INSTALL.md" 
               target="_blank" 
               rel="noopener noreferrer"
             >
