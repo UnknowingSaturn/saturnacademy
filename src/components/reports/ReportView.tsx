@@ -2,11 +2,13 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { TrendingUp, TrendingDown, AlertCircle, Target, Brain, Activity, Sparkles, Trophy, Skull } from "lucide-react";
+import { TrendingUp, TrendingDown, AlertCircle, Target, Brain, Activity, Sparkles, Trophy, Skull, RefreshCw } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { CitedTradeChip } from "./CitedTradeChip";
 import { SchemaSuggestionCard } from "./SchemaSuggestionCard";
+import { useRerunSensei } from "@/hooks/useSenseiReports";
 import type { Report } from "@/types/reports";
 
 interface Props { report: Report }
@@ -55,15 +57,31 @@ export function ReportView({ report }: Props) {
   const period = `${format(parseISO(report.period_start), "MMM d")} – ${format(parseISO(report.period_end), "MMM d, yyyy")}`;
   const typeLabel = report.report_type.toUpperCase();
   const colors = gradeColors(report.grade);
+  const rerun = useRerunSensei();
+  const isRerunning = rerun.isPending && rerun.variables === report.id;
 
   return (
     <article className="max-w-4xl mx-auto pb-16">
       {/* HERO */}
       <header className={`relative overflow-hidden border-b border-border bg-gradient-to-br ${colors.from} via-background to-background`}>
         <div className="px-8 pt-10 pb-12">
-          <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-muted-foreground mb-6">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{typeLabel} SENSEI · {period}</span>
+          <div className="flex items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-muted-foreground">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{typeLabel} SENSEI · {period}</span>
+            </div>
+            {!isEmpty && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => rerun.mutate(report.id)}
+                disabled={isRerunning}
+                className="h-7 text-xs"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRerunning ? "animate-spin" : ""}`} />
+                {isRerunning ? "Rewriting…" : "Re-run Sensei"}
+              </Button>
+            )}
           </div>
 
           <div className="flex items-start gap-8">
@@ -79,6 +97,11 @@ export function ReportView({ report }: Props) {
               <p className="font-serif italic text-2xl md:text-3xl leading-snug text-foreground">
                 {report.verdict ? `“${report.verdict}”` : "Report ready."}
               </p>
+              {report.sensei_regenerated_at && (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Narrative refreshed {format(parseISO(report.sensei_regenerated_at), "MMM d, HH:mm")}
+                </p>
+              )}
             </div>
           </div>
 

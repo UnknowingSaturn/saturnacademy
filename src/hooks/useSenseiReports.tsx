@@ -49,6 +49,32 @@ export function useGenerateReport() {
   });
 }
 
+export function useRerunSensei() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (report_id: string) => {
+      const { data, error } = await supabase.functions.invoke("generate-report", {
+        body: { action: "rerun_sensei", report_id },
+      });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      return (data as any).report as Report;
+    },
+    onSuccess: (report) => {
+      qc.invalidateQueries({ queryKey: ["reports", "list"] });
+      qc.invalidateQueries({ queryKey: ["reports", "detail", report.id] });
+      if (report.status === "failed") {
+        toast.error(`Sensei rerun failed: ${report.error_message ?? "unknown"} — previous narrative kept.`);
+      } else {
+        toast.success("Sensei rewrote the narrative");
+      }
+    },
+    onError: (e: Error) => {
+      toast.error(`Rerun failed: ${e.message}`);
+    },
+  });
+}
+
 export function useDeleteReport() {
   const qc = useQueryClient();
   return useMutation({

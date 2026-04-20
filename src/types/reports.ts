@@ -169,6 +169,7 @@ export interface Report {
 
   sensei_notes: SenseiNotes | null;
   sensei_model: string | null;
+  sensei_regenerated_at?: string | null;
 
   schema_suggestions: SchemaSuggestion[];
   goals: ReportGoal[];
