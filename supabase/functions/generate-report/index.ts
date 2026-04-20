@@ -24,7 +24,77 @@ const BANNED_PHRASES = [
   "stick to the plan",
   "patience is a virtue",
   "the market is always right",
+  "considerable decline",
+  "substantial negative",
+  "needs improvement",
+  "indicating a need for",
+  "review trades like",
+  "for entry optimizations",
+  "moving forward",
+  "going forward",
+  "in conclusion",
+  "overall performance",
 ];
+
+const BANNED_OPENERS = [
+  "your total r was",
+  "this period saw",
+  "it is observed that",
+  "this week saw",
+  "this month saw",
+  "during this period",
+  "overall, ",
+  "in summary",
+];
+
+// Humanize raw labels for the LLM so it never parrots `new_york_am · XAGUSD · unknown (No playbook)`.
+const SESSION_NAMES: Record<string, string> = {
+  tokyo: "Tokyo",
+  london: "London",
+  new_york: "NY",
+  new_york_am: "NY-AM",
+  new_york_pm: "NY-PM",
+  overlap_london_ny: "London/NY overlap",
+  off_hours: "off-hours",
+  unknown: "untagged session",
+};
+
+const SYMBOL_NICKNAMES: Record<string, string> = {
+  XAUUSD: "Gold",
+  XAGUSD: "Silver",
+  US30: "Dow",
+  NAS100: "Nasdaq",
+  SPX500: "S&P",
+  SP500: "S&P",
+  GER40: "DAX",
+  UK100: "FTSE",
+  BTCUSD: "Bitcoin",
+  ETHUSD: "Ethereum",
+};
+
+function humanSession(s: string | null | undefined): string {
+  if (!s) return "untagged session";
+  return SESSION_NAMES[s] ?? s.replace(/_/g, " ");
+}
+function humanSymbol(s: string): string {
+  return SYMBOL_NICKNAMES[s.toUpperCase()] ?? s;
+}
+function humanizeClusterLabel(session: string, symbol: string, emotion: string, playbook: string): string {
+  const parts = [humanSession(session), humanSymbol(symbol)];
+  if (emotion && emotion !== "unknown") parts.push(`feeling ${emotion}`);
+  if (playbook && playbook !== "No playbook" && playbook !== "Unnamed") parts.push(`playbook "${playbook}"`);
+  return parts.join(", ");
+}
+function formatClock(iso: string): string {
+  const d = new Date(iso);
+  const hh = d.getUTCHours().toString().padStart(2, "0");
+  const mm = d.getUTCMinutes().toString().padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+function formatDateShort(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
 
 // ------------------------------ helpers ------------------------------
 
@@ -175,7 +245,7 @@ function clusterTrades(trades: TradeRow[], reviews: Map<string, ReviewRow>, play
     const total_pnl = ts.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
     const expectancy_r = total_r / ts.length;
     const cluster = {
-      label: `${session} · ${symbol} · ${emotion} (${playbook})`,
+      label: humanizeClusterLabel(session, symbol, emotion, playbook),
       dimensions: { session, symbol, emotion, playbook },
       trades: ts.length,
       wins,
