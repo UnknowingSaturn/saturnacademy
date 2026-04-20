@@ -5,7 +5,6 @@ import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { useLiveTrades } from "@/contexts/LiveTradesContext";
 import { Playbook } from "@/types/trading";
-import { ModelSelectionPrompt } from "@/components/journal/ModelSelectionPrompt";
 import { LiveTradeCompliancePanel } from "@/components/journal/LiveTradeCompliancePanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
