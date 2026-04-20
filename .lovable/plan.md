@@ -1,87 +1,39 @@
 
 
-# Account Selection in Trade Entry: What's Right
+# Verify MT5 Connect Instructions & URL
 
-## Direct answers to your three questions
+## Direct answer
 
-### 1. "Can I not add trades if there are no accounts?"
+**The URL is correct.** `https://soosdjmnpcyuqppdjsse.supabase.co` is your actual cloud project URL, and the EA (`TradeJournalBridge.mq5` v3.00) calls `https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/ingest-events`. MT5's WebRequest whitelist matches by URL prefix, so whitelisting the root domain is correct and sufficient — no change needed there.
 
-**Right now:** Both `ManualTradeForm` (Journal) and `StartLiveTradeDialog` (Live Trades) render normally with an empty account dropdown. Submission is blocked silently because `accountId` is empty — confusing dead-end with no guidance.
+**The instructions are mostly correct but have 3 small issues** worth fixing:
 
-**Industry standard:** Yes, you MUST have at least one account to log a trade. Every serious tool (Tradervue, Edgewonk, TraderSync, MT5) requires it. A trade without an account has no balance, no risk %, no equity curve — half the analytics break.
+### Issue 1 — Step 2 missing the compile step
+After copying the `.mq5` file to `MQL5/Experts/`, the user must **compile it** (open in MetaEditor → press F7) before MT5 recognizes it as an EA. Restart/refresh alone won't work — they'll see the file but no EA in the Navigator. Every working install guide we have (`mt5-bridge/INSTALL.md`, `MT5SetupDialog.tsx`) mentions compile; only `QuickConnectDialog` skips it.
 
-**Fix:** When `accounts.length === 0`, both dialogs should show an empty-state with a "Create Account" CTA that opens the account creation flow (or links to `/accounts`). Don't render the form fields at all.
+### Issue 2 — Step 5 missing "Allow Algo Trading" + "Allow WebRequest" checkboxes on the chart
+When the user drags the EA onto a chart, the dialog that appears has a "Common" tab with checkboxes. They need to tick **"Allow Algo Trading"** (or the smiley face turns sad and the EA does nothing). Worth adding a one-line note.
 
-### 2. "Is it industry standard to add an 'all accounts' option" (in the entry form)?
+### Issue 3 — "Need help?" link points to wrong place
+Currently links to `https://docs.lovable.dev` (generic Lovable docs). It should link to the project's own install guide at `/mt5-bridge/INSTALL.md` (which is already shipped and detailed), matching what `MT5SetupDialog.tsx` does.
 
-**No.** This is a clear convention across the industry:
-
-- **Filtering / viewing** = "All Accounts" makes sense (you want aggregated stats). You already have this in `AccountFilterContext`.
-- **Creating a trade** = always exactly ONE account. A trade is a real position on a real broker — it has one account_id, one balance impact, one ticket, one P&L stream.
-
-Every platform (Tradervue, Edgewonk, MT5, cTrader, TradingView) does it this way. Adding "All" to the create form would force you to invent fake aggregate semantics that break P&L, R-multiple, and risk %.
-
-**No change needed.** Keep entry forms as single-select.
-
-### 3. "Selecting multiple at the same time to avoid duplicates" — your real workflow
-
-I think you're describing this scenario: **you place the same trade on 2+ accounts simultaneously** (e.g., personal + 2 prop firms, or a copier setup), and you don't want to type the same setup data three times.
-
-**Industry standard solution:** "Mirror trade to multiple accounts" — multi-select that creates **N separate trade rows**, one per account, sharing the symbol/direction/entry/SL/TP/playbook, but with each account's own lot size (computed from its own balance × risk %). This is exactly what your desktop copier does for live execution; we'd mirror the pattern for manual entry.
-
-This is NOT the same as "all accounts" — it's an explicit multi-select where you pick which 2-3 accounts to mirror to.
-
-**What this prevents:**
-- Typing the same trade 3 times
-- Forgetting to log on one of the mirrored accounts (the duplicate-avoidance you mentioned)
-- Mismatched entry prices / playbooks across accounts
-
-**What it correctly preserves:**
-- One trade row per account (so each account's equity curve, P&L, balance updates independently)
-- Per-account lot sizing (different balances → different lot sizes for same risk %)
-- Per-account ticket numbers (when added later from broker)
+### Verified correct (no change)
+- ✅ URL `https://soosdjmnpcyuqppdjsse.supabase.co` — matches `VITE_SUPABASE_URL` and the EA's hardcoded endpoint
+- ✅ Step 1 download path (`/TradeJournalBridge.mq5` exists in `public/`)
+- ✅ Step 2 folder path (`File → Open Data Folder → MQL5 → Experts`)
+- ✅ Step 3 WebRequest config location (`Tools → Options → Expert Advisors`)
+- ✅ Step 4 history import toggle + presets work as described
+- ✅ Step 5 API key (setup token) generation flow works
 
 ## Plan
 
-### A. Empty-state when no accounts (both dialogs)
+Edit `src/components/accounts/QuickConnectDialog.tsx`:
 
-When `accounts.length === 0`:
-- Replace the form body with a centered empty-state: icon + "Create an account first" message + "Create Account" button that navigates to `/accounts`
-- Disable the submit button
-- Apply to both `ManualTradeForm` and `StartLiveTradeDialog`
-
-### B. Multi-account mirroring in `StartLiveTradeDialog`
-
-Replace the single account `Select` with a **multi-select** (checkbox dropdown):
-- Default: the currently filtered account (or first account)
-- User can tick additional accounts to mirror to
-- Show a small badge: "Mirroring to 3 accounts"
-- On submit: loop `useCreateTrade.mutateAsync` once per selected account, with per-account computed lot size (each account's own `balance_start × risk%` / stop distance)
-- Toast: "Live trade opened on 3 accounts"
-- After creation: select the trade on the **currently filtered account** (or the first one if "all" is filtered)
-
-Keep the "Risk %" sizing mode as the default — it's the only mode where mirroring makes sense (each account gets its right size). In "Lots" mode, force single-account (mirroring fixed lots across different-balance accounts is a bug-magnet — show a hint: "Switch to Risk % to mirror across accounts").
-
-### C. Multi-account mirroring in `ManualTradeForm` (Journal)
-
-Same multi-select pattern, but only for `trade_type === "executed"`. For `idea`/`paper`/`missed` it stays single-select (hypothetical trades belong to one account context).
-
-When mirroring on the Journal form:
-- Lots mode disabled when 2+ accounts selected (same reason as above)
-- Risk % mode required for multi-select
-- Same loop-create-trades-per-account pattern
-
-### D. No DB changes
-
-Each mirrored trade is a normal row in `trades` with its own `account_id`. No new tables, no shared-trade-id concept. RLS, analytics, and edge functions all keep working as-is.
-
-## Files
-
-| File | Change |
+| Step | Change |
 |------|--------|
-| `src/components/live/StartLiveTradeDialog.tsx` | No-accounts empty state; replace single Select with multi-account picker (checkboxes); per-account lot calculation; loop `mutateAsync`; "Lots" mode forces single-select |
-| `src/components/journal/ManualTradeForm.tsx` | No-accounts empty state; multi-account picker for `executed` type only; same per-account loop |
-| `src/components/accounts/QuickConnectDialog.tsx` or new tiny `NoAccountsEmptyState.tsx` | Reusable empty state component (icon + copy + CTA → `/accounts`) |
+| Step 2 | Add 5th sub-step: "Open the file in MetaEditor and press **F7** to compile" |
+| Step 5 | Add a sub-line under the API key: "When the EA settings dialog appears, also tick **Allow Algo Trading** under the Common tab" |
+| Footer "Need help?" link | Change `href` from `https://docs.lovable.dev` to `/mt5-bridge/INSTALL.md` (open in new tab) |
 
-No migrations. No edge function changes. No new dependencies — checkbox + popover already in shadcn.
+No code logic, no DB, no edge function changes. Pure copy + one link href fix.
 
