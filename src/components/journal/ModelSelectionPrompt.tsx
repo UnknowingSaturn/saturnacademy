@@ -124,7 +124,7 @@ export function ModelSelectionPrompt({ trade, onModelSelected }: ModelSelectionP
           <Label className="text-xs text-muted-foreground mb-2 block">
             Or select from all playbooks
           </Label>
-          <Select value={selectedPlaybookId} onValueChange={setSelectedPlaybookId}>
+          <Select value={selectedPlaybookId} onValueChange={handleSelectPlaybook}>
             <SelectTrigger>
               <SelectValue placeholder="Select a playbook..." />
             </SelectTrigger>
