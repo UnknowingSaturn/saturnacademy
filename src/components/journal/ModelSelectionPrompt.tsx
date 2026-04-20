@@ -90,7 +90,7 @@ export function ModelSelectionPrompt({ trade, onModelSelected }: ModelSelectionP
               {suggestedPlaybooks.map((playbook) => (
                 <button
                   key={playbook.id}
-                  onClick={() => setSelectedPlaybookId(playbook.id)}
+                  onClick={() => handleSelectPlaybook(playbook.id)}
                   className={cn(
                     "flex items-center gap-3 p-3 rounded-lg border text-left transition-all",
                     selectedPlaybookId === playbook.id
