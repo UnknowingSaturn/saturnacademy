@@ -17,16 +17,31 @@ interface ModelSelectionPromptProps {
 export function ModelSelectionPrompt({ trade, onModelSelected }: ModelSelectionPromptProps) {
   const { data: playbooks = [] } = usePlaybooks();
   const updateTrade = useUpdateTrade();
-  const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>("");
+  const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>(trade.playbook_id || "");
   const [isLoading, setIsLoading] = useState(false);
 
   const selectedPlaybook = playbooks.find(p => p.id === selectedPlaybookId);
 
+  const handleSelectPlaybook = async (playbookId: string) => {
+    setSelectedPlaybookId(playbookId);
+    const pb = playbooks.find(p => p.id === playbookId);
+    if (!pb) return;
+    // Auto-save immediately on selection so progress isn't lost
+    try {
+      await updateTrade.mutateAsync({
+        id: trade.id,
+        playbook_id: pb.id,
+      });
+    } catch {
+      // surfaced via mutation toast
+    }
+  };
+
   const handleConfirm = async () => {
     if (!selectedPlaybook) return;
-    
     setIsLoading(true);
     try {
+      // Already saved on selection, but ensure persistence then notify parent
       await updateTrade.mutateAsync({
         id: trade.id,
         playbook_id: selectedPlaybook.id,
