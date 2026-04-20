@@ -981,7 +981,8 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "no trades found in period" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const model = body.model || existing.sensei_model || (existing.report_type === 'custom' ? 'google/gemini-2.5-flash' : 'google/gemini-2.5-pro');
+      // Reruns always default to gemini-2.5-pro — deeper reasoning handles long structured-output (5 sections + goals) far better than flash
+      const model = body.model || 'google/gemini-2.5-pro';
 
       const updatePayload: any = { sensei_regenerated_at: new Date().toISOString(), sensei_model: model };
       try {
