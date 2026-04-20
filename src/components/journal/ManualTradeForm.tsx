@@ -12,6 +12,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Plus, Lightbulb, FileText, Clock, CheckCircle, Percent, Hash } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
+import { NoAccountsEmptyState } from "@/components/shared/NoAccountsEmptyState";
+import { MultiAccountPicker } from "@/components/shared/MultiAccountPicker";
 
 const TRADE_TYPE_OPTIONS: { value: TradeType; label: string; icon: React.ReactNode; description: string }[] = [
   { value: "executed", label: "Executed", icon: <CheckCircle className="w-4 h-4" />, description: "Real trade taken" },
@@ -20,14 +23,24 @@ const TRADE_TYPE_OPTIONS: { value: TradeType; label: string; icon: React.ReactNo
   { value: "missed", label: "Missed", icon: <Clock className="w-4 h-4" />, description: "Should have taken" },
 ];
 
+function computeLotsFor(balance: number, riskPct: number, entry: number, sl: number): number {
+  if (!balance || !riskPct || !entry || !sl) return 0;
+  const stopDistance = Math.abs(entry - sl);
+  if (stopDistance === 0) return 0;
+  const riskAmount = (balance * riskPct) / 100;
+  const lotSize = riskAmount / (stopDistance * 10);
+  return Math.max(0.01, Math.round(lotSize * 100) / 100);
+}
+
 export function ManualTradeForm() {
   const [open, setOpen] = useState(false);
   const createTrade = useCreateTrade();
   const { data: playbooks } = usePlaybooks();
   const { selectedAccountId, accounts } = useAccountFilter();
+  const { toast } = useToast();
 
   const [tradeType, setTradeType] = useState<TradeType>("executed");
-  const [accountId, setAccountId] = useState<string>("");
+  const [accountIds, setAccountIds] = useState<string[]>([]);
   const [symbol, setSymbol] = useState("");
   const [direction, setDirection] = useState<"buy" | "sell">("buy");
   const [entryPrice, setEntryPrice] = useState("");
@@ -45,20 +58,31 @@ export function ManualTradeForm() {
   const [reasonNotTaken, setReasonNotTaken] = useState("");
 
   const isNonExecuted = tradeType !== "executed";
+  const isMirroring = !isNonExecuted && accountIds.length > 1;
+  // Multi-account only allowed for executed + risk_percent mode
+  const allowMultiSelect = !isNonExecuted && riskMode === "risk_percent";
 
   // Set default account when accounts load or selection changes
   useEffect(() => {
-    if (accounts.length > 0 && !accountId) {
-      const defaultAccount = selectedAccountId !== "all" 
-        ? selectedAccountId 
+    if (accounts.length > 0 && accountIds.length === 0) {
+      const defaultAccount = selectedAccountId !== "all"
+        ? selectedAccountId
         : accounts[0]?.id;
-      if (defaultAccount) setAccountId(defaultAccount);
+      if (defaultAccount) setAccountIds([defaultAccount]);
     }
-  }, [accounts, selectedAccountId, accountId]);
+  }, [accounts, selectedAccountId, accountIds.length]);
+
+  // Force single-account when not allowed (non-executed or lots mode)
+  useEffect(() => {
+    if (!allowMultiSelect && accountIds.length > 1) {
+      setAccountIds([accountIds[0]]);
+    }
+  }, [allowMultiSelect, accountIds]);
 
   const resetForm = () => {
     setTradeType("executed");
-    setAccountId(selectedAccountId !== "all" ? selectedAccountId : accounts[0]?.id || "");
+    const def = selectedAccountId !== "all" ? selectedAccountId : accounts[0]?.id || "";
+    setAccountIds(def ? [def] : []);
     setSymbol("");
     setDirection("buy");
     setEntryPrice("");
@@ -79,48 +103,84 @@ export function ManualTradeForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // For non-executed trades, allow risk % instead of lots
-    const hasSize = isNonExecuted 
+    const hasSize = isNonExecuted
       ? (riskMode === "lots" ? lots : riskPercent)
-      : lots;
+      : (riskMode === "risk_percent" ? riskPercent && sl : lots);
 
-    if (!symbol || !entryPrice || !entryTime || !hasSize || !accountId) return;
+    if (!symbol || !entryPrice || !entryTime || !hasSize || accountIds.length === 0) return;
 
-    // For non-executed trades, they're always "closed" conceptually (hypothetical outcome)
     const isOpen = tradeType === "executed" ? (!exitPrice || !exitTime) : false;
+    const entryNum = parseFloat(entryPrice);
+    const slNum = sl ? parseFloat(sl) : undefined;
 
-    // Determine total_lots and risk_percent based on mode
-    const totalLots = isNonExecuted && riskMode === "risk_percent" 
-      ? 0.01 // Placeholder lot size for risk-based trades
-      : parseFloat(lots);
-    
-    const riskPercentValue = isNonExecuted && riskMode === "risk_percent"
-      ? parseFloat(riskPercent)
-      : undefined;
+    let successCount = 0;
+    const errors: string[] = [];
 
-    await createTrade.mutateAsync({
-      account_id: accountId,
-      symbol: symbol.toUpperCase(),
-      direction,
-      entry_price: parseFloat(entryPrice),
-      entry_time: new Date(entryTime).toISOString(),
-      exit_price: exitPrice ? parseFloat(exitPrice) : undefined,
-      exit_time: exitTime ? new Date(exitTime).toISOString() : undefined,
-      total_lots: totalLots,
-      risk_percent: riskPercentValue,
-      sl_initial: sl ? parseFloat(sl) : undefined,
-      tp_initial: tp ? parseFloat(tp) : undefined,
-      session: session || undefined,
-      net_pnl: pnl ? parseFloat(pnl) : undefined,
-      is_open: isOpen,
-      playbook_id: strategy || undefined,
-      trade_type: tradeType,
-      // Store reason not taken in the place field for now (could be separate field later)
-      place: isNonExecuted && reasonNotTaken ? `[${tradeType}] ${reasonNotTaken}` : undefined,
-    });
+    for (const acctId of accountIds) {
+      const acct = accounts.find((a) => a.id === acctId);
 
-    resetForm();
-    setOpen(false);
+      // Per-account lot size
+      let totalLots: number;
+      let riskPercentValue: number | undefined;
+
+      if (riskMode === "risk_percent") {
+        const balance = acct?.balance_start || acct?.equity_current || 0;
+        riskPercentValue = parseFloat(riskPercent);
+        if (isNonExecuted) {
+          // Hypothetical: placeholder lots since no real risk
+          totalLots = 0.01;
+        } else {
+          totalLots = computeLotsFor(balance, riskPercentValue, entryNum, slNum ?? entryNum);
+          if (!totalLots || totalLots <= 0) {
+            errors.push(acct?.name ?? acctId);
+            continue;
+          }
+        }
+      } else {
+        totalLots = parseFloat(lots);
+      }
+
+      try {
+        await createTrade.mutateAsync({
+          account_id: acctId,
+          symbol: symbol.toUpperCase(),
+          direction,
+          entry_price: entryNum,
+          entry_time: new Date(entryTime).toISOString(),
+          exit_price: exitPrice ? parseFloat(exitPrice) : undefined,
+          exit_time: exitTime ? new Date(exitTime).toISOString() : undefined,
+          total_lots: totalLots,
+          risk_percent: riskPercentValue,
+          sl_initial: slNum,
+          tp_initial: tp ? parseFloat(tp) : undefined,
+          session: session || undefined,
+          net_pnl: pnl ? parseFloat(pnl) : undefined,
+          is_open: isOpen,
+          playbook_id: strategy || undefined,
+          trade_type: tradeType,
+          place: isNonExecuted && reasonNotTaken ? `[${tradeType}] ${reasonNotTaken}` : undefined,
+        });
+        successCount++;
+      } catch {
+        errors.push(acct?.name ?? acctId);
+      }
+    }
+
+    if (successCount > 1) {
+      toast({ title: `Trade logged on ${successCount} accounts` });
+    }
+    if (errors.length > 0) {
+      toast({
+        title: `Failed on ${errors.length} account${errors.length > 1 ? "s" : ""}`,
+        description: errors.join(", "),
+        variant: "destructive",
+      });
+    }
+
+    if (successCount > 0) {
+      resetForm();
+      setOpen(false);
+    }
   };
 
   return (
@@ -135,23 +195,26 @@ export function ManualTradeForm() {
         <DialogHeader>
           <DialogTitle>Add Trade</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-          {/* Account Selector */}
-          <div className="space-y-2">
-            <Label>Account *</Label>
-            <Select value={accountId} onValueChange={setAccountId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select account" />
-              </SelectTrigger>
-              <SelectContent>
-                {accounts.map((account) => (
-                  <SelectItem key={account.id} value={account.id}>
-                    {account.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+
+        {accounts.length === 0 ? (
+          <NoAccountsEmptyState onAction={() => setOpen(false)} />
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+            {/* Account Selector */}
+            <div className="space-y-2">
+              <Label>{isMirroring ? "Accounts *" : "Account *"}</Label>
+              <MultiAccountPicker
+                accounts={accounts}
+                selectedIds={accountIds}
+                onChange={setAccountIds}
+                singleSelect={!allowMultiSelect}
+                singleSelectHint={
+                  !isNonExecuted && riskMode === "lots"
+                    ? "Switch to Risk % to mirror across multiple accounts."
+                    : undefined
+                }
+              />
+            </div>
 
           {/* Trade Type Selector */}
           <div className="space-y-2">
@@ -262,65 +325,48 @@ export function ManualTradeForm() {
 
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              {isNonExecuted ? (
-                <>
-                  <div className="flex items-center justify-between">
-                    <Label>{riskMode === "lots" ? "Lots" : "Risk %"} *</Label>
-                    <ToggleGroup 
-                      type="single" 
-                      value={riskMode} 
-                      onValueChange={(v) => v && setRiskMode(v as "lots" | "risk_percent")}
-                      className="h-6"
-                    >
-                      <ToggleGroupItem value="lots" aria-label="Lots" className="h-6 px-2 text-xs gap-1">
-                        <Hash className="w-3 h-3" />
-                        Lots
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value="risk_percent" aria-label="Risk %" className="h-6 px-2 text-xs gap-1">
-                        <Percent className="w-3 h-3" />
-                        Risk
-                      </ToggleGroupItem>
-                    </ToggleGroup>
-                  </div>
-                  {riskMode === "lots" ? (
-                    <Input
-                      id="lots"
-                      type="number"
-                      step="0.01"
-                      value={lots}
-                      onChange={(e) => setLots(e.target.value)}
-                      placeholder="0.10"
-                      required
-                    />
-                  ) : (
-                    <Input
-                      id="riskPercent"
-                      type="number"
-                      step="0.1"
-                      value={riskPercent}
-                      onChange={(e) => setRiskPercent(e.target.value)}
-                      placeholder="1.0"
-                      required
-                    />
-                  )}
-                </>
+              <div className="flex items-center justify-between">
+                <Label>{riskMode === "lots" ? "Lots" : "Risk %"} *</Label>
+                <ToggleGroup
+                  type="single"
+                  value={riskMode}
+                  onValueChange={(v) => v && setRiskMode(v as "lots" | "risk_percent")}
+                  className="h-6"
+                >
+                  <ToggleGroupItem value="lots" aria-label="Lots" className="h-6 px-2 text-xs gap-1">
+                    <Hash className="w-3 h-3" />
+                    Lots
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="risk_percent" aria-label="Risk %" className="h-6 px-2 text-xs gap-1">
+                    <Percent className="w-3 h-3" />
+                    Risk
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+              {riskMode === "lots" ? (
+                <Input
+                  id="lots"
+                  type="number"
+                  step="0.01"
+                  value={lots}
+                  onChange={(e) => setLots(e.target.value)}
+                  placeholder="0.10"
+                  required
+                />
               ) : (
-                <>
-                  <Label htmlFor="lots">Lots *</Label>
-                  <Input
-                    id="lots"
-                    type="number"
-                    step="0.01"
-                    value={lots}
-                    onChange={(e) => setLots(e.target.value)}
-                    placeholder="0.10"
-                    required
-                  />
-                </>
+                <Input
+                  id="riskPercent"
+                  type="number"
+                  step="0.1"
+                  value={riskPercent}
+                  onChange={(e) => setRiskPercent(e.target.value)}
+                  placeholder="1.0"
+                  required
+                />
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="sl">Stop Loss</Label>
+              <Label htmlFor="sl">Stop Loss{!isNonExecuted && riskMode === "risk_percent" ? " *" : ""}</Label>
               <Input
                 id="sl"
                 type="number"
@@ -328,6 +374,7 @@ export function ManualTradeForm() {
                 value={sl}
                 onChange={(e) => setSl(e.target.value)}
                 placeholder="1.0800"
+                required={!isNonExecuted && riskMode === "risk_percent"}
               />
             </div>
             <div className="space-y-2">
@@ -388,6 +435,11 @@ export function ManualTradeForm() {
               onChange={(e) => setPnl(e.target.value)}
               placeholder={isNonExecuted ? "What would have been..." : "125.50"}
             />
+            {isMirroring && pnl && (
+              <p className="text-xs text-muted-foreground">
+                Same P&L will be applied to all {accountIds.length} mirrored trades. Edit per-trade later if broker P&L differs.
+              </p>
+            )}
           </div>
 
           {/* Reason Not Taken - only for non-executed trades */}
@@ -401,7 +453,7 @@ export function ManualTradeForm() {
                 value={reasonNotTaken}
                 onChange={(e) => setReasonNotTaken(e.target.value)}
                 placeholder={
-                  tradeType === "idea" 
+                  tradeType === "idea"
                     ? "No confirmation, wrong session, risk limit reached..."
                     : tradeType === "missed"
                     ? "Wasn't watching charts, hesitated, distracted..."
@@ -417,10 +469,15 @@ export function ManualTradeForm() {
               Cancel
             </Button>
             <Button type="submit" disabled={createTrade.isPending}>
-              {createTrade.isPending ? "Adding..." : "Add Trade"}
+              {createTrade.isPending
+                ? "Adding..."
+                : isMirroring
+                  ? `Add to ${accountIds.length} Accounts`
+                  : "Add Trade"}
             </Button>
           </div>
-        </form>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );
