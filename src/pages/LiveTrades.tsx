@@ -71,9 +71,6 @@ export default function LiveTrades() {
     }
   }, [selectedTrade, playbooks]);
 
-  const handleModelSelected = (playbook: Playbook) => {
-    setSelectedPlaybook(playbook);
-  };
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['open-trades'] });
