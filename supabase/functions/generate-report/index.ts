@@ -596,13 +596,14 @@ VOICE
 - No hedging. No corporate speak. No motivational filler.
 
 HARD RULES (non-negotiable)
-1. EVERY paragraph must cite 1–3 specific trade IDs from the whitelist, anchored with their actual P&L/R-multiple/date — not just bare IDs.
+1. EVERY section (except "The Verdict") must cite 1–3 specific trade IDs from the whitelist in the cited_trade_ids array. Reference those trades in prose by their trade_number and date — e.g., "trade #29 on Dec 11 lost -17.4R" — NEVER paste the raw UUID string into the body. The cited_trade_ids array handles linking; the prose names the trade by number+date.
 2. NEVER invent numbers. Only use values that appear verbatim in the supplied data.
 3. NEVER start the verdict or any section body with: "Your total R was…", "This period saw…", "It is observed that…", "During this period…", "Overall, …", "In summary…".
 4. NEVER use generic coaching clichés ("stay disciplined", "trust the process", "manage risk", "consistency is key", "trust your edge", "cut your losses", "let your winners run", "needs improvement", "indicating a need for", "moving forward", "for entry optimizations").
-5. Symbols, emotions, and playbook names you reference MUST appear in the whitelists.
+5. Symbols, emotions, and playbook names you reference MUST appear in the whitelists. Use the humanized cluster labels in prose (e.g., "London session on Gold, feeling focused") — NEVER quote raw cluster keys like "new_york_am · XAGUSD · unknown".
 6. If a sample is small (n < 10 for a pattern), say so explicitly inside the paragraph instead of asserting it as fact.
 7. Each section body must be at least 50 words of actual prose — not a list of numbers and IDs.
+8. NO raw UUIDs anywhere in body text. No "(trade ID: abc-123-...)". The chip system below the prose handles citation links.
 
 REQUIRED STRUCTURE — produce these 5 sections, in this order, with these exact headings:
   1. "The Verdict" — single paragraph (≤80 words). Names the single most important thing about the period in plain language.
@@ -729,24 +730,43 @@ Write the 5 sections, the headline verdict, the letter grade, and 3 measurable g
   if (!call) throw new Error("No tool call returned by model");
   const args = JSON.parse(call.function.arguments);
 
-  // Validate citations & enforce prose-quality
+  // Validate citations & enforce prose-quality (soft — keep partial sections, only hard-drop on banned opener)
   const validIdSet = new Set(validTradeIds);
-  const sections = (args.sections || [])
-    .map((s: any) => ({
-      heading: s.heading,
-      body: s.body || "",
-      cited_trade_ids: (s.cited_trade_ids || []).filter((id: string) => validIdSet.has(id)),
-    }))
-    // strip sections with banned content / no citations / too short / number-heavy
-    .filter((s: any) => s.cited_trade_ids.length > 0)
-    .filter((s: any) => !BANNED_PHRASES.some(p => s.body.toLowerCase().includes(p)))
-    .filter((s: any) => {
-      const lower = s.body.toLowerCase().trim();
-      if (BANNED_OPENERS.some(o => lower.startsWith(o))) return false;
-      if (wordCount(s.body) < 40) return false;
-      if (alphaRatio(s.body) < 0.55) return false; // mostly numbers/IDs → reject
-      return true;
-    });
+  const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+  const stripUuids = (s: string) => s
+    .replace(UUID_RE, "")
+    .replace(/\(\s*trade\s*id\s*:\s*[`'"]*\s*[`'"]*\s*\)/gi, "")
+    .replace(/\(\s*[`'"]*\s*[`'"]*\s*\)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .trim();
+
+  const rawSections = (args.sections || []).map((s: any) => ({
+    heading: s.heading || "",
+    body: stripUuids(s.body || ""),
+    cited_trade_ids: (s.cited_trade_ids || []).filter((id: string) => validIdSet.has(id)),
+  }));
+
+  const isVerdictSection = (heading: string) => /verdict/i.test(heading);
+
+  const filtered = rawSections.filter((s: any) => {
+    const lower = s.body.toLowerCase().trim();
+    // Hard-drop only on a banned opener (clear "recap-the-table" tell)
+    if (BANNED_OPENERS.some(o => lower.startsWith(o))) return false;
+    // Verdict section is allowed to summarize without citations
+    if (!isVerdictSection(s.heading) && s.cited_trade_ids.length === 0) {
+      (s as any)._quality_warning = "missing_citations";
+    }
+    if (BANNED_PHRASES.some(p => s.body.toLowerCase().includes(p))) {
+      (s as any)._quality_warning = "banned_phrase";
+    }
+    if (wordCount(s.body) < 40) (s as any)._quality_warning = "short_body";
+    if (alphaRatio(s.body) < 0.55) (s as any)._quality_warning = "low_alpha";
+    return true;
+  });
+
+  // If filtering left us with <5, fall back to raw sections (with UUIDs stripped) — better partial than blank
+  const sections = filtered.length >= 5 ? filtered : rawSections;
 
   // Goals stamped with status pending
   const goals = (args.goals || []).map((g: any) => ({
@@ -756,7 +776,7 @@ Write the 5 sections, the headline verdict, the letter grade, and 3 measurable g
   }));
 
   return {
-    verdict: rewriteVerdict(args.verdict || ""),
+    verdict: rewriteVerdict(stripUuids(args.verdict || "")),
     grade: args.grade,
     sections,
     goals,
@@ -867,10 +887,19 @@ async function buildLlmContext(
     .filter(t => !reviews.has(t.id))
     .reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
 
+  // Re-humanize stored cluster labels at LLM-time so older reports (saved before the humanizer) get clean English
+  const rehumanize = (c: any) => {
+    const d = c?.dimensions || {};
+    if (d.session && d.symbol) {
+      return { ...c, label: humanizeClusterLabel(d.session, d.symbol, d.emotion || "unknown", d.playbook || "No playbook") };
+    }
+    return c;
+  };
+
   return {
     metrics: storedMetrics,
-    edge_clusters: storedEdges,
-    leak_clusters: storedLeaks,
+    edge_clusters: (storedEdges || []).map(rehumanize),
+    leak_clusters: (storedLeaks || []).map(rehumanize),
     consistency: storedConsistency,
     psychology: storedPsychology,
     review_excerpts: reviewExcerpts,
@@ -952,7 +981,8 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "no trades found in period" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const model = body.model || existing.sensei_model || (existing.report_type === 'custom' ? 'google/gemini-2.5-flash' : 'google/gemini-2.5-pro');
+      // Reruns always default to gemini-2.5-pro — deeper reasoning handles long structured-output (5 sections + goals) far better than flash
+      const model = body.model || 'google/gemini-2.5-pro';
 
       const updatePayload: any = { sensei_regenerated_at: new Date().toISOString(), sensei_model: model };
       try {
