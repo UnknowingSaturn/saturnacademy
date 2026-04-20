@@ -59,12 +59,23 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
   
   const existingReview = trade.review;
   const cachedState = getComplianceState(trade.id);
-  
+  const updateTrade = useUpdateTrade();
+  const { data: allPlaybooks = [] } = usePlaybooks();
+
+  // Strip the __live_questions.* prefix from cached/db answers — those belong to LiveTradeQuestionsPanel
+  const stripLiveQuestionKeys = (obj: Record<string, any>): Record<string, boolean> => {
+    const out: Record<string, boolean> = {};
+    for (const k of Object.keys(obj || {})) {
+      if (!k.startsWith('__live_questions.')) out[k] = !!obj[k];
+    }
+    return out;
+  };
+
   const [manualAnswers, setManualAnswers] = useState<Record<string, boolean>>(
-    cachedState?.manualAnswers || existingReview?.checklist_answers || {}
+    cachedState?.manualAnswers || stripLiveQuestionKeys((existingReview?.checklist_answers as Record<string, any>) || {})
   );
   const [autoVerifiedOpen, setAutoVerifiedOpen] = useState(false);
-  
+
   const pendingSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upsertReview = useUpsertTradeReview();
 
@@ -90,18 +101,29 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
     setAutoVerifiedOpen(!allPassed);
   }, [compliance.autoVerified]);
 
-  // Auto-save checklist answers (debounced)
+  // Helper: merge compliance answers with any existing __live_questions.* keys so we don't clobber them
+  const mergeWithLiveQuestions = (compliance: Record<string, boolean>) => {
+    const base = (existingReview?.checklist_answers || {}) as Record<string, any>;
+    const merged: Record<string, any> = { ...compliance };
+    for (const k of Object.keys(base)) {
+      if (k.startsWith('__live_questions.')) merged[k] = base[k];
+    }
+    return merged;
+  };
+
+  // Auto-save checklist answers (debounced) — only when a playbook is attached
   useEffect(() => {
+    if (!playbook) return;
     if (Object.keys(manualAnswers).length === 0) return;
     if (upsertReview.isPending) return;
-    
+
     registerPendingSave(trade.id, 'compliance');
-    
+
     pendingSaveRef.current = setTimeout(async () => {
       const reviewData = {
         trade_id: trade.id,
         playbook_id: playbook.id,
-        checklist_answers: manualAnswers,
+        checklist_answers: mergeWithLiveQuestions(manualAnswers),
         score: Object.values(manualAnswers).filter(Boolean).length,
         ...(existingReview && {
           regime: existingReview.regime,
@@ -118,23 +140,23 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
         unregisterPendingSave(trade.id, 'compliance');
       }
     }, 500);
-    
+
     return () => {
       if (pendingSaveRef.current) clearTimeout(pendingSaveRef.current);
     };
-  }, [manualAnswers, trade.id, playbook.id, existingReview, upsertReview.isPending, registerPendingSave, unregisterPendingSave]);
+  }, [manualAnswers, trade.id, playbook?.id, existingReview, upsertReview.isPending, registerPendingSave, unregisterPendingSave]);
 
   // Flush pending saves on unmount
   useEffect(() => {
     return () => {
       if (pendingSaveRef.current) {
         clearTimeout(pendingSaveRef.current);
-        if (Object.keys(manualAnswers).length > 0) {
+        if (playbook && Object.keys(manualAnswers).length > 0) {
           upsertReview.mutate({
             review: {
               trade_id: trade.id,
               playbook_id: playbook.id,
-              checklist_answers: manualAnswers,
+              checklist_answers: mergeWithLiveQuestions(manualAnswers),
               score: Object.values(manualAnswers).filter(Boolean).length,
             },
             silent: true,
@@ -143,7 +165,8 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
         unregisterPendingSave(trade.id, 'compliance');
       }
     };
-  }, [manualAnswers, trade.id, playbook.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manualAnswers, trade.id, playbook?.id]);
 
   const toggleAnswer = (ruleId: string) => {
     setManualAnswers(prev => ({
