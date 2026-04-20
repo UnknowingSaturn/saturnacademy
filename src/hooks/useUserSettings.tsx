@@ -97,7 +97,7 @@ export function useUpdateUserSettings() {
       if (updates.visible_columns) dbUpdates.visible_columns = updates.visible_columns;
       if (updates.column_order) dbUpdates.column_order = updates.column_order;
       if (updates.default_filters) dbUpdates.default_filters = updates.default_filters as any;
-      
+      if (updates.live_trade_questions) dbUpdates.live_trade_questions = updates.live_trade_questions as any;
 
       // Check if settings exist
       const { data: existing } = await supabase
