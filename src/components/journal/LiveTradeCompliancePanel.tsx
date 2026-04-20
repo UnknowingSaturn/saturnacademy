@@ -323,109 +323,114 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
 
       <ScrollArea className="h-[calc(100vh-380px)]">
         <div className="space-y-3 pr-4">
-          {/* Auto-Verified Section - Collapsible */}
-          {compliance.autoVerified.length > 0 && (
-            <Collapsible open={autoVerifiedOpen} onOpenChange={setAutoVerifiedOpen}>
-              <Card className="border-border/50">
-                <CollapsibleTrigger asChild>
-                  <CardHeader className="py-2.5 px-4 cursor-pointer hover:bg-muted/30 transition-colors">
-                    <CardTitle className="text-sm flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Shield className="h-4 w-4 text-primary" />
-                        Auto-Verified
-                        {compliance.autoVerified.every(r => r.status === 'passed' || r.status === 'na') && (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-profit" />
-                        )}
-                      </div>
-                      {autoVerifiedOpen ? (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      )}
+          {/* Playbook-driven sections */}
+          {playbook && (
+            <>
+              {/* Auto-Verified Section - Collapsible */}
+              {compliance.autoVerified.length > 0 && (
+                <Collapsible open={autoVerifiedOpen} onOpenChange={setAutoVerifiedOpen}>
+                  <Card className="border-border/50">
+                    <CollapsibleTrigger asChild>
+                      <CardHeader className="py-2.5 px-4 cursor-pointer hover:bg-muted/30 transition-colors">
+                        <CardTitle className="text-sm flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Shield className="h-4 w-4 text-primary" />
+                            Auto-Verified
+                            {compliance.autoVerified.every(r => r.status === 'passed' || r.status === 'na') && (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-profit" />
+                            )}
+                          </div>
+                          {autoVerifiedOpen ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </CardTitle>
+                      </CardHeader>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <CardContent className="px-4 pb-3 pt-0">
+                        <div className="space-y-1.5">
+                          {compliance.autoVerified.map((rule) => (
+                            <div
+                              key={rule.id}
+                              className={cn(
+                                "flex items-center justify-between p-2 rounded-md text-sm",
+                                rule.status === 'passed' && "bg-profit/5",
+                                rule.status === 'failed' && "bg-loss/5",
+                                (rule.status === 'pending' || rule.status === 'na') && "bg-muted/30"
+                              )}
+                            >
+                              <div className="flex items-center gap-2">
+                                {getStatusIcon(rule.status)}
+                                <span className="font-medium">{rule.label}</span>
+                              </div>
+                              {rule.detail && (
+                                <span className="text-xs text-muted-foreground">{rule.detail}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </CollapsibleContent>
+                  </Card>
+                </Collapsible>
+              )}
+
+              {/* Confirmation Rules */}
+              {compliance.confirmationRules.length > 0 && (
+                <Card className="border-border/50">
+                  <CardHeader className="py-2.5 px-4">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Target className="h-4 w-4 text-profit" />
+                      Confirmations
                     </CardTitle>
                   </CardHeader>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
                   <CardContent className="px-4 pb-3 pt-0">
                     <div className="space-y-1.5">
-                      {compliance.autoVerified.map((rule) => (
-                        <div
-                          key={rule.id}
-                          className={cn(
-                            "flex items-center justify-between p-2 rounded-md text-sm",
-                            rule.status === 'passed' && "bg-profit/5",
-                            rule.status === 'failed' && "bg-loss/5",
-                            (rule.status === 'pending' || rule.status === 'na') && "bg-muted/30"
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            {getStatusIcon(rule.status)}
-                            <span className="font-medium">{rule.label}</span>
-                          </div>
-                          {rule.detail && (
-                            <span className="text-xs text-muted-foreground">{rule.detail}</span>
-                          )}
-                        </div>
-                      ))}
+                      {compliance.confirmationRules.map(renderChecklistItem)}
                     </div>
                   </CardContent>
-                </CollapsibleContent>
-              </Card>
-            </Collapsible>
-          )}
+                </Card>
+              )}
 
-          {/* Confirmation Rules */}
-          {compliance.confirmationRules.length > 0 && (
-            <Card className="border-border/50">
-              <CardHeader className="py-2.5 px-4">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Target className="h-4 w-4 text-profit" />
-                  Confirmations
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-3 pt-0">
-                <div className="space-y-1.5">
-                  {compliance.confirmationRules.map(renderChecklistItem)}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+              {/* Invalidation Rules */}
+              {compliance.invalidationRules.length > 0 && (
+                <Card className="border-border/50">
+                  <CardHeader className="py-2.5 px-4">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Ban className="h-4 w-4 text-loss" />
+                      Invalidation Check
+                      <span className="text-xs font-normal text-muted-foreground">
+                        (check if NOT present)
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-4 pb-3 pt-0">
+                    <div className="space-y-1.5">
+                      {compliance.invalidationRules.map(renderChecklistItem)}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
-          {/* Invalidation Rules */}
-          {compliance.invalidationRules.length > 0 && (
-            <Card className="border-border/50">
-              <CardHeader className="py-2.5 px-4">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Ban className="h-4 w-4 text-loss" />
-                  Invalidation Check
-                  <span className="text-xs font-normal text-muted-foreground">
-                    (check if NOT present)
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-3 pt-0">
-                <div className="space-y-1.5">
-                  {compliance.invalidationRules.map(renderChecklistItem)}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Checklist Questions */}
-          {compliance.checklistQuestions.length > 0 && (
-            <Card className="border-border/50">
-              <CardHeader className="py-2.5 px-4">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <ListChecks className="h-4 w-4 text-primary" />
-                  Checklist
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-3 pt-0">
-                <div className="space-y-1.5">
-                  {compliance.checklistQuestions.map(renderChecklistItem)}
-                </div>
-              </CardContent>
-            </Card>
+              {/* Checklist Questions */}
+              {compliance.checklistQuestions.length > 0 && (
+                <Card className="border-border/50">
+                  <CardHeader className="py-2.5 px-4">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <ListChecks className="h-4 w-4 text-primary" />
+                      Checklist
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-4 pb-3 pt-0">
+                    <div className="space-y-1.5">
+                      {compliance.checklistQuestions.map(renderChecklistItem)}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
           )}
 
           {/* Screenshots - Direct Journal Integration */}
