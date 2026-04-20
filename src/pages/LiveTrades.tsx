@@ -209,17 +209,10 @@ export default function LiveTrades() {
                     </div>
                   </CardHeader>
                   <CardContent className="flex-1 p-4 overflow-auto">
-                    {!selectedTrade.playbook_id || !selectedPlaybook ? (
-                      <ModelSelectionPrompt 
-                        trade={selectedTrade} 
-                        onModelSelected={handleModelSelected}
-                      />
-                    ) : (
-                      <LiveTradeCompliancePanel
-                        trade={selectedTrade}
-                        playbook={selectedPlaybook}
-                      />
-                    )}
+                    <LiveTradeCompliancePanel
+                      trade={selectedTrade}
+                      playbook={selectedPlaybook}
+                    />
                   </CardContent>
                 </>
               ) : (
