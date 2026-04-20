@@ -457,8 +457,11 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
             </CardContent>
           </Card>
 
-          {/* Management Tips - Compact */}
-          {compliance.managementRules.length > 0 && (
+          {/* Live Trade Custom Questions — auto-saved, visible regardless of playbook */}
+          <LiveTradeQuestionsPanel trade={trade} playbookId={playbook?.id} />
+
+          {/* Playbook-driven extras */}
+          {playbook && compliance.managementRules.length > 0 && (
             <Card className="border-primary/20 bg-primary/5">
               <CardHeader className="py-2.5 px-4">
                 <CardTitle className="text-sm flex items-center gap-2">
@@ -479,8 +482,7 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
             </Card>
           )}
 
-          {/* Failure Modes Warning */}
-          {compliance.failureModes.length > 0 && (
+          {playbook && compliance.failureModes.length > 0 && (
             <Card className="border-warning/30 bg-warning/5">
               <CardHeader className="py-2.5 px-4">
                 <CardTitle className="text-sm flex items-center gap-2 text-warning">
