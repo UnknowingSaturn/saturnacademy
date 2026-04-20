@@ -24,10 +24,6 @@ verify_jwt = false
 [functions.fresh-start]
 verify_jwt = false
 
-[functions.trade-analytics]
-verify_jwt = false
-
-
 [functions.copier-config]
 verify_jwt = false
 
@@ -37,3 +33,8 @@ verify_jwt = false
 [functions.copier-setup-token]
 verify_jwt = false
 
+[functions.generate-report]
+verify_jwt = false
+
+[functions.schedule-reports]
+verify_jwt = false
