@@ -1,74 +1,48 @@
 
 
-# Codebase Validation & Cleanup Report
+# Fix clipped row dropdowns in Trade Journal
 
-## Scope note
+## What's happening
 
-Your task list mentions "drivers, invoices, supervisors, finance, subscriptions, onboarding". **None of those exist in this project** — Ephemeris is a trading journal + MT5 trade copier. I validated against what's actually here: live-trade journaling, screenshots persistence, playbooks, copier, edge functions. If you meant a different project, let me know.
+When you open an inline dropdown (Emotion / Model / Session / Alignment) on a trade row, it's clipped by the table container — only options that fit inside the visible table area show. With one trade, there's no room below the row, so most options are cut off.
 
-## 1. Functional verification — recent changes are correctly wired
+**Root cause** — two compounding bugs in `src/components/journal/TradeTable.tsx` and `src/components/journal/BadgeSelect.tsx`:
 
-| Area | Status | Notes |
-|---|---|---|
-| Partial-upsert mutation (`useUpsertTradeReview`) | ✅ Correct | Builds payload via `'field' in review` checks, lines 348-362 of `useTrades.tsx`. No defaulted columns. |
-| `LiveTradeCompliancePanel` — fresh-read merge | ✅ Correct | `fetchFreshChecklistAnswers` → `buildMergedAnswers` runs before every debounced save. |
-| `LiveTradeQuestionsPanel` — fresh-read merge | ✅ Correct | Same pattern, prefixes `__live_questions.*`. |
-| `TradeProperties` — partial saves | ✅ Correct | `handleRegimeChange` and `handleEmotionChange` only send their own field. |
-| Screenshot persistence | ✅ Fixed | `handleScreenshotsChange` only sends `screenshots` + optional `playbook_id`. |
-| Optional playbook | ✅ Working | `LiveTrades.tsx` always renders `LiveTradeCompliancePanel`; no playbook gate. |
-| `LiveTradesContext` pending-saves type | ✅ Widened | `Set<'chat' \| 'compliance' \| 'questions'>` matches all three flows. |
-| Supabase linter | ✅ Clean | No warnings. |
+1. `TradeTable`'s outer wrapper has `overflow-x-auto`, which creates a clipping context that traps any absolutely-positioned child both horizontally AND vertically.
+2. `BadgeSelect` renders its dropdown with `absolute z-50` — plain CSS positioning, no portal. Because it's a child of the clipped table, it gets cut off no matter how high the z-index.
 
-## 2. Dead code to remove
+## Fix — render the dropdown in a portal with auto-flip
 
-These were superseded by the recent refactors and have no remaining callers:
+Rewrite `BadgeSelect`'s dropdown layer to escape the table's overflow context and intelligently place itself.
 
-| File / Symbol | Why it can go |
+### 1. `src/components/journal/BadgeSelect.tsx`
+- Replace the inline `<div className="absolute z-50 …">` with a `Popover` from `@/components/ui/popover` (Radix-based, already in the project, renders to a portal).
+- Anchor the `PopoverTrigger` to the existing toggle button (`asChild`).
+- Move the dropdown options list into `PopoverContent` with `align="start"`, `sideOffset={4}`, and `className="w-48 p-1 z-50"`. Radix auto-flips above when there's no space below — solves the "one trade" case.
+- Remove the manual `useEffect` click-outside handler (Popover handles it).
+- Keep the existing toggle/clear/select logic intact — only the rendering layer changes.
+- Keep the `forwardRef` signature so existing usages keep working.
+
+### 2. `src/components/journal/TradeTable.tsx`
+- Change the outer wrapper from `overflow-x-auto` to `overflow-x-auto overflow-y-visible` so vertical popovers (when not portaled, e.g. tooltips) aren't clipped. Belt-and-suspenders since the portal change already fixes it.
+
+### 3. Cleanup (no behavior change)
+- Remove the now-dead `internalRef` / `handleClickOutside` block in `BadgeSelect`.
+
+## Files
+
+| File | Change |
 |---|---|
-| `src/components/journal/ModelSelectionPrompt.tsx` | No imports anywhere. The optional-playbook flow uses an inline `Select` inside `LiveTradeCompliancePanel`. |
-| `useCreateTradeReview` (in `useTrades.tsx`) | Backwards-compat shim that just re-exports `useUpsertTradeReview`. Grep finds zero callers. |
-| `useUpdateTradeReview` (in `useTrades.tsx`) | Legacy partial-update hook. Zero callers — everything goes through the upsert now. |
-| `LiveTrades.tsx` → `handleModelSelected` (line 74-76) | Unused after `ModelSelectionPrompt` was removed from the page. |
+| `src/components/journal/BadgeSelect.tsx` | Rewrite open-state rendering using `Popover` + `PopoverContent` (portaled, auto-flip). Remove manual click-outside effect. Preserve all selection/clear logic and `forwardRef` API. |
+| `src/components/journal/TradeTable.tsx` | Add `overflow-y-visible` alongside `overflow-x-auto` on the outer table wrapper. |
 
-## 3. Minor optimization opportunities (low priority)
+No DB, backend, schema, or dependency changes. Both `Popover` and `Check`/`ChevronDown` icons are already used elsewhere in the project.
 
-- `LiveTradeCompliancePanel.tsx` — the debounced save runs even when only one checkbox toggled. Already debounced at 500ms, no action needed.
-- `useTrades` query — re-fetches the full graph (`*, playbook, trade_reviews, ai_reviews, account`) on every review save. Consider replacing the broad `invalidateQueries(['trades'])` in `useUpsertTradeReview.onSuccess` with a more targeted update — but only if you start seeing perceptible lag. Not urgent.
-- No 1000-row Supabase limit risk on the active queries (filtered by user / date / open status).
+## Validation
 
-## 4. Database integrity
-
-- All 24 tables have RLS enabled with `auth.uid()`-scoped policies (verified via injected schema).
-- No orphaned tables. Every table has a corresponding hook or edge-function consumer.
-- Storage bucket `trade-screenshots` is correctly public and the URL is stored in `trade_reviews.screenshots`.
-- RLS policies use `auth.uid()` directly. Wrapping in `(select auth.uid())` is a micro-optimization; only worth doing on hot multi-row tables. Skip unless profiling shows policy cost.
-
-## 5. Edge functions — all in use
-
-Verified in `supabase/config.toml` and consumers:
-- `ingest-events`, `trades-overlay`, `backfill-trades`, `reprocess-trades`, `restore-trade-times`, `playbook-assistant`, `reprocess-orphan-exits`, `fresh-start`, `trade-analytics`, `copier-config`, `copier-update-check`, `copier-setup-token`, `strategy-lab`. All referenced. No orphans.
-
-## 6. Items I will NOT touch
-
-- Driver/invoice/supervisor/finance flows (don't exist).
-- Subscription/onboarding flows (don't exist).
-- Mobile responsiveness audit (out of scope of the recent changes; would be a separate plan).
-- Multi-role testing (only one role: authenticated user — no admin/supervisor model).
-
-## Plan
-
-| File | Action |
-|---|---|
-| `src/components/journal/ModelSelectionPrompt.tsx` | **Delete** — no consumers |
-| `src/hooks/useTrades.tsx` | **Remove** `useCreateTradeReview` and `useUpdateTradeReview` (lines 387-435) |
-| `src/pages/LiveTrades.tsx` | **Remove** unused `handleModelSelected` (lines 74-76) |
-
-No DB migrations, no edge function changes, no schema changes, no new dependencies.
-
-## Validation after cleanup
-
-1. `tsc --noEmit` → clean
-2. Open live trade → upload screenshot → tick compliance → answer question → switch trade → return → all persist
-3. Trade journal detail panel still saves mistakes/did_well/to_improve correctly (uses `useAutoSave` → `useUpsertTradeReview` → still partial)
-4. Manual trade form still creates via `useCreateTrade` (unaffected)
+1. Journal with 1 trade → click Emotion / Model / Session / Alignment / Profile dropdowns → full option list is visible (auto-flips above the row when below space is tight).
+2. Journal with many trades → dropdowns still open below by default, scroll within the popover when list >60vh.
+3. Multi-select (Alignment, Entry TF) → still toggles items; popover stays open until click-outside.
+4. Clear selection still works for single-select fields.
+5. No regression on table horizontal scroll for narrow viewports.
 
