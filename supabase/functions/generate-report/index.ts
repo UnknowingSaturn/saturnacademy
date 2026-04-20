@@ -288,7 +288,7 @@ function behavioralLeaks(trades: TradeRow[]): any[] {
     const total_r = revenge.reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
     const total_pnl = revenge.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
     leaks.push({
-      label: `Revenge entries (≤30min after a loss)`,
+      label: `Revenge entries within 30 minutes of a loss`,
       pattern_type: 'revenge',
       description: `${revenge.length} trades opened within 30 minutes of a prior loss. ${wins} wins, ${(total_r).toFixed(1)}R total.`,
       trades: revenge.length,
