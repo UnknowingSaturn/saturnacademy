@@ -12,6 +12,7 @@ const transformSettings = (row: any): UserSettings => ({
   visible_columns: row.visible_columns || DEFAULT_VISIBLE_COLUMNS,
   column_order: row.column_order || DEFAULT_VISIBLE_COLUMNS,
   default_filters: row.default_filters || [],
+  live_trade_questions: (row.live_trade_questions as LiveTradeQuestion[]) || DEFAULT_LIVE_TRADE_QUESTIONS,
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
