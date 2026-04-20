@@ -1,76 +1,106 @@
 
 
-# Live Trade Input Saving + Optional Playbook
+# Fix Screenshot Persistence — Root-Cause Architecture Fix
 
-## Direct answers
+## Direct answer
 
-### 1. Does input save as you enter values, or do you lose progress?
+**No, the previous fix was not enough.** It only patched two of five clobbers. There are **five components** that all write to the same `trade_reviews` row through `useUpsertTradeReview`, and the mutation **always writes every column** (defaulting omitted ones to `[]` / `{}` / `null`). Every save by any panel can wipe data written by any other panel.
 
-**Mostly auto-saves, with two gaps.**
+The pass-through "preserve existing values" hacks scattered across `LiveTradeCompliancePanel`, `LiveTradeQuestionsPanel`, and `TradeProperties` are band-aids that read from a stale `trade.review` snapshot — the moment two panels save within the same React Query refetch window, one wins and the other's data gets blown away (often the screenshot, since uploads are fast).
 
-**What auto-saves correctly today:**
-- ✅ **Compliance checkboxes** (`LiveTradeCompliancePanel`) — debounced 500ms via `upsertReview`, with a flush-on-unmount fallback. So ticking a checklist item, then switching trades or navigating away, persists to `trade_reviews`.
-- ✅ **Screenshots** — saved immediately when added (no debounce needed).
-- ✅ **Trade Properties** (session, emotion, model, alignment, etc.) — `TradeProperties` calls `updateTrade` / `upsertReview` on every change, no debounce gap.
+The right fix is **at the mutation layer**, not in each consumer.
 
-**What does NOT save (the gap):**
-- ❌ **`ModelSelectionPrompt`** — the playbook dropdown only persists when you click **"Continue with Compliance Check"**. If you select a playbook, then navigate away or switch trades without clicking the button, the selection is lost.
-- ❌ **`live_trade_questions`** custom Q&A defined on `user_settings.live_trade_questions` (emotional_state, setup_confidence, entry_reasoning, market_context) is **not rendered anywhere** in the live panel. The schema exists, the default JSON is there, but no component reads/writes it. So users can't currently fill those in at all.
+## All writers to `trade_reviews` (audit)
 
-### 2. Make playbook optional for live trades — yes, this is the right call
+| Component | Field it owns | Currently passes through |
+|---|---|---|
+| `LiveTradeCompliancePanel` (debounced) | `checklist_answers` (compliance), `score` | regime, emotional, psychology, screenshots |
+| `LiveTradeCompliancePanel.handleScreenshotsChange` | `screenshots` | checklist_answers, regime, emotional, psychology |
+| `LiveTradeQuestionsPanel` (debounced) | `checklist_answers` (live questions, prefixed) | regime, emotional, psychology, screenshots |
+| `TradeProperties.handleRegimeChange` | `regime` | checklist_answers, emotional, psychology, screenshots |
+| `TradeProperties.handleEmotionChange` | `emotional_state_before` | checklist_answers, regime, psychology, screenshots |
+| `TradeDetailPanel` autosave | mistakes, did_well, to_improve, actionable_steps, thoughts, etc. | (whole review snapshot via `useAutoSave`) |
 
-Currently the live panel is **gated** on a playbook: if `selectedTrade.playbook_id` is missing, you only see `ModelSelectionPrompt` and nothing else. You can't journal, add screenshots, set properties, or answer custom questions without first picking a playbook. That's overly restrictive — many trades are taken outside any defined playbook (news, scalps, exploratory) and the user still wants to capture context.
+Any two of these firing close together = data loss. Screenshots lose the most because uploads return fast and immediately trigger a refetch, leaving the next debounced compliance/questions save holding a stale snapshot.
 
-## Plan
+## Architecture fix — partial upsert at the mutation layer
 
-### A. Make playbook optional in the live panel
+### 1. `useUpsertTradeReview` — write only fields the caller provided
 
-In `src/pages/LiveTrades.tsx`:
-- Stop using `ModelSelectionPrompt` as a hard gate. Always render `LiveTradeCompliancePanel`.
-- Pass `playbook` as `Playbook | null` instead of required.
+Rewrite the payload builder to use **explicit key presence** (`'field' in review`) instead of defaulting omitted fields:
 
-In `src/components/journal/LiveTradeCompliancePanel.tsx`:
-- Accept `playbook: Playbook | null`.
-- When `playbook` is null:
-  - Hide the compliance score ring header — show a small "No playbook" pill with an inline **"Attach playbook"** button (opens a compact Select inline; same `updateTrade({ playbook_id })` call as the prompt does today).
-  - Hide Confirmation / Invalidation / Checklist / Management Tips / Failure Modes / Auto-Verified sections.
-  - Keep visible: Screenshots, Trade Properties, and the new Custom Questions section (B).
-- When playbook is set: show everything as today, plus the new Custom Questions section.
+```ts
+const payload: Record<string, any> = { trade_id: review.trade_id };
+if ('playbook_id' in review)            payload.playbook_id = review.playbook_id;
+if ('score' in review)                  payload.score = review.score ?? 0;
+if ('regime' in review)                 payload.regime = review.regime;
+if ('news_risk' in review)              payload.news_risk = review.news_risk ?? 'none';
+if ('emotional_state_before' in review) payload.emotional_state_before = review.emotional_state_before;
+if ('emotional_state_after' in review)  payload.emotional_state_after = review.emotional_state_after;
+if ('psychology_notes' in review)       payload.psychology_notes = review.psychology_notes;
+if ('thoughts' in review)               payload.thoughts = review.thoughts;
+if ('checklist_answers' in review)      payload.checklist_answers = review.checklist_answers;
+if ('mistakes' in review)               payload.mistakes = review.mistakes;
+if ('did_well' in review)               payload.did_well = review.did_well;
+if ('to_improve' in review)             payload.to_improve = review.to_improve;
+if ('actionable_steps' in review)       payload.actionable_steps = review.actionable_steps;
+if ('screenshots' in review)            payload.screenshots = review.screenshots;
+```
 
-### B. Wire up `live_trade_questions` (auto-save in real time)
+**Key safety property**: Postgres `UPSERT` only updates the columns supplied in the payload (the `INSERT … ON CONFLICT DO UPDATE SET col = EXCLUDED.col` set is implicitly limited to columns present in the INSERT). So a `screenshots`-only save updates only `screenshots` and `updated_at`. Nothing else is touched.
 
-Add a new `LiveTradeQuestionsPanel` component rendered inside `LiveTradeCompliancePanel` (visible whether or not a playbook is set):
-- Read `user_settings.live_trade_questions` (already loaded via `useUserSettings`).
-- Render each question by type: `text` → textarea, `select` → BadgeSelect, `rating` → 1-5 stars/buttons.
-- Store answers inside `trade_reviews.checklist_answers` under a reserved namespace key (e.g. `__live_questions.<questionId>`) so it doesn't collide with playbook checklist IDs and survives without a schema change.
-- Auto-save with the same 500ms debounce + flush-on-unmount pattern already used in `LiveTradeCompliancePanel` (reuse `upsertReview` mutation, register `'questions'` in `pendingSavesRef`).
-- Hydrate initial values from `existingReview.checklist_answers` using the prefix.
+This is the ONLY place we need to fix it. Every consumer benefits automatically.
 
-### C. Fix the playbook-selection persistence gap
+### 2. Special handling for the FIRST insert
 
-In `ModelSelectionPrompt` (still used as an inline "attach playbook" UI in B):
-- Auto-save `playbook_id` on selection change (no need to wait for confirm button) — calls `updateTrade.mutate({ id, playbook_id })` immediately.
-- Keep the visual confirm button but it's now a no-op "Continue" navigation cue rather than the save trigger.
+There's one edge case: the very first time we upsert for a trade, the row doesn't exist yet. `score` has a default of `0` and `news_risk` defaults to `'none'` at the DB level, so omitting them is fine. `checklist_answers` defaults to `'{}'`, arrays default to `'[]'`. So we're safe — Postgres column defaults handle the insert path. No changes needed.
 
-### D. Tiny context/type fix
+### 3. `checklist_answers` is shared between two panels — keep merge semantics there
 
-`LiveTradesContext.registerPendingSave` types include `'questions'` but the implementation Set is typed `Set<'chat' | 'compliance'>`. Widen the inner Set type to `Set<'chat' | 'compliance' | 'questions'>` so the new questions flow can register cleanly. (Pure TS fix, no behavior change.)
+Compliance and Questions both write `checklist_answers` (compliance writes plain keys, questions writes `__live_questions.*` keys). When either panel updates, it must read the current DB value, merge, and write back. They already do this. With the partial-upsert fix, the merge becomes the only correctness requirement for `checklist_answers` (no more clobbering of unrelated fields).
 
-### What stays the same
+To make the merge more robust against stale `existingReview`, add a "fresh-read" right before the save in both panels: `await supabase.from('trade_reviews').select('checklist_answers').eq('trade_id', tradeId).maybeSingle()`, merge with current local answers, then upsert. This eliminates the stale-snapshot race for the shared field. Cheap (one indexed lookup, debounced anyway).
 
-- Compliance checkboxes, screenshots, trade properties — already auto-save, no change.
-- DB schema (`trade_reviews.checklist_answers` is `jsonb`, already accommodates extra keys).
-- RLS, edge functions, migrations — none needed.
+### 4. Remove all pass-through hacks (now dead code)
+
+After fix #1 and #3, delete:
+- `LiveTradeCompliancePanel`: `mergeWithLiveQuestions` stays (still needed for `checklist_answers` merge), but drop the `regime / emotional / psychology / screenshots` pass-throughs in the debounced effect, flush-on-unmount, and `handleScreenshotsChange`.
+- `LiveTradeQuestionsPanel`: drop `regime / emotional / psychology / screenshots` pass-throughs in debounced effect and flush-on-unmount.
+- `TradeProperties.handleRegimeChange` / `handleEmotionChange`: drop the `...(trade.review && { ... })` pass-through blocks.
+
+### 5. Initial-state guard for Questions panel
+
+In `LiveTradeQuestionsPanel`, add: skip save entirely if `existingReview === null` AND all answers are empty/falsy. Prevents an unnecessary empty-review insert on trade open.
+
+### 6. Storage layer is verified correct
+
+`useScreenshots` uploads to the public `trade-screenshots` bucket with permanent storage, returns a `getPublicUrl` (no expiry). Only the DB reference was being wiped — files in storage were always intact. No bucket/RLS/storage changes.
+
+## Why this is the right architectural choice
+
+- **Single source of truth for write semantics** — one mutation, one rule: only write what you sent.
+- **Eliminates a whole class of bugs** — any future panel writing to `trade_reviews` is automatically safe.
+- **No DB schema change, no migration, no breaking change** — Postgres upsert already supports partial updates correctly when columns are omitted from the INSERT clause.
+- **Removes ~40 lines of fragile pass-through code** across three components.
+- **Fresh-read merge** for the one truly shared field (`checklist_answers`) eliminates the stale-snapshot race without introducing locks or optimistic concurrency.
 
 ## Files
 
 | File | Change |
-|------|--------|
-| `src/pages/LiveTrades.tsx` | Drop the `playbook_id` gate; always render `LiveTradeCompliancePanel`, pass `playbook \| null` |
-| `src/components/journal/LiveTradeCompliancePanel.tsx` | Accept nullable playbook; hide playbook-driven sections when null; show inline "Attach playbook" CTA; render new questions panel |
-| `src/components/journal/LiveTradeQuestionsPanel.tsx` (NEW) | Renders `live_trade_questions`, auto-saves into `trade_reviews.checklist_answers` under `__live_questions.*` prefix |
-| `src/components/journal/ModelSelectionPrompt.tsx` | Auto-save `playbook_id` on selection (no longer requires Continue click) |
-| `src/contexts/LiveTradesContext.tsx` | Widen pending-saves Set type to include `'questions'` |
+|---|---|
+| `src/hooks/useTrades.tsx` | Rewrite `useUpsertTradeReview` to build payload with `'field' in review` checks; drop default values for omitted columns |
+| `src/components/journal/LiveTradeCompliancePanel.tsx` | Remove `regime/emotional/psychology/screenshots` pass-throughs from debounced save, flush-on-unmount, `handleScreenshotsChange`; add fresh-read of `checklist_answers` before merge |
+| `src/components/journal/LiveTradeQuestionsPanel.tsx` | Remove same pass-throughs; add fresh-read of `checklist_answers` before merge; add empty-initial-state guard |
+| `src/components/journal/TradeProperties.tsx` | Remove pass-through blocks in `handleRegimeChange` and `handleEmotionChange` (now they only send the field they own) |
 
-No DB migrations. No edge function changes. No new dependencies.
+No DB migrations. No RLS changes. No storage changes. No new dependencies. No edge function redeploys.
+
+## Validation plan
+
+1. Upload screenshot → switch trades → return → screenshot persists ✓
+2. Upload screenshot → tick compliance checkbox (debounce fires) → screenshot persists ✓
+3. Upload screenshot → answer live question (debounce fires) → screenshot persists ✓
+4. Change emotion → screenshot still there ✓
+5. Compliance + Questions both writing `checklist_answers` within 500ms → both keysets retained ✓
+6. Existing journal trades with mistakes/did_well/to_improve unaffected when live panel saves ✓
 
