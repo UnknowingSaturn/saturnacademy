@@ -72,6 +72,7 @@ export function useUserSettings() {
           visible_columns: DEFAULT_VISIBLE_COLUMNS,
           column_order: DEFAULT_VISIBLE_COLUMNS,
           default_filters: [] as FilterCondition[],
+          live_trade_questions: DEFAULT_LIVE_TRADE_QUESTIONS,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as UserSettings;
