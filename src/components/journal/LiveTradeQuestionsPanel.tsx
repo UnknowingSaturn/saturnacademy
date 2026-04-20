@@ -49,38 +49,54 @@ export function LiveTradeQuestionsPanel({ trade, playbookId }: LiveTradeQuestion
     dirtyRef.current = false;
   }, [trade.id, initialAnswers]);
 
-  // Debounced auto-save
+  // Fresh-read of checklist_answers from DB before merging — eliminates the stale-snapshot
+  // race when both compliance and live-questions panels write checklist_answers within the
+  // same debounce window.
+  const fetchFreshChecklistAnswers = async (): Promise<Record<string, any>> => {
+    const { supabase } = await import('@/integrations/supabase/client');
+    const { data } = await supabase
+      .from('trade_reviews')
+      .select('checklist_answers')
+      .eq('trade_id', trade.id)
+      .maybeSingle();
+    return ((data?.checklist_answers as Record<string, any>) || {});
+  };
+
+  const buildMergedAnswers = async (current: Record<string, string | number>) => {
+    const fresh = await fetchFreshChecklistAnswers();
+    // Strip old live-question keys, keep all non-live-question keys (compliance, etc.)
+    const merged: Record<string, any> = {};
+    for (const k of Object.keys(fresh)) {
+      if (!k.startsWith(PREFIX)) merged[k] = fresh[k];
+    }
+    for (const [k, v] of Object.entries(current)) {
+      if (v !== "" && v !== null && v !== undefined) {
+        merged[`${PREFIX}${k}`] = v;
+      }
+    }
+    return merged;
+  };
+
+  const hasNonEmptyAnswer = (a: Record<string, string | number>) =>
+    Object.values(a).some(v => v !== "" && v !== null && v !== undefined && v !== 0);
+
+  // Debounced auto-save — partial upsert: only sends checklist_answers + (optional) playbook_id.
   useEffect(() => {
     if (!dirtyRef.current) return;
     if (upsertReview.isPending) return;
+    // Skip empty initial save when there is no existing review and nothing to save.
+    if (!existingReview && !hasNonEmptyAnswer(answers)) return;
 
     registerPendingSave(trade.id, 'questions');
 
     pendingSaveRef.current = setTimeout(async () => {
-      const baseAnswers = (existingReview?.checklist_answers || {}) as Record<string, any>;
-      // Strip old live-question keys, then re-add current
-      const merged: Record<string, any> = {};
-      for (const k of Object.keys(baseAnswers)) {
-        if (!k.startsWith(PREFIX)) merged[k] = baseAnswers[k];
-      }
-      for (const [k, v] of Object.entries(answers)) {
-        if (v !== "" && v !== null && v !== undefined) {
-          merged[`${PREFIX}${k}`] = v;
-        }
-      }
-
       try {
+        const merged = await buildMergedAnswers(answers);
         await upsertReview.mutateAsync({
           review: {
             trade_id: trade.id,
             ...(playbookId ? { playbook_id: playbookId } : {}),
             checklist_answers: merged,
-            ...(existingReview && {
-              regime: existingReview.regime,
-              emotional_state_before: existingReview.emotional_state_before,
-              psychology_notes: existingReview.psychology_notes,
-              screenshots: existingReview.screenshots,
-            }),
           },
           silent: true,
         });
@@ -97,30 +113,27 @@ export function LiveTradeQuestionsPanel({ trade, playbookId }: LiveTradeQuestion
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answers, trade.id, playbookId]);
 
-  // Flush on unmount
+  // Flush on unmount — partial upsert preserves all other fields.
   useEffect(() => {
     return () => {
       if (pendingSaveRef.current) {
         clearTimeout(pendingSaveRef.current);
-        if (dirtyRef.current) {
-          const baseAnswers = (existingReview?.checklist_answers || {}) as Record<string, any>;
-          const merged: Record<string, any> = {};
-          for (const k of Object.keys(baseAnswers)) {
-            if (!k.startsWith(PREFIX)) merged[k] = baseAnswers[k];
-          }
-          for (const [k, v] of Object.entries(answers)) {
-            if (v !== "" && v !== null && v !== undefined) {
-              merged[`${PREFIX}${k}`] = v;
+        if (dirtyRef.current && (existingReview || hasNonEmptyAnswer(answers))) {
+          (async () => {
+            try {
+              const merged = await buildMergedAnswers(answers);
+              upsertReview.mutate({
+                review: {
+                  trade_id: trade.id,
+                  ...(playbookId ? { playbook_id: playbookId } : {}),
+                  checklist_answers: merged,
+                },
+                silent: true,
+              });
+            } catch {
+              // ignore
             }
-          }
-          upsertReview.mutate({
-            review: {
-              trade_id: trade.id,
-              ...(playbookId ? { playbook_id: playbookId } : {}),
-              checklist_answers: merged,
-            },
-            silent: true,
-          });
+          })();
         }
         unregisterPendingSave(trade.id, 'questions');
       }
