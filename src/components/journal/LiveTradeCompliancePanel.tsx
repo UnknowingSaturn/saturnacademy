@@ -269,30 +269,57 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
 
   return (
     <div className="space-y-4">
-      {/* Header with Score Ring */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <ComplianceScoreRing
-            completed={completedRules}
-            total={totalRules}
-            violations={compliance.violationCount}
-            size="md"
-          />
-          <div>
-            <div className="flex items-center gap-2">
-              <div
-                className="w-2.5 h-2.5 rounded-full"
-                style={{ backgroundColor: playbook.color }}
-              />
-              <span className="font-semibold text-sm">{playbook.name}</span>
-            </div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {completedRules}/{totalRules} checks complete
+      {/* Header */}
+      {playbook ? (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <ComplianceScoreRing
+              completed={completedRules}
+              total={totalRules}
+              violations={compliance.violationCount}
+              size="md"
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: playbook.color }}
+                />
+                <span className="font-semibold text-sm">{playbook.name}</span>
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {completedRules}/{totalRules} checks complete
+              </div>
             </div>
           </div>
+          {getOverallBadge()}
         </div>
-        {getOverallBadge()}
-      </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-dashed border-border bg-muted/20">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <BookOpen className="h-4 w-4" />
+            <span>No playbook attached — journaling without compliance checks</span>
+          </div>
+          <Select value="" onValueChange={handleAttachPlaybook}>
+            <SelectTrigger className="w-[200px] h-8 text-xs">
+              <SelectValue placeholder="Attach playbook..." />
+            </SelectTrigger>
+            <SelectContent>
+              {allPlaybooks.map((pb) => (
+                <SelectItem key={pb.id} value={pb.id}>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: pb.color }}
+                    />
+                    {pb.name}
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <ScrollArea className="h-[calc(100vh-380px)]">
         <div className="space-y-3 pr-4">
