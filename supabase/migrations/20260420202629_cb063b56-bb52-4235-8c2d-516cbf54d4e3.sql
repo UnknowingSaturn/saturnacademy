@@ -1,0 +1,1 @@
+alter table public.reports add column if not exists sensei_regenerated_at timestamptz;

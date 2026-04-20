@@ -944,6 +944,7 @@ export type Database = {
           schema_suggestions: Json | null
           sensei_model: string | null
           sensei_notes: Json | null
+          sensei_regenerated_at: string | null
           status: string
           updated_at: string
           user_id: string
@@ -969,6 +970,7 @@ export type Database = {
           schema_suggestions?: Json | null
           sensei_model?: string | null
           sensei_notes?: Json | null
+          sensei_regenerated_at?: string | null
           status?: string
           updated_at?: string
           user_id: string
@@ -994,6 +996,7 @@ export type Database = {
           schema_suggestions?: Json | null
           sensei_model?: string | null
           sensei_notes?: Json | null
+          sensei_regenerated_at?: string | null
           status?: string
           updated_at?: string
           user_id?: string
