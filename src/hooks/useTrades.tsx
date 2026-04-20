@@ -363,7 +363,7 @@ export function useUpsertTradeReview() {
 
       const { data, error } = await supabase
         .from('trade_reviews')
-        .upsert(payload, { onConflict: 'trade_id' })
+        .upsert(payload as any, { onConflict: 'trade_id' })
         .select()
         .single();
 
