@@ -145,22 +145,48 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
 
       if (restoreError) throw restoreError;
 
+      const tradesUpdated = restoreData?.trades_updated ?? 0;
+      const restoreMessage = restoreData?.message as string | undefined;
+      const failures = (restoreData?.failures ?? []) as Array<{ ticket: number; reason: string }>;
+
+      // If no trades were updated, surface the explanatory message and stop
+      if (tradesUpdated === 0) {
+        toast({
+          title: 'No trades updated',
+          description: restoreMessage || 'No matching trades found to update.',
+        });
+        return;
+      }
+
       // Then recalculate sessions and R%
       const { error: reprocessError } = await supabase.functions.invoke('reprocess-trades', {
         body: { account_id: account.id },
       });
 
-      if (reprocessError) throw reprocessError;
+      if (reprocessError) {
+        // Partial success — restore worked, recompute didn't
+        console.error('Reprocess error after successful restore:', reprocessError);
+        toast({
+          title: 'Times restored, recompute failed',
+          description: `${tradesUpdated} trades got UTC times, but session/R recompute failed: ${reprocessError.message}. Try the reprocess action again.`,
+          variant: 'destructive',
+        });
+        return;
+      }
 
+      const failureNote = failures.length > 0 ? ` (${failures.length} skipped)` : '';
       toast({
         title: 'Trade data synced',
-        description: `Synced ${restoreData.trades_updated || 0} trades with UTC conversion and recalculated sessions.`,
+        description: `Synced ${tradesUpdated} trades with UTC conversion and recalculated sessions${failureNote}.`,
       });
     } catch (error) {
       console.error('Sync error:', error);
+      const message = error instanceof Error
+        ? error.message
+        : (typeof error === 'object' && error && 'message' in error ? String((error as any).message) : 'Unknown error');
       toast({
         title: 'Failed to sync trade data',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        description: message,
         variant: 'destructive',
       });
     } finally {
