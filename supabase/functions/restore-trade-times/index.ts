@@ -66,24 +66,31 @@ serve(async (req) => {
     
     console.log(`Using broker UTC offset: ${utcOffset}`);
 
-    // Get all events for this account
+    // Get all events for this account (bounded)
     const { data: events, error: eventsError } = await supabase
       .from("events")
       .select("*")
       .eq("account_id", account_id)
-      .order("event_timestamp", { ascending: true });
+      .order("event_timestamp", { ascending: true })
+      .limit(50000);
 
     if (eventsError) {
       console.error("Error fetching events:", eventsError);
       return new Response(
-        JSON.stringify({ error: "Failed to fetch events" }),
+        JSON.stringify({ error: "Failed to fetch events", details: eventsError.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     if (!events || events.length === 0) {
       return new Response(
-        JSON.stringify({ message: "No events found to restore from", trades_updated: 0 }),
+        JSON.stringify({
+          message: "No EA events stored for this account — timezone correction only applies to trades imported via the live EA bridge, not CSV imports.",
+          trades_updated: 0,
+          trades_not_found: 0,
+          total_positions: 0,
+          failures: [],
+        }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
