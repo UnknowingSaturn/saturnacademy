@@ -1,72 +1,61 @@
 
 
-# Fix the regenerated Sensei report (3 real bugs)
+# Why "Apply Timezone Correction" had an edge function error
 
-The rerun ran, but the output has 3 concrete defects you can see in the current report:
+## What the logs say right now
 
-## What's actually broken
+The most recent run of `restore-trade-times` succeeded:
+- offset −4, 8 events grouped into 2 positions, 2 trades updated, 0 not found.
 
-**1. Only 3 of 5 required sections rendered** — `The Verdict` and `The One Thing` got silently dropped.
-The tool schema requires exactly 5 sections, but `callSensei` post-validation strips any section that fails *any* of these filters:
-- has 0 cited trade IDs
-- contains a banned phrase (e.g., the word "indicating a need for")
-- starts with a banned opener
-- is <40 words
-- alphaRatio <0.55
+So the function is healthy *now*. The earlier error was almost certainly one of these three concrete issues, all visible in the code.
 
-When the LLM returns a perfectly valid section that happens to use a banned phrase or doesn't cite a trade (the verdict section often doesn't need citations), it's deleted entirely with no fallback. Result: a broken 3-section report with no "Verdict" or "One Thing" — exactly what you're seeing.
+## The 3 likely causes
 
-**2. Raw cluster labels leak into prose** — `'off_hours · EURUSD+ · unknown (NY Continuation)'`, `'new_york_am · XAGUSD · unknown (No playbook)'`.
-The stored `edge_clusters[].label` was generated **before** the humanizer was added, so it's still raw `session · symbol · emotion (playbook)`. The rerun reuses these stored labels verbatim → the LLM quotes them as-is.
+### 1. `restoreData` is undefined when the function returns an error response (most likely)
+In `EditAccountDialog.tsx:139–157`:
+```ts
+const { data: restoreData, error: restoreError } = await supabase.functions.invoke('restore-trade-times', { ... });
+if (restoreError) throw restoreError;
+// later:
+description: `Synced ${restoreData.trades_updated || 0} trades ...`
+```
+When the edge function returns a non-2xx (e.g. 404 "Account not found", 500), `supabase.functions.invoke` populates `error` AND can leave `data` `null`. The throw fires and the toast shows whatever message the FunctionsHttpError carries, which often surfaces as a generic *"Edge Function returned a non-2xx status code"* — that's the unhelpful message you probably saw.
 
-**3. Wrong model used + raw UUIDs in body text**
-- `sensei_model = "google/gemini-2.5-flash"` — but the plan says weekly/monthly/custom should default to `gemini-2.5-pro`. The rerun code (line 955) defaults to `gemini-2.5-flash` for `report_type='custom'`. The original report was generated as `custom` so it's stuck on flash.
-- Bodies render raw UUIDs like `(trade ID: \`5418a91d-...\`)` — the LLM was told to "anchor with P&L/R/date" but not told to *omit* the bare UUID since the citation chip system handles that visually.
+### 2. The `reprocess-trades` step depends on the account having events for that range
+After restoring, we call `reprocess-trades`. If the account has trades but `events` rows are missing for some tickets (notFoundCount > 0), restore silently skips them, then `reprocess-trades` tries to recompute sessions on times that may be `NULL` and can blow up. Logs would show "Trade not found for ticket X" lines.
 
-## Fix plan
+### 3. Empty events table → silent success but UI still says "0 trades"
+If you applied correction on an account that has no rows in `events` (e.g. trades were imported via CSV not the EA), the function returns 200 with `trades_updated: 0`. Not an *error*, but it looks broken.
 
-### A. `supabase/functions/generate-report/index.ts`
+## Recommended fix (small, surgical)
 
-**A1. Re-humanize cluster labels at LLM-time, not just at compute-time.**
-In `buildLlmContext`, before passing `edge_clusters` / `leak_clusters` to the LLM, *re-derive* a humanized `label` from the stored `dimensions` field (which has clean `{session, symbol, emotion, playbook}` even on old reports). Stored labels stay untouched (no migration); only the LLM payload gets the polished version.
+Edit only `supabase/functions/restore-trade-times/index.ts` and `EditAccountDialog.tsx`:
 
-**A2. Soften the post-validation so sections aren't silently dropped.**
-- Don't strip the verdict/headline section for missing citations (it summarizes).
-- For other sections, instead of *deleting* on banned-phrase / short-body / low-alpha, mark them `_quality_warning` and keep them — better partial than blank. Hard-drop only on banned *opener* (since that's an obvious recap-the-table tell).
-- If after filtering we have <5 sections, fall back to `args.sections` originals (raw model output) so the user always gets the full coaching letter.
+**A. Make the edge function's error responses richer**
+- On account-not-found → return 404 with `{ error: "Account <id> not found" }` (already does this — good).
+- Wrap the per-ticket update loop in try/catch and return a `failures: []` array in the JSON so the UI can surface what actually failed.
+- Bound the events query (`limit(50000)`) and add a row-count guard: if `events.length === 0`, return `{ trades_updated: 0, message: "No EA events stored for this account — timezone correction only applies to trades imported via the live EA bridge, not CSV imports." }`. The frontend can then show a clearer toast.
 
-**A3. Rerun model default flip.**
-Change line 955 so reruns always default to `google/gemini-2.5-pro` (the deeper-reasoning model) regardless of original `report_type`. Pro handles the long structured-output requirement much better than flash, which is partly why we got 3 sections instead of 5.
+**B. Make the dialog handle `data` being null**
+In `EditAccountDialog.tsx:139–157`:
+- Read `restoreData?.trades_updated ?? 0` (avoids the `Cannot read properties of null` crash if the function ever returns 200 with empty body).
+- Surface `restoreData?.message` in the toast when `trades_updated === 0` so empty-events accounts get an explanation instead of "Synced 0 trades".
+- If `reprocess-trades` errors AFTER restore succeeded, show a partial-success toast ("Times restored, but session recompute failed — try reprocess again") instead of throwing the whole flow as a failure.
 
-**A4. Tell the LLM not to print bare UUIDs in prose.**
-Add to the system prompt: *"Reference trades by their `trade_number` and date in prose (e.g., 'trade #29 on Dec 11, +17.4R'). Do NOT paste UUIDs into body text — the `cited_trade_ids` array handles linking."* The LLM has `trade_number` available in `worst_trade_narratives` and cluster `trade_refs` but isn't being told to use it instead of the UUID.
-
-**A5. Strip raw UUIDs as a safety net.**
-After validation, regex-replace any `[0-9a-f]{8}-[0-9a-f]{4}-...` pattern in section bodies with empty string + cleanup of orphan parentheses ("(trade ID: )" → ""). Belt + suspenders.
-
-### B. Frontend — no changes needed
-`ReportView.tsx` already renders `cited_trade_ids` as chips; the prose just needs to stop duplicating them.
-
-## After the fix, re-run Sensei on the December report → expect
-
-- 5 distinct sections (Verdict, Edge, Bleed, Pattern Underneath, One Thing) all visible
-- Cluster references read as English: "Your Silver trades during NY-AM" instead of `'new_york_am · XAGUSD · unknown (No playbook)'`
-- Trade references read as "trade #29 on Dec 11, +17.4R" with chips below — no inline UUIDs
-- `sensei_model` shows `google/gemini-2.5-pro`
-- `sensei_regenerated_at` updates to current time
+**C. Add server-side guard for missing trade times**
+In `restore-trade-times/index.ts`, skip any `openEvent` whose `event_timestamp` is `null` or unparseable (`isNaN(new Date(...).getTime())`) instead of letting `convertToUTC` produce `Invalid Date → toISOString()` which throws.
 
 ## Files
 
 | File | Change |
 |---|---|
-| `supabase/functions/generate-report/index.ts` | Re-humanize cluster labels in `buildLlmContext` (A1); relax `callSensei` validation to keep partial sections + fallback to raw if <5 (A2); default rerun model to gemini-2.5-pro (A3); add "no UUIDs in prose, use trade_number+date" rule to system prompt (A4); regex-strip UUIDs as safety net (A5) |
-
-No DB migration. No frontend change. No new dependencies.
+| `supabase/functions/restore-trade-times/index.ts` | Add empty-events early return with explanatory message; per-ticket try/catch with `failures` array; guard against null/invalid `event_timestamp`; add `.limit(50000)` on events query |
+| `src/components/accounts/EditAccountDialog.tsx` | Use `restoreData?.trades_updated ?? 0`; surface `restoreData?.message` in toast; treat `reprocess-trades` failure after successful restore as partial-success not full-failure |
 
 ## Validation
 
-1. Click "Re-run Sensei" on the December report → returns 5 sections with `sensei_model = google/gemini-2.5-pro`.
-2. Body text contains no UUIDs and no `· · ` separator strings.
-3. "Verdict" and "One Thing" sections are present and non-empty.
-4. Existing trade-citation chips still link correctly.
+1. Click **Apply Timezone Correction** on an account with EA events → toast shows "Synced N trades..." (current happy path still works).
+2. Click on an account with no events → toast explains "No EA events stored — only applies to live-bridge trades."
+3. Simulate one bad event timestamp → loop continues, `failures` array shows the bad ticket, others get updated.
+4. If `reprocess-trades` step fails → toast says "Times restored, recompute failed" instead of a generic edge function error.
 
