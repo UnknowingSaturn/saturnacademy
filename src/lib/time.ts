@@ -1,24 +1,44 @@
 /**
  * Time utility functions for consistent timezone handling
- * All trade times are displayed in America/New_York (Eastern Time)
+ *
+ * Architecture:
+ * - All times are stored in UTC in the database.
+ * - Display timezone is configurable per user via user_settings.display_timezone.
+ * - Default display timezone is America/New_York (Eastern Time).
+ *
+ * Components should call setDisplayTimezone() once on mount (typically from
+ * a top-level effect that reads useUserSettings) to keep formatters in sync.
  */
 
 import { SessionType } from "@/types/trading";
 
-const TIMEZONE = 'America/New_York';
+const DEFAULT_TIMEZONE = 'America/New_York';
+
+// Module-level mutable holder so non-React callers (utils, edge functions of the same shape)
+// share the same configured zone after the user logs in.
+let currentDisplayTimezone: string = DEFAULT_TIMEZONE;
+
+/** Set the display timezone used by all formatters in this module. */
+export function setDisplayTimezone(tz: string | null | undefined) {
+  currentDisplayTimezone = tz && tz.length > 0 ? tz : DEFAULT_TIMEZONE;
+}
+
+/** Get the currently active display timezone. */
+export function getDisplayTimezone(): string {
+  return currentDisplayTimezone;
+}
 
 /**
- * Format a UTC timestamp to Eastern Time (America/New_York)
- * This handles DST automatically
+ * Format a UTC timestamp in the user's display timezone (default ET).
+ * Handles DST automatically via IANA timezone resolution.
  */
 export function formatToET(
   utcTimestamp: string | Date,
   formatOptions?: Intl.DateTimeFormatOptions
 ): string {
   const date = new Date(utcTimestamp);
-  
   const defaultOptions: Intl.DateTimeFormatOptions = {
-    timeZone: TIMEZONE,
+    timeZone: currentDisplayTimezone,
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -26,67 +46,56 @@ export function formatToET(
     minute: '2-digit',
     hour12: true,
   };
-  
   return new Intl.DateTimeFormat('en-US', formatOptions || defaultOptions).format(date);
 }
 
-/**
- * Get date only in ET (e.g., "Dec 19, 2024")
- */
+/** Get date only in the active display timezone (e.g., "Dec 19, 2024") */
 export function formatDateET(utcTimestamp: string | Date): string {
   const date = new Date(utcTimestamp);
   return new Intl.DateTimeFormat('en-US', {
-    timeZone: TIMEZONE,
+    timeZone: currentDisplayTimezone,
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   }).format(date);
 }
 
-/**
- * Get time only in ET (e.g., "9:30 AM")
- */
+/** Get time only in the active display timezone (e.g., "9:30 AM") */
 export function formatTimeET(utcTimestamp: string | Date): string {
   const date = new Date(utcTimestamp);
   return new Intl.DateTimeFormat('en-US', {
-    timeZone: TIMEZONE,
+    timeZone: currentDisplayTimezone,
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
   }).format(date);
 }
 
-/**
- * Get day name in ET (e.g., "Mon", "Tue")
- */
+/** Get day name in the active display timezone (e.g., "Mon", "Tue") */
 export function getDayNameET(utcTimestamp: string | Date): string {
   const date = new Date(utcTimestamp);
   return new Intl.DateTimeFormat('en-US', {
-    timeZone: TIMEZONE,
+    timeZone: currentDisplayTimezone,
     weekday: 'short',
   }).format(date);
 }
 
-/**
- * Get hour in ET (0-23) for session detection
- */
+/** Get hour (0-23) in the active display timezone for session detection */
 export function getHourInET(utcTimestamp: string | Date): number {
   const date = new Date(utcTimestamp);
   const etTime = new Intl.DateTimeFormat('en-US', {
-    timeZone: TIMEZONE,
+    timeZone: currentDisplayTimezone,
     hour: 'numeric',
     hour12: false,
   }).format(date);
   return parseInt(etTime, 10);
 }
 
-/**
- * Get full datetime in ET for display
- */
+/** Get full datetime in the active display timezone */
 export function formatFullDateTimeET(utcTimestamp: string | Date): string {
   const date = new Date(utcTimestamp);
   return new Intl.DateTimeFormat('en-US', {
-    timeZone: TIMEZONE,
+    timeZone: currentDisplayTimezone,
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -96,47 +105,32 @@ export function formatFullDateTimeET(utcTimestamp: string | Date): string {
   }).format(date);
 }
 
-/**
- * Convert broker server time to UTC
- * Broker timestamps come in the broker's local time (e.g., UTC+2 or UTC+3)
- * We need to convert to actual UTC for correct session detection
- * 
- * @param brokerTimestamp - Timestamp string from broker (interpreted as broker local time)
- * @param brokerUtcOffset - Broker's UTC offset in hours (e.g., 2 for UTC+2, 3 for UTC+3)
- * @returns Date object in UTC
- */
+// =====================================================================
+// Legacy broker-time helpers (kept for backward compatibility).
+//
+// NEW CODE SHOULD NOT USE THESE. Live EA trades already arrive in UTC,
+// and CSV imports should be corrected via src/lib/brokerDst.ts at import
+// time so trades.entry_time / exit_time are always real UTC.
+// =====================================================================
+
+/** @deprecated Use brokerLocalToUtc from src/lib/brokerDst.ts (DST-aware). */
 export function brokerTimeToUTC(brokerTimestamp: string | Date, brokerUtcOffset: number): Date {
   const date = new Date(brokerTimestamp);
-  // Subtract the broker's offset to get UTC
-  // If broker is UTC+2, we subtract 2 hours to get UTC
   const utcMs = date.getTime() - (brokerUtcOffset * 60 * 60 * 1000);
   return new Date(utcMs);
 }
 
-/**
- * Format broker time for display in ET
- * Converts broker time to UTC, then formats in ET
- * 
- * @param brokerTimestamp - Timestamp string from broker
- * @param brokerUtcOffset - Broker's UTC offset in hours
- * @returns Formatted time string in ET
- */
+/** @deprecated Format trades.entry_time directly with formatToET — it's already UTC. */
 export function formatBrokerTimeET(brokerTimestamp: string | Date, brokerUtcOffset: number): string {
   const utcDate = brokerTimeToUTC(brokerTimestamp, brokerUtcOffset);
   return formatToET(utcDate);
 }
 
-/**
- * Format broker time with date for display in ET
- * 
- * @param brokerTimestamp - Timestamp string from broker
- * @param brokerUtcOffset - Broker's UTC offset in hours
- * @returns Formatted date and time string in ET (e.g., "Dec 19, 9:30 AM")
- */
+/** @deprecated Format trades.entry_time directly with the date/time formatters above. */
 export function formatBrokerDateTimeET(brokerTimestamp: string | Date, brokerUtcOffset: number): string {
   const utcDate = brokerTimeToUTC(brokerTimestamp, brokerUtcOffset);
   return new Intl.DateTimeFormat('en-US', {
-    timeZone: TIMEZONE,
+    timeZone: currentDisplayTimezone,
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
@@ -145,61 +139,24 @@ export function formatBrokerDateTimeET(brokerTimestamp: string | Date, brokerUtc
   }).format(utcDate);
 }
 
-/**
- * Get hour in ET from broker timestamp for session detection
- * 
- * @param brokerTimestamp - Timestamp string from broker
- * @param brokerUtcOffset - Broker's UTC offset in hours
- * @returns Hour in ET (0-23)
- */
+/** @deprecated Use getHourInET on the stored UTC timestamp. */
 export function getBrokerHourInET(brokerTimestamp: string | Date, brokerUtcOffset: number): number {
   const utcDate = brokerTimeToUTC(brokerTimestamp, brokerUtcOffset);
   return getHourInET(utcDate);
 }
 
 /**
- * Detect trading session based on time in ET
- * Standard forex session times in Eastern Time:
- * - Tokyo: 7pm - 4am ET (19:00 - 04:00)
- * - London: 3am - 12pm ET (03:00 - 12:00)
- * - New York AM: 8am - 12pm ET (08:00 - 12:00)
- * - London/NY Overlap: 8am - 12pm ET (08:00 - 12:00)
- * - New York PM: 12pm - 5pm ET (12:00 - 17:00)
- * - Off Hours: outside regular sessions
- * 
- * @param brokerTimestamp - Timestamp string from broker
- * @param brokerUtcOffset - Broker's UTC offset in hours
- * @returns Detected session type
+ * Detect trading session from a broker timestamp using session times in ET.
+ * Kept for legacy callers; prefer feeding UTC times directly into session logic.
  */
 export function detectSessionFromBrokerTime(
-  brokerTimestamp: string | Date, 
+  brokerTimestamp: string | Date,
   brokerUtcOffset: number
 ): SessionType {
   const hourET = getBrokerHourInET(brokerTimestamp, brokerUtcOffset);
-  
-  // London/NY Overlap: 8am - 12pm ET
-  if (hourET >= 8 && hourET < 12) {
-    return 'overlap_london_ny';
-  }
-  
-  // New York AM: 9:30am - 12pm ET (US market hours overlap)
-  // Already covered by overlap above, so this branch handles edge cases
-  
-  // New York PM: 12pm - 5pm ET
-  if (hourET >= 12 && hourET < 17) {
-    return 'new_york_pm';
-  }
-  
-  // London: 3am - 8am ET (before overlap)
-  if (hourET >= 3 && hourET < 8) {
-    return 'london';
-  }
-  
-  // Tokyo: 7pm - 4am ET
-  if (hourET >= 19 || hourET < 4) {
-    return 'tokyo';
-  }
-  
-  // Off hours: 5pm - 7pm ET or 4am - 3am gaps
+  if (hourET >= 8 && hourET < 12) return 'overlap_london_ny';
+  if (hourET >= 12 && hourET < 17) return 'new_york_pm';
+  if (hourET >= 3 && hourET < 8) return 'london';
+  if (hourET >= 19 || hourET < 4) return 'tokyo';
   return 'off_hours';
 }
