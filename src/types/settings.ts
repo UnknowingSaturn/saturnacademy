@@ -20,6 +20,7 @@ export interface UserSettings {
   column_order: string[];
   default_filters: FilterCondition[];
   live_trade_questions: LiveTradeQuestion[];
+  display_timezone: string;
   created_at: string;
   updated_at: string;
 }

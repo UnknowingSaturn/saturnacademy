@@ -38,7 +38,8 @@ export interface Account {
   equity_current: number;
   is_active: boolean;
   api_key: string | null;
-  broker_utc_offset: number; // Broker server UTC offset in hours (e.g., 2 for UTC+2)
+  broker_utc_offset: number; // Broker server UTC offset in hours (legacy MANUAL fallback)
+  broker_dst_profile: 'EET_DST' | 'GMT_DST' | 'FIXED_PLUS_3' | 'FIXED_PLUS_2' | 'FIXED_PLUS_0' | 'MANUAL';
   // Copier fields
   copier_role: CopierRole;
   master_account_id: string | null;

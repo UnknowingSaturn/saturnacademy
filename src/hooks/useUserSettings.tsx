@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { UserSettings, SessionDefinition, PropertyOption, FilterCondition, DEFAULT_VISIBLE_COLUMNS, DEFAULT_SESSIONS, DEFAULT_PROPERTY_OPTIONS, DEFAULT_LIVE_TRADE_QUESTIONS, LiveTradeQuestion } from "@/types/settings";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
+import { setDisplayTimezone } from "@/lib/time";
 
 // Transform database row to typed object
 const transformSettings = (row: any): UserSettings => ({
@@ -13,6 +14,7 @@ const transformSettings = (row: any): UserSettings => ({
   column_order: row.column_order || DEFAULT_VISIBLE_COLUMNS,
   default_filters: row.default_filters || [],
   live_trade_questions: (row.live_trade_questions as LiveTradeQuestion[]) || DEFAULT_LIVE_TRADE_QUESTIONS,
+  display_timezone: row.display_timezone || 'America/New_York',
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -51,7 +53,7 @@ const transformPropertyOption = (row: any): PropertyOption => ({
 export function useUserSettings() {
   const { user } = useAuth();
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['user_settings', user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
@@ -73,6 +75,7 @@ export function useUserSettings() {
           column_order: DEFAULT_VISIBLE_COLUMNS,
           default_filters: [] as FilterCondition[],
           live_trade_questions: DEFAULT_LIVE_TRADE_QUESTIONS,
+          display_timezone: 'America/New_York',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as UserSettings;
@@ -82,6 +85,15 @@ export function useUserSettings() {
     },
     enabled: !!user?.id,
   });
+
+  // Sync the active display timezone with the formatter module whenever it changes.
+  useEffect(() => {
+    if (query.data?.display_timezone) {
+      setDisplayTimezone(query.data.display_timezone);
+    }
+  }, [query.data?.display_timezone]);
+
+  return query;
 }
 
 export function useUpdateUserSettings() {
@@ -98,6 +110,7 @@ export function useUpdateUserSettings() {
       if (updates.column_order) dbUpdates.column_order = updates.column_order;
       if (updates.default_filters) dbUpdates.default_filters = updates.default_filters as any;
       if (updates.live_trade_questions) dbUpdates.live_trade_questions = updates.live_trade_questions as any;
+      if (updates.display_timezone) dbUpdates.display_timezone = updates.display_timezone;
 
       // Check if settings exist
       const { data: existing } = await supabase
