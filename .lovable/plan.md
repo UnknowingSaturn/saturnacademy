@@ -1,61 +1,105 @@
 
 
-# Why "Apply Timezone Correction" had an edge function error
+# Best architecture for trade times — and why "Apply Timezone Correction" is a workaround, not a solution
 
-## What the logs say right now
+## The actual industry-standard answer
 
-The most recent run of `restore-trade-times` succeeded:
-- offset −4, 8 events grouped into 2 positions, 2 trades updated, 0 not found.
+**Always store UTC. Always display in the user's chosen timezone (default ET). Never store local time.**
 
-So the function is healthy *now*. The earlier error was almost certainly one of these three concrete issues, all visible in the code.
+This is what every serious trading platform does (TradingView, NinjaTrader, ThinkOrSwim, MT5 Terminal itself in its history reports). Display ≠ storage. The "broker server time" is a UI quirk — it should never bleed into your database.
 
-## The 3 likely causes
+You already have the right architecture in 80% of the system. The current breakage is in the legacy backfill path and an outdated assumption that `broker_utc_offset` is a static account-level constant.
 
-### 1. `restoreData` is undefined when the function returns an error response (most likely)
-In `EditAccountDialog.tsx:139–157`:
-```ts
-const { data: restoreData, error: restoreError } = await supabase.functions.invoke('restore-trade-times', { ... });
-if (restoreError) throw restoreError;
-// later:
-description: `Synced ${restoreData.trades_updated || 0} trades ...`
+## What's actually happening today (mapped end-to-end)
+
 ```
-When the edge function returns a non-2xx (e.g. 404 "Account not found", 500), `supabase.functions.invoke` populates `error` AND can leave `data` `null`. The throw fires and the toast shows whatever message the FunctionsHttpError carries, which often surfaces as a generic *"Edge Function returned a non-2xx status code"* — that's the unhelpful message you probably saw.
+EA (broker server time)
+  ├─ Auto-detects offset live: TimeCurrent() - TimeGMT()  → per-event correct, DST-aware
+  ├─ Sends timestamp ALREADY converted to UTC: TimeCurrent() - brokerOffset*3600
+  ├─ Sends broker_utc_offset PER event in raw_payload (already there!)
+  └─ Sends server_time as a debug field
+        ↓
+ingest-events stores event_timestamp (UTC) + raw_payload.broker_utc_offset (per-event)
+        ↓
+trades.entry_time / exit_time = UTC (correct since EA did the math live)
+        ↓
+Frontend displays via formatToET() in ET — correct, DST-aware
+```
 
-### 2. The `reprocess-trades` step depends on the account having events for that range
-After restoring, we call `reprocess-trades`. If the account has trades but `events` rows are missing for some tickets (notFoundCount > 0), restore silently skips them, then `reprocess-trades` tries to recompute sessions on times that may be `NULL` and can blow up. Logs would show "Trade not found for ticket X" lines.
+So **for any trade ingested via the live EA**, times are already correct and DST-aware automatically. No correction needed.
 
-### 3. Empty events table → silent success but UI still says "0 trades"
-If you applied correction on an account that has no rows in `events` (e.g. trades were imported via CSV not the EA), the function returns 200 with `trades_updated: 0`. Not an *error*, but it looks broken.
+The "Apply Timezone Correction" button only matters for two legacy cases:
+1. CSV imports from MT5's history export (no per-event offset captured).
+2. Old EA versions (pre-v3.00) that may have stored broker-local instead of UTC.
 
-## Recommended fix (small, surgical)
+For these, applying a single static offset is wrong across DST boundaries — confirming your concern.
 
-Edit only `supabase/functions/restore-trade-times/index.ts` and `EditAccountDialog.tsx`:
+## Recommended architecture (the smart approach)
 
-**A. Make the edge function's error responses richer**
-- On account-not-found → return 404 with `{ error: "Account <id> not found" }` (already does this — good).
-- Wrap the per-ticket update loop in try/catch and return a `failures: []` array in the JSON so the UI can surface what actually failed.
-- Bound the events query (`limit(50000)`) and add a row-count guard: if `events.length === 0`, return `{ trades_updated: 0, message: "No EA events stored for this account — timezone correction only applies to trades imported via the live EA bridge, not CSV imports." }`. The frontend can then show a clearer toast.
+### Tier 1 — Live EA trades (already correct, no work needed)
+Trust `event.event_timestamp` (UTC) and `raw_payload.broker_utc_offset` (per-event). Don't touch them. Don't expose a "correction" button for accounts whose trades came from the EA — there's nothing to correct.
 
-**B. Make the dialog handle `data` being null**
-In `EditAccountDialog.tsx:139–157`:
-- Read `restoreData?.trades_updated ?? 0` (avoids the `Cannot read properties of null` crash if the function ever returns 200 with empty body).
-- Surface `restoreData?.message` in the toast when `trades_updated === 0` so empty-events accounts get an explanation instead of "Synced 0 trades".
-- If `reprocess-trades` errors AFTER restore succeeded, show a partial-success toast ("Times restored, but session recompute failed — try reprocess again") instead of throwing the whole flow as a failure.
+### Tier 2 — CSV / historical imports (the real problem to solve)
+On import, attempt to recover UTC at row level using the broker's known DST schedule, not a single offset:
 
-**C. Add server-side guard for missing trade times**
-In `restore-trade-times/index.ts`, skip any `openEvent` whose `event_timestamp` is `null` or unparseable (`isNaN(new Date(...).getTime())`) instead of letting `convertToUTC` produce `Invalid Date → toISOString()` which throws.
+- **Most MT5 brokers** run on one of two known schedules:
+  - **EET/EEST** (UTC+2 winter / UTC+3 summer, switches with EU DST) — IC Markets, Pepperstone, FTMO, FXPro, most ECN brokers
+  - **GMT/BST** (UTC+0/+1) — a few UK brokers
+  - **Fixed UTC+3** (no DST) — some US-friendly brokers
+
+- Store a `broker_dst_profile` enum on the account (`EET_DST`, `GMT_DST`, `FIXED_PLUS_3`, `FIXED_PLUS_2`, `MANUAL`).
+
+- During import, look up the offset *for that specific timestamp's date* using the profile, not a single account-wide value. This handles DST correctly across mixed history.
+
+### Tier 3 — Display layer (already correct)
+`src/lib/time.ts` already does the right thing: stored UTC → display in `America/New_York`. Add a user setting `display_timezone` (default ET) so non-US users can switch to London/Tokyo/local.
+
+## Architectural changes (concrete)
+
+### A. Deprecate static `accounts.broker_utc_offset`
+Keep the column for backward compat, but stop relying on it for new logic. Source of truth is now per-event `raw_payload.broker_utc_offset` (live EA) or per-date DST profile (imports).
+
+### B. Add `accounts.broker_dst_profile` (enum)
+Auto-detect on first EA heartbeat: observe `broker_utc_offset` over multiple events; if it switches between +2/+3 across EU DST dates → `EET_DST`. If constant → `FIXED_PLUS_N`.
+
+### C. Rebuild "Apply Timezone Correction" as "Re-derive UTC times"
+Two distinct modes, picked by data source:
+
+**Mode A — EA-sourced trades:** No-op. Show toast: "Trade times for this account are auto-corrected by the live bridge — no manual correction needed." No backend call.
+
+**Mode B — CSV-imported trades (no events row):** Show modal: "Pick your broker's timezone profile (EET/EEST, fixed UTC+3, etc.)". Then for each trade, compute the right offset *for that trade's date* (DST-aware) and write back UTC. Handles your mixed-DST history correctly with one click.
+
+### D. Per-event preview in EditAccountDialog
+Replace "Apply correction with offset N" with a 5-row preview table: `entry_time stored | broker_offset_at_event | UTC after correction | ET display`. User sees DST switches visually before confirming.
+
+### E. Add `display_timezone` to `user_settings`
+Default `America/New_York`. Wire `time.ts` formatters to read it. Lets EU/Asia users see local time without changing storage.
+
+## What this fixes vs. the option-2/3 plan
+
+| Concern | Date-range split | Per-event offset | This approach |
+|---|---|---|---|
+| Mixed DST history | User clicks twice | EA change required | Auto-handled via DST profile |
+| Future trades stay correct | No (manual every time) | Yes | Yes (already works via EA) |
+| CSV imports | Manual per range | N/A | Auto via DST profile |
+| Confusing UX | Yes (two clicks) | Hidden | Single click, preview shown |
+| Code complexity | Medium | High (EA + schema) | Low (one new column + lookup table) |
 
 ## Files
 
 | File | Change |
 |---|---|
-| `supabase/functions/restore-trade-times/index.ts` | Add empty-events early return with explanatory message; per-ticket try/catch with `failures` array; guard against null/invalid `event_timestamp`; add `.limit(50000)` on events query |
-| `src/components/accounts/EditAccountDialog.tsx` | Use `restoreData?.trades_updated ?? 0`; surface `restoreData?.message` in toast; treat `reprocess-trades` failure after successful restore as partial-success not full-failure |
+| `supabase/migrations/<new>` | Add `accounts.broker_dst_profile` enum (`EET_DST`, `GMT_DST`, `FIXED_PLUS_3`, `FIXED_PLUS_2`, `MANUAL`); add `user_settings.display_timezone` text default `'America/New_York'` |
+| `supabase/functions/restore-trade-times/index.ts` | Branch on data source: if events exist with `raw_payload.broker_utc_offset` → trust those (no-op or refresh from raw); if missing → use `broker_dst_profile` + per-trade-date DST lookup. Add IANA `Europe/Athens`-style resolution (built-in `Intl.DateTimeFormat` with `timeZone`) instead of fixed offset arithmetic |
+| `supabase/functions/ingest-events/index.ts` | After N heartbeats, auto-set `broker_dst_profile` based on observed offsets; backfill column if `MANUAL` |
+| `src/components/accounts/EditAccountDialog.tsx` | Replace single-offset input with profile picker + 5-trade preview table; hide "Apply correction" entirely for EA-sourced accounts (events exist) |
+| `src/lib/time.ts` | Read `display_timezone` from user_settings hook; fall back to ET |
+| `src/hooks/useUserSettings.tsx` | Expose `display_timezone` |
 
 ## Validation
 
-1. Click **Apply Timezone Correction** on an account with EA events → toast shows "Synced N trades..." (current happy path still works).
-2. Click on an account with no events → toast explains "No EA events stored — only applies to live-bridge trades."
-3. Simulate one bad event timestamp → loop continues, `failures` array shows the bad ticket, others get updated.
-4. If `reprocess-trades` step fails → toast says "Times restored, recompute failed" instead of a generic edge function error.
+1. EA-sourced account, mixed DST trades from 2023+2024 → no correction needed; all times already in correct ET.
+2. CSV-imported account from IC Markets (EET) covering Mar 2024 DST switch → pick `EET_DST` profile → trades before Mar 31 use −2h, after use −3h, ET display correct on both sides.
+3. User in London switches `display_timezone` to `Europe/London` → all journal/report times re-render in BST/GMT without DB change.
+4. New broker with weird offset → `MANUAL` profile + numeric input still works as escape hatch.
 
