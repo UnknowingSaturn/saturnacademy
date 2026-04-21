@@ -111,75 +111,91 @@ serve(async (req) => {
 
     let updatedCount = 0;
     let notFoundCount = 0;
+    const failures: Array<{ ticket: number; reason: string }> = [];
 
     // For each position, find entry and exit events and restore times
     for (const [ticket, positionEvents] of eventsByTicket) {
-      // Find the open event (entry)
-      const openEvent = positionEvents.find(e => e.event_type === 'open');
-      // Find the close event (full exit)
-      const closeEvent = positionEvents.find(e => e.event_type === 'close');
+      try {
+        // Find the open event (entry)
+        const openEvent = positionEvents.find(e => e.event_type === 'open');
+        // Find the close event (full exit)
+        const closeEvent = positionEvents.find(e => e.event_type === 'close');
 
-      if (!openEvent) {
-        console.log(`No open event for ticket ${ticket}`);
-        continue;
-      }
+        if (!openEvent) {
+          console.log(`No open event for ticket ${ticket}`);
+          failures.push({ ticket, reason: 'No open event found' });
+          continue;
+        }
 
-      // Find the corresponding trade
-      const { data: trade, error: tradeError } = await supabase
-        .from("trades")
-        .select("id, entry_time, exit_time")
-        .eq("ticket", ticket)
-        .eq("account_id", account_id)
-        .single();
+        // Guard against null/invalid timestamps
+        if (!openEvent.event_timestamp || isNaN(new Date(openEvent.event_timestamp).getTime())) {
+          console.log(`Invalid open event_timestamp for ticket ${ticket}: ${openEvent.event_timestamp}`);
+          failures.push({ ticket, reason: 'Invalid open event timestamp' });
+          continue;
+        }
 
-      if (tradeError || !trade) {
-        console.log(`Trade not found for ticket ${ticket}`);
-        notFoundCount++;
-        continue;
-      }
+        // Find the corresponding trade
+        const { data: trade, error: tradeError } = await supabase
+          .from("trades")
+          .select("id, entry_time, exit_time")
+          .eq("ticket", ticket)
+          .eq("account_id", account_id)
+          .single();
 
-      // Convert broker time to UTC by subtracting the offset
-      const convertToUTC = (brokerTimestamp: string): string => {
-        const brokerDate = new Date(brokerTimestamp);
-        const utcDate = new Date(brokerDate.getTime() - (utcOffset! * 60 * 60 * 1000));
-        return utcDate.toISOString();
-      };
+        if (tradeError || !trade) {
+          console.log(`Trade not found for ticket ${ticket}`);
+          notFoundCount++;
+          continue;
+        }
 
-      // Prepare update with times converted to UTC
-      const entryTimeUTC = convertToUTC(openEvent.event_timestamp);
-      const updateData: any = {
-        entry_time: entryTimeUTC,
-      };
+        // Convert broker time to UTC by subtracting the offset
+        const convertToUTC = (brokerTimestamp: string): string => {
+          const brokerDate = new Date(brokerTimestamp);
+          const utcDate = new Date(brokerDate.getTime() - (utcOffset! * 60 * 60 * 1000));
+          return utcDate.toISOString();
+        };
 
-      let exitTimeUTC: string | undefined;
-      if (closeEvent) {
-        exitTimeUTC = convertToUTC(closeEvent.event_timestamp);
-        updateData.exit_time = exitTimeUTC;
-      }
+        // Prepare update with times converted to UTC
+        const entryTimeUTC = convertToUTC(openEvent.event_timestamp);
+        const updateData: any = {
+          entry_time: entryTimeUTC,
+        };
 
-      // Update the trade
-      const { error: updateError } = await supabase
-        .from("trades")
-        .update(updateData)
-        .eq("id", trade.id);
+        let exitTimeUTC: string | undefined;
+        if (closeEvent && closeEvent.event_timestamp && !isNaN(new Date(closeEvent.event_timestamp).getTime())) {
+          exitTimeUTC = convertToUTC(closeEvent.event_timestamp);
+          updateData.exit_time = exitTimeUTC;
+        }
 
-      if (updateError) {
-        console.error(`Error updating trade ${trade.id}:`, updateError);
-      } else {
-        updatedCount++;
-        console.log(`Restored ticket ${ticket}: broker=${openEvent.event_timestamp} -> UTC=${entryTimeUTC}`);
-        console.log(`Restored times for ticket ${ticket}: entry=${openEvent.event_timestamp}, exit=${closeEvent?.event_timestamp || 'open'}`);
+        // Update the trade
+        const { error: updateError } = await supabase
+          .from("trades")
+          .update(updateData)
+          .eq("id", trade.id);
+
+        if (updateError) {
+          console.error(`Error updating trade ${trade.id}:`, updateError);
+          failures.push({ ticket, reason: updateError.message });
+        } else {
+          updatedCount++;
+          console.log(`Restored ticket ${ticket}: broker=${openEvent.event_timestamp} -> UTC=${entryTimeUTC}`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        console.error(`Unexpected error processing ticket ${ticket}:`, msg);
+        failures.push({ ticket, reason: msg });
       }
     }
 
-    console.log(`Restore complete. Updated ${updatedCount} trades, ${notFoundCount} not found`);
+    console.log(`Restore complete. Updated ${updatedCount} trades, ${notFoundCount} not found, ${failures.length} failures`);
 
     return new Response(
       JSON.stringify({
-        message: "Trade times restored from events",
+        message: `Restored ${updatedCount} trades from ${eventsByTicket.size} positions`,
         trades_updated: updatedCount,
         trades_not_found: notFoundCount,
         total_positions: eventsByTicket.size,
+        failures,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
