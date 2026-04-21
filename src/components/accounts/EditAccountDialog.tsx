@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { RefreshCw, Copy, Eye, EyeOff, Key } from 'lucide-react';
+import { RefreshCw, Copy, Eye, EyeOff, Key, Info } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -28,10 +28,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useUpdateAccount } from '@/hooks/useAccounts';
 import { Account, AccountType, PropFirm } from '@/types/trading';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { BROKER_DST_PROFILE_OPTIONS, BrokerDstProfile, brokerLocalToUtc, resolveBrokerOffsetHours } from '@/lib/brokerDst';
+import { formatFullDateTimeET } from '@/lib/time';
+import { useQuery } from '@tanstack/react-query';
 
 const formSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -42,18 +46,10 @@ const formSchema = z.object({
   balance_start: z.coerce.number().min(0),
   equity_current: z.coerce.number().min(0),
   broker_utc_offset: z.coerce.number().min(-12).max(14),
+  broker_dst_profile: z.enum(['EET_DST', 'GMT_DST', 'FIXED_PLUS_3', 'FIXED_PLUS_2', 'FIXED_PLUS_0', 'MANUAL']),
 });
 
 type FormData = z.infer<typeof formSchema>;
-
-const BROKER_TIMEZONES = [
-  { value: -5, label: 'UTC-5 (New York)' },
-  { value: -4, label: 'UTC-4 (New York DST)' },
-  { value: 0, label: 'UTC+0 (London)' },
-  { value: 1, label: 'UTC+1 (London DST)' },
-  { value: 2, label: 'UTC+2 (Helsinki, Cyprus)' },
-  { value: 3, label: 'UTC+3 (Moscow, EET DST)' },
-];
 
 interface EditAccountDialogProps {
   account: Account;
@@ -89,6 +85,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       balance_start: account.balance_start || 0,
       equity_current: account.equity_current || 0,
       broker_utc_offset: account.broker_utc_offset ?? 2,
+      broker_dst_profile: (account.broker_dst_profile as BrokerDstProfile) || 'MANUAL',
     },
   });
 
@@ -103,11 +100,61 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
         balance_start: account.balance_start || 0,
         equity_current: account.equity_current || 0,
         broker_utc_offset: account.broker_utc_offset ?? 2,
+        broker_dst_profile: (account.broker_dst_profile as BrokerDstProfile) || 'MANUAL',
       });
     }
   }, [open, account, form]);
 
   const accountType = form.watch('account_type');
+  const profile = form.watch('broker_dst_profile') as BrokerDstProfile;
+  const manualOffset = form.watch('broker_utc_offset');
+
+  // Detect whether this account has live EA event data — if so, no manual correction needed.
+  const { data: eventStats } = useQuery({
+    queryKey: ['account-event-stats', account.id],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('events')
+        .select('id', { count: 'exact', head: true })
+        .eq('account_id', account.id);
+      return { eventCount: count ?? 0 };
+    },
+    enabled: open,
+  });
+
+  // Pull a few sample trades so we can preview what the correction would do.
+  const { data: sampleTrades } = useQuery({
+    queryKey: ['account-sample-trades', account.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('trades')
+        .select('id, ticket, symbol, entry_time')
+        .eq('account_id', account.id)
+        .order('entry_time', { ascending: false })
+        .limit(5);
+      return data ?? [];
+    },
+    enabled: open,
+  });
+
+  const previewRows = useMemo(() => {
+    if (!sampleTrades || sampleTrades.length === 0) return [];
+    return sampleTrades.map((t) => {
+      const stored = t.entry_time;
+      const offsetH = resolveBrokerOffsetHours(profile, stored, manualOffset);
+      // Treat stored time as if it were broker-local and re-derive UTC.
+      const correctedUtc = brokerLocalToUtc(profile, stored, manualOffset);
+      return {
+        ticket: t.ticket,
+        symbol: t.symbol,
+        stored,
+        offsetH,
+        correctedUtc: correctedUtc.toISOString(),
+      };
+    });
+  }, [sampleTrades, profile, manualOffset]);
+
+  const hasEaEvents = (eventStats?.eventCount ?? 0) > 0;
 
   const onSubmit = async (data: FormData) => {
     await updateAccount.mutateAsync({
@@ -120,6 +167,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       balance_start: data.balance_start,
       equity_current: data.equity_current,
       broker_utc_offset: data.broker_utc_offset,
+      broker_dst_profile: data.broker_dst_profile,
     });
     onOpenChange(false);
   };
@@ -127,19 +175,21 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
   const handleSyncTradeData = async () => {
     setIsSyncing(true);
     const brokerOffset = form.getValues('broker_utc_offset');
-    
+    const dstProfile = form.getValues('broker_dst_profile');
+
     try {
-      // First update the account with the broker offset
+      // Persist the chosen profile before correcting
       await updateAccount.mutateAsync({
         id: account.id,
         broker_utc_offset: brokerOffset,
+        broker_dst_profile: dstProfile,
       });
 
-      // Restore original times from events with timezone conversion
       const { data: restoreData, error: restoreError } = await supabase.functions.invoke('restore-trade-times', {
-        body: { 
+        body: {
           account_id: account.id,
           broker_utc_offset: brokerOffset,
+          broker_dst_profile: dstProfile,
         },
       });
 
@@ -149,7 +199,6 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       const restoreMessage = restoreData?.message as string | undefined;
       const failures = (restoreData?.failures ?? []) as Array<{ ticket: number; reason: string }>;
 
-      // If no trades were updated, surface the explanatory message and stop
       if (tradesUpdated === 0) {
         toast({
           title: 'No trades updated',
@@ -158,13 +207,11 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
         return;
       }
 
-      // Then recalculate sessions and R%
       const { error: reprocessError } = await supabase.functions.invoke('reprocess-trades', {
         body: { account_id: account.id },
       });
 
       if (reprocessError) {
-        // Partial success — restore worked, recompute didn't
         console.error('Reprocess error after successful restore:', reprocessError);
         toast({
           title: 'Times restored, recompute failed',
@@ -177,7 +224,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       const failureNote = failures.length > 0 ? ` (${failures.length} skipped)` : '';
       toast({
         title: 'Trade data synced',
-        description: `Synced ${tradesUpdated} trades with UTC conversion and recalculated sessions${failureNote}.`,
+        description: `Synced ${tradesUpdated} trades with DST-aware UTC conversion and recalculated sessions${failureNote}.`,
       });
     } catch (error) {
       console.error('Sync error:', error);
@@ -196,7 +243,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Account</DialogTitle>
         </DialogHeader>
@@ -355,39 +402,93 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <RefreshCw className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Timezone Correction</span>
+                <span className="text-sm font-medium">Broker Timezone</span>
               </div>
+
+              {hasEaEvents && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    This account has <strong>{eventStats?.eventCount}</strong> live EA events. Trade times are
+                    auto-corrected per-event (DST-aware) by the live bridge — no manual correction needed.
+                    The settings below only apply to CSV-imported trades.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <FormField
                 control={form.control}
-                name="broker_utc_offset"
+                name="broker_dst_profile"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Broker Server Timezone</FormLabel>
-                    <Select 
-                      onValueChange={(v) => field.onChange(parseInt(v))} 
-                      value={field.value?.toString()}
-                    >
+                    <FormLabel>Broker DST Profile</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select timezone" />
+                          <SelectValue />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {BROKER_TIMEZONES.map((tz) => (
-                          <SelectItem key={tz.value} value={tz.value.toString()}>
-                            {tz.label}
+                        {BROKER_DST_PROFILE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            <div className="flex flex-col items-start">
+                              <span>{opt.label}</span>
+                              <span className="text-xs text-muted-foreground">{opt.description}</span>
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <FormDescription>
-                      The timezone of your broker's MT5 server
+                      Picks the right offset for each trade's date (handles DST automatically).
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
+              {profile === 'MANUAL' && (
+                <FormField
+                  control={form.control}
+                  name="broker_utc_offset"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Manual UTC offset (hours)</FormLabel>
+                      <FormControl>
+                        <Input type="number" step="1" min={-12} max={14} {...field} />
+                      </FormControl>
+                      <FormDescription>Used when DST profile is set to Manual.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              {previewRows.length > 0 && (
+                <div className="rounded-md border">
+                  <div className="px-3 py-2 text-xs font-medium border-b bg-muted/50">
+                    Preview — last {previewRows.length} trades
+                  </div>
+                  <div className="divide-y text-xs">
+                    <div className="grid grid-cols-12 gap-2 px-3 py-2 font-medium text-muted-foreground">
+                      <div className="col-span-2">Ticket</div>
+                      <div className="col-span-3">Stored</div>
+                      <div className="col-span-1 text-right">Offset</div>
+                      <div className="col-span-3">UTC after fix</div>
+                      <div className="col-span-3">Display</div>
+                    </div>
+                    {previewRows.map((row, i) => (
+                      <div key={i} className="grid grid-cols-12 gap-2 px-3 py-2">
+                        <div className="col-span-2 font-mono">{row.ticket ?? '—'}</div>
+                        <div className="col-span-3 font-mono truncate">{row.stored.replace('T', ' ').replace('.000Z', '').replace('Z', '')}</div>
+                        <div className="col-span-1 text-right">{row.offsetH >= 0 ? `+${row.offsetH}` : row.offsetH}h</div>
+                        <div className="col-span-3 font-mono truncate">{row.correctedUtc.replace('T', ' ').replace('.000Z', '').replace('Z', '')}</div>
+                        <div className="col-span-3 truncate">{formatFullDateTimeET(row.correctedUtc)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <Button
                 type="button"
@@ -400,7 +501,8 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
                 {isSyncing ? 'Applying...' : 'Apply Timezone Correction'}
               </Button>
               <p className="text-xs text-muted-foreground">
-                Converts trade times to UTC using your broker's timezone, then recalculates sessions & R-multiples.
+                Re-derives UTC times for stored trades using the DST profile (per-trade-date offset),
+                then recalculates sessions & R-multiples.
               </p>
             </div>
 

@@ -7,19 +7,69 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+type BrokerDstProfile =
+  | 'EET_DST' | 'GMT_DST'
+  | 'FIXED_PLUS_3' | 'FIXED_PLUS_2' | 'FIXED_PLUS_0'
+  | 'MANUAL';
+
 interface RestoreRequest {
   account_id: string;
-  broker_utc_offset?: number; // Broker server UTC offset (e.g., 2 for UTC+2)
+  broker_utc_offset?: number;
+  broker_dst_profile?: BrokerDstProfile;
 }
 
 /**
- * Restore original trade times from events table and convert to UTC
- * 
+ * Get the offset (in hours) of an IANA timezone at a given date.
+ * Uses Intl.DateTimeFormat — fully DST-aware, no external libs.
+ */
+function getIanaOffsetHours(timeZone: string, date: Date): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const parts = dtf.formatToParts(date).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const asUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour), Number(parts.minute), Number(parts.second)
+  );
+  return Math.round((asUtc - date.getTime()) / 3_600_000);
+}
+
+/**
+ * Resolve the broker's UTC offset for a given timestamp using the DST profile.
+ * For DST profiles, returns the correct offset for THAT specific date.
+ */
+function resolveBrokerOffsetHours(
+  profile: BrokerDstProfile,
+  timestamp: Date,
+  manualOffsetHours: number
+): number {
+  switch (profile) {
+    case 'FIXED_PLUS_0': return 0;
+    case 'FIXED_PLUS_2': return 2;
+    case 'FIXED_PLUS_3': return 3;
+    case 'EET_DST':      return getIanaOffsetHours('Europe/Athens', timestamp);
+    case 'GMT_DST':      return getIanaOffsetHours('Europe/London', timestamp);
+    case 'MANUAL':
+    default:             return manualOffsetHours;
+  }
+}
+
+/**
+ * Restore original trade times from events table and convert to UTC.
+ *
  * The events table stores timestamps from MT5 in broker server time.
- * This function converts them to UTC using the provided broker_utc_offset.
- * 
- * Example: If broker is UTC+2 and event_timestamp is "2024-01-01 10:00:00",
- * the actual UTC time is "2024-01-01 08:00:00" (subtract 2 hours).
+ * This function uses the account's broker_dst_profile (or a request override)
+ * to pick the correct offset PER trade date — so DST transitions across
+ * historical data are handled correctly.
+ *
+ * Note: Live EA trades already arrive in UTC (the EA does the math live);
+ * this endpoint is mainly for legacy/CSV-imported history.
  */
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -31,7 +81,7 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { account_id, broker_utc_offset }: RestoreRequest = await req.json();
+    const { account_id, broker_utc_offset, broker_dst_profile }: RestoreRequest = await req.json();
 
     if (!account_id) {
       return new Response(
@@ -40,12 +90,7 @@ serve(async (req) => {
       );
     }
 
-    // Use provided offset or fall back to account setting or default to 2 (common for EU brokers)
-    let utcOffset = broker_utc_offset;
-    
-    console.log(`Restoring trade times for account ${account_id} with UTC offset ${utcOffset}`);
-
-    // Get account data
+    // Get account data (we need the saved profile/offset as fallbacks)
     const { data: account, error: accountError } = await supabase
       .from("accounts")
       .select("*")
@@ -54,17 +99,18 @@ serve(async (req) => {
 
     if (accountError || !account) {
       return new Response(
-        JSON.stringify({ error: "Account not found" }),
+        JSON.stringify({ error: `Account ${account_id} not found` }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Use account's broker_utc_offset if not provided in request
-    if (utcOffset === undefined) {
-      utcOffset = account.broker_utc_offset ?? 2;
-    }
-    
-    console.log(`Using broker UTC offset: ${utcOffset}`);
+    const profile: BrokerDstProfile =
+      (broker_dst_profile as BrokerDstProfile)
+      ?? (account.broker_dst_profile as BrokerDstProfile)
+      ?? 'MANUAL';
+    const manualOffset = broker_utc_offset ?? account.broker_utc_offset ?? 2;
+
+    console.log(`Restoring trade times for account ${account_id} — profile=${profile}, manualOffset=${manualOffset}`);
 
     // Get all events for this account (bounded)
     const { data: events, error: eventsError } = await supabase
@@ -101,9 +147,7 @@ serve(async (req) => {
     const eventsByTicket: Map<number, any[]> = new Map();
     for (const event of events) {
       const ticket = event.ticket;
-      if (!eventsByTicket.has(ticket)) {
-        eventsByTicket.set(ticket, []);
-      }
+      if (!eventsByTicket.has(ticket)) eventsByTicket.set(ticket, []);
       eventsByTicket.get(ticket)!.push(event);
     }
 
@@ -113,28 +157,39 @@ serve(async (req) => {
     let notFoundCount = 0;
     const failures: Array<{ ticket: number; reason: string }> = [];
 
-    // For each position, find entry and exit events and restore times
+    // Per-event UTC conversion. If the event already carries a per-event offset
+    // in raw_payload.broker_utc_offset (live EA), prefer that. Otherwise use the
+    // DST profile to resolve the offset for that specific date.
+    const convertEventToUtc = (event: any): string | null => {
+      if (!event.event_timestamp) return null;
+      const naive = new Date(event.event_timestamp);
+      if (isNaN(naive.getTime())) return null;
+
+      const perEventOffset = event.raw_payload?.broker_utc_offset;
+      const offsetH = typeof perEventOffset === 'number'
+        ? perEventOffset
+        : resolveBrokerOffsetHours(profile, naive, manualOffset);
+
+      const utc = new Date(naive.getTime() - offsetH * 3_600_000);
+      return utc.toISOString();
+    };
+
     for (const [ticket, positionEvents] of eventsByTicket) {
       try {
-        // Find the open event (entry)
         const openEvent = positionEvents.find(e => e.event_type === 'open');
-        // Find the close event (full exit)
         const closeEvent = positionEvents.find(e => e.event_type === 'close');
 
         if (!openEvent) {
-          console.log(`No open event for ticket ${ticket}`);
           failures.push({ ticket, reason: 'No open event found' });
           continue;
         }
 
-        // Guard against null/invalid timestamps
-        if (!openEvent.event_timestamp || isNaN(new Date(openEvent.event_timestamp).getTime())) {
-          console.log(`Invalid open event_timestamp for ticket ${ticket}: ${openEvent.event_timestamp}`);
+        const entryTimeUTC = convertEventToUtc(openEvent);
+        if (!entryTimeUTC) {
           failures.push({ ticket, reason: 'Invalid open event timestamp' });
           continue;
         }
 
-        // Find the corresponding trade
         const { data: trade, error: tradeError } = await supabase
           .from("trades")
           .select("id, entry_time, exit_time")
@@ -143,58 +198,41 @@ serve(async (req) => {
           .single();
 
         if (tradeError || !trade) {
-          console.log(`Trade not found for ticket ${ticket}`);
           notFoundCount++;
           continue;
         }
 
-        // Convert broker time to UTC by subtracting the offset
-        const convertToUTC = (brokerTimestamp: string): string => {
-          const brokerDate = new Date(brokerTimestamp);
-          const utcDate = new Date(brokerDate.getTime() - (utcOffset! * 60 * 60 * 1000));
-          return utcDate.toISOString();
-        };
-
-        // Prepare update with times converted to UTC
-        const entryTimeUTC = convertToUTC(openEvent.event_timestamp);
-        const updateData: any = {
-          entry_time: entryTimeUTC,
-        };
-
-        let exitTimeUTC: string | undefined;
-        if (closeEvent && closeEvent.event_timestamp && !isNaN(new Date(closeEvent.event_timestamp).getTime())) {
-          exitTimeUTC = convertToUTC(closeEvent.event_timestamp);
-          updateData.exit_time = exitTimeUTC;
+        const updateData: Record<string, unknown> = { entry_time: entryTimeUTC };
+        if (closeEvent) {
+          const exitTimeUTC = convertEventToUtc(closeEvent);
+          if (exitTimeUTC) updateData.exit_time = exitTimeUTC;
         }
 
-        // Update the trade
         const { error: updateError } = await supabase
           .from("trades")
           .update(updateData)
           .eq("id", trade.id);
 
         if (updateError) {
-          console.error(`Error updating trade ${trade.id}:`, updateError);
           failures.push({ ticket, reason: updateError.message });
         } else {
           updatedCount++;
-          console.log(`Restored ticket ${ticket}: broker=${openEvent.event_timestamp} -> UTC=${entryTimeUTC}`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
-        console.error(`Unexpected error processing ticket ${ticket}:`, msg);
         failures.push({ ticket, reason: msg });
       }
     }
 
-    console.log(`Restore complete. Updated ${updatedCount} trades, ${notFoundCount} not found, ${failures.length} failures`);
+    console.log(`Restore complete. Updated ${updatedCount}, not found ${notFoundCount}, failures ${failures.length}`);
 
     return new Response(
       JSON.stringify({
-        message: `Restored ${updatedCount} trades from ${eventsByTicket.size} positions`,
+        message: `Restored ${updatedCount} trades from ${eventsByTicket.size} positions using profile ${profile}`,
         trades_updated: updatedCount,
         trades_not_found: notFoundCount,
         total_positions: eventsByTicket.size,
+        profile_used: profile,
         failures,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
