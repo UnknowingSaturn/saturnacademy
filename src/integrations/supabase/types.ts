@@ -21,6 +21,7 @@ export type Database = {
           api_key: string | null
           balance_start: number | null
           broker: string | null
+          broker_dst_profile: Database["public"]["Enums"]["broker_dst_profile"]
           broker_utc_offset: number | null
           copier_enabled: boolean | null
           copier_role: Database["public"]["Enums"]["copier_role"] | null
@@ -44,6 +45,7 @@ export type Database = {
           api_key?: string | null
           balance_start?: number | null
           broker?: string | null
+          broker_dst_profile?: Database["public"]["Enums"]["broker_dst_profile"]
           broker_utc_offset?: number | null
           copier_enabled?: boolean | null
           copier_role?: Database["public"]["Enums"]["copier_role"] | null
@@ -67,6 +69,7 @@ export type Database = {
           api_key?: string | null
           balance_start?: number | null
           broker?: string | null
+          broker_dst_profile?: Database["public"]["Enums"]["broker_dst_profile"]
           broker_utc_offset?: number | null
           copier_enabled?: boolean | null
           copier_role?: Database["public"]["Enums"]["copier_role"] | null
@@ -1568,6 +1571,7 @@ export type Database = {
           column_order: Json
           created_at: string
           default_filters: Json
+          display_timezone: string
           id: string
           live_trade_questions: Json | null
           updated_at: string
@@ -1578,6 +1582,7 @@ export type Database = {
           column_order?: Json
           created_at?: string
           default_filters?: Json
+          display_timezone?: string
           id?: string
           live_trade_questions?: Json | null
           updated_at?: string
@@ -1588,6 +1593,7 @@ export type Database = {
           column_order?: Json
           created_at?: string
           default_filters?: Json
+          display_timezone?: string
           id?: string
           live_trade_questions?: Json | null
           updated_at?: string
@@ -1614,6 +1620,13 @@ export type Database = {
     Enums: {
       account_type: "demo" | "live" | "prop"
       ai_provider: "openai" | "gemini" | "lovable"
+      broker_dst_profile:
+        | "EET_DST"
+        | "GMT_DST"
+        | "FIXED_PLUS_3"
+        | "FIXED_PLUS_2"
+        | "FIXED_PLUS_0"
+        | "MANUAL"
       copier_role: "independent" | "master" | "receiver"
       ea_type: "journal" | "master" | "receiver"
       emotional_state:
@@ -1774,6 +1787,14 @@ export const Constants = {
     Enums: {
       account_type: ["demo", "live", "prop"],
       ai_provider: ["openai", "gemini", "lovable"],
+      broker_dst_profile: [
+        "EET_DST",
+        "GMT_DST",
+        "FIXED_PLUS_3",
+        "FIXED_PLUS_2",
+        "FIXED_PLUS_0",
+        "MANUAL",
+      ],
       copier_role: ["independent", "master", "receiver"],
       ea_type: ["journal", "master", "receiver"],
       emotional_state: [
