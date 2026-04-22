@@ -284,12 +284,21 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           />
         </PropertyRow>
 
-        <PropertyRow label="Model">
+        <PropertyRow label="Planned Model">
           <BadgeSelect
             value={trade.playbook_id || ""}
             onChange={(v) => handleModelChange(v as string)}
             options={modelOptions}
             placeholder="Select..."
+          />
+        </PropertyRow>
+
+        <PropertyRow label="Actual Model">
+          <BadgeSelect
+            value={(trade as any).actual_playbook_id || ""}
+            onChange={(v) => handleActualModelChange(v as string)}
+            options={modelOptions}
+            placeholder="Hindsight..."
           />
         </PropertyRow>
 
@@ -313,7 +322,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           />
         </PropertyRow>
 
-        <PropertyRow label="Profile">
+        <PropertyRow label="Planned Profile">
           <BadgeSelect
             value={trade.profile || ""}
             onChange={(v) => handleProfileChange(v as string)}
@@ -322,12 +331,30 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           />
         </PropertyRow>
 
-        <PropertyRow label="Regime">
+        <PropertyRow label="Actual Profile">
+          <BadgeSelect
+            value={(trade as any).actual_profile || ""}
+            onChange={(v) => handleActualProfileChange(v as string)}
+            options={profileOptions}
+            placeholder="Hindsight..."
+          />
+        </PropertyRow>
+
+        <PropertyRow label="Planned Regime">
           <BadgeSelect
             value={trade.review?.regime || ""}
             onChange={(v) => handleRegimeChange(v as string)}
             options={regimeOptions}
             placeholder="Select..."
+          />
+        </PropertyRow>
+
+        <PropertyRow label="Actual Regime">
+          <BadgeSelect
+            value={(trade as any).actual_regime || ""}
+            onChange={(v) => handleActualRegimeChange(v as string)}
+            options={regimeOptions}
+            placeholder="Hindsight..."
           />
         </PropertyRow>
 
