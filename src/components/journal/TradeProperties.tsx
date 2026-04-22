@@ -295,7 +295,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
 
         <PropertyRow label="Actual Model">
           <BadgeSelect
-            value={(trade as any).actual_playbook_id || ""}
+            value={trade.actual_playbook_id || ""}
             onChange={(v) => handleActualModelChange(v as string)}
             options={modelOptions}
             placeholder="Hindsight..."
@@ -333,7 +333,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
 
         <PropertyRow label="Actual Profile">
           <BadgeSelect
-            value={(trade as any).actual_profile || ""}
+            value={(trade.actual_profile as string) || ""}
             onChange={(v) => handleActualProfileChange(v as string)}
             options={profileOptions}
             placeholder="Hindsight..."
@@ -351,7 +351,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
 
         <PropertyRow label="Actual Regime">
           <BadgeSelect
-            value={(trade as any).actual_regime || ""}
+            value={(trade.actual_regime as string) || ""}
             onChange={(v) => handleActualRegimeChange(v as string)}
             options={regimeOptions}
             placeholder="Hindsight..."
