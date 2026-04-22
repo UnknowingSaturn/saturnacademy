@@ -183,12 +183,24 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
       <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Properties</div>
 
       {/* Status badge */}
-      <div className="flex items-center gap-2 text-xs">
+      <div className="flex items-center gap-2 text-xs flex-wrap">
         <Badge variant={trade.is_open ? "outline" : isWin ? "default" : "destructive"}>
           {trade.is_open ? "OPEN" : isWin ? "WIN" : isLoss ? "LOSS" : "BE"}
         </Badge>
         {trade.trade_number && (
           <span className="text-muted-foreground">#{trade.trade_number}</span>
+        )}
+        {readQuality && (
+          <Badge
+            variant={readQuality.variant}
+            className={cn(
+              readQuality.tone === "profit" && "bg-profit/20 text-profit hover:bg-profit/30 border-transparent",
+              readQuality.tone === "breakeven" && "bg-breakeven/20 text-breakeven hover:bg-breakeven/30 border-breakeven/30",
+            )}
+            title="Read Quality: how closely your planned thesis matched the actual setup"
+          >
+            Read: {readQuality.label}
+          </Badge>
         )}
       </div>
 
