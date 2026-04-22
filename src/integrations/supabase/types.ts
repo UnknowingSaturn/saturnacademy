@@ -1415,6 +1415,9 @@ export type Database = {
       trades: {
         Row: {
           account_id: string | null
+          actual_playbook_id: string | null
+          actual_profile: string | null
+          actual_regime: string | null
           alignment: string[] | null
           archived_at: string | null
           balance_at_entry: number | null
@@ -1458,6 +1461,9 @@ export type Database = {
         }
         Insert: {
           account_id?: string | null
+          actual_playbook_id?: string | null
+          actual_profile?: string | null
+          actual_regime?: string | null
           alignment?: string[] | null
           archived_at?: string | null
           balance_at_entry?: number | null
@@ -1501,6 +1507,9 @@ export type Database = {
         }
         Update: {
           account_id?: string | null
+          actual_playbook_id?: string | null
+          actual_profile?: string | null
+          actual_regime?: string | null
           alignment?: string[] | null
           archived_at?: string | null
           balance_at_entry?: number | null
@@ -1548,6 +1557,13 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trades_actual_playbook_id_fkey"
+            columns: ["actual_playbook_id"]
+            isOneToOne: false
+            referencedRelation: "playbooks"
             referencedColumns: ["id"]
           },
           {
