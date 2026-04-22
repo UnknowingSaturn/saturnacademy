@@ -133,7 +133,8 @@ export function useOpenTrades() {
         .from("trades")
         .select(`
           *,
-          playbook:playbooks (*),
+          playbook:playbooks!trades_playbook_id_fkey (*),
+          actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color),
           trade_reviews(*),
           accounts(*)
         `)
