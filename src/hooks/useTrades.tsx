@@ -57,7 +57,8 @@ export function useTrades(filters?: {
         .from('trades')
         .select(`
           *,
-          playbook:playbooks (*),
+          playbook:playbooks!trades_playbook_id_fkey (*),
+          actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color),
           trade_reviews (
             *,
             playbook:playbooks (*)
@@ -95,7 +96,7 @@ export function useTrade(tradeId: string | undefined) {
       if (!tradeId) return null;
       const { data, error } = await supabase
         .from('trades')
-        .select(`*, playbook:playbooks (*), trade_reviews (*, playbook:playbooks (*)), ai_reviews (*), account:accounts (*)`)
+        .select(`*, playbook:playbooks!trades_playbook_id_fkey (*), actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color), trade_reviews (*, playbook:playbooks (*)), ai_reviews (*), account:accounts (*)`)
         .eq('id', tradeId)
         .maybeSingle();
       if (error) throw error;
@@ -315,7 +316,8 @@ export function useArchivedTrades() {
         .from('trades')
         .select(`
           *,
-          playbook:playbooks (*),
+          playbook:playbooks!trades_playbook_id_fkey (*),
+          actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color),
           trade_reviews (
             *,
             playbook:playbooks (*)
