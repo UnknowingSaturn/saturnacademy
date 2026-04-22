@@ -134,6 +134,10 @@ interface TradeRow {
   is_open: boolean | null;
   trade_type: string;
   total_lots: number;
+  actual_playbook_id?: string | null;
+  actual_profile?: string | null;
+  actual_regime?: string | null;
+  profile?: string | null;
 }
 
 interface ReviewRow {
