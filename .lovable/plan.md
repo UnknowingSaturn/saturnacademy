@@ -1,56 +1,59 @@
 
 
-# Fix the broken Planned-vs-Actual changes
+# Fix the broken trade fetch (PGRST201) — Journal is empty because of an ambiguous embed
 
-The migration applied cleanly and most code is wired up, but **three regressions** prevent the new feature from actually working. No data was lost; the columns exist with correct types in the database.
+## What's actually broken
 
-## The bugs
+The April-22 migration added `actual_playbook_id` as a foreign key to `playbooks`. The `trades` table now has **two** FKs to `playbooks`:
 
-### 1. Actual Model/Profile/Regime never save (silent failure) — primary bug
+- `trades_playbook_id_fkey` (planned model)
+- `trades_actual_playbook_id_fkey` (actual model)
 
-`src/hooks/useTrades.tsx` → `useUpdateTrade` filters updates through a hardcoded `scalarFields` allowlist (line 176). The list was not updated when the new columns were added, so any call like `updateTrade({ id, actual_playbook_id: ... })` silently strips the field, runs an empty UPDATE, and shows a misleading "Trade updated successfully" toast. Nothing persists.
+Every existing query uses `playbook:playbooks (*)` — PostgREST can no longer auto-pick which FK to follow and returns:
 
-**Fix**: add `'actual_playbook_id'`, `'actual_profile'`, `'actual_regime'` to the `scalarFields` array.
+```
+HTTP 300 — PGRST201
+Could not embed because more than one relationship was found
+for 'trades' and 'playbooks'
+```
 
-### 2. `Trade` TypeScript interface missing the new fields
+This is what the network log shows on `/journal` right now. The result: **Journal, Trade Detail, Live Trades, Archived view, and `useTrade()` all return errors** and render empty. No data was lost (DB still has 153 active trades), the queries just can't deserialize.
 
-`src/types/trading.ts` has the comment block but the actual interface fields need verification. Components currently use `(trade as any).actual_playbook_id` casts in `TradeProperties.tsx` and `TradeTable.tsx`, which bypasses type safety and is a sign the proper field declarations weren't added. 
+## The fix — disambiguate the embed by FK name
 
-**Fix**: ensure `actual_playbook_id: string | null`, `actual_profile: TradeProfile | null`, `actual_regime: RegimeType | null` are properly declared on the `Trade` interface, then remove the `as any` casts in both components.
+PostgREST hint syntax: `alias:table!fk_constraint_name (*)`.
 
-### 3. Default fallback column list out of sync
-
-`src/components/journal/TradeTable.tsx` line 76-78 hardcodes a fallback `activeColumns` list that includes `'model'` but doesn't reflect the new `actual_model` / `read_quality` columns now defined in `DEFAULT_COLUMNS`. Cosmetic — the user's saved column preferences override it — but inconsistent.
-
-**Fix**: leave `model` in the default-on list; do nothing else (keeping `actual_model`/`read_quality` opt-in matches the original plan).
-
-## What's already correct (verified, no changes needed)
-
-- Database columns `actual_playbook_id`, `actual_profile`, `actual_regime` exist with correct types and FK to `playbooks`.
-- `src/integrations/supabase/types.ts` has the columns in Row/Insert/Update types and the FK relationship.
-- `useOpenTrades.tsx` `transformTrade` maps the three fields from DB rows.
-- `useTrades.tsx` `transformTrade` uses `...row` spread, so the fields flow through.
-- `TradeProperties.tsx` renders Planned/Actual rows and a Read-Quality badge.
-- `TradeTable.tsx` renders `actual_model` cell and `read_quality` badge.
-- `supabase/functions/generate-report/index.ts` selects the new columns and builds the `read_quality` summary block for the LLM.
-- RLS policies on `trades` are unchanged and correct.
-- All 153 trades + 71 archived are intact in the database — nothing was dropped.
+Change every `playbook:playbooks (*)` to `playbook:playbooks!trades_playbook_id_fkey (*)` (the planned model — the existing semantic). Optionally also add `actual_playbook:playbooks!trades_actual_playbook_id_fkey (*)` where the UI needs the joined Actual Model name (currently `TradeTable` and `TradeProperties` resolve names from the local playbooks list, so embedding it isn't strictly required, but it's cheap and consistent).
 
 ## Files to change
 
-| File | Change |
+| File | Edit |
 |---|---|
-| `src/hooks/useTrades.tsx` | Add `'actual_playbook_id'`, `'actual_profile'`, `'actual_regime'` to the `scalarFields` array in `useUpdateTrade` so the new fields actually reach the database |
-| `src/types/trading.ts` | Confirm/add `actual_playbook_id`, `actual_profile`, `actual_regime` as typed fields on the `Trade` interface |
-| `src/components/journal/TradeProperties.tsx` | Remove the `(trade as any)` casts now that the type includes the fields |
-| `src/components/journal/TradeTable.tsx` | Remove the `(trade as any)` casts in the cell renderers and `computeReadQuality` |
+| `src/hooks/useTrades.tsx` | 4 embeds: `useTrades` select (line 60, 63), `useTrade` select (line 98 — twice), `useArchivedTrades` select (line 318, 321). Replace `playbook:playbooks (*)` with `playbook:playbooks!trades_playbook_id_fkey (*)` and add `actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color)` alongside. The nested `trade_reviews.playbook:playbooks(*)` join uses a different table (`trade_reviews.playbook_id`) and is unaffected by the new FK — but to be safe, change to `playbook:playbooks!trade_reviews_playbook_id_fkey (*)` only if a similar ambiguity exists; otherwise leave it. |
+| `src/hooks/useOpenTrades.tsx` | 1 embed at line 136 — same change. |
+
+The `transformTrade` helpers already spread `...row`, so the new `actual_playbook` alias passes through harmlessly even without a Trade type field.
+
+## What about `trade_reviews → playbooks`?
+
+`trade_reviews` only has one FK to `playbooks` (`playbook_id`), so `playbook:playbooks(*)` inside the nested `trade_reviews` block stays valid. No change needed there. (Verified against the schema dump — `trade_reviews` has no `actual_playbook_id`.)
+
+## Comprehensive-review notes (the rest of your prompt)
+
+I checked the broader items you listed and the only blocking regression is the one above. Quick status on the others:
+
+- **DB integrity**: schema, RLS, and FK relationships are correct (the new FK is exactly what we want — we just need to tell PostgREST which one to follow).
+- **RLS**: every table uses per-user `user_id = auth.uid()` predicates. The "wrap in `(select auth.uid())`" optimization is a nice-to-have for very large tables but not necessary here — your tables are small (~150 trades) and the perf gain is negligible. Skipping unless you want me to do a separate pass.
+- **Edge functions**: all 14 functions are referenced in code; none are orphaned. `generate-report` already includes the new `actual_*` columns from the previous turn.
+- **Cleanup**: no dead code introduced by the planned-vs-actual feature; the `as any` casts were already removed in the prior fix turn.
+- **Auth, subscriptions, role-based access**: this app has no roles/subscriptions/driver-invite flows — those bullets in your prompt template don't apply to this project.
+- **Mobile/perf**: not in scope for this fix; no recent changes affect responsiveness.
 
 ## Validation
 
-1. Open a trade → set "Actual Model" to a different playbook than Planned → reload the page → Actual Model still set (currently it disappears).
-2. Same for Actual Profile and Actual Regime.
-3. Read Quality badge appears in the Properties panel and updates Match → Mismatch as expected.
-4. Enable "Actual Model" + "Read Quality" columns from column settings — values render in the table after saving.
-5. No TypeScript errors; no `as any` casts left for these three fields.
-6. Existing 153 trades remain visible (already verified — nothing was lost; the original "missing trades" issue is the unrelated account-filter UX issue from the previous turn).
+1. Reload `/journal` → trades render again (no more PGRST201 in network tab).
+2. Open a trade detail panel → loads without error; Planned Model + Actual Model both display.
+3. `/live-trades` → open positions list populates.
+4. Archived view → still loads.
+5. Check console — no `PGRST201` or `Could not embed` errors.
 
