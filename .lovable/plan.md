@@ -1,106 +1,56 @@
 
 
-# Should you journal the *intended* model or the *actual* one?
+# Fix the broken Planned-vs-Actual changes
 
-## Short answer: both. They're different signals.
+The migration applied cleanly and most code is wired up, but **three regressions** prevent the new feature from actually working. No data was lost; the columns exist with correct types in the database.
 
-Right now your journal has **one** model field (`Model`, mapped to `playbook_id`). That collapses two very different facts into one cell:
+## The bugs
 
-- **Intended**: what playbook you *thought* you were trading at entry (your thesis at the moment of pulling the trigger).
-- **Actual**: what the price action and trade behavior turned out to actually be, judged in hindsight.
+### 1. Actual Model/Profile/Regime never save (silent failure) — primary bug
 
-Mixing them destroys your ability to answer the most important questions a journal exists to answer:
+`src/hooks/useTrades.tsx` → `useUpdateTrade` filters updates through a hardcoded `scalarFields` allowlist (line 176). The list was not updated when the new columns were added, so any call like `updateTrade({ id, actual_playbook_id: ... })` silently strips the field, runs an empty UPDATE, and shows a misleading "Trade updated successfully" toast. Nothing persists.
 
-| Question | Needs intended | Needs actual | Needs both |
-|---|---|---|---|
-| "How well does my Liquidity Sweep playbook perform?" | ✓ | | |
-| "How often was my read of the market correct?" | | | ✓ |
-| "What setup do I keep mistaking for X?" | | | ✓ |
-| "Am I drifting from my plan mid-trade?" | ✓ | ✓ | ✓ |
-| "Which playbook is genuinely my edge vs. which I just label everything as?" | | ✓ | ✓ |
+**Fix**: add `'actual_playbook_id'`, `'actual_profile'`, `'actual_regime'` to the `scalarFields` array.
 
-The pros (Mike Bellafiore's SMB, Brett Steenbarger, every prop desk review template) all separate **plan vs execution vs outcome** for exactly this reason. You want to grade your *thesis quality* independently from your *execution quality* independently from your *result*.
+### 2. `Trade` TypeScript interface missing the new fields
 
-## What this app currently captures
+`src/types/trading.ts` has the comment block but the actual interface fields need verification. Components currently use `(trade as any).actual_playbook_id` casts in `TradeProperties.tsx` and `TradeTable.tsx`, which bypasses type safety and is a sign the proper field declarations weren't added. 
 
-Looking at `src/types/settings.ts` and `TradeProperties.tsx`:
+**Fix**: ensure `actual_playbook_id: string | null`, `actual_profile: TradeProfile | null`, `actual_regime: RegimeType | null` are properly declared on the `Trade` interface, then remove the `as any` casts in both components.
 
-- **Model** (`playbook_id`) — single field, no time-of-decision distinction
-- **Profile** (consolidation/expansion/reversal/continuation) — single field, same problem
-- **Regime** (rotational/transitional) — same
-- **Alignment / Entry TF** — same
+### 3. Default fallback column list out of sync
 
-There's also a free-text `Place` field and `psychology_notes`, but nothing structured for "I called this X but it was actually Y."
+`src/components/journal/TradeTable.tsx` line 76-78 hardcodes a fallback `activeColumns` list that includes `'model'` but doesn't reflect the new `actual_model` / `read_quality` columns now defined in `DEFAULT_COLUMNS`. Cosmetic — the user's saved column preferences override it — but inconsistent.
 
-## Recommendation: add a 2nd "actual" column for the things that matter
+**Fix**: leave `model` in the default-on list; do nothing else (keeping `actual_model`/`read_quality` opt-in matches the original plan).
 
-Don't add it for everything — that creates fatigue. Add it for the **3 fields where the intended-vs-actual gap is most diagnostic**:
+## What's already correct (verified, no changes needed)
 
-| Field | Intended (what you thought at entry) | Actual (judged after close) |
-|---|---|---|
-| `playbook_id` → keep as **"Planned Model"** | Already captured | NEW: `actual_playbook_id` |
-| `profile` → keep as **"Planned Profile"** | Already captured | NEW: `actual_profile` |
-| Regime | Already captured | NEW: `actual_regime` |
+- Database columns `actual_playbook_id`, `actual_profile`, `actual_regime` exist with correct types and FK to `playbooks`.
+- `src/integrations/supabase/types.ts` has the columns in Row/Insert/Update types and the FK relationship.
+- `useOpenTrades.tsx` `transformTrade` maps the three fields from DB rows.
+- `useTrades.tsx` `transformTrade` uses `...row` spread, so the fields flow through.
+- `TradeProperties.tsx` renders Planned/Actual rows and a Read-Quality badge.
+- `TradeTable.tsx` renders `actual_model` cell and `read_quality` badge.
+- `supabase/functions/generate-report/index.ts` selects the new columns and builds the `read_quality` summary block for the LLM.
+- RLS policies on `trades` are unchanged and correct.
+- All 153 trades + 71 archived are intact in the database — nothing was dropped.
 
-Don't duplicate Alignment/Entry TF — those are objective and don't shift in hindsight much.
+## Files to change
 
-Also add a derived/computed badge: **"Read Quality"** = `match | partial | mismatch` based on whether intended === actual. This is the single most powerful new metric you'd unlock — your *market-reading accuracy*, separate from your P&L.
-
-## How journaling should flow
-
-```
-At entry (live trade dialog or quick capture)
-  └─ Pick PLANNED model + profile + regime  ← what you think
-        ↓
-Trade closes
-  └─ Open trade detail panel
-        ↓
-  Review section now has:
-    • Planned Model: Liquidity Sweep      [locked, set at entry]
-    • Actual Model: ___                   [you fill in hindsight]
-    • Read Quality auto-computes: ✓ match / ⚠ partial / ✗ mismatch
-```
-
-If you didn't pre-set "planned" (e.g. CSV imports, missed entries), the Planned field stays empty and Actual becomes the only one. No data loss, no forced workflow.
-
-## What columns to add to the table
-
-Add these as **optional** (default-hidden) columns so you can opt in once you've used it for a few weeks:
-
-- `Planned Model` (rename existing `Model`)
-- `Actual Model` (new)
-- `Read Quality` (new, computed badge: green/yellow/red)
-
-Hide `Profile` → `actual_profile` and `Regime` → `actual_regime` by default; expose in detail panel only. Adds depth without table clutter.
-
-## What this unlocks in reports
-
-Your weekly Sensei report can now answer:
-- "You called Liquidity Sweep 12 times this week. 4 were actually Trend Continuation. Win rate when correctly identified: 67%. When mis-identified: 18%. **Your read is your edge — the setups you label correctly print money.**"
-- "Your *planned* playbook compliance is 80%. Your *actual* playbook compliance is 45%. You're entering on plan but the market isn't giving you what you expected — consider waiting for confirmation."
-
-Neither of those insights is possible with one combined field.
-
-## Implementation scope (when you approve)
-
-**Database** — add 3 nullable columns to `trades`:
-- `actual_playbook_id uuid REFERENCES playbooks(id)`
-- `actual_profile text`
-- `actual_regime text`
-
-**Frontend**:
-- `TradeProperties.tsx`: rename "Model"→"Planned Model", add "Actual Model" row below it; same for Profile and Regime.
-- `settings.ts` `DEFAULT_COLUMNS`: rename `model`→`planned_model`, add `actual_model` and `read_quality` (computed). Keep both default-hidden except `planned_model`.
-- `TradeTable.tsx`: render new columns + read-quality badge.
-- Reports edge function (`generate-report`): include planned-vs-actual deltas in prompt context.
-
-**No EA changes, no breaking changes** — old trades just have `actual_*` = null, treated as "not graded yet."
+| File | Change |
+|---|---|
+| `src/hooks/useTrades.tsx` | Add `'actual_playbook_id'`, `'actual_profile'`, `'actual_regime'` to the `scalarFields` array in `useUpdateTrade` so the new fields actually reach the database |
+| `src/types/trading.ts` | Confirm/add `actual_playbook_id`, `actual_profile`, `actual_regime` as typed fields on the `Trade` interface |
+| `src/components/journal/TradeProperties.tsx` | Remove the `(trade as any)` casts now that the type includes the fields |
+| `src/components/journal/TradeTable.tsx` | Remove the `(trade as any)` casts in the cell renderers and `computeReadQuality` |
 
 ## Validation
 
-1. Open any past trade → Properties panel shows "Planned Model" (existing value preserved) and a new empty "Actual Model" picker.
-2. Set Actual = Planned → Read Quality badge = green "match".
-3. Set Actual ≠ Planned → badge = red "mismatch", visible in table once column enabled.
-4. Old trades with no Actual set → badge hidden, no false "mismatch" noise.
-5. Generated weekly Sensei report references read-quality stats when ≥10 graded trades exist.
+1. Open a trade → set "Actual Model" to a different playbook than Planned → reload the page → Actual Model still set (currently it disappears).
+2. Same for Actual Profile and Actual Regime.
+3. Read Quality badge appears in the Properties panel and updates Match → Mismatch as expected.
+4. Enable "Actual Model" + "Read Quality" columns from column settings — values render in the table after saving.
+5. No TypeScript errors; no `as any` casts left for these three fields.
+6. Existing 153 trades remain visible (already verified — nothing was lost; the original "missing trades" issue is the unrelated account-filter UX issue from the previous turn).
 
