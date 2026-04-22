@@ -135,6 +135,33 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
     await updateTrade.mutateAsync({ id: trade.id, profile: profile as TradeProfile });
   };
 
+  const handleActualModelChange = async (playbookId: string) => {
+    await updateTrade.mutateAsync({ id: trade.id, actual_playbook_id: playbookId || null } as any);
+  };
+
+  const handleActualProfileChange = async (profile: string) => {
+    await updateTrade.mutateAsync({ id: trade.id, actual_profile: (profile || null) as TradeProfile | null } as any);
+  };
+
+  const handleActualRegimeChange = async (regime: string) => {
+    await updateTrade.mutateAsync({ id: trade.id, actual_regime: (regime || null) as RegimeType | null } as any);
+  };
+
+  // Read Quality: compare planned vs actual across model/profile/regime
+  const readQuality = useMemo(() => {
+    const fields: Array<[any, any]> = [
+      [trade.playbook_id, (trade as any).actual_playbook_id],
+      [trade.profile, (trade as any).actual_profile],
+      [trade.review?.regime, (trade as any).actual_regime],
+    ];
+    const graded = fields.filter(([planned, actual]) => planned && actual);
+    if (graded.length === 0) return null;
+    const matches = graded.filter(([p, a]) => p === a).length;
+    if (matches === graded.length) return { label: "Match", variant: "default" as const, tone: "profit" };
+    if (matches === 0) return { label: "Mismatch", variant: "destructive" as const, tone: "loss" };
+    return { label: "Partial", variant: "outline" as const, tone: "breakeven" };
+  }, [trade.playbook_id, (trade as any).actual_playbook_id, trade.profile, (trade as any).actual_profile, trade.review?.regime, (trade as any).actual_regime]);
+
   const handleEmotionChange = async (emotion: string) => {
     // Partial upsert — only sends the field this handler owns.
     await upsertReview.mutateAsync({
@@ -156,12 +183,24 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
       <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Properties</div>
 
       {/* Status badge */}
-      <div className="flex items-center gap-2 text-xs">
+      <div className="flex items-center gap-2 text-xs flex-wrap">
         <Badge variant={trade.is_open ? "outline" : isWin ? "default" : "destructive"}>
           {trade.is_open ? "OPEN" : isWin ? "WIN" : isLoss ? "LOSS" : "BE"}
         </Badge>
         {trade.trade_number && (
           <span className="text-muted-foreground">#{trade.trade_number}</span>
+        )}
+        {readQuality && (
+          <Badge
+            variant={readQuality.variant}
+            className={cn(
+              readQuality.tone === "profit" && "bg-profit/20 text-profit hover:bg-profit/30 border-transparent",
+              readQuality.tone === "breakeven" && "bg-breakeven/20 text-breakeven hover:bg-breakeven/30 border-breakeven/30",
+            )}
+            title="Read Quality: how closely your planned thesis matched the actual setup"
+          >
+            Read: {readQuality.label}
+          </Badge>
         )}
       </div>
 
@@ -245,12 +284,21 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           />
         </PropertyRow>
 
-        <PropertyRow label="Model">
+        <PropertyRow label="Planned Model">
           <BadgeSelect
             value={trade.playbook_id || ""}
             onChange={(v) => handleModelChange(v as string)}
             options={modelOptions}
             placeholder="Select..."
+          />
+        </PropertyRow>
+
+        <PropertyRow label="Actual Model">
+          <BadgeSelect
+            value={(trade as any).actual_playbook_id || ""}
+            onChange={(v) => handleActualModelChange(v as string)}
+            options={modelOptions}
+            placeholder="Hindsight..."
           />
         </PropertyRow>
 
@@ -274,7 +322,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           />
         </PropertyRow>
 
-        <PropertyRow label="Profile">
+        <PropertyRow label="Planned Profile">
           <BadgeSelect
             value={trade.profile || ""}
             onChange={(v) => handleProfileChange(v as string)}
@@ -283,12 +331,30 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           />
         </PropertyRow>
 
-        <PropertyRow label="Regime">
+        <PropertyRow label="Actual Profile">
+          <BadgeSelect
+            value={(trade as any).actual_profile || ""}
+            onChange={(v) => handleActualProfileChange(v as string)}
+            options={profileOptions}
+            placeholder="Hindsight..."
+          />
+        </PropertyRow>
+
+        <PropertyRow label="Planned Regime">
           <BadgeSelect
             value={trade.review?.regime || ""}
             onChange={(v) => handleRegimeChange(v as string)}
             options={regimeOptions}
             placeholder="Select..."
+          />
+        </PropertyRow>
+
+        <PropertyRow label="Actual Regime">
+          <BadgeSelect
+            value={(trade as any).actual_regime || ""}
+            onChange={(v) => handleActualRegimeChange(v as string)}
+            options={regimeOptions}
+            placeholder="Hindsight..."
           />
         </PropertyRow>
 

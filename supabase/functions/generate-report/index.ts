@@ -134,6 +134,10 @@ interface TradeRow {
   is_open: boolean | null;
   trade_type: string;
   total_lots: number;
+  actual_playbook_id?: string | null;
+  actual_profile?: string | null;
+  actual_regime?: string | null;
+  profile?: string | null;
 }
 
 interface ReviewRow {
@@ -800,7 +804,7 @@ async function buildLlmContext(
 ) {
   let tradesQuery = admin
     .from('trades')
-    .select('id, trade_number, symbol, direction, entry_time, exit_time, net_pnl, r_multiple_actual, risk_percent, session, playbook_id, is_open, trade_type, total_lots, account_id')
+    .select('id, trade_number, symbol, direction, entry_time, exit_time, net_pnl, r_multiple_actual, risk_percent, session, playbook_id, is_open, trade_type, total_lots, account_id, profile, actual_playbook_id, actual_profile, actual_regime')
     .eq('user_id', targetUserId)
     .gte('entry_time', period_start)
     .lt('entry_time', period_end)
@@ -1022,7 +1026,7 @@ serve(async (req) => {
     // Fetch trades in window
     let tradesQuery = admin
       .from('trades')
-      .select('id, trade_number, symbol, direction, entry_time, exit_time, net_pnl, r_multiple_actual, risk_percent, session, playbook_id, is_open, trade_type, total_lots, account_id')
+      .select('id, trade_number, symbol, direction, entry_time, exit_time, net_pnl, r_multiple_actual, risk_percent, session, playbook_id, is_open, trade_type, total_lots, account_id, profile, actual_playbook_id, actual_profile, actual_regime')
       .eq('user_id', targetUserId)
       .gte('entry_time', period_start)
       .lt('entry_time', period_end)
@@ -1145,6 +1149,54 @@ serve(async (req) => {
       psychology_notes: r.psychology_notes,
     })).filter((r: any) => r.mistakes.length || r.did_well.length || r.to_improve.length || r.thoughts || r.psychology_notes);
 
+    // Read-quality summary — planned-vs-actual thesis grading (skipped if <5 graded trades)
+    const gradedTrades = (trades as TradeRow[]).filter(t =>
+      (t.playbook_id && t.actual_playbook_id) ||
+      (t.profile && t.actual_profile) ||
+      (reviews.get(t.id)?.playbook_id && t.actual_regime)
+    );
+    let readQualityBlock: any = null;
+    if (gradedTrades.length >= 5) {
+      let modelMatch = 0, modelMismatch = 0, modelPartial = 0;
+      let modelMatchWins = 0, modelMatchTotal = 0, modelMismatchWins = 0, modelMismatchTotal = 0;
+      const driftPairs: Record<string, number> = {};
+      for (const t of gradedTrades) {
+        const fields: Array<[any, any]> = [
+          [t.playbook_id, t.actual_playbook_id],
+          [t.profile, t.actual_profile],
+          [reviews.get(t.id)?.regime, t.actual_regime],
+        ].filter(([p, a]) => p && a) as Array<[any, any]>;
+        if (!fields.length) continue;
+        const matches = fields.filter(([p, a]) => p === a).length;
+        const isWin = (t.net_pnl ?? 0) > 0 ? 1 : 0;
+        if (matches === fields.length) {
+          modelMatch++;
+          modelMatchWins += isWin;
+          modelMatchTotal++;
+        } else if (matches === 0) {
+          modelMismatch++;
+          modelMismatchWins += isWin;
+          modelMismatchTotal++;
+        } else {
+          modelPartial++;
+        }
+        if (t.playbook_id && t.actual_playbook_id && t.playbook_id !== t.actual_playbook_id) {
+          const key = `${playbookNames.get(t.playbook_id) || 'Unknown'} → ${playbookNames.get(t.actual_playbook_id) || 'Unknown'}`;
+          driftPairs[key] = (driftPairs[key] || 0) + 1;
+        }
+      }
+      const topDrifts = Object.entries(driftPairs).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([pair, n]) => ({ pair, count: n }));
+      readQualityBlock = {
+        graded_count: gradedTrades.length,
+        match: modelMatch,
+        partial: modelPartial,
+        mismatch: modelMismatch,
+        win_rate_when_correctly_read: modelMatchTotal ? +(modelMatchWins / modelMatchTotal * 100).toFixed(1) : null,
+        win_rate_when_misread: modelMismatchTotal ? +(modelMismatchWins / modelMismatchTotal * 100).toFixed(1) : null,
+        top_misreads: topDrifts,
+      };
+    }
+
     // Worst-trade narratives — top 3 losses with full review context + time gap to prior trade
     const closedExec = (trades as TradeRow[]).filter(t => !t.is_open && t.trade_type === 'executed');
     const sortedByR = [...closedExec].sort((a, b) => (a.r_multiple_actual ?? 0) - (b.r_multiple_actual ?? 0));
@@ -1224,6 +1276,7 @@ serve(async (req) => {
       worst_trade_narratives: worstTradeNarratives,
       tilt_narrative: tiltNarrative,
       symbol_expectancy: symbolExpectancy,
+      read_quality: readQualityBlock,
       unreviewed_r_impact: +unreviewedR.toFixed(2),
       _valid_trade_ids: tradeIds,
       _valid_symbols: Array.from(new Set(trades.map(t => t.symbol))),

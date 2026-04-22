@@ -125,11 +125,15 @@ export interface Trade {
   balance_at_entry: number | null;
   equity_at_entry: number | null;
   // New Notion-style fields
-  playbook_id: string | null; // UUID reference to playbooks table
+  playbook_id: string | null; // UUID reference to playbooks table — PLANNED model at entry
   alignment: TimeframeAlignment[] | null;
   entry_timeframes: TimeframeAlignment[] | null;
-  profile: TradeProfile | null;
+  profile: TradeProfile | null; // PLANNED profile at entry
   place: string | null;
+  // Hindsight grading — what the trade ACTUALLY turned out to be
+  actual_playbook_id: string | null;
+  actual_profile: TradeProfile | null;
+  actual_regime: RegimeType | null;
   trade_number: number | null;
   trade_type: TradeType; // Type of trade: executed, idea, paper, or missed
   risk_percent: number | null; // Percentage of balance/equity risked (for idea/paper/missed trades)
