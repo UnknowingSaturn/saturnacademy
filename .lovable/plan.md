@@ -1,105 +1,106 @@
 
 
-# Best architecture for trade times — and why "Apply Timezone Correction" is a workaround, not a solution
+# Should you journal the *intended* model or the *actual* one?
 
-## The actual industry-standard answer
+## Short answer: both. They're different signals.
 
-**Always store UTC. Always display in the user's chosen timezone (default ET). Never store local time.**
+Right now your journal has **one** model field (`Model`, mapped to `playbook_id`). That collapses two very different facts into one cell:
 
-This is what every serious trading platform does (TradingView, NinjaTrader, ThinkOrSwim, MT5 Terminal itself in its history reports). Display ≠ storage. The "broker server time" is a UI quirk — it should never bleed into your database.
+- **Intended**: what playbook you *thought* you were trading at entry (your thesis at the moment of pulling the trigger).
+- **Actual**: what the price action and trade behavior turned out to actually be, judged in hindsight.
 
-You already have the right architecture in 80% of the system. The current breakage is in the legacy backfill path and an outdated assumption that `broker_utc_offset` is a static account-level constant.
+Mixing them destroys your ability to answer the most important questions a journal exists to answer:
 
-## What's actually happening today (mapped end-to-end)
-
-```
-EA (broker server time)
-  ├─ Auto-detects offset live: TimeCurrent() - TimeGMT()  → per-event correct, DST-aware
-  ├─ Sends timestamp ALREADY converted to UTC: TimeCurrent() - brokerOffset*3600
-  ├─ Sends broker_utc_offset PER event in raw_payload (already there!)
-  └─ Sends server_time as a debug field
-        ↓
-ingest-events stores event_timestamp (UTC) + raw_payload.broker_utc_offset (per-event)
-        ↓
-trades.entry_time / exit_time = UTC (correct since EA did the math live)
-        ↓
-Frontend displays via formatToET() in ET — correct, DST-aware
-```
-
-So **for any trade ingested via the live EA**, times are already correct and DST-aware automatically. No correction needed.
-
-The "Apply Timezone Correction" button only matters for two legacy cases:
-1. CSV imports from MT5's history export (no per-event offset captured).
-2. Old EA versions (pre-v3.00) that may have stored broker-local instead of UTC.
-
-For these, applying a single static offset is wrong across DST boundaries — confirming your concern.
-
-## Recommended architecture (the smart approach)
-
-### Tier 1 — Live EA trades (already correct, no work needed)
-Trust `event.event_timestamp` (UTC) and `raw_payload.broker_utc_offset` (per-event). Don't touch them. Don't expose a "correction" button for accounts whose trades came from the EA — there's nothing to correct.
-
-### Tier 2 — CSV / historical imports (the real problem to solve)
-On import, attempt to recover UTC at row level using the broker's known DST schedule, not a single offset:
-
-- **Most MT5 brokers** run on one of two known schedules:
-  - **EET/EEST** (UTC+2 winter / UTC+3 summer, switches with EU DST) — IC Markets, Pepperstone, FTMO, FXPro, most ECN brokers
-  - **GMT/BST** (UTC+0/+1) — a few UK brokers
-  - **Fixed UTC+3** (no DST) — some US-friendly brokers
-
-- Store a `broker_dst_profile` enum on the account (`EET_DST`, `GMT_DST`, `FIXED_PLUS_3`, `FIXED_PLUS_2`, `MANUAL`).
-
-- During import, look up the offset *for that specific timestamp's date* using the profile, not a single account-wide value. This handles DST correctly across mixed history.
-
-### Tier 3 — Display layer (already correct)
-`src/lib/time.ts` already does the right thing: stored UTC → display in `America/New_York`. Add a user setting `display_timezone` (default ET) so non-US users can switch to London/Tokyo/local.
-
-## Architectural changes (concrete)
-
-### A. Deprecate static `accounts.broker_utc_offset`
-Keep the column for backward compat, but stop relying on it for new logic. Source of truth is now per-event `raw_payload.broker_utc_offset` (live EA) or per-date DST profile (imports).
-
-### B. Add `accounts.broker_dst_profile` (enum)
-Auto-detect on first EA heartbeat: observe `broker_utc_offset` over multiple events; if it switches between +2/+3 across EU DST dates → `EET_DST`. If constant → `FIXED_PLUS_N`.
-
-### C. Rebuild "Apply Timezone Correction" as "Re-derive UTC times"
-Two distinct modes, picked by data source:
-
-**Mode A — EA-sourced trades:** No-op. Show toast: "Trade times for this account are auto-corrected by the live bridge — no manual correction needed." No backend call.
-
-**Mode B — CSV-imported trades (no events row):** Show modal: "Pick your broker's timezone profile (EET/EEST, fixed UTC+3, etc.)". Then for each trade, compute the right offset *for that trade's date* (DST-aware) and write back UTC. Handles your mixed-DST history correctly with one click.
-
-### D. Per-event preview in EditAccountDialog
-Replace "Apply correction with offset N" with a 5-row preview table: `entry_time stored | broker_offset_at_event | UTC after correction | ET display`. User sees DST switches visually before confirming.
-
-### E. Add `display_timezone` to `user_settings`
-Default `America/New_York`. Wire `time.ts` formatters to read it. Lets EU/Asia users see local time without changing storage.
-
-## What this fixes vs. the option-2/3 plan
-
-| Concern | Date-range split | Per-event offset | This approach |
+| Question | Needs intended | Needs actual | Needs both |
 |---|---|---|---|
-| Mixed DST history | User clicks twice | EA change required | Auto-handled via DST profile |
-| Future trades stay correct | No (manual every time) | Yes | Yes (already works via EA) |
-| CSV imports | Manual per range | N/A | Auto via DST profile |
-| Confusing UX | Yes (two clicks) | Hidden | Single click, preview shown |
-| Code complexity | Medium | High (EA + schema) | Low (one new column + lookup table) |
+| "How well does my Liquidity Sweep playbook perform?" | ✓ | | |
+| "How often was my read of the market correct?" | | | ✓ |
+| "What setup do I keep mistaking for X?" | | | ✓ |
+| "Am I drifting from my plan mid-trade?" | ✓ | ✓ | ✓ |
+| "Which playbook is genuinely my edge vs. which I just label everything as?" | | ✓ | ✓ |
 
-## Files
+The pros (Mike Bellafiore's SMB, Brett Steenbarger, every prop desk review template) all separate **plan vs execution vs outcome** for exactly this reason. You want to grade your *thesis quality* independently from your *execution quality* independently from your *result*.
 
-| File | Change |
-|---|---|
-| `supabase/migrations/<new>` | Add `accounts.broker_dst_profile` enum (`EET_DST`, `GMT_DST`, `FIXED_PLUS_3`, `FIXED_PLUS_2`, `MANUAL`); add `user_settings.display_timezone` text default `'America/New_York'` |
-| `supabase/functions/restore-trade-times/index.ts` | Branch on data source: if events exist with `raw_payload.broker_utc_offset` → trust those (no-op or refresh from raw); if missing → use `broker_dst_profile` + per-trade-date DST lookup. Add IANA `Europe/Athens`-style resolution (built-in `Intl.DateTimeFormat` with `timeZone`) instead of fixed offset arithmetic |
-| `supabase/functions/ingest-events/index.ts` | After N heartbeats, auto-set `broker_dst_profile` based on observed offsets; backfill column if `MANUAL` |
-| `src/components/accounts/EditAccountDialog.tsx` | Replace single-offset input with profile picker + 5-trade preview table; hide "Apply correction" entirely for EA-sourced accounts (events exist) |
-| `src/lib/time.ts` | Read `display_timezone` from user_settings hook; fall back to ET |
-| `src/hooks/useUserSettings.tsx` | Expose `display_timezone` |
+## What this app currently captures
+
+Looking at `src/types/settings.ts` and `TradeProperties.tsx`:
+
+- **Model** (`playbook_id`) — single field, no time-of-decision distinction
+- **Profile** (consolidation/expansion/reversal/continuation) — single field, same problem
+- **Regime** (rotational/transitional) — same
+- **Alignment / Entry TF** — same
+
+There's also a free-text `Place` field and `psychology_notes`, but nothing structured for "I called this X but it was actually Y."
+
+## Recommendation: add a 2nd "actual" column for the things that matter
+
+Don't add it for everything — that creates fatigue. Add it for the **3 fields where the intended-vs-actual gap is most diagnostic**:
+
+| Field | Intended (what you thought at entry) | Actual (judged after close) |
+|---|---|---|
+| `playbook_id` → keep as **"Planned Model"** | Already captured | NEW: `actual_playbook_id` |
+| `profile` → keep as **"Planned Profile"** | Already captured | NEW: `actual_profile` |
+| Regime | Already captured | NEW: `actual_regime` |
+
+Don't duplicate Alignment/Entry TF — those are objective and don't shift in hindsight much.
+
+Also add a derived/computed badge: **"Read Quality"** = `match | partial | mismatch` based on whether intended === actual. This is the single most powerful new metric you'd unlock — your *market-reading accuracy*, separate from your P&L.
+
+## How journaling should flow
+
+```
+At entry (live trade dialog or quick capture)
+  └─ Pick PLANNED model + profile + regime  ← what you think
+        ↓
+Trade closes
+  └─ Open trade detail panel
+        ↓
+  Review section now has:
+    • Planned Model: Liquidity Sweep      [locked, set at entry]
+    • Actual Model: ___                   [you fill in hindsight]
+    • Read Quality auto-computes: ✓ match / ⚠ partial / ✗ mismatch
+```
+
+If you didn't pre-set "planned" (e.g. CSV imports, missed entries), the Planned field stays empty and Actual becomes the only one. No data loss, no forced workflow.
+
+## What columns to add to the table
+
+Add these as **optional** (default-hidden) columns so you can opt in once you've used it for a few weeks:
+
+- `Planned Model` (rename existing `Model`)
+- `Actual Model` (new)
+- `Read Quality` (new, computed badge: green/yellow/red)
+
+Hide `Profile` → `actual_profile` and `Regime` → `actual_regime` by default; expose in detail panel only. Adds depth without table clutter.
+
+## What this unlocks in reports
+
+Your weekly Sensei report can now answer:
+- "You called Liquidity Sweep 12 times this week. 4 were actually Trend Continuation. Win rate when correctly identified: 67%. When mis-identified: 18%. **Your read is your edge — the setups you label correctly print money.**"
+- "Your *planned* playbook compliance is 80%. Your *actual* playbook compliance is 45%. You're entering on plan but the market isn't giving you what you expected — consider waiting for confirmation."
+
+Neither of those insights is possible with one combined field.
+
+## Implementation scope (when you approve)
+
+**Database** — add 3 nullable columns to `trades`:
+- `actual_playbook_id uuid REFERENCES playbooks(id)`
+- `actual_profile text`
+- `actual_regime text`
+
+**Frontend**:
+- `TradeProperties.tsx`: rename "Model"→"Planned Model", add "Actual Model" row below it; same for Profile and Regime.
+- `settings.ts` `DEFAULT_COLUMNS`: rename `model`→`planned_model`, add `actual_model` and `read_quality` (computed). Keep both default-hidden except `planned_model`.
+- `TradeTable.tsx`: render new columns + read-quality badge.
+- Reports edge function (`generate-report`): include planned-vs-actual deltas in prompt context.
+
+**No EA changes, no breaking changes** — old trades just have `actual_*` = null, treated as "not graded yet."
 
 ## Validation
 
-1. EA-sourced account, mixed DST trades from 2023+2024 → no correction needed; all times already in correct ET.
-2. CSV-imported account from IC Markets (EET) covering Mar 2024 DST switch → pick `EET_DST` profile → trades before Mar 31 use −2h, after use −3h, ET display correct on both sides.
-3. User in London switches `display_timezone` to `Europe/London` → all journal/report times re-render in BST/GMT without DB change.
-4. New broker with weird offset → `MANUAL` profile + numeric input still works as escape hatch.
+1. Open any past trade → Properties panel shows "Planned Model" (existing value preserved) and a new empty "Actual Model" picker.
+2. Set Actual = Planned → Read Quality badge = green "match".
+3. Set Actual ≠ Planned → badge = red "mismatch", visible in table once column enabled.
+4. Old trades with no Actual set → badge hidden, no false "mismatch" noise.
+5. Generated weekly Sensei report references read-quality stats when ≥10 graded trades exist.
 
