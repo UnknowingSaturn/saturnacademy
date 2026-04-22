@@ -804,7 +804,7 @@ async function buildLlmContext(
 ) {
   let tradesQuery = admin
     .from('trades')
-    .select('id, trade_number, symbol, direction, entry_time, exit_time, net_pnl, r_multiple_actual, risk_percent, session, playbook_id, is_open, trade_type, total_lots, account_id')
+    .select('id, trade_number, symbol, direction, entry_time, exit_time, net_pnl, r_multiple_actual, risk_percent, session, playbook_id, is_open, trade_type, total_lots, account_id, profile, actual_playbook_id, actual_profile, actual_regime')
     .eq('user_id', targetUserId)
     .gte('entry_time', period_start)
     .lt('entry_time', period_end)
@@ -1026,7 +1026,7 @@ serve(async (req) => {
     // Fetch trades in window
     let tradesQuery = admin
       .from('trades')
-      .select('id, trade_number, symbol, direction, entry_time, exit_time, net_pnl, r_multiple_actual, risk_percent, session, playbook_id, is_open, trade_type, total_lots, account_id')
+      .select('id, trade_number, symbol, direction, entry_time, exit_time, net_pnl, r_multiple_actual, risk_percent, session, playbook_id, is_open, trade_type, total_lots, account_id, profile, actual_playbook_id, actual_profile, actual_regime')
       .eq('user_id', targetUserId)
       .gte('entry_time', period_start)
       .lt('entry_time', period_end)
