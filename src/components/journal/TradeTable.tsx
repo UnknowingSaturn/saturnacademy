@@ -152,14 +152,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   };
 
   const handleActualModelChange = async (trade: Trade, playbookId: string) => {
-    await updateTrade.mutateAsync({ id: trade.id, actual_playbook_id: playbookId || null } as any);
+    await updateTrade.mutateAsync({ id: trade.id, actual_playbook_id: playbookId || null });
   };
 
   const computeReadQuality = (trade: Trade): { label: string; tone: string } | null => {
-    const fields: Array<[any, any]> = [
-      [trade.playbook_id, (trade as any).actual_playbook_id],
-      [trade.profile, (trade as any).actual_profile],
-      [trade.review?.regime, (trade as any).actual_regime],
+    const fields: Array<[unknown, unknown]> = [
+      [trade.playbook_id, trade.actual_playbook_id],
+      [trade.profile, trade.actual_profile],
+      [trade.review?.regime, trade.actual_regime],
     ];
     const graded = fields.filter(([p, a]) => p && a);
     if (graded.length === 0) return null;
@@ -404,7 +404,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
                     return (
                       <div key={key} onClick={(e) => e.stopPropagation()}>
                         <BadgeSelect
-                          value={(trade as any).actual_playbook_id || ""}
+                          value={trade.actual_playbook_id || ""}
                           onChange={(v) => handleActualModelChange(trade, v as string)}
                           options={playbookModelOptions.length > 0 ? playbookModelOptions : [
                             { value: "", label: "No playbooks", color: "muted" },

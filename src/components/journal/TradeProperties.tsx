@@ -136,23 +136,23 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   };
 
   const handleActualModelChange = async (playbookId: string) => {
-    await updateTrade.mutateAsync({ id: trade.id, actual_playbook_id: playbookId || null } as any);
+    await updateTrade.mutateAsync({ id: trade.id, actual_playbook_id: playbookId || null });
   };
 
   const handleActualProfileChange = async (profile: string) => {
-    await updateTrade.mutateAsync({ id: trade.id, actual_profile: (profile || null) as TradeProfile | null } as any);
+    await updateTrade.mutateAsync({ id: trade.id, actual_profile: (profile || null) as TradeProfile | null });
   };
 
   const handleActualRegimeChange = async (regime: string) => {
-    await updateTrade.mutateAsync({ id: trade.id, actual_regime: (regime || null) as RegimeType | null } as any);
+    await updateTrade.mutateAsync({ id: trade.id, actual_regime: (regime || null) as RegimeType | null });
   };
 
   // Read Quality: compare planned vs actual across model/profile/regime
   const readQuality = useMemo(() => {
-    const fields: Array<[any, any]> = [
-      [trade.playbook_id, (trade as any).actual_playbook_id],
-      [trade.profile, (trade as any).actual_profile],
-      [trade.review?.regime, (trade as any).actual_regime],
+    const fields: Array<[unknown, unknown]> = [
+      [trade.playbook_id, trade.actual_playbook_id],
+      [trade.profile, trade.actual_profile],
+      [trade.review?.regime, trade.actual_regime],
     ];
     const graded = fields.filter(([planned, actual]) => planned && actual);
     if (graded.length === 0) return null;
@@ -160,7 +160,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
     if (matches === graded.length) return { label: "Match", variant: "default" as const, tone: "profit" };
     if (matches === 0) return { label: "Mismatch", variant: "destructive" as const, tone: "loss" };
     return { label: "Partial", variant: "outline" as const, tone: "breakeven" };
-  }, [trade.playbook_id, (trade as any).actual_playbook_id, trade.profile, (trade as any).actual_profile, trade.review?.regime, (trade as any).actual_regime]);
+  }, [trade.playbook_id, trade.actual_playbook_id, trade.profile, trade.actual_profile, trade.review?.regime, trade.actual_regime]);
 
   const handleEmotionChange = async (emotion: string) => {
     // Partial upsert — only sends the field this handler owns.
