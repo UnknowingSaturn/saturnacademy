@@ -394,8 +394,42 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
                           options={playbookModelOptions.length > 0 ? playbookModelOptions : [
                             { value: "", label: "No playbooks", color: "muted" },
                           ]}
-                          placeholder="Strategy"
+                          placeholder="Planned"
                         />
+                      </div>
+                    );
+                  }
+
+                  if (key === 'actual_model') {
+                    return (
+                      <div key={key} onClick={(e) => e.stopPropagation()}>
+                        <BadgeSelect
+                          value={(trade as any).actual_playbook_id || ""}
+                          onChange={(v) => handleActualModelChange(trade, v as string)}
+                          options={playbookModelOptions.length > 0 ? playbookModelOptions : [
+                            { value: "", label: "No playbooks", color: "muted" },
+                          ]}
+                          placeholder="Hindsight"
+                        />
+                      </div>
+                    );
+                  }
+
+                  if (key === 'read_quality') {
+                    const rq = computeReadQuality(trade);
+                    if (!rq) {
+                      return <div key={key} className="text-xs text-muted-foreground text-center">—</div>;
+                    }
+                    return (
+                      <div key={key} className="flex justify-center">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-xs font-medium",
+                          rq.tone === 'profit' && "bg-profit/20 text-profit",
+                          rq.tone === 'loss' && "bg-loss/20 text-loss",
+                          rq.tone === 'breakeven' && "bg-breakeven/20 text-breakeven",
+                        )}>
+                          {rq.label}
+                        </span>
                       </div>
                     );
                   }
