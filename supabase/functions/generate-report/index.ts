@@ -1276,6 +1276,7 @@ serve(async (req) => {
       worst_trade_narratives: worstTradeNarratives,
       tilt_narrative: tiltNarrative,
       symbol_expectancy: symbolExpectancy,
+      read_quality: readQualityBlock,
       unreviewed_r_impact: +unreviewedR.toFixed(2),
       _valid_trade_ids: tradeIds,
       _valid_symbols: Array.from(new Set(trades.map(t => t.symbol))),
