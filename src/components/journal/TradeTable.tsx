@@ -151,6 +151,24 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
     await updateTrade.mutateAsync({ id: trade.id, playbook_id: playbookId || null });
   };
 
+  const handleActualModelChange = async (trade: Trade, playbookId: string) => {
+    await updateTrade.mutateAsync({ id: trade.id, actual_playbook_id: playbookId || null } as any);
+  };
+
+  const computeReadQuality = (trade: Trade): { label: string; tone: string } | null => {
+    const fields: Array<[any, any]> = [
+      [trade.playbook_id, (trade as any).actual_playbook_id],
+      [trade.profile, (trade as any).actual_profile],
+      [trade.review?.regime, (trade as any).actual_regime],
+    ];
+    const graded = fields.filter(([p, a]) => p && a);
+    if (graded.length === 0) return null;
+    const matches = graded.filter(([p, a]) => p === a).length;
+    if (matches === graded.length) return { label: "Match", tone: "profit" };
+    if (matches === 0) return { label: "Mismatch", tone: "loss" };
+    return { label: "Partial", tone: "breakeven" };
+  };
+
   const handleAlignmentChange = async (trade: Trade, alignment: string[]) => {
     await updateTrade.mutateAsync({ id: trade.id, alignment: alignment as TimeframeAlignment[] });
   };
