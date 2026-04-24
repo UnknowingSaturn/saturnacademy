@@ -139,6 +139,48 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'place', label: 'Place', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'editable' },
 ];
 
+// System fields whose values can be safely bulk-wiped from every trade without breaking
+// the journal. Anything NOT in this set is core record data (symbol, prices, lots, P&L, times)
+// and only supports soft-delete (hide).
+export const ERASABLE_SYSTEM_FIELDS: Record<string, true> = {
+  session: true,
+  playbook_id: true,
+  actual_playbook_id: true,
+  profile: true,
+  actual_profile: true,
+  actual_regime: true,
+  place: true,
+  alignment: true,
+  entry_timeframes: true,
+  emotional_state_before: true,
+  // computed/display columns — non-destructive (no underlying field to wipe)
+  // they are listed here so the UI can offer Erase as a no-op-safe action
+  // omit: trade_number, account, day, symbol, entry_time, r_multiple_actual,
+  //       account_pct, result, trade_type, model (display-only), actual_model,
+  //       read_quality (computed)
+};
+
+// Some columns are computed/display-only — they have no underlying scalar field on `trades`,
+// so "erase" doesn't make sense. They support soft-delete (hide) only.
+export const COMPUTED_DISPLAY_COLUMNS: Record<string, true> = {
+  trade_number: true,
+  account: true,
+  day: true,
+  r_multiple_actual: true,
+  account_pct: true,
+  result: true,
+  trade_type: true,
+  read_quality: true,
+  model: true,
+  actual_model: true,
+  entry_time: true,
+  symbol: true,
+};
+
+export function canEraseSystemField(key: string): boolean {
+  return ERASABLE_SYSTEM_FIELDS[key] === true;
+}
+
 export const DEFAULT_VISIBLE_COLUMNS = [
   // Calculated first
   'trade_number', 'entry_time', 'day', 'symbol', 'r_multiple_actual', 'account_pct', 'result',

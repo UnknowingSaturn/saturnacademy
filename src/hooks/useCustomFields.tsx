@@ -219,6 +219,67 @@ export function useReorderCustomFields() {
   });
 }
 
+// Erase a SYSTEM field's value from every trade for this user (bulk-null).
+// Only call this for keys in ERASABLE_SYSTEM_FIELDS. Skips array fields properly.
+export function useEraseSystemFieldData() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (columnKey: string) => {
+      if (!user?.id) throw new Error('Not authenticated');
+
+      // Array fields must be set to null (or [], but null is cleaner)
+      const ARRAY_FIELDS = new Set(['alignment', 'entry_timeframes']);
+      const update: Record<string, any> = {};
+      update[columnKey] = null;
+
+      // For array fields, also acceptable to use null — Postgres accepts it for nullable arrays
+      if (ARRAY_FIELDS.has(columnKey)) {
+        update[columnKey] = null;
+      }
+
+      const { data, error } = await (supabase as any)
+        .from('trades')
+        .update(update)
+        .eq('user_id', user.id)
+        .not(columnKey, 'is', null)
+        .select('id');
+
+      if (error) throw error;
+      return data?.length || 0;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
+      toast.success(`Cleared values from ${count} trade${count === 1 ? '' : 's'}`);
+    },
+    onError: (e: any) => {
+      console.error(e);
+      toast.error('Failed to clear data');
+    },
+  });
+}
+
+// Count trades with a non-null value for a system column key.
+export function useCountTradesWithSystemField(columnKey: string | null) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['system_field_value_count', user?.id, columnKey],
+    queryFn: async () => {
+      if (!user?.id || !columnKey) return 0;
+      const { count, error } = await (supabase as any)
+        .from('trades')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .not(columnKey, 'is', null);
+      if (error) throw error;
+      return count || 0;
+    },
+    enabled: !!user?.id && !!columnKey,
+  });
+}
+
 // Count trades that currently have a value for this key (for the erase-data confirmation).
 export function useCountTradesWithCustomField(key: string | null) {
   const { user } = useAuth();
