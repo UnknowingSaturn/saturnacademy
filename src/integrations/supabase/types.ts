@@ -538,6 +538,48 @@ export type Database = {
           },
         ]
       }
+      custom_field_definitions: {
+        Row: {
+          created_at: string
+          default_value: Json | null
+          id: string
+          is_active: boolean
+          key: string
+          label: string
+          options: Json
+          sort_order: number
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          default_value?: Json | null
+          id?: string
+          is_active?: boolean
+          key: string
+          label: string
+          options?: Json
+          sort_order?: number
+          type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          default_value?: Json | null
+          id?: string
+          is_active?: boolean
+          key?: string
+          label?: string
+          options?: Json
+          sort_order?: number
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       events: {
         Row: {
           account_id: string | null
@@ -1423,6 +1465,7 @@ export type Database = {
           balance_at_entry: number | null
           commission: number | null
           created_at: string
+          custom_fields: Json
           direction: Database["public"]["Enums"]["trade_direction"]
           duration_seconds: number | null
           entry_price: number
@@ -1469,6 +1512,7 @@ export type Database = {
           balance_at_entry?: number | null
           commission?: number | null
           created_at?: string
+          custom_fields?: Json
           direction: Database["public"]["Enums"]["trade_direction"]
           duration_seconds?: number | null
           entry_price: number
@@ -1515,6 +1559,7 @@ export type Database = {
           balance_at_entry?: number | null
           commission?: number | null
           created_at?: string
+          custom_fields?: Json
           direction?: Database["public"]["Enums"]["trade_direction"]
           duration_seconds?: number | null
           entry_price?: number
@@ -1585,6 +1630,7 @@ export type Database = {
       user_settings: {
         Row: {
           column_order: Json
+          column_overrides: Json
           created_at: string
           default_filters: Json
           display_timezone: string
@@ -1596,6 +1642,7 @@ export type Database = {
         }
         Insert: {
           column_order?: Json
+          column_overrides?: Json
           created_at?: string
           default_filters?: Json
           display_timezone?: string
@@ -1607,6 +1654,7 @@ export type Database = {
         }
         Update: {
           column_order?: Json
+          column_overrides?: Json
           created_at?: string
           default_filters?: Json
           display_timezone?: string

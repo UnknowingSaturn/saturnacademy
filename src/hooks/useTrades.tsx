@@ -172,6 +172,10 @@ export function useUpdateTrade() {
       if (updates.entry_timeframes) {
         updateData.entry_timeframes = updates.entry_timeframes;
       }
+      // Custom fields (jsonb) — explicit allowlist so silent strip never recurs
+      if ((updates as any).custom_fields !== undefined) {
+        updateData.custom_fields = (updates as any).custom_fields as unknown as Json;
+      }
       
       // Handle scalar fields
       const scalarFields = [

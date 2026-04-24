@@ -12,6 +12,7 @@ const transformSettings = (row: any): UserSettings => ({
   user_id: row.user_id,
   visible_columns: row.visible_columns || DEFAULT_VISIBLE_COLUMNS,
   column_order: row.column_order || DEFAULT_VISIBLE_COLUMNS,
+  column_overrides: (row.column_overrides as Record<string, any>) || {},
   default_filters: row.default_filters || [],
   live_trade_questions: (row.live_trade_questions as LiveTradeQuestion[]) || DEFAULT_LIVE_TRADE_QUESTIONS,
   display_timezone: row.display_timezone || 'America/New_York',
@@ -73,6 +74,7 @@ export function useUserSettings() {
           user_id: user.id,
           visible_columns: DEFAULT_VISIBLE_COLUMNS,
           column_order: DEFAULT_VISIBLE_COLUMNS,
+          column_overrides: {},
           default_filters: [] as FilterCondition[],
           live_trade_questions: DEFAULT_LIVE_TRADE_QUESTIONS,
           display_timezone: 'America/New_York',
@@ -108,6 +110,7 @@ export function useUpdateUserSettings() {
       const dbUpdates: Record<string, any> = {};
       if (updates.visible_columns) dbUpdates.visible_columns = updates.visible_columns;
       if (updates.column_order) dbUpdates.column_order = updates.column_order;
+      if (updates.column_overrides !== undefined) dbUpdates.column_overrides = updates.column_overrides as any;
       if (updates.default_filters) dbUpdates.default_filters = updates.default_filters as any;
       if (updates.live_trade_questions) dbUpdates.live_trade_questions = updates.live_trade_questions as any;
       if (updates.display_timezone) dbUpdates.display_timezone = updates.display_timezone;
