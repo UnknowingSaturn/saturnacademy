@@ -625,6 +625,17 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
                     );
                   }
 
+                  // User-defined custom field columns
+                  if (key.startsWith('cf_')) {
+                    const def = customFields.find((f) => f.key === key);
+                    if (!def) return <div key={key} className="text-sm text-muted-foreground">—</div>;
+                    return (
+                      <div key={key}>
+                        <CustomFieldCell trade={trade} field={def} />
+                      </div>
+                    );
+                  }
+
                   // Default: show raw value
                   const value = (trade as any)[key];
                   return (
