@@ -8,8 +8,17 @@ import {
   useEraseCustomFieldData,
   useReorderCustomFields,
   useCountTradesWithCustomField,
+  useEraseSystemFieldData,
+  useCountTradesWithSystemField,
 } from "@/hooks/useCustomFields";
-import { DEFAULT_COLUMNS, DEFAULT_VISIBLE_COLUMNS, ColumnDefinition, CustomFieldDefinition, customFieldToColumn } from "@/types/settings";
+import {
+  DEFAULT_COLUMNS,
+  DEFAULT_VISIBLE_COLUMNS,
+  ColumnDefinition,
+  CustomFieldDefinition,
+  customFieldToColumn,
+  canEraseSystemField,
+} from "@/types/settings";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +69,7 @@ interface RowProps {
   onToggleVisible: () => void;
   onRename: (next: string) => void;
   onResetLabel: () => void;
+  onDelete: () => void;
   onEditCustom?: () => void;
   onSoftDeleteCustom?: () => void;
   onEraseCustomData?: () => void;
@@ -76,6 +86,7 @@ function SortableColumnRow(props: RowProps) {
     onToggleVisible,
     onRename,
     onResetLabel,
+    onDelete,
     onEditCustom,
     onSoftDeleteCustom,
     onEraseCustomData,
@@ -98,6 +109,10 @@ function SortableColumnRow(props: RowProps) {
     if (trimmed && trimmed !== column.label) onRename(trimmed);
     setEditing(false);
   };
+
+  // Inactive custom fields (in the "Hidden columns" section) keep the dropdown menu
+  // for restore/erase/permanent-delete.
+  const showInactiveMenu = isCustom && customDef && !customDef.is_active;
 
   return (
     <div
@@ -141,7 +156,7 @@ function SortableColumnRow(props: RowProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         {isVisible ? (
           <Eye className="w-4 h-4 text-muted-foreground" />
         ) : (
@@ -149,7 +164,21 @@ function SortableColumnRow(props: RowProps) {
         )}
         <Switch checked={isVisible} onCheckedChange={onToggleVisible} />
 
-        {isCustom && (
+        {/* Inline trash icon — works for active rows (system + custom) */}
+        {!showInactiveMenu && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+            onClick={onDelete}
+            title="Delete column"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        )}
+
+        {/* Inactive (soft-deleted) custom fields keep the management menu */}
+        {showInactiveMenu && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -157,35 +186,36 @@ function SortableColumnRow(props: RowProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              {customDef?.is_active ? (
-                <>
-                  <DropdownMenuItem onClick={onEditCustom}>
-                    <Pencil className="w-4 h-4 mr-2" />
-                    Edit options
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={onSoftDeleteCustom} className="text-destructive">
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Hide column (keep data)
-                  </DropdownMenuItem>
-                </>
-              ) : (
-                <>
-                  <DropdownMenuItem onClick={onSoftDeleteCustom}>
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Restore column
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={onEraseCustomData} className="text-destructive">
-                    <EraserIcon className="w-4 h-4 mr-2" />
-                    Erase data from all trades
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onHardDeleteCustom} className="text-destructive">
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Permanently delete column
-                  </DropdownMenuItem>
-                </>
-              )}
+              <DropdownMenuItem onClick={onSoftDeleteCustom}>
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Restore column
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onEraseCustomData} className="text-destructive">
+                <EraserIcon className="w-4 h-4 mr-2" />
+                Erase data from all trades
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onHardDeleteCustom} className="text-destructive">
+                <Trash2 className="w-4 h-4 mr-2" />
+                Permanently delete column
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        {/* Active custom fields also keep the "Edit options" menu */}
+        {isCustom && customDef?.is_active && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <MoreHorizontal className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={onEditCustom}>
+                <Pencil className="w-4 h-4 mr-2" />
+                Edit options
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -193,6 +223,14 @@ function SortableColumnRow(props: RowProps) {
     </div>
   );
 }
+
+// Unified delete-target shape so a single dialog handles all branches.
+type DeleteTarget =
+  | { kind: "system-soft"; columnKey: string; label: string }
+  | { kind: "system-erasable"; columnKey: string; label: string }
+  | { kind: "custom-active"; field: CustomFieldDefinition }
+  | { kind: "custom-inactive-erase"; field: CustomFieldDefinition }
+  | { kind: "custom-inactive-hard"; field: CustomFieldDefinition };
 
 export function ColumnConfigPanel() {
   const { data: settings, isLoading: loadingSettings } = useUserSettings();
@@ -202,19 +240,37 @@ export function ColumnConfigPanel() {
   const updateField = useUpdateCustomField();
   const deleteField = useDeleteCustomField();
   const eraseFieldData = useEraseCustomFieldData();
+  const eraseSystemData = useEraseSystemFieldData();
   const reorderFields = useReorderCustomFields();
 
   const [showInactive, setShowInactive] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState<CustomFieldDefinition | null>(null);
-  const [eraseTarget, setEraseTarget] = useState<CustomFieldDefinition | null>(null);
-  const [hardDeleteTarget, setHardDeleteTarget] = useState<CustomFieldDefinition | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  // For erasable system columns, a second-step option to also wipe data.
+  const [eraseDataChoice, setEraseDataChoice] = useState(false);
 
-  const { data: eraseCount = 0 } = useCountTradesWithCustomField(eraseTarget?.key || hardDeleteTarget?.key || null);
+  // Custom-field erase count
+  const customCountKey =
+    deleteTarget?.kind === "custom-inactive-erase" || deleteTarget?.kind === "custom-inactive-hard"
+      ? deleteTarget.field.key
+      : null;
+  const { data: customEraseCount = 0 } = useCountTradesWithCustomField(customCountKey);
+
+  // System-field erase count (only relevant when target is an erasable system column)
+  const systemCountKey =
+    deleteTarget?.kind === "system-erasable" ? deleteTarget.columnKey : null;
+  const { data: systemEraseCount = 0 } = useCountTradesWithSystemField(systemCountKey);
 
   const visibleColumns = settings?.visible_columns || DEFAULT_VISIBLE_COLUMNS;
   const columnOrder: string[] = (settings?.column_order as string[]) || DEFAULT_VISIBLE_COLUMNS;
   const overrides = settings?.column_overrides || {};
+
+  // Hidden system columns = system columns the user has dropped from the order entirely.
+  const hiddenSystemColumns = useMemo(() => {
+    const orderSet = new Set(columnOrder);
+    return DEFAULT_COLUMNS.filter((c) => !orderSet.has(c.key));
+  }, [columnOrder]);
 
   // Build the merged ordered list of system + active custom columns, then any unordered ones at the end.
   const orderedColumns = useMemo(() => {
@@ -233,7 +289,8 @@ export function ColumnConfigPanel() {
         seen.add(key);
       }
     }
-    for (const c of all) {
+    // Append custom cols not yet in the order (newly created); skip system cols not in order — those are "deleted/hidden".
+    for (const c of activeCustomCols) {
       if (!seen.has(c.key)) ordered.push(c);
     }
     return ordered.map((c) => {
@@ -258,7 +315,6 @@ export function ColumnConfigPanel() {
     const newOrder = arrayMove(orderedColumns, oldIndex, newIndex).map((c) => c.key);
     await updateSettings.mutateAsync({ column_order: newOrder });
 
-    // Also persist sort_order for custom fields based on their relative order
     const customOrder = newOrder
       .map((k) => customFields.find((f) => f.key === k))
       .filter((f): f is CustomFieldDefinition => !!f)
@@ -306,15 +362,78 @@ export function ColumnConfigPanel() {
     setEditingField(null);
   };
 
-  const handleSoftDelete = async (f: CustomFieldDefinition) => {
+  // Soft-delete a system column = remove from column_order + visible_columns.
+  // It then appears in the "Hidden system columns" section to be restored.
+  const softDeleteSystemColumn = async (key: string) => {
+    const nextOrder = columnOrder.filter((k) => k !== key);
+    const nextVisible = visibleColumns.filter((k) => k !== key);
+    await updateSettings.mutateAsync({
+      column_order: nextOrder,
+      visible_columns: nextVisible,
+    });
+  };
+
+  const restoreSystemColumn = async (key: string) => {
+    const nextOrder = columnOrder.includes(key) ? columnOrder : [...columnOrder, key];
+    const nextVisible = visibleColumns.includes(key) ? visibleColumns : [...visibleColumns, key];
+    await updateSettings.mutateAsync({
+      column_order: nextOrder,
+      visible_columns: nextVisible,
+    });
+  };
+
+  const toggleCustomActive = async (f: CustomFieldDefinition) => {
     await updateField.mutateAsync({ id: f.id, is_active: !f.is_active });
     if (f.is_active) {
-      // Also remove from visible_columns to clean up
       const next = visibleColumns.filter((k) => k !== f.key);
       if (next.length !== visibleColumns.length) {
         await updateSettings.mutateAsync({ visible_columns: next });
       }
     }
+  };
+
+  // Dispatch a row's trash-click into the right delete branch.
+  const requestDelete = (col: ColumnDefinition, custom?: CustomFieldDefinition) => {
+    setEraseDataChoice(false);
+    if (custom) {
+      setDeleteTarget({ kind: "custom-active", field: custom });
+      return;
+    }
+    if (canEraseSystemField(col.key)) {
+      setDeleteTarget({ kind: "system-erasable", columnKey: col.key, label: col.label });
+    } else {
+      setDeleteTarget({ kind: "system-soft", columnKey: col.key, label: col.label });
+    }
+  };
+
+  const closeDelete = () => {
+    setDeleteTarget(null);
+    setEraseDataChoice(false);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    switch (deleteTarget.kind) {
+      case "system-soft":
+        await softDeleteSystemColumn(deleteTarget.columnKey);
+        break;
+      case "system-erasable":
+        await softDeleteSystemColumn(deleteTarget.columnKey);
+        if (eraseDataChoice) {
+          await eraseSystemData.mutateAsync(deleteTarget.columnKey);
+        }
+        break;
+      case "custom-active":
+        await toggleCustomActive(deleteTarget.field);
+        break;
+      case "custom-inactive-erase":
+        await eraseFieldData.mutateAsync(deleteTarget.field.key);
+        break;
+      case "custom-inactive-hard":
+        await deleteField.mutateAsync(deleteTarget.field.id);
+        break;
+    }
+    closeDelete();
   };
 
   if (loadingSettings || loadingFields) {
@@ -327,7 +446,7 @@ export function ColumnConfigPanel() {
         <div>
           <h3 className="font-medium">Columns</h3>
           <p className="text-sm text-muted-foreground">
-            Drag to reorder. Click a name to rename. Toggle to hide.
+            Drag to reorder. Click a name to rename. Toggle to hide. Trash to delete.
           </p>
         </div>
         <Button size="sm" onClick={() => { setEditingField(null); setDialogOpen(true); }}>
@@ -353,8 +472,8 @@ export function ColumnConfigPanel() {
                   onToggleVisible={() => handleToggleVisible(col.key)}
                   onRename={(next) => handleRename(col.key, next)}
                   onResetLabel={() => handleResetLabel(col.key)}
+                  onDelete={() => requestDelete(col, customDef)}
                   onEditCustom={() => { if (customDef) { setEditingField(customDef); setDialogOpen(true); } }}
-                  onSoftDeleteCustom={() => customDef && handleSoftDelete(customDef)}
                 />
               );
             })}
@@ -362,14 +481,44 @@ export function ColumnConfigPanel() {
         </SortableContext>
       </DndContext>
 
-      {/* Inactive (soft-deleted) custom columns */}
+      {/* Hidden system columns — restore */}
+      {hiddenSystemColumns.length > 0 && (
+        <div className="pt-4 border-t border-border">
+          <div className="text-xs font-medium text-muted-foreground mb-2">
+            Hidden system columns ({hiddenSystemColumns.length})
+          </div>
+          <div className="space-y-2">
+            {hiddenSystemColumns.map((col) => (
+              <div
+                key={col.key}
+                className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-border bg-muted/30"
+              >
+                <div>
+                  <div className="text-sm font-medium">{col.label}</div>
+                  <div className="text-xs text-muted-foreground">{col.type}</div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => restoreSystemColumn(col.key)}
+                >
+                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                  Restore
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Hidden custom columns — restore / erase / hard delete */}
       {inactiveFields.length > 0 && (
         <div className="pt-4 border-t border-border">
           <button
             onClick={() => setShowInactive((v) => !v)}
             className="text-xs text-muted-foreground hover:text-foreground underline"
           >
-            {showInactive ? "Hide" : "Show"} {inactiveFields.length} hidden column
+            {showInactive ? "Hide" : "Show"} {inactiveFields.length} hidden custom column
             {inactiveFields.length === 1 ? "" : "s"}
           </button>
 
@@ -382,12 +531,13 @@ export function ColumnConfigPanel() {
                   isVisible={false}
                   isCustom={true}
                   customDef={f}
-                  onToggleVisible={() => handleSoftDelete(f)}
+                  onToggleVisible={() => toggleCustomActive(f)}
                   onRename={(next) => updateField.mutateAsync({ id: f.id, label: next })}
                   onResetLabel={() => {}}
-                  onSoftDeleteCustom={() => handleSoftDelete(f)}
-                  onEraseCustomData={() => setEraseTarget(f)}
-                  onHardDeleteCustom={() => setHardDeleteTarget(f)}
+                  onDelete={() => {}}
+                  onSoftDeleteCustom={() => toggleCustomActive(f)}
+                  onEraseCustomData={() => { setEraseDataChoice(false); setDeleteTarget({ kind: "custom-inactive-erase", field: f }); }}
+                  onHardDeleteCustom={() => { setEraseDataChoice(false); setDeleteTarget({ kind: "custom-inactive-hard", field: f }); }}
                 />
               ))}
             </div>
@@ -402,55 +552,134 @@ export function ColumnConfigPanel() {
         onSubmit={editingField ? handleEditSubmit : handleCreate}
       />
 
-      {/* Erase data confirmation */}
-      <AlertDialog open={!!eraseTarget} onOpenChange={(o) => !o && setEraseTarget(null)}>
+      {/* Unified delete confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && closeDelete()}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Erase data for "{eraseTarget?.label}"?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently remove the value for this column from{" "}
-              <strong>{eraseCount}</strong> trade{eraseCount === 1 ? "" : "s"}. The column definition stays in
-              place — restore it any time. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                if (eraseTarget) await eraseFieldData.mutateAsync(eraseTarget.key);
-                setEraseTarget(null);
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Erase {eraseCount} value{eraseCount === 1 ? "" : "s"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          {deleteTarget?.kind === "system-soft" && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete "{deleteTarget.label}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This is a core trade field. Its data will be preserved on every trade — only the column
+                  is removed from the journal view. You can restore it from the "Hidden system columns"
+                  section below.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={confirmDelete}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete column
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
 
-      {/* Hard delete confirmation */}
-      <AlertDialog open={!!hardDeleteTarget} onOpenChange={(o) => !o && setHardDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Permanently delete "{hardDeleteTarget?.label}"?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The column definition will be removed. <strong>{eraseCount}</strong> trade
-              {eraseCount === 1 ? " still has" : "s still have"} a value for it — those values will become
-              orphaned (hidden but not erased). Use "Erase data" first if you want a clean wipe.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                if (hardDeleteTarget) await deleteField.mutateAsync(hardDeleteTarget.id);
-                setHardDeleteTarget(null);
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete column
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          {deleteTarget?.kind === "system-erasable" && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete "{deleteTarget.label}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Removes the column from the journal view. <strong>{systemEraseCount}</strong> trade
+                  {systemEraseCount === 1 ? " has" : "s have"} a value for this field today.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <label className="flex items-start gap-2 p-3 rounded-md bg-muted/50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={eraseDataChoice}
+                  onChange={(e) => setEraseDataChoice(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <div className="text-sm">
+                  <div className="font-medium">Also permanently erase data</div>
+                  <div className="text-xs text-muted-foreground">
+                    Wipes the value from {systemEraseCount} trade{systemEraseCount === 1 ? "" : "s"}.
+                    This cannot be undone.
+                  </div>
+                </div>
+              </label>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={confirmDelete}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {eraseDataChoice
+                    ? `Delete & erase ${systemEraseCount} value${systemEraseCount === 1 ? "" : "s"}`
+                    : "Delete column"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+
+          {deleteTarget?.kind === "custom-active" && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete "{deleteTarget.field.label}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  The column will be hidden but its data is preserved on every trade. You can restore
+                  it — or permanently erase its data — from the "Hidden custom columns" section.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={confirmDelete}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete column
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+
+          {deleteTarget?.kind === "custom-inactive-erase" && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Erase data for "{deleteTarget.field.label}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently remove the value for this column from{" "}
+                  <strong>{customEraseCount}</strong> trade{customEraseCount === 1 ? "" : "s"}. The
+                  column definition stays in place — restore it any time. This cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={confirmDelete}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Erase {customEraseCount} value{customEraseCount === 1 ? "" : "s"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+
+          {deleteTarget?.kind === "custom-inactive-hard" && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Permanently delete "{deleteTarget.field.label}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  The column definition will be removed. <strong>{customEraseCount}</strong> trade
+                  {customEraseCount === 1 ? " still has" : "s still have"} a value for it — those values
+                  will become orphaned (hidden but not erased). Use "Erase data" first if you want a
+                  clean wipe.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={confirmDelete}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete column
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
         </AlertDialogContent>
       </AlertDialog>
     </div>
