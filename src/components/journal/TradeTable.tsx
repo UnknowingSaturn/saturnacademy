@@ -12,7 +12,10 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { ChevronRight, Lightbulb, FileText, Clock } from "lucide-react";
-import { DEFAULT_COLUMNS, ColumnDefinition } from "@/types/settings";
+import { DEFAULT_COLUMNS, ColumnDefinition, buildColumnRegistry } from "@/types/settings";
+import { useUserSettings } from "@/hooks/useUserSettings";
+import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
+import { CustomFieldCell } from "./CustomFieldCell";
 
 interface TradeTableProps {
   trades: Trade[];
@@ -40,6 +43,16 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   
   // Fetch playbooks for model options
   const { data: playbooks } = usePlaybooks();
+  const { data: settings } = useUserSettings();
+  const { data: customFields = [] } = useCustomFieldDefinitions();
+
+  // Merged registry: system columns + active custom field columns + user label/width overrides
+  const columnRegistry = useMemo(
+    () => buildColumnRegistry(customFields, settings?.column_overrides || {}),
+    [customFields, settings?.column_overrides]
+  );
+  const getColumn = (key: string): ColumnDefinition | undefined =>
+    columnRegistry.find((c) => c.key === key);
   
   // Generate dynamic model options from playbooks - use playbook ID as value
   const playbookModelOptions = useMemo(() => {
@@ -232,8 +245,8 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
     }
   };
 
-  const getColumn = (key: string): ColumnDefinition | undefined => 
-    DEFAULT_COLUMNS.find(c => c.key === key);
+  const getColumnLocal = (key: string): ColumnDefinition | undefined =>
+    columnRegistry.find(c => c.key === key);
 
   // Build grid template columns: checkbox + visible columns + expand arrow
   const gridCols = '40px ' + activeColumns.map(key => {
