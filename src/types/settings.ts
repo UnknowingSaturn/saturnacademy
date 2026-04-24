@@ -146,6 +146,50 @@ export const DEFAULT_VISIBLE_COLUMNS = [
   'session', 'model', 'alignment', 'entry_timeframes', 'profile', 'emotional_state_before', 'place'
 ];
 
+// Build a ColumnDefinition from a custom field definition so it slots into the same render path.
+export function customFieldToColumn(def: CustomFieldDefinition): ColumnDefinition {
+  const typeMap: Record<CustomFieldType, ColumnDefinition['type']> = {
+    text: 'text',
+    url: 'text',
+    number: 'number',
+    select: 'select',
+    multi_select: 'multi-select',
+    date: 'date',
+    checkbox: 'badge',
+  };
+  return {
+    key: def.key,
+    label: def.label,
+    type: typeMap[def.type],
+    sortable: def.type !== 'multi_select',
+    filterable: true,
+    hideable: true,
+    width: 'minmax(100px, 1.2fr)',
+    category: 'editable',
+  };
+}
+
+// Merge system columns + active custom field columns, applying user overrides (label, width).
+export function buildColumnRegistry(
+  customFields: CustomFieldDefinition[] = [],
+  overrides: Record<string, ColumnOverride> = {}
+): ColumnDefinition[] {
+  const customCols = customFields
+    .filter((f) => f.is_active)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map(customFieldToColumn);
+
+  return [...DEFAULT_COLUMNS, ...customCols].map((col) => {
+    const ov = overrides[col.key];
+    if (!ov) return col;
+    return {
+      ...col,
+      label: ov.label ?? col.label,
+      width: ov.width ?? col.width,
+    };
+  });
+}
+
 export const DEFAULT_SESSIONS: Omit<SessionDefinition, 'id' | 'user_id' | 'created_at' | 'updated_at'>[] = [
   { name: 'Tokyo', key: 'tokyo', start_hour: 19, start_minute: 0, end_hour: 4, end_minute: 0, timezone: 'America/New_York', color: '#EC4899', sort_order: 0, is_active: true },
   { name: 'London', key: 'london', start_hour: 3, start_minute: 0, end_hour: 12, end_minute: 0, timezone: 'America/New_York', color: '#3B82F6', sort_order: 1, is_active: true },
