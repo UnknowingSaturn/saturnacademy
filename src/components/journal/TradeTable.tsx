@@ -245,9 +245,6 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
     }
   };
 
-  const getColumnLocal = (key: string): ColumnDefinition | undefined =>
-    columnRegistry.find(c => c.key === key);
-
   // Build grid template columns: checkbox + visible columns + expand arrow
   const gridCols = '40px ' + activeColumns.map(key => {
     const col = getColumn(key);
