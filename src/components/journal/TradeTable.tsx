@@ -245,9 +245,6 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
     }
   };
 
-  const getColumnLocal = (key: string): ColumnDefinition | undefined =>
-    columnRegistry.find(c => c.key === key);
-
   // Build grid template columns: checkbox + visible columns + expand arrow
   const gridCols = '40px ' + activeColumns.map(key => {
     const col = getColumn(key);
@@ -624,6 +621,17 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
                     return (
                       <div key={key} className="text-sm text-muted-foreground">
                         {hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`}
+                      </div>
+                    );
+                  }
+
+                  // User-defined custom field columns
+                  if (key.startsWith('cf_')) {
+                    const def = customFields.find((f) => f.key === key);
+                    if (!def) return <div key={key} className="text-sm text-muted-foreground">—</div>;
+                    return (
+                      <div key={key}>
+                        <CustomFieldCell trade={trade} field={def} />
                       </div>
                     );
                   }
