@@ -1,9 +1,9 @@
+import { useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { usePublicReport } from "@/hooks/useSharedReports";
 import { EducationalTradeCard } from "@/components/shared-reports/EducationalTradeCard";
 import { Loader2, TrendingUp, AlertCircle } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { Helmet } from "react-helmet-async";
 
 export default function PublicReport() {
   const { slug } = useParams<{ slug: string }>();
