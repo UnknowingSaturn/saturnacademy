@@ -293,19 +293,27 @@ serve(async (req) => {
       description: descByIdx.get(i) || "",
     }));
 
-    // 6. Persist (detailed report stored in `summary` text column)
+    // 6. Persist. The cleaned inline article (with {{IMG:N}} placeholders) is
+    //    stored in `summary`. Optional TL;DR is prepended as a blockquote so
+    //    the existing single-column renderer can show both without schema changes.
+    const article = (aiData?.article_markdown || "").trim();
+    const tldr = (aiData?.tldr || "").trim();
+    const combined = tldr
+      ? `> **TL;DR** — ${tldr}\n\n${article}`
+      : article || null;
+
     await admin.from("knowledge_entries").update({
       status: "ready",
       error_message: null,
       source_title: title,
       source_author: author,
       source_published_at: publishedDate,
-      summary: aiData?.detailed_report || null,
+      summary: combined,
       key_takeaways: aiData?.key_takeaways || [],
       concepts: aiData?.concepts || [],
       tags: aiData?.tags || [],
       screenshots: enrichedScreenshots,
-      raw_markdown: truncatedMd,
+      raw_markdown: markdown.slice(0, 30000),
       updated_at: new Date().toISOString(),
     }).eq("id", entry_id);
 
