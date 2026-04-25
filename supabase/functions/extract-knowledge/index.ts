@@ -1,5 +1,6 @@
-// Scrape a URL with Firecrawl, extract structured trading knowledge with Lovable AI,
-// and persist images to storage. Idempotent: re-runs overwrite the entry.
+// Scrape a URL with Firecrawl, extract a detailed trading-knowledge report with
+// Lovable AI, and persist images (with grounded descriptions) to storage.
+// Idempotent: re-runs overwrite the entry.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -49,7 +50,7 @@ serve(async (req) => {
       status: "extracting", error_message: null, updated_at: new Date().toISOString(),
     }).eq("id", entry_id);
 
-    // 1. Firecrawl scrape
+    // 1. Firecrawl scrape (drop summary format — we'll generate our own detailed report)
     let firecrawlData: any;
     try {
       const fc = await fetch("https://api.firecrawl.dev/v2/scrape", {
@@ -60,7 +61,7 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           url,
-          formats: ["markdown", "summary"],
+          formats: ["markdown"],
           onlyMainContent: true,
         }),
       });
@@ -78,41 +79,54 @@ serve(async (req) => {
       return json({ error: msg }, 200);
     }
 
-    // Firecrawl v2 returns: { success, data: { markdown, summary, metadata: { title, author, publishedTime, ogImage }, links, images? } }
+    // Firecrawl v2: { success, data: { markdown, metadata: { title, author, publishedTime, ... } } }
     const data = firecrawlData?.data || firecrawlData;
     const markdown: string = data?.markdown || "";
-    const summary: string = data?.summary || "";
     const metadata = data?.metadata || {};
     const title = metadata.title || metadata.ogTitle || url;
     const author = metadata.author || metadata.ogAuthor || null;
     const publishedTimeRaw = metadata.publishedTime || metadata.publishDate || null;
     const publishedDate = publishedTimeRaw ? safeDate(publishedTimeRaw) : null;
 
-    // 2. Extract image URLs from markdown
-    const imgMatches = Array.from(markdown.matchAll(/!\[([^\]]*)\]\(([^)\s]+)/g));
-    const imageUrls: Array<{ url: string; alt: string }> = [];
+    // 2. Extract image URLs from markdown WITH surrounding context
+    const imgRe = /!\[([^\]]*)\]\(([^)\s]+)/g;
+    const imageEntries: Array<{ url: string; alt: string; nearby_text: string }> = [];
     const seen = new Set<string>();
-    for (const m of imgMatches) {
+    let m: RegExpExecArray | null;
+    while ((m = imgRe.exec(markdown)) !== null) {
       const u = m[2];
       if (!u || seen.has(u)) continue;
       if (!/^https?:\/\//i.test(u)) continue;
-      // Skip tiny/likely-icon images by URL hint
       if (/avatar|favicon|emoji|logo|icon|profile|spinner/i.test(u)) continue;
       seen.add(u);
-      imageUrls.push({ url: u, alt: m[1] || "" });
-      if (imageUrls.length >= 12) break;
+      // Grab ~500 chars before and ~500 after, then strip image markdown noise
+      const start = Math.max(0, m.index - 500);
+      const end = Math.min(markdown.length, m.index + m[0].length + 500);
+      const raw = markdown.slice(start, end);
+      const cleaned = raw
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")     // remove images
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")    // unwrap links
+        .replace(/[#>*_`~]+/g, " ")                  // strip md punctuation
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 800);
+      imageEntries.push({ url: u, alt: m[1] || "", nearby_text: cleaned });
+      if (imageEntries.length >= 12) break;
     }
 
-    // 3. Download + upload images to storage
-    const screenshots: Array<{ url: string; caption: string; source_url: string }> = [];
-    for (const { url: imgUrl, alt } of imageUrls) {
+    // 3. Download + upload images to storage (preserving order/index)
+    const screenshots: Array<{
+      url: string; caption: string; source_url: string;
+      description: string; nearby_text: string;
+    }> = [];
+    for (const { url: imgUrl, alt, nearby_text } of imageEntries) {
       try {
         const r = await fetch(imgUrl);
         if (!r.ok) continue;
         const ct = r.headers.get("content-type") || "image/png";
         if (!ct.startsWith("image/")) continue;
         const buf = new Uint8Array(await r.arrayBuffer());
-        if (buf.byteLength < 5000) continue; // skip <5kb (likely icon)
+        if (buf.byteLength < 5000) continue;
         const ext = ct.split("/")[1]?.split(";")[0] || "png";
         const path = `knowledge/${user.id}/${entry_id}/${crypto.randomUUID()}.${ext}`;
         const { error: upErr } = await admin.storage
@@ -120,12 +134,24 @@ serve(async (req) => {
           .upload(path, buf, { contentType: ct, upsert: false });
         if (upErr) continue;
         const { data: pub } = admin.storage.from("trade-screenshots").getPublicUrl(path);
-        screenshots.push({ url: pub.publicUrl, caption: alt, source_url: imgUrl });
+        screenshots.push({
+          url: pub.publicUrl,
+          caption: alt,
+          source_url: imgUrl,
+          description: "", // filled in by AI below
+          nearby_text,
+        });
       } catch { /* skip failed image */ }
     }
 
-    // 4. Lovable AI structured extraction (tool-calling)
+    // 4. Lovable AI structured extraction — DETAILED REPORT + per-image descriptions
     const truncatedMd = markdown.slice(0, 30000);
+    const screenshotContext = screenshots.length
+      ? screenshots.map((s, i) =>
+          `Image #${i} (alt="${s.caption || "(none)"}")\nSurrounding text: ${s.nearby_text || "(no nearby text captured)"}`
+        ).join("\n\n")
+      : "(no images in article)";
+
     let aiData: any = null;
     try {
       const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -134,19 +160,43 @@ serve(async (req) => {
         body: JSON.stringify({
           model: "google/gemini-3-flash-preview",
           messages: [
-            { role: "system", content: "You are a precise trading-knowledge extractor. From the article, extract ONLY what is explicitly stated. Never invent. If a section has no content, return an empty array." },
-            { role: "user", content: `Title: ${title}\nURL: ${url}\n\nArticle:\n${truncatedMd}\n\nExtract the trading knowledge.` },
+            {
+              role: "system",
+              content: [
+                "You are a senior trading-knowledge analyst.",
+                "Read the article carefully and produce a DETAILED, well-structured report in markdown.",
+                "The report must be comprehensive — multiple sections with H2/H3 headings, full paragraphs (not bullets only), and concrete examples drawn from the article.",
+                "NEVER invent facts. If something is not in the article, omit it.",
+                "Also write a short, specific description for each provided image based ONLY on its 'Surrounding text'. If the surrounding text is empty or off-topic, say so briefly (e.g. 'Illustration referenced in the article; no in-text description').",
+              ].join(" "),
+            },
+            {
+              role: "user",
+              content:
+                `Title: ${title}\nURL: ${url}\n\n` +
+                `=== ARTICLE MARKDOWN ===\n${truncatedMd}\n\n` +
+                `=== IMAGES TO DESCRIBE ===\n${screenshotContext}\n\n` +
+                `Produce the detailed report and per-image descriptions.`,
+            },
           ],
           tools: [{
             type: "function",
             function: {
               name: "save_knowledge",
-              description: "Save extracted trading knowledge",
+              description: "Save the detailed extracted trading knowledge",
               parameters: {
                 type: "object",
                 properties: {
-                  summary: { type: "string", description: "2-3 sentence summary of the article's core trading idea" },
-                  key_takeaways: { type: "array", items: { type: "string" }, description: "5-8 actionable lessons a trader can apply" },
+                  detailed_report: {
+                    type: "string",
+                    description:
+                      "A comprehensive markdown report (aim for 600–1500 words). Use H2/H3 headings such as Overview, Core Thesis, Methodology / Setup Rules, Examples & Case Studies, Edge Cases & Pitfalls, Conclusion. Use full paragraphs, lists where natural. No invented facts.",
+                  },
+                  key_takeaways: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "5-8 actionable lessons a trader can apply",
+                  },
                   concepts: {
                     type: "array",
                     items: {
@@ -160,9 +210,26 @@ serve(async (req) => {
                     },
                     description: "3-6 named trading concepts with concise definitions",
                   },
-                  tags: { type: "array", items: { type: "string" }, description: "4-8 lowercase topical tags (e.g. 'volume profile', 'imbalance', 'NAS100')" },
+                  tags: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "4-8 lowercase topical tags (e.g. 'volume profile', 'imbalance', 'NAS100')",
+                  },
+                  screenshot_descriptions: {
+                    type: "array",
+                    description: "One entry per image, in the same order as provided. Each describes what the image illustrates based on the article's surrounding text.",
+                    items: {
+                      type: "object",
+                      properties: {
+                        index: { type: "integer", description: "0-based image index from the input" },
+                        description: { type: "string", description: "1-3 sentence description grounded in the article text near this image" },
+                      },
+                      required: ["index", "description"],
+                      additionalProperties: false,
+                    },
+                  },
                 },
-                required: ["summary", "key_takeaways", "concepts", "tags"],
+                required: ["detailed_report", "key_takeaways", "concepts", "tags", "screenshot_descriptions"],
                 additionalProperties: false,
               },
             },
@@ -186,23 +253,35 @@ serve(async (req) => {
       await admin.from("knowledge_entries").update({
         status: "failed", error_message: `AI extraction failed: ${msg}`,
         source_title: title, source_author: author, source_published_at: publishedDate,
-        summary: summary || null, screenshots, raw_markdown: truncatedMd,
+        screenshots, raw_markdown: truncatedMd,
       }).eq("id", entry_id);
       return json({ error: msg }, 200);
     }
 
-    // 5. Persist
+    // 5. Merge AI image descriptions into screenshots by index
+    const descByIdx = new Map<number, string>();
+    for (const item of (aiData?.screenshot_descriptions || []) as Array<{ index: number; description: string }>) {
+      if (typeof item?.index === "number" && typeof item?.description === "string") {
+        descByIdx.set(item.index, item.description.trim());
+      }
+    }
+    const enrichedScreenshots = screenshots.map((s, i) => ({
+      ...s,
+      description: descByIdx.get(i) || "",
+    }));
+
+    // 6. Persist (detailed report stored in `summary` text column)
     await admin.from("knowledge_entries").update({
       status: "ready",
       error_message: null,
       source_title: title,
       source_author: author,
       source_published_at: publishedDate,
-      summary: aiData?.summary || summary || null,
+      summary: aiData?.detailed_report || null,
       key_takeaways: aiData?.key_takeaways || [],
       concepts: aiData?.concepts || [],
       tags: aiData?.tags || [],
-      screenshots,
+      screenshots: enrichedScreenshots,
       raw_markdown: truncatedMd,
       updated_at: new Date().toISOString(),
     }).eq("id", entry_id);
