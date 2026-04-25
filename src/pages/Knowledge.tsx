@@ -193,20 +193,55 @@ function KnowledgeDetail({
       )}
 
       {entry.status === "ready" && (
-        <Tabs defaultValue="summary" className="flex-1 flex flex-col overflow-hidden">
+        <Tabs defaultValue="report" className="flex-1 flex flex-col overflow-hidden">
           <TabsList className="mx-6 mt-3 self-start">
-            <TabsTrigger value="summary">Summary</TabsTrigger>
-            <TabsTrigger value="screenshots">Screenshots ({entry.screenshots?.length || 0})</TabsTrigger>
+            <TabsTrigger value="report">Report</TabsTrigger>
             <TabsTrigger value="chat">Chat</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="summary" className="flex-1 overflow-hidden mt-0">
+          <TabsContent value="report" className="flex-1 overflow-hidden mt-0">
             <ScrollArea className="h-full">
-              <div className="px-6 py-4 max-w-3xl space-y-6">
+              <div className="px-6 py-4 max-w-3xl space-y-8">
                 {entry.summary && (
                   <section>
-                    <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground mb-2">Summary</h3>
-                    <p className="text-sm leading-relaxed">{entry.summary}</p>
+                    <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground mb-3">Detailed Report</h3>
+                    <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:mt-6 prose-headings:mb-2 prose-p:leading-relaxed prose-li:my-0.5">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {entry.summary}
+                      </ReactMarkdown>
+                    </article>
+                  </section>
+                )}
+
+                {entry.screenshots?.length > 0 && (
+                  <section>
+                    <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground mb-3">
+                      Illustrations ({entry.screenshots.length})
+                    </h3>
+                    <div className="space-y-6">
+                      {entry.screenshots.map((s, i) => (
+                        <figure key={i} className="space-y-2">
+                          <img
+                            src={s.url}
+                            alt={s.caption || s.description || `Illustration ${i + 1}`}
+                            className="w-full rounded-md border border-border"
+                            loading="lazy"
+                          />
+                          <figcaption className="space-y-1">
+                            {s.description ? (
+                              <p className="text-sm leading-relaxed">{s.description}</p>
+                            ) : s.caption ? (
+                              <p className="text-sm leading-relaxed">{s.caption}</p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground italic">No description available.</p>
+                            )}
+                            {s.description && s.caption && s.caption !== s.description && (
+                              <p className="text-xs text-muted-foreground">Alt: {s.caption}</p>
+                            )}
+                          </figcaption>
+                        </figure>
+                      ))}
+                    </div>
                   </section>
                 )}
 
@@ -248,22 +283,6 @@ function KnowledgeDetail({
                     </div>
                   </section>
                 )}
-              </div>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="screenshots" className="flex-1 overflow-hidden mt-0">
-            <ScrollArea className="h-full">
-              <div className="px-6 py-4 max-w-3xl space-y-4">
-                {entry.screenshots?.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No images found in this article.</p>
-                )}
-                {entry.screenshots?.map((s, i) => (
-                  <figure key={i} className="space-y-2">
-                    <img src={s.url} alt={s.caption} className="w-full rounded-md border border-border" loading="lazy" />
-                    {s.caption && <figcaption className="text-xs text-muted-foreground">{s.caption}</figcaption>}
-                  </figure>
-                ))}
               </div>
             </ScrollArea>
           </TabsContent>
