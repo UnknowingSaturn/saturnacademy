@@ -221,20 +221,6 @@ function KnowledgeDetail({
                   </section>
                 )}
 
-                {entry.key_takeaways?.length > 0 && (
-                  <section>
-                    <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground mb-2">Key Takeaways</h3>
-                    <ul className="space-y-1.5">
-                      {entry.key_takeaways.map((t, i) => (
-                        <li key={i} className="text-sm leading-relaxed flex gap-2">
-                          <span className="text-primary mt-0.5">•</span>
-                          <span>{t}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
-
                 {entry.concepts?.length > 0 && (
                   <section>
                     <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground mb-2">Concepts</h3>
