@@ -144,8 +144,21 @@ serve(async (req) => {
       } catch { /* skip failed image */ }
     }
 
-    // 4. Lovable AI structured extraction — DETAILED REPORT + per-image descriptions
-    const truncatedMd = markdown.slice(0, 30000);
+    // 4. Lovable AI structured extraction — INLINE ARTICLE with image placeholders
+    // Build a markdown source where each successfully-uploaded image is replaced
+    // with a stable {{IMG:N}} token (in the order they were uploaded). This
+    // lets the AI faithfully re-flow the article while preserving image
+    // positions, instead of generating a separate "report".
+    let mdWithTokens = markdown;
+    screenshots.forEach((s, i) => {
+      // Replace the first occurrence of the source image URL in the markdown
+      // with a placeholder on its own line.
+      const escUrl = s.source_url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`!\\[[^\\]]*\\]\\(${escUrl}[^)]*\\)`);
+      mdWithTokens = mdWithTokens.replace(re, `\n\n{{IMG:${i}}}\n\n`);
+    });
+    const truncatedMd = mdWithTokens.slice(0, 30000);
+
     const screenshotContext = screenshots.length
       ? screenshots.map((s, i) =>
           `Image #${i} (alt="${s.caption || "(none)"}")\nSurrounding text: ${s.nearby_text || "(no nearby text captured)"}`
