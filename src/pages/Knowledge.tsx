@@ -201,47 +201,23 @@ function KnowledgeDetail({
 
           <TabsContent value="report" className="flex-1 overflow-hidden mt-0">
             <ScrollArea className="h-full">
-              <div className="px-6 py-4 max-w-3xl space-y-8">
-                {entry.summary && (
-                  <section>
-                    <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground mb-3">Detailed Report</h3>
-                    <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:mt-6 prose-headings:mb-2 prose-p:leading-relaxed prose-li:my-0.5">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {entry.summary}
-                      </ReactMarkdown>
-                    </article>
-                  </section>
-                )}
+              <div className="px-6 py-6 max-w-3xl mx-auto space-y-8">
+                <InlineArticle
+                  markdown={entry.summary || ""}
+                  screenshots={entry.screenshots || []}
+                />
 
-                {entry.screenshots?.length > 0 && (
+                {entry.key_takeaways?.length > 0 && (
                   <section>
-                    <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground mb-3">
-                      Illustrations ({entry.screenshots.length})
-                    </h3>
-                    <div className="space-y-6">
-                      {entry.screenshots.map((s, i) => (
-                        <figure key={i} className="space-y-2">
-                          <img
-                            src={s.url}
-                            alt={s.caption || s.description || `Illustration ${i + 1}`}
-                            className="w-full rounded-md border border-border"
-                            loading="lazy"
-                          />
-                          <figcaption className="space-y-1">
-                            {s.description ? (
-                              <p className="text-sm leading-relaxed">{s.description}</p>
-                            ) : s.caption ? (
-                              <p className="text-sm leading-relaxed">{s.caption}</p>
-                            ) : (
-                              <p className="text-xs text-muted-foreground italic">No description available.</p>
-                            )}
-                            {s.description && s.caption && s.caption !== s.description && (
-                              <p className="text-xs text-muted-foreground">Alt: {s.caption}</p>
-                            )}
-                          </figcaption>
-                        </figure>
+                    <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground mb-2">Key Takeaways</h3>
+                    <ul className="space-y-1.5">
+                      {entry.key_takeaways.map((t, i) => (
+                        <li key={i} className="text-sm leading-relaxed flex gap-2">
+                          <span className="text-primary mt-0.5">•</span>
+                          <span>{t}</span>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   </section>
                 )}
 
