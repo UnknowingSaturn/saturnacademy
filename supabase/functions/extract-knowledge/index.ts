@@ -144,8 +144,21 @@ serve(async (req) => {
       } catch { /* skip failed image */ }
     }
 
-    // 4. Lovable AI structured extraction — DETAILED REPORT + per-image descriptions
-    const truncatedMd = markdown.slice(0, 30000);
+    // 4. Lovable AI structured extraction — INLINE ARTICLE with image placeholders
+    // Build a markdown source where each successfully-uploaded image is replaced
+    // with a stable {{IMG:N}} token (in the order they were uploaded). This
+    // lets the AI faithfully re-flow the article while preserving image
+    // positions, instead of generating a separate "report".
+    let mdWithTokens = markdown;
+    screenshots.forEach((s, i) => {
+      // Replace the first occurrence of the source image URL in the markdown
+      // with a placeholder on its own line.
+      const escUrl = s.source_url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`!\\[[^\\]]*\\]\\(${escUrl}[^)]*\\)`);
+      mdWithTokens = mdWithTokens.replace(re, `\n\n{{IMG:${i}}}\n\n`);
+    });
+    const truncatedMd = mdWithTokens.slice(0, 30000);
+
     const screenshotContext = screenshots.length
       ? screenshots.map((s, i) =>
           `Image #${i} (alt="${s.caption || "(none)"}")\nSurrounding text: ${s.nearby_text || "(no nearby text captured)"}`
@@ -163,34 +176,44 @@ serve(async (req) => {
             {
               role: "system",
               content: [
-                "You are a senior trading-knowledge analyst.",
-                "Read the article carefully and produce a DETAILED, well-structured report in markdown.",
-                "The report must be comprehensive — multiple sections with H2/H3 headings, full paragraphs (not bullets only), and concrete examples drawn from the article.",
-                "NEVER invent facts. If something is not in the article, omit it.",
-                "Also write a short, specific description for each provided image based ONLY on its 'Surrounding text'. If the surrounding text is empty or off-topic, say so briefly (e.g. 'Illustration referenced in the article; no in-text description').",
-              ].join(" "),
+                "You are a faithful article re-formatter for trading content.",
+                "You are given the article's source markdown with image placeholders like {{IMG:0}}, {{IMG:1}} inserted where each image originally appeared.",
+                "Your job is to return a CLEANED version of that same article in markdown — preserving the original structure, headings, numbered sections, paragraphs, lists, and the EXACT POSITION of every {{IMG:N}} placeholder relative to the surrounding text.",
+                "Rules:",
+                "- DO NOT summarize, condense, paraphrase aggressively, or reorder content. Keep paragraphs as full paragraphs.",
+                "- DO NOT invent any text. If something isn't in the source, omit it.",
+                "- Strip site chrome only: subscribe boxes, share/like buttons, footer nav, author bios, 'Read more', cookie banners, comment sections, related-post lists.",
+                "- Keep every {{IMG:N}} token on its own line, in its original position. Do not remove, duplicate, or reorder them.",
+                "- Use clean markdown: H2/H3 for sections, blank lines between paragraphs, `1.` `2.` for numbered lists, `-` for bullets, blockquotes for quoted material.",
+                "- Light copy-edit only (fix obvious OCR-style artifacts, broken whitespace). Preserve the author's voice and wording.",
+                "Also write a 1–3 sentence description for each image based ONLY on the article text immediately around it.",
+              ].join("\n"),
             },
             {
               role: "user",
               content:
                 `Title: ${title}\nURL: ${url}\n\n` +
-                `=== ARTICLE MARKDOWN ===\n${truncatedMd}\n\n` +
+                `=== ARTICLE MARKDOWN (with {{IMG:N}} placeholders) ===\n${truncatedMd}\n\n` +
                 `=== IMAGES TO DESCRIBE ===\n${screenshotContext}\n\n` +
-                `Produce the detailed report and per-image descriptions.`,
+                `Return the cleaned article and per-image descriptions.`,
             },
           ],
           tools: [{
             type: "function",
             function: {
               name: "save_knowledge",
-              description: "Save the detailed extracted trading knowledge",
+              description: "Save the cleaned inline article and metadata",
               parameters: {
                 type: "object",
                 properties: {
-                  detailed_report: {
+                  article_markdown: {
                     type: "string",
                     description:
-                      "A comprehensive markdown report (aim for 600–1500 words). Use H2/H3 headings such as Overview, Core Thesis, Methodology / Setup Rules, Examples & Case Studies, Edge Cases & Pitfalls, Conclusion. Use full paragraphs, lists where natural. No invented facts.",
+                      "The cleaned full article in markdown. Must preserve original structure (headings, numbered sections, paragraphs, lists) AND include every {{IMG:N}} placeholder in its original position on its own line. Do NOT summarize or rewrite — just clean and re-flow.",
+                  },
+                  tldr: {
+                    type: "string",
+                    description: "A 2-3 sentence plain-English overview of what the article is about. Shown above the article as context.",
                   },
                   key_takeaways: {
                     type: "array",
@@ -229,7 +252,7 @@ serve(async (req) => {
                     },
                   },
                 },
-                required: ["detailed_report", "key_takeaways", "concepts", "tags", "screenshot_descriptions"],
+                required: ["article_markdown", "tldr", "key_takeaways", "concepts", "tags", "screenshot_descriptions"],
                 additionalProperties: false,
               },
             },
@@ -270,19 +293,27 @@ serve(async (req) => {
       description: descByIdx.get(i) || "",
     }));
 
-    // 6. Persist (detailed report stored in `summary` text column)
+    // 6. Persist. The cleaned inline article (with {{IMG:N}} placeholders) is
+    //    stored in `summary`. Optional TL;DR is prepended as a blockquote so
+    //    the existing single-column renderer can show both without schema changes.
+    const article = (aiData?.article_markdown || "").trim();
+    const tldr = (aiData?.tldr || "").trim();
+    const combined = tldr
+      ? `> **TL;DR** — ${tldr}\n\n${article}`
+      : article || null;
+
     await admin.from("knowledge_entries").update({
       status: "ready",
       error_message: null,
       source_title: title,
       source_author: author,
       source_published_at: publishedDate,
-      summary: aiData?.detailed_report || null,
+      summary: combined,
       key_takeaways: aiData?.key_takeaways || [],
       concepts: aiData?.concepts || [],
       tags: aiData?.tags || [],
       screenshots: enrichedScreenshots,
-      raw_markdown: truncatedMd,
+      raw_markdown: markdown.slice(0, 30000),
       updated_at: new Date().toISOString(),
     }).eq("id", entry_id);
 

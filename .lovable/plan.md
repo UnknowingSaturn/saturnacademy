@@ -1,73 +1,67 @@
-## Goal
+## Problem
 
-Transform the Knowledge entry view from a thin "summary + separated screenshots" into a **detailed report** with screenshots **inline next to the paragraphs that describe them**.
+Right now every entry renders as:
 
----
+1. A dense "Detailed Report" markdown block at the top (all the prose squashed together)
+2. An "Illustrations" gallery far below (all images stacked, divorced from the text that explains them)
+3. Then takeaways, concepts, tags
 
-## Problem Recap
+The user's article (the OTG Substack volume-profile post) flows as **paragraphs → image → paragraphs → numbered section → image → paragraphs → next numbered section → multiple images → …**. We need the rendered entry to mirror that shape so it reads like the original article, not a report dump with an appendix.
 
-Looking at `extract-knowledge` and `Knowledge.tsx`:
-1. The AI prompt asks for a **2–3 sentence summary** — too short. It should be a multi-section detailed report.
-2. Screenshots live in a separate **Screenshots tab**, captioned only with their original `alt` attribute, with no link back to what the article was actually saying when it embedded them.
+## Approach: stream the original article markdown with images placed where they appear
 
----
+Instead of asking the AI to rewrite the article into a "report" and separately captioning images, we keep the **article's natural structure** and just enhance it.
 
-## Plan
+### 1. `supabase/functions/extract-knowledge/index.ts` — change extraction output
 
-### 1. Edge function: `supabase/functions/extract-knowledge/index.ts`
+Replace the current "detailed_report + screenshot_descriptions" tool schema with a structure that preserves order:
 
-**a. Capture screenshot context during markdown parsing**
-When walking `![alt](url)` matches, also capture the surrounding paragraph text (≈400 chars before + after, stripping markdown image lines). Store this as `nearby_text` on each screenshot record so the AI has what the article said about each image.
+- **`article_markdown`**: the cleaned, well-formatted markdown of the original article body, with image placeholders embedded **at the exact position they appear in the source**. Use a stable token like `{{IMG:0}}`, `{{IMG:1}}`, etc. The AI is instructed to:
+  - Preserve the original headings, numbered sections, paragraph breaks, lists, and quotes.
+  - Strip site chrome (subscribe boxes, share buttons, footers, "Read more" links, author bios).
+  - Keep paragraphs intact — do NOT collapse multi-paragraph sections into bullets.
+  - Insert `{{IMG:N}}` on its own line where each image originally appeared.
+  - Never invent content; this is faithful re-flow, not summarization.
+- **`tldr`**: a short 2–3 sentence intro shown above the article (replaces the bloated "Detailed Report" intro).
+- **`key_takeaways`**, **`concepts`**, **`tags`** — unchanged.
+- **`screenshot_descriptions`** — kept (used as figcaption for each image).
 
-**b. Replace the short summary with a detailed report via tool calling**
-Rewrite the `save_knowledge` tool schema:
-- Remove the 2–3 sentence `summary` field
-- Add `detailed_report` (string, markdown) — instruct AI to write a **comprehensive, well-structured report** covering: overview, core thesis, methodology / setup rules, examples & case studies, edge cases / pitfalls, and conclusion. Multiple paragraphs, headings allowed.
-- Add `screenshot_descriptions` (array of `{ index, description }`) — for each screenshot index, the AI explains what the image illustrates **based on the article's `nearby_text`** (no invention; if context is missing, say so briefly).
-- Keep `key_takeaways`, `concepts`, `tags` as today.
+Implementation details:
+- Build the input by replacing each matched image in the source markdown with `{{IMG:N}}` before sending to the AI, so the model sees exactly where images go and just has to clean the surrounding prose.
+- Cap input at ~30k chars (already done).
+- Store `article_markdown` in the existing `summary` text column (no schema change needed) and continue to fill `screenshots[].description` from `screenshot_descriptions`.
 
-The AI receives both the article markdown and the list of screenshots with their `nearby_text` so it can ground descriptions.
+### 2. `src/types/knowledge.ts` — no breaking changes
 
-**c. Persist**
-- Store the detailed report in the existing `summary` text column (it's already `text`, no migration needed — just becomes longer, richer markdown).
-- Merge AI-generated `description` into each screenshot record alongside the original `caption` (alt text). Final shape per screenshot:
-  ```ts
-  { url, caption, source_url, description, nearby_text }
-  ```
-- Update the `KnowledgeScreenshot` type in `src/types/knowledge.ts` to include `description?: string` and `nearby_text?: string` (both optional for backward compat with existing entries).
+Reuse `summary` for the new ordered article markdown. Add a JSDoc note that it now contains `{{IMG:N}}` placeholders. No DB migration needed.
 
-### 2. UI: `src/pages/Knowledge.tsx`
+### 3. `src/pages/Knowledge.tsx` — new inline renderer
 
-**a. Render the detailed report as markdown**
-The `summary` field will now contain markdown. Use `react-markdown` with `remark-gfm` (already used elsewhere per the Firecrawl docs in this project) to render headings, lists, paragraphs. Wrap in `prose` Tailwind classes for readable typography.
+Replace the current "Detailed Report" + "Illustrations" sections with a single **Article view** that:
 
-**b. Inline screenshots inside the report tab**
-Restructure the Summary tab into a single "Report" view:
-- Rename tab from "Summary" → **"Report"**
-- Keep **Key Takeaways**, **Concepts**, **Tags** sections below the report as today
-- Below the report body, render an **"Illustrations"** section: each screenshot rendered as a `<figure>` with the image, then **`description`** as the primary caption (in normal text size), and the original `alt` as a smaller secondary line if it adds info
-- The standalone "Screenshots" tab is removed (everything is now together) — or kept as an optional gallery; I'll **remove it** to honor "screenshots together with their descriptions"
+- Splits `entry.summary` on `{{IMG:N}}` tokens.
+- For each text chunk, renders it with `ReactMarkdown` + `remarkGfm` inside the existing `prose` styles.
+- For each placeholder, renders a `<figure>` with the matching screenshot + AI description as `<figcaption>`.
+- Falls back gracefully:
+  - If `summary` has no placeholders (older entries), render markdown then append remaining un-referenced screenshots in a small gallery at the end so nothing is lost.
+  - If a referenced index is missing from `screenshots`, just skip it.
+- Wider reading column: bump `max-w-3xl` → `max-w-3xl` stays, but add comfortable vertical rhythm (`space-y-6`), proper figure margins, and a subtle border + rounded corners on images (already present).
+- Keep the optional **TL;DR** callout above the article body when present.
+- Keep "Key Takeaways", "Concepts", "Tags" sections **below** the article (unchanged).
 
-**c. Backward compatibility**
-Older entries (no `description`, short `summary`) still render — the markdown renderer handles plain text fine, and screenshots without `description` fall back to `caption`.
+### 4. Backfill existing entries
 
-### 3. Re-extraction for the existing entry
-
-After deploying the function changes, the user can hit the existing **Refresh / Re-extract** button (already wired to `useReExtract`) on the entry they referenced to regenerate it with the new detailed format. No data migration needed; old entries upgrade on demand.
-
----
+No migration. The user just clicks the existing **Refresh** (re-extract) icon in the header to upgrade an entry to the new inline format. Old entries that haven't been refreshed continue to render via the fallback path (markdown + appended gallery), so nothing breaks.
 
 ## Files to change
 
-- `supabase/functions/extract-knowledge/index.ts` — new tool schema, screenshot context capture, persist new fields
-- `src/types/knowledge.ts` — extend `KnowledgeScreenshot` with optional `description`, `nearby_text`
-- `src/pages/Knowledge.tsx` — markdown renderer for report, inline figures with descriptions, drop separate Screenshots tab
-- (deps) ensure `react-markdown` + `remark-gfm` are available (add if missing)
+- `supabase/functions/extract-knowledge/index.ts` — new tool schema (`article_markdown`, `tldr`), inject `{{IMG:N}}` tokens into the source markdown before AI call, keep image upload + per-image descriptions.
+- `src/types/knowledge.ts` — JSDoc only (clarify `summary` now contains image placeholders).
+- `src/pages/Knowledge.tsx` — replace report+illustrations layout with the interleaved renderer described above.
 
-No database migration, no new edge function, no new connector.
+## What stays the same
 
----
-
-## What the user will do after I implement
-
-Open the existing entry → click the **Refresh** icon in the header → wait ~20s → see a full multi-paragraph report with each screenshot embedded next to its explanation.
+- Database schema, tables, RLS.
+- Storage bucket + image upload pipeline.
+- Chat tab and `knowledge-chat` edge function.
+- Sidebar entry list, add-URL form, delete, refresh.
