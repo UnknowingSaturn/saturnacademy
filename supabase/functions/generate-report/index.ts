@@ -152,6 +152,7 @@ interface ReviewRow {
   checklist_answers: any;
   playbook_id: string | null;
   score: number | null;
+  regime: string | null;
 }
 
 function tradeRef(t: TradeRow) {
