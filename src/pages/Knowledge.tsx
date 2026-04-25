@@ -300,7 +300,7 @@ function KnowledgeChat({ entryId }: { entryId: string }) {
 
   return (
     <div className="h-full flex flex-col">
-      <ScrollArea className="flex-1" viewportRef={scrollRef as any}>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="px-6 py-4 max-w-3xl space-y-4">
           {history.length === 0 && (
             <div className="text-center text-sm text-muted-foreground py-8">
@@ -328,7 +328,7 @@ function KnowledgeChat({ entryId }: { entryId: string }) {
             </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
       <form onSubmit={handleSend} className="border-t border-border p-4 flex gap-2">
         <Input
           placeholder="Ask about this article…"
