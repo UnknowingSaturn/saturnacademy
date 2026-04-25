@@ -22,6 +22,10 @@ import LiveTrades from "./pages/LiveTrades";
 import Copier from "./pages/Copier";
 import CopierPreview from "./pages/CopierPreview";
 import StrategyLab from "./pages/StrategyLab";
+import SharedReports from "./pages/SharedReports";
+import SharedReportEditor from "./pages/SharedReportEditor";
+import PublicReport from "./pages/PublicReport";
+import Knowledge from "./pages/Knowledge";
 
 const queryClient = new QueryClient();
 
