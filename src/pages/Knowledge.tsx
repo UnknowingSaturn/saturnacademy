@@ -258,6 +258,99 @@ function KnowledgeDetail({
   );
 }
 
+function InlineArticle({
+  markdown,
+  screenshots,
+}: {
+  markdown: string;
+  screenshots: KnowledgeEntry["screenshots"];
+}) {
+  if (!markdown && (!screenshots || screenshots.length === 0)) {
+    return (
+      <div className="text-sm text-muted-foreground italic">
+        No content extracted yet.
+      </div>
+    );
+  }
+
+  // Split markdown on {{IMG:N}} placeholders. Captures index N so we can
+  // inline the matching screenshot as a <figure> in the article flow.
+  const tokenRe = /\{\{IMG:(\d+)\}\}/g;
+  const parts: Array<
+    | { type: "md"; value: string }
+    | { type: "img"; idx: number }
+  > = [];
+  let lastEnd = 0;
+  const usedImages = new Set<number>();
+  let match: RegExpExecArray | null;
+  while ((match = tokenRe.exec(markdown)) !== null) {
+    if (match.index > lastEnd) {
+      parts.push({ type: "md", value: markdown.slice(lastEnd, match.index) });
+    }
+    const idx = parseInt(match[1], 10);
+    parts.push({ type: "img", idx });
+    usedImages.add(idx);
+    lastEnd = match.index + match[0].length;
+  }
+  if (lastEnd < markdown.length) {
+    parts.push({ type: "md", value: markdown.slice(lastEnd) });
+  }
+  // If markdown was empty but we still want to render something
+  if (parts.length === 0 && markdown) {
+    parts.push({ type: "md", value: markdown });
+  }
+
+  // Fallback: any screenshots not referenced inline (legacy entries OR images
+  // the AI couldn't place) get appended at the end so nothing is lost.
+  const orphanImages = (screenshots || [])
+    .map((s, i) => ({ s, i }))
+    .filter(({ i }) => !usedImages.has(i));
+
+  const renderFigure = (s: KnowledgeEntry["screenshots"][number], i: number) => (
+    <figure key={`fig-${i}`} className="my-6 space-y-2">
+      <img
+        src={s.url}
+        alt={s.caption || s.description || `Illustration ${i + 1}`}
+        className="w-full rounded-md border border-border"
+        loading="lazy"
+      />
+      {(s.description || s.caption) && (
+        <figcaption className="text-sm leading-relaxed text-muted-foreground">
+          {s.description || s.caption}
+        </figcaption>
+      )}
+    </figure>
+  );
+
+  return (
+    <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:mt-8 prose-headings:mb-3 prose-h2:text-xl prose-h3:text-base prose-p:leading-relaxed prose-p:my-3 prose-li:my-1 prose-blockquote:border-l-primary/40 prose-blockquote:not-italic prose-blockquote:text-foreground/90">
+      {parts.map((p, idx) => {
+        if (p.type === "md") {
+          const text = p.value.trim();
+          if (!text) return null;
+          return (
+            <ReactMarkdown key={`md-${idx}`} remarkPlugins={[remarkGfm]}>
+              {text}
+            </ReactMarkdown>
+          );
+        }
+        const s = screenshots?.[p.idx];
+        if (!s) return null;
+        return renderFigure(s, p.idx);
+      })}
+
+      {orphanImages.length > 0 && (
+        <>
+          {usedImages.size > 0 && (
+            <hr className="my-8 border-border" />
+          )}
+          {orphanImages.map(({ s, i }) => renderFigure(s, i))}
+        </>
+      )}
+    </article>
+  );
+}
+
 function KnowledgeChat({ entryId }: { entryId: string }) {
   const { data: history = [] } = useKnowledgeChatHistory(entryId);
   const send = useSendKnowledgeMessage();
