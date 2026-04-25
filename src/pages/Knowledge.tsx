@@ -9,6 +9,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Plus, Loader2, RefreshCw, Trash2, ExternalLink, Send, Brain, AlertCircle, Sparkles } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { KnowledgeEntry } from "@/types/knowledge";
 
 export default function Knowledge() {
