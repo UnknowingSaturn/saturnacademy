@@ -9,6 +9,28 @@ export default function PublicReport() {
   const { slug } = useParams<{ slug: string }>();
   const { data, isLoading, error } = usePublicReport(slug);
 
+  const report = data?.report;
+  const trades = data?.trades || [];
+  const periodLabel = report?.period_start && report?.period_end
+    ? `${format(parseISO(report.period_start), "MMM d")} – ${format(parseISO(report.period_end), "MMM d, yyyy")}`
+    : null;
+  const description = report
+    ? `${trades.length} ${trades.length === 1 ? "trade" : "trades"}${periodLabel ? ` · ${periodLabel}` : ""}${report.author_display_name ? ` by ${report.author_display_name}` : ""}`
+    : "";
+
+  useEffect(() => {
+    if (!report) return;
+    document.title = report.title;
+    const desc = description.slice(0, 160);
+    let meta = document.querySelector('meta[name="description"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('name', 'description');
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute('content', desc);
+  }, [report, description]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -17,7 +39,7 @@ export default function PublicReport() {
     );
   }
 
-  if (error || !data) {
+  if (error || !data || !report) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-6">
         <div className="text-center max-w-md">
@@ -30,24 +52,6 @@ export default function PublicReport() {
       </div>
     );
   }
-
-  const { report, trades } = data;
-  const periodLabel = report.period_start && report.period_end
-    ? `${format(parseISO(report.period_start), "MMM d")} – ${format(parseISO(report.period_end), "MMM d, yyyy")}`
-    : null;
-  const description = `${trades.length} ${trades.length === 1 ? "trade" : "trades"}${periodLabel ? ` · ${periodLabel}` : ""}${report.author_display_name ? ` by ${report.author_display_name}` : ""}`;
-
-  useEffect(() => {
-    document.title = report.title;
-    const desc = description.slice(0, 160);
-    let meta = document.querySelector('meta[name="description"]');
-    if (!meta) {
-      meta = document.createElement('meta');
-      meta.setAttribute('name', 'description');
-      document.head.appendChild(meta);
-    }
-    meta.setAttribute('content', desc);
-  }, [report.title, description]);
 
   return (
     <>
