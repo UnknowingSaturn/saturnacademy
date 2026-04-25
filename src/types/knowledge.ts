@@ -22,7 +22,14 @@ export interface KnowledgeEntry {
   source_published_at: string | null;
   status: 'extracting' | 'ready' | 'failed';
   error_message: string | null;
-  /** Detailed multi-section markdown report (formerly a short summary). */
+  /**
+   * Cleaned inline article markdown. May contain `{{IMG:N}}` placeholders that
+   * map to entries in `screenshots[N]` — the renderer splits on these tokens
+   * and inlines a `<figure>` for each one. May also start with a TL;DR
+   * blockquote. Older entries (pre-inline format) contain plain markdown
+   * without placeholders; the renderer falls back to appending screenshots
+   * after the body in that case.
+   */
   summary: string | null;
   key_takeaways: string[];
   concepts: KnowledgeConcept[];
