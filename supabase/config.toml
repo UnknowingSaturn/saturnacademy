@@ -38,3 +38,13 @@ verify_jwt = false
 
 [functions.schedule-reports]
 verify_jwt = false
+
+[functions.get-shared-report]
+verify_jwt = false
+
+[functions.extract-knowledge]
+verify_jwt = false
+
+[functions.knowledge-chat]
+verify_jwt = false
+
