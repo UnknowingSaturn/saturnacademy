@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSharedReport, useUpdateSharedReport, useAddTradeToReport, useUpdateReportTrade, useRemoveTradeFromReport, useDeleteSharedReport } from "@/hooks/useSharedReports";
 import { useTrades } from "@/hooks/useTrades";
