@@ -14,7 +14,9 @@ import {
   Check,
   Building2,
   Settings,
-  Sparkles
+  Sparkles,
+  Share2,
+  Brain
 } from "lucide-react";
 import { AccountSettingsDialog } from "./AccountSettingsDialog";
 import { NavLink } from "@/components/NavLink";
@@ -51,6 +53,8 @@ const mainItems = [
   { title: "Trade Journal", url: "/journal", icon: BookOpen },
   { title: "Live Trades", url: "/live-trades", icon: Activity },
   { title: "Playbooks", url: "/playbooks", icon: FileText },
+  { title: "Shared Reports", url: "/shared-reports", icon: Share2 },
+  { title: "Knowledge", url: "/knowledge", icon: Brain },
 ];
 
 const toolItems = [
