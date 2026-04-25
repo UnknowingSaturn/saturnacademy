@@ -37,16 +37,20 @@ export default function PublicReport() {
     : null;
   const description = `${trades.length} ${trades.length === 1 ? "trade" : "trades"}${periodLabel ? ` · ${periodLabel}` : ""}${report.author_display_name ? ` by ${report.author_display_name}` : ""}`;
 
+  useEffect(() => {
+    document.title = report.title;
+    const desc = description.slice(0, 160);
+    let meta = document.querySelector('meta[name="description"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('name', 'description');
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute('content', desc);
+  }, [report.title, description]);
+
   return (
     <>
-      <Helmet>
-        <title>{report.title}</title>
-        <meta name="description" content={description.slice(0, 160)} />
-        <meta property="og:title" content={report.title} />
-        <meta property="og:description" content={description.slice(0, 160)} />
-        <meta property="og:type" content="article" />
-      </Helmet>
-
       <div className="min-h-screen bg-background">
         {/* Top bar */}
         <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
