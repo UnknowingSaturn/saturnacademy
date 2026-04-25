@@ -698,6 +698,98 @@ export type Database = {
           },
         ]
       }
+      knowledge_chat_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          knowledge_entry_id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          knowledge_entry_id: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          knowledge_entry_id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_chat_messages_knowledge_entry_id_fkey"
+            columns: ["knowledge_entry_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_entries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      knowledge_entries: {
+        Row: {
+          concepts: Json
+          created_at: string
+          error_message: string | null
+          id: string
+          key_takeaways: Json
+          raw_markdown: string | null
+          screenshots: Json
+          source_author: string | null
+          source_published_at: string | null
+          source_title: string | null
+          source_url: string
+          status: string
+          summary: string | null
+          tags: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          concepts?: Json
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          key_takeaways?: Json
+          raw_markdown?: string | null
+          screenshots?: Json
+          source_author?: string | null
+          source_published_at?: string | null
+          source_title?: string | null
+          source_url: string
+          status?: string
+          summary?: string | null
+          tags?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          concepts?: Json
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          key_takeaways?: Json
+          raw_markdown?: string | null
+          screenshots?: Json
+          source_author?: string | null
+          source_published_at?: string | null
+          source_title?: string | null
+          source_url?: string
+          status?: string
+          summary?: string | null
+          tags?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       notebook_entries: {
         Row: {
           content: string | null
@@ -1164,6 +1256,101 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      shared_report_trades: {
+        Row: {
+          caption_what_to_improve: string | null
+          caption_what_went_well: string | null
+          caption_what_went_wrong: string | null
+          created_at: string
+          id: string
+          screenshot_overrides: Json
+          shared_report_id: string
+          sort_order: number
+          trade_id: string
+          updated_at: string
+        }
+        Insert: {
+          caption_what_to_improve?: string | null
+          caption_what_went_well?: string | null
+          caption_what_went_wrong?: string | null
+          created_at?: string
+          id?: string
+          screenshot_overrides?: Json
+          shared_report_id: string
+          sort_order?: number
+          trade_id: string
+          updated_at?: string
+        }
+        Update: {
+          caption_what_to_improve?: string | null
+          caption_what_went_well?: string | null
+          caption_what_went_wrong?: string | null
+          created_at?: string
+          id?: string
+          screenshot_overrides?: Json
+          shared_report_id?: string
+          sort_order?: number
+          trade_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_report_trades_shared_report_id_fkey"
+            columns: ["shared_report_id"]
+            isOneToOne: false
+            referencedRelation: "shared_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shared_reports: {
+        Row: {
+          author_display_name: string | null
+          created_at: string
+          id: string
+          intro: string | null
+          period_end: string | null
+          period_start: string | null
+          published_at: string | null
+          slug: string
+          title: string
+          updated_at: string
+          user_id: string
+          view_count: number
+          visibility: string
+        }
+        Insert: {
+          author_display_name?: string | null
+          created_at?: string
+          id?: string
+          intro?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          published_at?: string | null
+          slug: string
+          title?: string
+          updated_at?: string
+          user_id: string
+          view_count?: number
+          visibility?: string
+        }
+        Update: {
+          author_display_name?: string | null
+          created_at?: string
+          id?: string
+          intro?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          published_at?: string | null
+          slug?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+          view_count?: number
+          visibility?: string
+        }
+        Relationships: []
       }
       simulation_runs: {
         Row: {
