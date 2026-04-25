@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSharedReport, useUpdateSharedReport, useAddTradeToReport, useUpdateReportTrade, useRemoveTradeFromReport, useDeleteSharedReport } from "@/hooks/useSharedReports";
 import { useTrades } from "@/hooks/useTrades";
@@ -13,7 +13,16 @@ import { TradePickerPanel } from "@/components/shared-reports/TradePickerPanel";
 import { EducationalTradeCard } from "@/components/shared-reports/EducationalTradeCard";
 import { ShareDialog } from "@/components/shared-reports/ShareDialog";
 import { format, parseISO } from "date-fns";
-import { useDebouncedCallback } from "use-debounce";
+// Simple inline debounced callback hook
+function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: number) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
+  return useCallback((...args: Parameters<T>) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => fnRef.current(...args), delay);
+  }, [delay]);
+}
 import { toast } from "sonner";
 import type { PublicTradeCard } from "@/types/sharedReports";
 

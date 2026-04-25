@@ -22,6 +22,10 @@ import LiveTrades from "./pages/LiveTrades";
 import Copier from "./pages/Copier";
 import CopierPreview from "./pages/CopierPreview";
 import StrategyLab from "./pages/StrategyLab";
+import SharedReports from "./pages/SharedReports";
+import SharedReportEditor from "./pages/SharedReportEditor";
+import PublicReport from "./pages/PublicReport";
+import Knowledge from "./pages/Knowledge";
 
 const queryClient = new QueryClient();
 
@@ -69,6 +73,10 @@ const AppRoutes = React.forwardRef<HTMLDivElement, object>(
         <Route path="/copier" element={<ProtectedRoute><Copier /></ProtectedRoute>} />
         <Route path="/copier-preview" element={<ProtectedRoute><CopierPreview /></ProtectedRoute>} />
         <Route path="/strategy-lab" element={<ProtectedRoute><StrategyLab /></ProtectedRoute>} />
+        <Route path="/shared-reports" element={<ProtectedRoute><SharedReports /></ProtectedRoute>} />
+        <Route path="/shared-reports/:id" element={<ProtectedRoute><SharedReportEditor /></ProtectedRoute>} />
+        <Route path="/knowledge" element={<ProtectedRoute><Knowledge /></ProtectedRoute>} />
+        <Route path="/r/:slug" element={<PublicReport />} />
         <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
         <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
