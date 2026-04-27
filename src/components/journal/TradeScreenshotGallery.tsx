@@ -199,17 +199,30 @@ export function TradeScreenshotGallery({
       <Dialog open={!!expandedImage} onOpenChange={() => setExpandedImage(null)}>
         <DialogContent className="max-w-5xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <Badge
-                variant="outline"
-                className={cn(
-                  "font-mono",
-                  expandedImage && TIMEFRAME_COLORS[expandedImage.timeframe]
-                )}
-              >
-                {expandedImage?.timeframe}
-              </Badge>
-              Chart Screenshot
+            <DialogTitle className="flex items-center justify-between gap-3 pr-8">
+              <div className="flex items-center gap-3">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "font-mono",
+                    expandedImage && TIMEFRAME_COLORS[expandedImage.timeframe]
+                  )}
+                >
+                  {expandedImage?.timeframe}
+                </Badge>
+                Chart Screenshot
+              </div>
+              {expandedImage && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => setEditingScreenshot(expandedImage)}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </Button>
+              )}
             </DialogTitle>
           </DialogHeader>
           {expandedImage && (
@@ -220,7 +233,7 @@ export function TradeScreenshotGallery({
                 className="w-full rounded-lg"
               />
               {expandedImage.description && (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
                   {expandedImage.description}
                 </p>
               )}
@@ -228,6 +241,14 @@ export function TradeScreenshotGallery({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Edit Screenshot Dialog */}
+      <EditScreenshotDialog
+        open={!!editingScreenshot}
+        onOpenChange={(open) => !open && setEditingScreenshot(null)}
+        screenshot={editingScreenshot}
+        onSave={handleEdit}
+      />
     </div>
   );
 }
