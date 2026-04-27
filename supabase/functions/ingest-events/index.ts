@@ -213,24 +213,10 @@ serve(async (req) => {
         copier_role: 'independent',
         master_account_id: null,
       };
-      // (the original auto-create block below will run)
-      const tokenError = null;
+      // (auto-create flow)
 
-      if (tokenError || !setupToken) {
-        console.error("Invalid API key and no valid setup token:", accountError);
-        return new Response(
-          JSON.stringify({ status: "error", message: "Invalid API key" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      if (setupToken.used) {
-        console.error("Setup token already used");
-        return new Response(
-          JSON.stringify({ status: "error", message: "Setup token already used" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
+      // Only burn the setup token the first time it's used
+      const shouldConsumeToken = setupTokenRow && !setupTokenRow.used && !anyAccountForKey;
 
       let propFirm = null;
       const serverLower = payload.account_info.server.toLowerCase();
@@ -274,18 +260,22 @@ serve(async (req) => {
         );
       }
 
-      await supabase
-        .from("setup_tokens")
-        .update({ used: true, used_at: new Date().toISOString() })
-        .eq("token", apiKey);
+      if (shouldConsumeToken) {
+        await supabase
+          .from("setup_tokens")
+          .update({ used: true, used_at: new Date().toISOString() })
+          .eq("token", apiKey);
+      }
 
       account = newAccount;
-      console.log("Auto-created account:", account.id, accountName, 
-        "copier_role:", copierRole);
-    } else if (accountError || !account) {
-      console.error("Invalid API key:", accountError);
+      console.log("Auto-created account:", account.id, accountName,
+        "login:", brokerLogin, "shared_terminal:", !!anyAccountForKey);
+    }
+
+    if (!account) {
+      console.error("No target account could be resolved (login missing?)");
       return new Response(
-        JSON.stringify({ status: "error", message: "Invalid API key" }),
+        JSON.stringify({ status: "error", message: "No matching account for broker login" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
