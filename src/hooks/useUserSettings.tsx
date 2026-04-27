@@ -1,7 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { UserSettings, SessionDefinition, PropertyOption, FilterCondition, DEFAULT_VISIBLE_COLUMNS, DEFAULT_SESSIONS, DEFAULT_PROPERTY_OPTIONS, DEFAULT_LIVE_TRADE_QUESTIONS, LiveTradeQuestion } from "@/types/settings";
+import {
+  UserSettings, SessionDefinition, PropertyOption, FilterCondition,
+  DEFAULT_VISIBLE_COLUMNS, DEFAULT_SESSIONS, DEFAULT_PROPERTY_OPTIONS,
+  DEFAULT_LIVE_TRADE_QUESTIONS, LiveTradeQuestion,
+} from "@/types/settings";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
 import { setDisplayTimezone } from "@/lib/time";
@@ -16,6 +20,10 @@ const transformSettings = (row: any): UserSettings => ({
   default_filters: row.default_filters || [],
   live_trade_questions: (row.live_trade_questions as LiveTradeQuestion[]) || DEFAULT_LIVE_TRADE_QUESTIONS,
   display_timezone: row.display_timezone || 'America/New_York',
+  detail_visible_fields: (row.detail_visible_fields as string[]) || [],
+  detail_field_order: (row.detail_field_order as string[]) || [],
+  detail_visible_sections: (row.detail_visible_sections as string[]) || [],
+  detail_section_order: (row.detail_section_order as string[]) || [],
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
