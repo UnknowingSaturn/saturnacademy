@@ -2,6 +2,7 @@ import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, R
 import { useUpdateTrade, useUpsertTradeReview } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useAccounts } from "@/hooks/useAccounts";
+import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { cn } from "@/lib/utils";
 import { formatFullDateTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
@@ -14,17 +15,8 @@ interface TradePropertiesProps {
   trade: Trade;
 }
 
-const sessionOptions = [
-  { value: "new_york_am", label: "New York AM", color: "newyork" },
-  { value: "london", label: "London", color: "london" },
-  { value: "tokyo", label: "Tokyo", color: "tokyo" },
-  { value: "new_york_pm", label: "New York PM", color: "newyork" },
-  { value: "off_hours", label: "Off Hours", color: "muted" },
-];
-
-// Model options are now dynamic from playbooks - see useModelOptions hook below
-
-const emotionOptions = [
+// Static fallbacks (only used until user's customisable options have loaded)
+const fallbackEmotionOptions = [
   { value: "great", label: "Great", color: "profit" },
   { value: "good", label: "Good", color: "profit" },
   { value: "calm", label: "Calm", color: "profit" },
@@ -41,7 +33,7 @@ const emotionOptions = [
   { value: "exhausted", label: "Exhausted", color: "loss" },
 ];
 
-const timeframeOptions = [
+const fallbackTimeframeOptions = [
   { value: "1min", label: "1min", color: "muted" },
   { value: "5min", label: "5min", color: "muted" },
   { value: "15min", label: "15min", color: "primary" },
@@ -50,23 +42,18 @@ const timeframeOptions = [
   { value: "daily", label: "Daily", color: "profit" },
 ];
 
-const profileOptions = [
-  { value: "consolidation", label: "Consolidation", color: "primary" },
-  { value: "expansion", label: "Expansion", color: "profit" },
-  { value: "reversal", label: "Reversal", color: "breakeven" },
-  { value: "continuation", label: "Continuation", color: "muted" },
-];
-
-const regimeOptions = [
-  { value: "rotational", label: "Rotational", color: "primary" },
-  { value: "transitional", label: "Transitional", color: "profit" },
-];
-
 export function TradeProperties({ trade }: TradePropertiesProps) {
   const updateTrade = useUpdateTrade();
   const upsertReview = useUpsertTradeReview();
   const { data: playbooks } = usePlaybooks();
   const { data: accounts } = useAccounts();
+
+  // User-editable property dropdowns (from Settings → Properties)
+  const { data: profileOpts } = usePropertyOptions("profile");
+  const { data: regimeOpts } = usePropertyOptions("regime");
+  const { data: sessionOpts } = usePropertyOptions("session");
+  const { data: timeframeOpts } = usePropertyOptions("timeframe");
+  const { data: emotionOpts } = usePropertyOptions("emotion");
 
   // Check if trade is manually added (no ticket = not from EA)
   const isManualTrade = !trade.ticket;
@@ -80,6 +67,51 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
       color: "primary",
     }));
   }, [accounts]);
+
+  // Convert user's PropertyOption rows into BadgeSelect option shape (preserves their custom hex color)
+  const toBadgeOptions = (rows?: { value: string; label: string; color: string }[], fallback: { value: string; label: string; color: string }[] = []) => {
+    if (!rows || rows.length === 0) return fallback;
+    return rows.map(r => ({ value: r.value, label: r.label, customColor: r.color, color: "primary" }));
+  };
+
+  const sessionOptions = useMemo(
+    () => toBadgeOptions(sessionOpts, [
+      { value: "new_york_am", label: "New York AM", color: "newyork" },
+      { value: "london", label: "London", color: "london" },
+      { value: "tokyo", label: "Tokyo", color: "tokyo" },
+      { value: "new_york_pm", label: "New York PM", color: "newyork" },
+      { value: "off_hours", label: "Off Hours", color: "muted" },
+    ]),
+    [sessionOpts]
+  );
+
+  const profileOptions = useMemo(
+    () => toBadgeOptions(profileOpts, [
+      { value: "consolidation", label: "Consolidation", color: "primary" },
+      { value: "expansion", label: "Expansion", color: "profit" },
+      { value: "reversal", label: "Reversal", color: "breakeven" },
+      { value: "continuation", label: "Continuation", color: "muted" },
+    ]),
+    [profileOpts]
+  );
+
+  const regimeOptions = useMemo(
+    () => toBadgeOptions(regimeOpts, [
+      { value: "rotational", label: "Rotational", color: "primary" },
+      { value: "transitional", label: "Transitional", color: "profit" },
+    ]),
+    [regimeOpts]
+  );
+
+  const timeframeOptions = useMemo(
+    () => toBadgeOptions(timeframeOpts, fallbackTimeframeOptions),
+    [timeframeOpts]
+  );
+
+  const emotionOptions = useMemo(
+    () => toBadgeOptions(emotionOpts, fallbackEmotionOptions),
+    [emotionOpts]
+  );
 
   // Generate model options from active playbooks using ID as value
   const modelOptions = useMemo(() => {
