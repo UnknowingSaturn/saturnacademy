@@ -1840,6 +1840,7 @@ export type Database = {
           detail_visible_fields: Json
           detail_visible_sections: Json
           display_timezone: string
+          field_label_overrides: Json
           id: string
           live_trade_questions: Json | null
           updated_at: string
@@ -1856,6 +1857,7 @@ export type Database = {
           detail_visible_fields?: Json
           detail_visible_sections?: Json
           display_timezone?: string
+          field_label_overrides?: Json
           id?: string
           live_trade_questions?: Json | null
           updated_at?: string
@@ -1872,6 +1874,7 @@ export type Database = {
           detail_visible_fields?: Json
           detail_visible_sections?: Json
           display_timezone?: string
+          field_label_overrides?: Json
           id?: string
           live_trade_questions?: Json | null
           updated_at?: string
