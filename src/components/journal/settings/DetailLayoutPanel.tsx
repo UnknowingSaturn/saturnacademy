@@ -124,7 +124,7 @@ export function DetailLayoutPanel() {
   // Sections (review blocks)
   const sectionOrder = useMemo(() => {
     const userOrder = settings?.detail_section_order?.length ? settings.detail_section_order : DEFAULT_DETAIL_SECTION_ORDER;
-    const known = new Set(DEFAULT_DETAIL_SECTION_ORDER);
+    const known = new Set<string>(DEFAULT_DETAIL_SECTION_ORDER as string[]);
     const seen = new Set<string>();
     const ordered: string[] = [];
     for (const k of userOrder) if (known.has(k) && !seen.has(k)) { ordered.push(k); seen.add(k); }
