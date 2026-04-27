@@ -27,9 +27,93 @@ export interface UserSettings {
   default_filters: FilterCondition[];
   live_trade_questions: LiveTradeQuestion[];
   display_timezone: string;
+  // Notion-style layout for the trade detail panel
+  detail_visible_fields: string[];      // empty array = use defaults
+  detail_field_order: string[];          // empty array = use defaults
+  detail_visible_sections: string[];    // empty array = use defaults
+  detail_section_order: string[];        // empty array = use defaults
   created_at: string;
   updated_at: string;
 }
+
+// Catalog of fields available in the trade detail "Properties" sidebar.
+// Each entry tells the renderer how to display + edit one row.
+// Custom fields are appended dynamically at runtime.
+export type DetailFieldKind =
+  | 'readonly'           // pure display (e.g. P&L)
+  | 'select'             // single select from property_options
+  | 'multi-select'       // multi select from property_options
+  | 'playbook-select'    // single select from playbooks
+  | 'dual-playbook'      // planned + actual playbook side-by-side
+  | 'dual-select'        // planned + actual property_options
+  | 'dual-multi'         // planned + actual multi-select
+  | 'text'               // free text inline edit
+  | 'account-select';    // accounts dropdown (manual trades)
+
+export interface DetailFieldDef {
+  key: string;
+  label: string;
+  kind: DetailFieldKind;
+  propertyName?: string;       // for select/multi → property_options group
+  // For dual fields, we read/write two separate trade columns:
+  plannedField?: string;
+  actualField?: string;
+  // For non-dual editable fields, we read/write one trade column / review field:
+  field?: string;
+  isReviewField?: boolean;     // true → store in trade_reviews, not trades
+  defaultVisible?: boolean;
+}
+
+// Catalog of larger review sections inside the trade detail body.
+export type DetailSectionKey =
+  | 'screenshots'
+  | 'checklist'
+  | 'psychology_notes'
+  | 'mistakes'
+  | 'did_well'
+  | 'to_improve'
+  | 'actionable_steps';
+
+export interface DetailSectionDef {
+  key: DetailSectionKey;
+  label: string;
+  defaultVisible?: boolean;
+}
+
+// Default catalog used by both the renderer and the settings UI.
+// "model" entries map to playbook columns, "regime" lives on trade_reviews.
+export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
+  { key: 'status',       label: 'Status',     kind: 'readonly', defaultVisible: true },
+  { key: 'account',      label: 'Account',    kind: 'account-select', defaultVisible: true },
+  { key: 'pair',         label: 'Pair',       kind: 'readonly', defaultVisible: true },
+  { key: 'day',          label: 'Day',        kind: 'readonly', defaultVisible: true },
+  { key: 'date',         label: 'Date (ET)',  kind: 'readonly', defaultVisible: true },
+  { key: 'direction',    label: 'Direction',  kind: 'readonly', defaultVisible: true },
+  { key: 'pnl',          label: 'P&L',        kind: 'readonly', defaultVisible: true },
+  { key: 'r_pct',        label: 'R%',         kind: 'readonly', defaultVisible: true },
+  { key: 'emotion',      label: 'Emotion',    kind: 'select',   propertyName: 'emotion', isReviewField: true, field: 'emotional_state_before', defaultVisible: true },
+  { key: 'session',      label: 'Session',    kind: 'select',   propertyName: 'session', field: 'session', defaultVisible: true },
+  { key: 'model',        label: 'Model',      kind: 'dual-playbook', plannedField: 'playbook_id', actualField: 'actual_playbook_id', defaultVisible: true },
+  { key: 'profile',      label: 'Profile',    kind: 'dual-select', propertyName: 'profile', plannedField: 'profile', actualField: 'actual_profile', defaultVisible: true },
+  { key: 'regime',       label: 'Regime',     kind: 'dual-select', propertyName: 'regime', plannedField: 'regime', actualField: 'actual_regime', defaultVisible: true },
+  { key: 'timeframes',   label: 'Timeframes', kind: 'dual-multi',  propertyName: 'timeframe', plannedField: 'alignment', actualField: 'entry_timeframes', defaultVisible: true },
+  { key: 'place',        label: 'Place',      kind: 'text', field: 'place', defaultVisible: true },
+];
+
+export const DETAIL_SECTION_CATALOG: DetailSectionDef[] = [
+  { key: 'screenshots',       label: 'Screenshots',       defaultVisible: true },
+  { key: 'checklist',         label: 'Playbook Checklist', defaultVisible: true },
+  { key: 'psychology_notes',  label: 'Psychology Notes',   defaultVisible: true },
+  { key: 'mistakes',          label: 'Mistakes',           defaultVisible: true },
+  { key: 'did_well',          label: 'What I Did Well',    defaultVisible: true },
+  { key: 'to_improve',        label: 'To Improve',         defaultVisible: true },
+  { key: 'actionable_steps',  label: 'Actionable Steps',   defaultVisible: true },
+];
+
+export const DEFAULT_DETAIL_VISIBLE_FIELDS = DETAIL_FIELD_CATALOG.filter(f => f.defaultVisible).map(f => f.key);
+export const DEFAULT_DETAIL_FIELD_ORDER   = DETAIL_FIELD_CATALOG.map(f => f.key);
+export const DEFAULT_DETAIL_VISIBLE_SECTIONS = DETAIL_SECTION_CATALOG.filter(s => s.defaultVisible).map(s => s.key);
+export const DEFAULT_DETAIL_SECTION_ORDER   = DETAIL_SECTION_CATALOG.map(s => s.key);
 
 export type CustomFieldType = 'text' | 'number' | 'select' | 'multi_select' | 'date' | 'checkbox' | 'url';
 
