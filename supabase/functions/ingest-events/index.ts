@@ -750,9 +750,16 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       return;
     }
 
+    // REPAIR mode: existing trade was zeroed out by snapshot reconciliation
+    const isRepair = isSnapshotClosed(existingTrade);
+    if (isRepair) {
+      console.log("REPAIR: overwriting snapshot_closed trade with real exit data:", existingTrade.id, "ticket:", ticket);
+    }
+
     // Calculate remaining lots after this exit
+    // (when repairing, total_lots is 0 so this routes to the full-close branch)
     const remainingLots = existingTrade.total_lots - lot_size;
-    const isPartialClose = remainingLots > 0.001;
+    const isPartialClose = !isRepair && remainingLots > 0.001;
 
     if (isPartialClose) {
       const partialCloses = existingTrade.partial_closes || [];
