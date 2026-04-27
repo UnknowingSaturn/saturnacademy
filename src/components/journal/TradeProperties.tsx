@@ -162,7 +162,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
       case 'account':
         if (!isManualTrade) return null;
         return (
-          <PropertyRow key="account" icon={<Wallet className="w-3.5 h-3.5" />} label="Account">
+          <PropertyRow key="account" icon={<Wallet className="w-3.5 h-3.5" />} label={labelFor('account', 'Account')}>
             <BadgeSelect
               value={trade.account_id || ""}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, account_id: (v as string) || null })}
@@ -173,19 +173,19 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'pair':
         return (
-          <PropertyRow key="pair" icon={<Hash className="w-3.5 h-3.5" />} label="Pair">
+          <PropertyRow key="pair" icon={<Hash className="w-3.5 h-3.5" />} label={labelFor('pair', 'Pair')}>
             <span className="font-semibold">{trade.symbol}</span>
           </PropertyRow>
         );
       case 'day':
         return (
-          <PropertyRow key="day" icon={<Calendar className="w-3.5 h-3.5" />} label="Day">
+          <PropertyRow key="day" icon={<Calendar className="w-3.5 h-3.5" />} label={labelFor('day', 'Day')}>
             <span>{getDayNameET(trade.entry_time)}</span>
           </PropertyRow>
         );
       case 'date':
         return (
-          <PropertyRow key="date" icon={<Clock className="w-3.5 h-3.5" />} label="Date (ET)">
+          <PropertyRow key="date" icon={<Clock className="w-3.5 h-3.5" />} label={labelFor('date', 'Date (ET)')}>
             <span>{formatFullDateTimeET(trade.entry_time)}</span>
           </PropertyRow>
         );
@@ -194,7 +194,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           <PropertyRow
             key="direction"
             icon={trade.direction === "buy" ? <TrendingUp className="w-3.5 h-3.5 text-profit" /> : <TrendingDown className="w-3.5 h-3.5 text-loss" />}
-            label="Direction"
+            label={labelFor('direction', 'Direction')}
           >
             <span className={cn("font-semibold uppercase", trade.direction === "buy" ? "text-profit" : "text-loss")}>
               {trade.direction}
@@ -203,7 +203,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'pnl':
         return (
-          <PropertyRow key="pnl" icon={<DollarSign className="w-3.5 h-3.5" />} label="P&L">
+          <PropertyRow key="pnl" icon={<DollarSign className="w-3.5 h-3.5" />} label={labelFor('pnl', 'P&L')}>
             <span className={cn("font-mono-numbers font-bold", isWin && "text-profit", isLoss && "text-loss")}>
               {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
             </span>
@@ -211,7 +211,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'r_pct':
         return (
-          <PropertyRow key="r_pct" icon={<Target className="w-3.5 h-3.5" />} label="R%">
+          <PropertyRow key="r_pct" icon={<Target className="w-3.5 h-3.5" />} label={labelFor('r_pct', 'R%')}>
             <span
               className={cn(
                 "font-mono-numbers font-bold",
@@ -227,7 +227,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'emotion':
         return (
-          <PropertyRow key="emotion" label="Emotion">
+          <PropertyRow key="emotion" label={labelFor('emotion', 'Emotion')}>
             <BadgeSelect
               value={trade.review?.emotional_state_before || ""}
               onChange={(v) => upsertReview.mutateAsync({
@@ -241,7 +241,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'session':
         return (
-          <PropertyRow key="session" label="Session">
+          <PropertyRow key="session" label={labelFor('session', 'Session')}>
             <BadgeSelect
               value={trade.session || ""}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, session: (v as SessionType) || null })}
@@ -252,7 +252,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'model':
         return (
-          <DualPropertyRow key="model" label="Model">
+          <DualPropertyRow key="model" label={labelFor('model', 'Model')}>
             <BadgeSelect
               value={trade.playbook_id || ""}
               onChange={async (v) => {
@@ -279,7 +279,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'profile':
         return (
-          <DualPropertyRow key="profile" label="Profile">
+          <DualPropertyRow key="profile" label={labelFor('profile', 'Profile')}>
             <BadgeSelect
               value={trade.profile || ""}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, profile: (v as TradeProfile) || null })}
@@ -296,7 +296,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'regime':
         return (
-          <DualPropertyRow key="regime" label="Regime">
+          <DualPropertyRow key="regime" label={labelFor('regime', 'Regime')}>
             <BadgeSelect
               value={trade.review?.regime || ""}
               onChange={(v) => upsertReview.mutateAsync({
@@ -316,7 +316,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'timeframes':
         return (
-          <DualPropertyRow key="timeframes" label="Timeframes">
+          <DualPropertyRow key="timeframes" label={labelFor('timeframes', 'Timeframes')}>
             <BadgeSelect
               value={trade.alignment || []}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, alignment: v as TimeframeAlignment[] })}
@@ -335,7 +335,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'place':
         return (
-          <PropertyRow key="place" label="Place">
+          <PropertyRow key="place" label={labelFor('place', 'Place')}>
             <span className="text-sm text-muted-foreground">{trade.place || "Empty"}</span>
           </PropertyRow>
         );
