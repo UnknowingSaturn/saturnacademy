@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, RefreshCw, AlertTriangle, Archive, Flame } from 'lucide-react';
+import { Link, RefreshCw, AlertTriangle, Archive, Flame, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useArchiveAllTrades } from '@/hooks/useTrades';
