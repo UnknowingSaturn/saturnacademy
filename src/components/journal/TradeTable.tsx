@@ -35,11 +35,11 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Fetch property options
-  const { data: sessionOptions = [] } = usePropertyOptions('session');
-  const { data: timeframeOptions = [] } = usePropertyOptions('timeframe');
-  const { data: profileOptions = [] } = usePropertyOptions('profile');
-  const { data: emotionOptions = [] } = usePropertyOptions('emotion');
+  // Fetch property options (active only — soft-deleted ones don't appear in dropdowns)
+  const { data: sessionOptions = [] } = usePropertyOptions('session', true);
+  const { data: timeframeOptions = [] } = usePropertyOptions('timeframe', true);
+  const { data: profileOptions = [] } = usePropertyOptions('profile', true);
+  const { data: emotionOptions = [] } = usePropertyOptions('emotion', true);
   
   // Fetch playbooks for model options
   const { data: playbooks } = usePlaybooks();

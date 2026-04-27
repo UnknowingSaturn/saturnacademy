@@ -24,6 +24,7 @@ const transformSettings = (row: any): UserSettings => ({
   detail_field_order: (row.detail_field_order as string[]) || [],
   detail_visible_sections: (row.detail_visible_sections as string[]) || [],
   detail_section_order: (row.detail_section_order as string[]) || [],
+  field_label_overrides: (row.field_label_overrides as Record<string, string>) || {},
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -90,6 +91,7 @@ export function useUserSettings() {
           detail_field_order: [],
           detail_visible_sections: [],
           detail_section_order: [],
+          field_label_overrides: {},
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as UserSettings;
@@ -130,6 +132,7 @@ export function useUpdateUserSettings() {
       if (updates.detail_field_order !== undefined) dbUpdates.detail_field_order = updates.detail_field_order as any;
       if (updates.detail_visible_sections !== undefined) dbUpdates.detail_visible_sections = updates.detail_visible_sections as any;
       if (updates.detail_section_order !== undefined) dbUpdates.detail_section_order = updates.detail_section_order as any;
+      if (updates.field_label_overrides !== undefined) dbUpdates.field_label_overrides = updates.field_label_overrides as any;
 
       // Check if settings exist
       const { data: existing } = await supabase
@@ -307,13 +310,14 @@ export function useReorderSessions() {
 }
 
 // Property Options Hook with auto-initialization
-export function usePropertyOptions(propertyName?: string) {
+// Pass activeOnly=true to filter out soft-deleted options for end-user dropdowns.
+export function usePropertyOptions(propertyName?: string, activeOnly: boolean = false) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const initializingRef = useRef(false);
 
   const query = useQuery({
-    queryKey: ['property_options', user?.id, propertyName],
+    queryKey: ['property_options', user?.id, propertyName, activeOnly],
     queryFn: async () => {
       if (!user?.id) return [];
 
@@ -325,6 +329,9 @@ export function usePropertyOptions(propertyName?: string) {
 
       if (propertyName) {
         q = q.eq('property_name', propertyName);
+      }
+      if (activeOnly) {
+        q = q.eq('is_active', true);
       }
 
       const { data, error } = await q;
