@@ -73,9 +73,23 @@ export default function SharedReportEditor() {
     if (link) removeTrade.mutate({ id: link.id, shared_report_id: id });
   };
 
-  const handleCaptionChange = (linkId: string, field: string, value: string) => {
+  const handlePatchTrade = (linkId: string, patch: any) => {
     if (!id) return;
-    updateTrade.mutate({ id: linkId, shared_report_id: id, patch: { [field]: value } as any });
+    updateTrade.mutate({ id: linkId, shared_report_id: id, patch });
+  };
+
+  const handleMoveCard = (linkId: string, dir: -1 | 1) => {
+    if (!id || !data) return;
+    const ordered = [...data.trades].sort((a, b) => a.sort_order - b.sort_order);
+    const i = ordered.findIndex((l) => l.id === linkId);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= ordered.length) return;
+    [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+    ordered.forEach((l, idx) => {
+      if (l.sort_order !== idx) {
+        updateTrade.mutate({ id: l.id, shared_report_id: id, patch: { sort_order: idx } as any });
+      }
+    });
   };
 
   if (isLoading) {
