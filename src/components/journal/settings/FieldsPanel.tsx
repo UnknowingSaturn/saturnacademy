@@ -30,6 +30,7 @@ import {
   isCoreField,
   resolveFieldLabel,
   customFieldToColumn,
+  canEraseSystemField,
 } from "@/types/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
