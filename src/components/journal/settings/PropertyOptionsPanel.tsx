@@ -27,8 +27,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 const PROPERTY_TYPES = [
-  { value: 'profile', label: 'Profile' },
-  { value: 'regime', label: 'Regime' },
+  { value: 'profile', label: 'Profile (planned & actual)' },
+  { value: 'regime', label: 'Regime (planned & actual)' },
   { value: 'session', label: 'Session' },
   { value: 'timeframe', label: 'Timeframe' },
   { value: 'emotion', label: 'Emotion' },
