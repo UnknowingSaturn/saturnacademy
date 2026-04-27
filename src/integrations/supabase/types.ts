@@ -1263,10 +1263,15 @@ export type Database = {
           caption_what_went_well: string | null
           caption_what_went_wrong: string | null
           created_at: string
+          direction_override: string | null
+          entry_time_override: string | null
           id: string
+          playbook_name_override: string | null
           screenshot_overrides: Json
+          session_override: string | null
           shared_report_id: string
           sort_order: number
+          symbol_override: string | null
           trade_id: string
           updated_at: string
         }
@@ -1275,10 +1280,15 @@ export type Database = {
           caption_what_went_well?: string | null
           caption_what_went_wrong?: string | null
           created_at?: string
+          direction_override?: string | null
+          entry_time_override?: string | null
           id?: string
+          playbook_name_override?: string | null
           screenshot_overrides?: Json
+          session_override?: string | null
           shared_report_id: string
           sort_order?: number
+          symbol_override?: string | null
           trade_id: string
           updated_at?: string
         }
@@ -1287,10 +1297,15 @@ export type Database = {
           caption_what_went_well?: string | null
           caption_what_went_wrong?: string | null
           created_at?: string
+          direction_override?: string | null
+          entry_time_override?: string | null
           id?: string
+          playbook_name_override?: string | null
           screenshot_overrides?: Json
+          session_override?: string | null
           shared_report_id?: string
           sort_order?: number
+          symbol_override?: string | null
           trade_id?: string
           updated_at?: string
         }
