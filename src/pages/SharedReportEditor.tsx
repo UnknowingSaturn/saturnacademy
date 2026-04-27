@@ -274,13 +274,3 @@ export default function SharedReportEditor() {
   );
 }
 
-  return (
-    <Textarea
-      value={local}
-      onChange={e => { setLocal(e.target.value); debounced(e.target.value); }}
-      placeholder={placeholder}
-      rows={2}
-      className="text-sm resize-none"
-    />
-  );
-}
