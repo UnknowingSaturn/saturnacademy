@@ -165,11 +165,16 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
    
-   g_terminalId = "MT5_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "_" + 
+   long currentLogin = AccountInfoInteger(ACCOUNT_LOGIN);
+   g_terminalId = "MT5_" + IntegerToString(currentLogin) + "_" +
                   StringSubstr(AccountInfoString(ACCOUNT_SERVER), 0, 10);
-   
-   g_syncFlagFile = "TradeJournalSynced_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".flag";
-   g_lastActiveFile = "TradeJournalLastActive_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".dat";
+
+   // Login-scoped state files — critical when one MT5 terminal is shared
+   // across multiple broker accounts (e.g. multiple Hola Prime logins).
+   // Each login keeps its own queue and dedup cache so events never cross over.
+   g_queueFileName  = "TradeJournalQueue_" + IntegerToString(currentLogin) + ".txt";
+   g_syncFlagFile   = "TradeJournalSynced_" + IntegerToString(currentLogin) + ".flag";
+   g_lastActiveFile = "TradeJournalLastActive_" + IntegerToString(currentLogin) + ".dat";
    
    // Initialize logging (with rotation check)
    if(InpEnableLogging)
