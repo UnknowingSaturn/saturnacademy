@@ -93,7 +93,9 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
       return new Set([...DEFAULT_DETAIL_VISIBLE_FIELDS, ...customFields.filter(f => f.is_active).map(f => f.key)]);
     }
     return new Set(settings.detail_visible_fields);
-  }, [settings, customFields]);
+  const overrides = settings?.field_label_overrides || {};
+  const labelFor = (key: string, fallback: string) => resolveFieldLabel(key, fallback, overrides);
+
 
   // Read Quality computation (only relevant if model+regime+profile fields are present)
   const readQuality = useMemo(() => {
