@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Sparkles } from "lucide-react";
 import { ReportSidebar } from "@/components/reports/ReportSidebar";
 import { ReportView } from "@/components/reports/ReportView";
-import { useReportsList, useReport, useGenerateReport } from "@/hooks/useSenseiReports";
+import { useReportsList, useReport, useGenerateReport, useDeleteReport } from "@/hooks/useSenseiReports";
 import { format, subDays } from "date-fns";
 
 const StrategyLabPage = React.forwardRef<HTMLDivElement, object>(function ReportsPage(_props, _ref) {
@@ -15,9 +15,15 @@ const StrategyLabPage = React.forwardRef<HTMLDivElement, object>(function Report
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data: selected } = useReport(selectedId);
   const generate = useGenerateReport();
+  const del = useDeleteReport();
   const [genOpen, setGenOpen] = useState(false);
   const [start, setStart] = useState(format(subDays(new Date(), 7), "yyyy-MM-dd"));
   const [end, setEnd] = useState(format(new Date(), "yyyy-MM-dd"));
+
+  const handleDelete = async (id: string) => {
+    await del.mutateAsync(id);
+    if (selectedId === id) setSelectedId(null);
+  };
 
   useEffect(() => {
     if (!selectedId && reports.length > 0) setSelectedId(reports[0].id);
@@ -40,6 +46,7 @@ const StrategyLabPage = React.forwardRef<HTMLDivElement, object>(function Report
         selectedId={selectedId}
         onSelect={setSelectedId}
         onGenerateClick={() => setGenOpen(true)}
+        onDelete={handleDelete}
       />
       <main className="flex-1 overflow-auto">
         {isLoading ? (
