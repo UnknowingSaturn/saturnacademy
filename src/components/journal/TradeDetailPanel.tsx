@@ -385,174 +385,195 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                   />
                 )}
 
-                {/* Screenshots */}
-                <div>
-                  <Label className="text-sm font-semibold mb-3 block">Screenshots</Label>
-                  <TradeScreenshotGallery
-                    tradeId={trade.id}
-                    screenshots={reviewData.screenshots}
-                    onScreenshotsChange={(screenshots) => updateField("screenshots", screenshots)}
-                  />
-                </div>
+                {sectionOrder.map((sectionKey, idx) => {
+                  if (!visibleSections.has(sectionKey)) return null;
 
-                <Separator />
+                  const renderSection = () => {
+                    switch (sectionKey) {
+                      case 'screenshots':
+                        return (
+                          <div>
+                            <Label className="text-sm font-semibold mb-3 block">Screenshots</Label>
+                            <TradeScreenshotGallery
+                              tradeId={trade.id}
+                              screenshots={reviewData.screenshots}
+                              onScreenshotsChange={(screenshots) => updateField("screenshots", screenshots)}
+                            />
+                          </div>
+                        );
 
-                {/* Compliance Checklist */}
-                {selectedPlaybook && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="w-2.5 h-2.5 rounded-full" 
-                        style={{ backgroundColor: selectedPlaybook.color }} 
-                      />
-                      <Label className="text-sm font-semibold">{selectedPlaybook.name} Checklist</Label>
-                    </div>
-                    <PlaybookComplianceChecklist
-                      playbook={selectedPlaybook}
-                      checklistAnswers={reviewData.checklistAnswers}
-                      onAnswerChange={(ruleId, checked) => 
-                        updateField("checklistAnswers", { ...reviewData.checklistAnswers, [ruleId]: checked })
-                      }
-                    />
-                  </div>
-                )}
+                      case 'checklist':
+                        if (!selectedPlaybook) return null;
+                        return (
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="w-2.5 h-2.5 rounded-full"
+                                style={{ backgroundColor: selectedPlaybook.color }}
+                              />
+                              <Label className="text-sm font-semibold">{selectedPlaybook.name} Checklist</Label>
+                            </div>
+                            <PlaybookComplianceChecklist
+                              playbook={selectedPlaybook}
+                              checklistAnswers={reviewData.checklistAnswers}
+                              onAnswerChange={(ruleId, checked) =>
+                                updateField("checklistAnswers", { ...reviewData.checklistAnswers, [ruleId]: checked })
+                              }
+                            />
+                          </div>
+                        );
 
-                <Separator />
+                      case 'psychology_notes':
+                        return (
+                          <div>
+                            <Label className="text-sm font-semibold mb-2 block">Psychology Notes</Label>
+                            <Textarea
+                              value={reviewData.psychNotes}
+                              onChange={(e) => updateField("psychNotes", e.target.value)}
+                              placeholder="How were you feeling? What was your mental state?"
+                              rows={3}
+                              className="text-sm"
+                            />
+                          </div>
+                        );
 
-                {/* Notes Section */}
-                <div className="space-y-4">
-                  <div>
-                    <Label className="text-sm font-semibold mb-2 block">Psychology Notes</Label>
-                    <Textarea
-                      value={reviewData.psychNotes}
-                      onChange={(e) => updateField("psychNotes", e.target.value)}
-                      placeholder="How were you feeling? What was your mental state?"
-                      rows={3}
-                      className="text-sm"
-                    />
-                  </div>
-                </div>
+                      case 'mistakes':
+                        return (
+                          <div>
+                            <Label className="text-loss text-sm font-semibold mb-2 block">Mistakes</Label>
+                            <div className="space-y-1">
+                              {reviewData.mistakes.map((item, i) => (
+                                <div key={i} className="flex items-center gap-2 text-sm bg-loss/5 px-3 py-1.5 rounded border border-loss/20">
+                                  <span className="flex-1">{item}</span>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("mistakes", i)}>
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex gap-2 mt-2">
+                              <Input
+                                value={newItem.mistakes}
+                                onChange={(e) => setNewItem({ ...newItem, mistakes: e.target.value })}
+                                placeholder="Add a mistake..."
+                                onKeyDown={(e) => e.key === "Enter" && addItem("mistakes")}
+                                className="h-8 text-sm"
+                              />
+                              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("mistakes")}>
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
 
-                <Separator />
+                      case 'did_well':
+                        return (
+                          <div>
+                            <Label className="text-profit text-sm font-semibold mb-2 block">What I Did Well</Label>
+                            <div className="space-y-1">
+                              {reviewData.didWell.map((item, i) => (
+                                <div key={i} className="flex items-center gap-2 text-sm bg-profit/5 px-3 py-1.5 rounded border border-profit/20">
+                                  <span className="flex-1">{item}</span>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("didWell", i)}>
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex gap-2 mt-2">
+                              <Input
+                                value={newItem.didWell}
+                                onChange={(e) => setNewItem({ ...newItem, didWell: e.target.value })}
+                                placeholder="Add something you did well..."
+                                onKeyDown={(e) => e.key === "Enter" && addItem("didWell")}
+                                className="h-8 text-sm"
+                              />
+                              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("didWell")}>
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
 
-                {/* Review Section */}
-                <div className="space-y-4">
-                  {/* Mistakes */}
-                  <div>
-                    <Label className="text-loss text-sm font-semibold mb-2 block">Mistakes</Label>
-                    <div className="space-y-1">
-                      {reviewData.mistakes.map((item, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm bg-loss/5 px-3 py-1.5 rounded border border-loss/20">
-                          <span className="flex-1">{item}</span>
-                          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("mistakes", i)}>
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                      <Input
-                        value={newItem.mistakes}
-                        onChange={(e) => setNewItem({ ...newItem, mistakes: e.target.value })}
-                        placeholder="Add a mistake..."
-                        onKeyDown={(e) => e.key === "Enter" && addItem("mistakes")}
-                        className="h-8 text-sm"
-                      />
-                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("mistakes")}>
-                        <Plus className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </div>
+                      case 'to_improve':
+                        return (
+                          <div>
+                            <Label className="text-breakeven text-sm font-semibold mb-2 block">To Improve</Label>
+                            <div className="space-y-1">
+                              {reviewData.toImprove.map((item, i) => (
+                                <div key={i} className="flex items-center gap-2 text-sm bg-breakeven/5 px-3 py-1.5 rounded border border-breakeven/20">
+                                  <span className="flex-1">{item}</span>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("toImprove", i)}>
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex gap-2 mt-2">
+                              <Input
+                                value={newItem.toImprove}
+                                onChange={(e) => setNewItem({ ...newItem, toImprove: e.target.value })}
+                                placeholder="Add something to improve..."
+                                onKeyDown={(e) => e.key === "Enter" && addItem("toImprove")}
+                                className="h-8 text-sm"
+                              />
+                              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("toImprove")}>
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
 
-                  {/* What I Did Well */}
-                  <div>
-                    <Label className="text-profit text-sm font-semibold mb-2 block">What I Did Well</Label>
-                    <div className="space-y-1">
-                      {reviewData.didWell.map((item, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm bg-profit/5 px-3 py-1.5 rounded border border-profit/20">
-                          <span className="flex-1">{item}</span>
-                          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("didWell", i)}>
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                      <Input
-                        value={newItem.didWell}
-                        onChange={(e) => setNewItem({ ...newItem, didWell: e.target.value })}
-                        placeholder="Add something you did well..."
-                        onKeyDown={(e) => e.key === "Enter" && addItem("didWell")}
-                        className="h-8 text-sm"
-                      />
-                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("didWell")}>
-                        <Plus className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </div>
+                      case 'actionable_steps':
+                        return (
+                          <div>
+                            <Label className="text-sm font-semibold mb-2 block">Actionable Steps</Label>
+                            <div className="space-y-2">
+                              {reviewData.actionableSteps.map((step, i) => (
+                                <div key={i} className="flex items-center gap-3">
+                                  <Checkbox
+                                    checked={step.completed}
+                                    onCheckedChange={() => toggleActionable(i)}
+                                  />
+                                  <span className={cn("flex-1 text-sm", step.completed && "line-through text-muted-foreground")}>
+                                    {step.text}
+                                  </span>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeActionable(i)}>
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex gap-2 mt-2">
+                              <Input
+                                value={newItem.actionable}
+                                onChange={(e) => setNewItem({ ...newItem, actionable: e.target.value })}
+                                placeholder="Add an actionable step..."
+                                onKeyDown={(e) => e.key === "Enter" && addItem("actionable")}
+                                className="h-8 text-sm"
+                              />
+                              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("actionable")}>
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
 
-                  {/* To Improve */}
-                  <div>
-                    <Label className="text-breakeven text-sm font-semibold mb-2 block">To Improve</Label>
-                    <div className="space-y-1">
-                      {reviewData.toImprove.map((item, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm bg-breakeven/5 px-3 py-1.5 rounded border border-breakeven/20">
-                          <span className="flex-1">{item}</span>
-                          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeItem("toImprove", i)}>
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                      <Input
-                        value={newItem.toImprove}
-                        onChange={(e) => setNewItem({ ...newItem, toImprove: e.target.value })}
-                        placeholder="Add something to improve..."
-                        onKeyDown={(e) => e.key === "Enter" && addItem("toImprove")}
-                        className="h-8 text-sm"
-                      />
-                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("toImprove")}>
-                        <Plus className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </div>
+                      default:
+                        return null;
+                    }
+                  };
 
-                  <Separator />
+                  const content = renderSection();
+                  if (!content) return null;
 
-                  {/* Actionable Steps */}
-                  <div>
-                    <Label className="text-sm font-semibold mb-2 block">Actionable Steps</Label>
-                    <div className="space-y-2">
-                      {reviewData.actionableSteps.map((step, i) => (
-                        <div key={i} className="flex items-center gap-3">
-                          <Checkbox
-                            checked={step.completed}
-                            onCheckedChange={() => toggleActionable(i)}
-                          />
-                          <span className={cn("flex-1 text-sm", step.completed && "line-through text-muted-foreground")}>
-                            {step.text}
-                          </span>
-                          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeActionable(i)}>
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                      <Input
-                        value={newItem.actionable}
-                        onChange={(e) => setNewItem({ ...newItem, actionable: e.target.value })}
-                        placeholder="Add an actionable step..."
-                        onKeyDown={(e) => e.key === "Enter" && addItem("actionable")}
-                        className="h-8 text-sm"
-                      />
-                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => addItem("actionable")}>
-                        <Plus className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
+                  return (
+                    <Fragment key={sectionKey}>
+                      {idx > 0 && <Separator />}
+                      {content}
+                    </Fragment>
+                  );
+                })}
               </div>
             </ScrollArea>
 
