@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "Trade Journal Bridge"
 #property link      ""
-#property version   "3.00"
+#property version   "3.10"
 #property description "Captures trade lifecycle events and sends to journal backend"
 #property description "SAFE: Read-only, no trading operations, prop-firm compliant"
 #property description "Connects directly to cloud - no relay server needed!"
-#property description "v3.00: Refactored + auto-TZ + heartbeat + SL/TP tracking"
+#property description "v3.10: Multi-account safe — same API key can serve multiple broker logins"
 
 //+------------------------------------------------------------------+
 //| Input Parameters                                                  |
@@ -43,14 +43,14 @@ input int      InpHeartbeatIntervalTicks = 10;                 // Heartbeat ever
 //| Constants                                                         |
 //+------------------------------------------------------------------+
 const string   EDGE_FUNCTION_URL = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/ingest-events";
-const string   EA_VERSION        = "3.00";
+const string   EA_VERSION        = "3.10";
 
 //+------------------------------------------------------------------+
 //| Global Variables                                                  |
 //+------------------------------------------------------------------+
 string         g_logFileName     = "TradeJournal.log";
 string         g_logFileNameOld  = "TradeJournal.log.1";       // Rotated log
-string         g_queueFileName   = "TradeJournalQueue.txt";
+string         g_queueFileName   = "TradeJournalQueue.txt";   // login-scoped in OnInit
 string         g_syncFlagFile    = "";
 string         g_lastActiveFile  = "";
 int            g_logHandle       = INVALID_HANDLE;
@@ -165,11 +165,16 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
    
-   g_terminalId = "MT5_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "_" + 
+   long currentLogin = AccountInfoInteger(ACCOUNT_LOGIN);
+   g_terminalId = "MT5_" + IntegerToString(currentLogin) + "_" +
                   StringSubstr(AccountInfoString(ACCOUNT_SERVER), 0, 10);
-   
-   g_syncFlagFile = "TradeJournalSynced_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".flag";
-   g_lastActiveFile = "TradeJournalLastActive_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".dat";
+
+   // Login-scoped state files — critical when one MT5 terminal is shared
+   // across multiple broker accounts (e.g. multiple Hola Prime logins).
+   // Each login keeps its own queue and dedup cache so events never cross over.
+   g_queueFileName  = "TradeJournalQueue_" + IntegerToString(currentLogin) + ".txt";
+   g_syncFlagFile   = "TradeJournalSynced_" + IntegerToString(currentLogin) + ".flag";
+   g_lastActiveFile = "TradeJournalLastActive_" + IntegerToString(currentLogin) + ".dat";
    
    // Initialize logging (with rotation check)
    if(InpEnableLogging)
@@ -199,6 +204,10 @@ int OnInit()
    Print("Broker: ", AccountInfoString(ACCOUNT_COMPANY));
    Print("Broker UTC Offset: ", GetBrokerUTCOffset(), 
          (InpBrokerUTCOffset < 0 ? " (auto-detected)" : " (manual)"));
+   Print("");
+   Print("Multi-account safe: this API key can serve multiple broker");
+   Print("logins on the same terminal. Events will be routed to the");
+   Print("journal account matching login ", currentLogin, " automatically.");
    Print("");
    Print("Your account will be created automatically");
    Print("after your first trade!");

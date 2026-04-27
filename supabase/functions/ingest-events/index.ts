@@ -112,40 +112,111 @@ serve(async (req) => {
     const payload: EventPayload = await req.json();
     console.log("Received event:", payload.idempotency_key, payload.event_type, "position:", payload.position_id, "deal:", payload.deal_id);
 
-    // Look up account by API key
-    let { data: account, error: accountError } = await supabase
+    // ==========================================
+    // ACCOUNT RESOLUTION (multi-account aware)
+    // ==========================================
+    // Strategy: API key identifies the USER (terminal token).
+    // The actual account is resolved per-event by (user_id, account_info.login)
+    // so that one MT5 terminal switching between Hola Prime accounts routes
+    // each event to the correct journal account.
+
+    // Step 1: find any account using this API key — that gives us the user_id
+    const { data: anyAccountForKey } = await supabase
       .from("accounts")
-      .select("id, user_id, terminal_id")
+      .select("id, user_id, terminal_id, account_number")
       .eq("api_key", apiKey)
       .eq("is_active", true)
-      .single();
+      .limit(1)
+      .maybeSingle();
 
-    // If no account found, try auto-creation if we have account_info
-    if ((accountError || !account) && payload.account_info) {
-      console.log("No account found, attempting auto-creation...");
-      
-      const { data: setupToken, error: tokenError } = await supabase
+    let userIdForKey: string | null = anyAccountForKey?.user_id ?? null;
+    let setupTokenRow: any = null;
+
+    if (!userIdForKey) {
+      const { data: tok } = await supabase
         .from("setup_tokens")
         .select("user_id, used, sync_history_enabled, sync_history_from, copier_role, master_account_id")
         .eq("token", apiKey)
         .gt("expires_at", new Date().toISOString())
-        .single();
+        .maybeSingle();
+      if (tok && !tok.used) {
+        userIdForKey = tok.user_id;
+        setupTokenRow = tok;
+      }
+    }
 
-      if (tokenError || !setupToken) {
-        console.error("Invalid API key and no valid setup token:", accountError);
+    if (!userIdForKey) {
+      console.error("Invalid API key — no account or active setup token");
+      return new Response(
+        JSON.stringify({ status: "error", message: "Invalid API key" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Step 2: resolve the target account by broker login (account_info.login)
+    const brokerLogin = payload.account_info?.login != null ? String(payload.account_info.login) : null;
+
+    let account: { id: string; user_id: string; terminal_id: string | null } | null = null;
+
+    if (brokerLogin) {
+      const { data: byLogin } = await supabase
+        .from("accounts")
+        .select("id, user_id, terminal_id")
+        .eq("user_id", userIdForKey)
+        .eq("account_number", brokerLogin)
+        .eq("is_active", true)
+        .maybeSingle();
+      account = byLogin ?? null;
+    }
+
+    // Fallback: if no broker login (e.g. older EA), use the API-key account
+    if (!account && anyAccountForKey) {
+      account = {
+        id: anyAccountForKey.id,
+        user_id: anyAccountForKey.user_id,
+        terminal_id: anyAccountForKey.terminal_id,
+      };
+    }
+
+    // Auto-create when we have account_info but no matching account row
+    if (!account && payload.account_info) {
+      console.log("No account found for login", brokerLogin, "— auto-creating");
+
+      // Re-fetch setup token data if we haven't already
+      if (!setupTokenRow) {
+        const { data: tok } = await supabase
+          .from("setup_tokens")
+          .select("user_id, used, sync_history_enabled, sync_history_from, copier_role, master_account_id")
+          .eq("token", apiKey)
+          .gt("expires_at", new Date().toISOString())
+          .maybeSingle();
+        setupTokenRow = tok ?? null;
+      }
+
+      // For multi-account on same terminal, allow auto-create even without
+      // a setup token — as long as the API key is already linked to the user.
+      const allowAutoCreate = !!anyAccountForKey || (setupTokenRow && !setupTokenRow.used);
+      if (!allowAutoCreate) {
+        console.error("Cannot auto-create account: no setup token and API key not yet bound");
         return new Response(
           JSON.stringify({ status: "error", message: "Invalid API key" }),
           { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      if (setupToken.used) {
-        console.error("Setup token already used");
-        return new Response(
-          JSON.stringify({ status: "error", message: "Setup token already used" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
+      // Reuse existing setup-token branch by falling through with synthesised values
+      const setupToken = setupTokenRow ?? {
+        user_id: userIdForKey,
+        used: false,
+        sync_history_enabled: true,
+        sync_history_from: null,
+        copier_role: 'independent',
+        master_account_id: null,
+      };
+      // (auto-create flow)
+
+      // Only burn the setup token the first time it's used
+      const shouldConsumeToken = setupTokenRow && !setupTokenRow.used && !anyAccountForKey;
 
       let propFirm = null;
       const serverLower = payload.account_info.server.toLowerCase();
@@ -189,18 +260,22 @@ serve(async (req) => {
         );
       }
 
-      await supabase
-        .from("setup_tokens")
-        .update({ used: true, used_at: new Date().toISOString() })
-        .eq("token", apiKey);
+      if (shouldConsumeToken) {
+        await supabase
+          .from("setup_tokens")
+          .update({ used: true, used_at: new Date().toISOString() })
+          .eq("token", apiKey);
+      }
 
       account = newAccount;
-      console.log("Auto-created account:", account.id, accountName, 
-        "copier_role:", copierRole);
-    } else if (accountError || !account) {
-      console.error("Invalid API key:", accountError);
+      console.log("Auto-created account:", account.id, accountName,
+        "login:", brokerLogin, "shared_terminal:", !!anyAccountForKey);
+    }
+
+    if (!account) {
+      console.error("No target account could be resolved (login missing?)");
       return new Response(
-        JSON.stringify({ status: "error", message: "Invalid API key" }),
+        JSON.stringify({ status: "error", message: "No matching account for broker login" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -326,7 +401,7 @@ serve(async (req) => {
       let closedCount = 0;
       for (const staleTrade of staleTrades) {
         console.log("Closing stale trade:", staleTrade.id, "ticket:", staleTrade.ticket, "symbol:", staleTrade.symbol);
-        
+
         const { error: updateError } = await supabase
           .from("trades")
           .update({
@@ -334,7 +409,12 @@ serve(async (req) => {
             exit_time: new Date().toISOString(),
             net_pnl: 0,
             gross_pnl: 0,
-            partial_closes: JSON.stringify([{ type: "snapshot_closed", note: "Closed by position snapshot reconciliation — PnL data may be incomplete" }]),
+            partial_closes: [{
+              type: "snapshot_closed",
+              account_login: brokerLogin,
+              closed_at: new Date().toISOString(),
+              note: "Closed by position snapshot — awaiting reconnect to repair real PnL",
+            }],
           })
           .eq("id", staleTrade.id);
 
@@ -487,10 +567,18 @@ serve(async (req) => {
   }
 });
 
+// Detect if a trade was zeroed out by snapshot reconciliation and is awaiting repair
+function isSnapshotClosed(trade: any): boolean {
+  if (!trade || trade.is_open) return false;
+  const pc = trade.partial_closes;
+  if (!Array.isArray(pc)) return false;
+  return pc.some((entry: any) => entry?.type === "snapshot_closed");
+}
+
 async function processEvent(supabase: any, event: any, userId: string, originalPayload: EventPayload) {
   const { event_type, ticket, account_id, lot_size } = event;
-  const effectiveEventType = originalPayload.event_type === "history_sync" 
-    ? originalPayload.original_event_type 
+  const effectiveEventType = originalPayload.event_type === "history_sync"
+    ? originalPayload.original_event_type
     : originalPayload.event_type;
 
   // Find existing trade for this position_id
@@ -538,11 +626,38 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
   // Handle entry event (open)
   if (effectiveEventType === "entry" || event_type === "open") {
     if (existingTrade) {
-      console.log("Trade already exists for position:", ticket);
+      // REPAIR: if a snapshot reconciliation incorrectly closed this trade,
+      // and it's actually still open in MT5, reopen it.
+      if (isSnapshotClosed(existingTrade)) {
+        console.log("REPAIR: reopening snapshot_closed trade:", existingTrade.id, "ticket:", ticket);
+        const repairedMarker = [
+          ...(existingTrade.partial_closes || []),
+          {
+            type: "repaired_reopened",
+            repaired_at: new Date().toISOString(),
+            note: "Reopened after EA reconnect — trade is still live in MT5",
+          },
+        ];
+        await supabase.from("trades").update({
+          is_open: true,
+          exit_time: null,
+          exit_price: null,
+          gross_pnl: null,
+          net_pnl: null,
+          r_multiple_actual: null,
+          duration_seconds: null,
+          total_lots: existingTrade.original_lots || event.lot_size,
+          sl_final: event.sl || existingTrade.sl_final,
+          tp_final: event.tp || existingTrade.tp_final,
+          partial_closes: repairedMarker,
+        }).eq("id", existingTrade.id);
+      } else {
+        console.log("Trade already exists for position:", ticket);
+      }
     } else {
       // Use equity_at_entry from payload if provided, otherwise use current equity
       const equityAtEntry = originalPayload.equity_at_entry || currentEquity;
-      
+
       await supabase.from("trades").insert({
         user_id: userId,
         account_id: account_id,
@@ -565,13 +680,13 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       });
       console.log("Created new trade for position:", ticket, "equity_at_entry:", equityAtEntry);
     }
-  } 
+  }
   // Handle exit event
   else if (effectiveEventType === "exit" || event_type === "close" || event_type === "partial_close") {
     if (!existingTrade) {
       // ORPHAN EXIT: Create a closed trade from exit event data
       console.log("Orphan exit event - creating closed trade for position:", ticket);
-      
+
       const rawPayload = event.raw_payload || {};
       const entryPrice = rawPayload.entry_price || originalPayload.entry_price || event.price;
       const entryTime = rawPayload.entry_time || originalPayload.entry_time || event.event_timestamp;
@@ -635,9 +750,16 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       return;
     }
 
+    // REPAIR mode: existing trade was zeroed out by snapshot reconciliation
+    const isRepair = isSnapshotClosed(existingTrade);
+    if (isRepair) {
+      console.log("REPAIR: overwriting snapshot_closed trade with real exit data:", existingTrade.id, "ticket:", ticket);
+    }
+
     // Calculate remaining lots after this exit
+    // (when repairing, total_lots is 0 so this routes to the full-close branch)
     const remainingLots = existingTrade.total_lots - lot_size;
-    const isPartialClose = remainingLots > 0.001;
+    const isPartialClose = !isRepair && remainingLots > 0.001;
 
     if (isPartialClose) {
       const partialCloses = existingTrade.partial_closes || [];
@@ -667,22 +789,23 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       let totalGrossPnl = event.profit || 0;
       let totalCommission = event.commission || 0;
       let totalSwap = event.swap || 0;
-      
-      if (existingTrade.partial_closes) {
+
+      // When repairing a snapshot_closed trade, ignore the snapshot marker entries
+      if (existingTrade.partial_closes && !isRepair) {
         for (const partial of existingTrade.partial_closes) {
           totalGrossPnl += partial.pnl || 0;
         }
       }
       totalCommission += existingTrade.commission || 0;
       totalSwap += existingTrade.swap || 0;
-      
+
       const netPnl = totalGrossPnl - totalCommission - Math.abs(totalSwap);
-      
+
       let rMultiple = null;
       const slPrice = existingTrade.sl_initial || existingTrade.sl_final;
       const entryPrice = existingTrade.entry_price;
-      const originalLots = existingTrade.original_lots || existingTrade.total_lots;
-      
+      const originalLots = existingTrade.original_lots || existingTrade.total_lots || lot_size;
+
       if (slPrice && entryPrice && slPrice !== entryPrice) {
         const pipSize = getPipSize(existingTrade.symbol);
         const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
@@ -698,10 +821,20 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         }
       }
 
-      // Update account equity
-      const equityForUpdate = existingTrade.equity_at_entry || existingTrade.balance_at_entry || currentEquity;
-      const newEquity = equityForUpdate + netPnl;
-      await supabase.from("accounts").update({ equity_current: newEquity }).eq("id", account_id);
+      // Update account equity (skip on repair to avoid drift; equity has already been updated by broker since)
+      if (!isRepair) {
+        const equityForUpdate = existingTrade.equity_at_entry || existingTrade.balance_at_entry || currentEquity;
+        const newEquity = equityForUpdate + netPnl;
+        await supabase.from("accounts").update({ equity_current: newEquity }).eq("id", account_id);
+      }
+
+      const finalPartialCloses = isRepair
+        ? [{
+            type: "repaired_from_snapshot",
+            repaired_at: new Date().toISOString(),
+            note: "Real PnL recovered from MT5 deal history after EA reconnect",
+          }]
+        : existingTrade.partial_closes;
 
       await supabase.from("trades").update({
         exit_price: event.price,
@@ -716,9 +849,10 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         total_lots: 0,
         sl_final: event.sl || existingTrade.sl_final,
         tp_final: event.tp || existingTrade.tp_final,
+        partial_closes: finalPartialCloses,
       }).eq("id", existingTrade.id);
-      
-      console.log("Processed full close for position:", ticket, "PnL:", netPnl, "R:", rMultiple);
+
+      console.log(isRepair ? "REPAIRED full close" : "Processed full close", "for position:", ticket, "PnL:", netPnl, "R:", rMultiple);
     }
   }
 
