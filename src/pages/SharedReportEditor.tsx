@@ -8,12 +8,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, Share2, Trash2, Eye, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, Share2, Trash2, Eye, Loader2, Sparkles, RotateCcw } from "lucide-react";
 import { TradePickerPanel } from "@/components/shared-reports/TradePickerPanel";
 import { EducationalTradeCard } from "@/components/shared-reports/EducationalTradeCard";
 import { ReportTradeEditor } from "@/components/shared-reports/ReportTradeEditor";
 import { ShareDialog } from "@/components/shared-reports/ShareDialog";
-import { format, parseISO } from "date-fns";
+import {
+  format,
+  parseISO,
+  isSameDay,
+  isSameMonth,
+  isSameWeek,
+  startOfWeek,
+  endOfWeek,
+  differenceInCalendarDays,
+} from "date-fns";
 // Simple inline debounced callback hook
 function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: number) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
