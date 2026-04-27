@@ -32,8 +32,31 @@ export interface UserSettings {
   detail_field_order: string[];          // empty array = use defaults
   detail_visible_sections: string[];    // empty array = use defaults
   detail_section_order: string[];        // empty array = use defaults
+  // Map field key -> renamed label (applies to detail sidebar AND table header)
+  field_label_overrides: Record<string, string>;
   created_at: string;
   updated_at: string;
+}
+
+// Field keys that are CORE record data and cannot be hard-deleted (only hidden).
+// Anything not in this set + not a custom field is an "editable system field".
+export const CORE_FIELD_KEYS = new Set<string>([
+  'trade_number', 'entry_time', 'date', 'day', 'pair', 'symbol',
+  'direction', 'pnl', 'r_pct', 'r_multiple_actual', 'account_pct',
+  'result', 'trade_type', 'status', 'account', 'read_quality',
+]);
+
+export function isCoreField(key: string): boolean {
+  return CORE_FIELD_KEYS.has(key);
+}
+
+// Resolve the user-facing label for any field key, honoring user overrides.
+export function resolveFieldLabel(
+  key: string,
+  fallback: string,
+  overrides: Record<string, string> | undefined,
+): string {
+  return overrides?.[key]?.trim() || fallback;
 }
 
 // Catalog of fields available in the trade detail "Properties" sidebar.
