@@ -495,16 +495,100 @@ function psychologyAnalysis(trades: TradeRow[], reviews: Map<string, ReviewRow>)
 
 // ------------------------------ schema suggestions ------------------------------
 
-function schemaSuggestions(trades: TradeRow[], reviews: Map<string, ReviewRow>, liveQuestions: any[]) {
+// Hardcoded set of journal fields that already exist on every trade/review and should
+// never be re-suggested. Keys + their normalized labels.
+const SYSTEM_FIELD_SIGNATURES: Array<{ key: string; labelTokens: string[] }> = [
+  { key: "mistakes", labelTokens: ["mistake", "mistakes", "primary cause of mistake", "mistake category", "cause of mistake"] },
+  { key: "did_well", labelTokens: ["did well", "what went well", "what i did well"] },
+  { key: "to_improve", labelTokens: ["to improve", "what to improve"] },
+  { key: "psychology_notes", labelTokens: ["psychology", "psychology notes", "mental notes"] },
+  { key: "thoughts", labelTokens: ["thoughts", "trade thoughts", "notes"] },
+  { key: "emotional_state_before", labelTokens: ["emotion", "emotional state", "feeling", "emotional state before", "how are you feeling"] },
+  { key: "emotional_state_after", labelTokens: ["emotional state after", "feeling after"] },
+  { key: "news_risk", labelTokens: ["news", "news risk", "high impact news", "news event", "red folder news"] },
+  { key: "regime", labelTokens: ["regime", "market regime"] },
+  { key: "score", labelTokens: ["score", "checklist score"] },
+  { key: "checklist_answers", labelTokens: ["checklist", "checklist answers"] },
+  { key: "session", labelTokens: ["session", "trading session"] },
+  { key: "playbook_id", labelTokens: ["playbook", "setup", "model"] },
+  { key: "actual_playbook_id", labelTokens: ["actual playbook", "actual setup"] },
+  { key: "profile", labelTokens: ["profile", "market profile"] },
+  { key: "actual_profile", labelTokens: ["actual profile"] },
+];
+
+function normalizeLabel(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildExistingFieldKeys(
+  liveQuestions: any[],
+  customFields: any[],
+): { keys: Set<string>; labelTokens: Set<string> } {
+  const keys = new Set<string>();
+  const labelTokens = new Set<string>();
+
+  // Live trade questions
+  for (const q of liveQuestions || []) {
+    if (!q) continue;
+    if (q.id) keys.add(String(q.id));
+    if (q.label) labelTokens.add(normalizeLabel(q.label));
+  }
+
+  // Custom field definitions
+  for (const f of customFields || []) {
+    if (!f) continue;
+    if (f.key) keys.add(String(f.key));
+    if (f.label) labelTokens.add(normalizeLabel(f.label));
+  }
+
+  // System fields
+  for (const sig of SYSTEM_FIELD_SIGNATURES) {
+    keys.add(sig.key);
+    for (const t of sig.labelTokens) labelTokens.add(normalizeLabel(t));
+  }
+
+  return { keys, labelTokens };
+}
+
+function suggestionAlreadyExists(
+  suggestion: any,
+  existing: { keys: Set<string>; labelTokens: Set<string> },
+): boolean {
+  const id = suggestion?.proposed_question?.id;
+  const label = suggestion?.proposed_question?.label;
+  const missing = suggestion?.missing_field;
+  if (id && existing.keys.has(String(id))) return true;
+  if (missing && existing.keys.has(String(missing))) return true;
+  if (label) {
+    const norm = normalizeLabel(label);
+    if (existing.labelTokens.has(norm)) return true;
+    // Substring match — e.g. "Primary cause of mistake" contains "mistake"
+    for (const tok of existing.labelTokens) {
+      if (tok && (norm.includes(tok) || tok.includes(norm))) return true;
+    }
+  }
+  return false;
+}
+
+function schemaSuggestions(
+  trades: TradeRow[],
+  reviews: Map<string, ReviewRow>,
+  liveQuestions: any[],
+  customFields: any[],
+) {
   const closed = trades.filter(t => !t.is_open && t.trade_type === 'executed');
   const losses = closed.filter(t => (t.net_pnl ?? 0) < 0).sort((a, b) => (a.r_multiple_actual ?? 0) - (b.r_multiple_actual ?? 0));
   const worstLosses = losses.slice(0, Math.min(6, losses.length));
-  const suggestions: any[] = [];
-  const existingIds = new Set((liveQuestions || []).map(q => q?.id).filter(Boolean));
+  const candidates: any[] = [];
+  const existing = buildExistingFieldKeys(liveQuestions || [], customFields || []);
 
   // 1) time_since_last_trade_minutes
-  if (worstLosses.length >= 3 && !existingIds.has('time_since_last_trade_minutes')) {
-    suggestions.push({
+  if (worstLosses.length >= 3) {
+    candidates.push({
       missing_field: 'time_since_last_trade_minutes',
       reason: `${worstLosses.length} of your worst losses lack timing context vs the prior trade. Capturing this would let next month's report quantify revenge patterns directly.`,
       proposed_widget: 'number',
@@ -517,13 +601,14 @@ function schemaSuggestions(trades: TradeRow[], reviews: Map<string, ReviewRow>, 
     });
   }
 
-  // 2) mistake_category
+  // 2) mistake_category — only if user has NOT logged free-text mistakes recently
+  // (mistakes already exist as a field, so this is really a *categorization* suggestion)
   const reviewedLossesWithMistakes = closed.filter(t => {
     const r = reviews.get(t.id);
     return r && asArray(r.mistakes).length > 0 && (t.net_pnl ?? 0) < 0;
   });
-  if (reviewedLossesWithMistakes.length >= 3 && !existingIds.has('mistake_category')) {
-    suggestions.push({
+  if (reviewedLossesWithMistakes.length >= 3) {
+    candidates.push({
       missing_field: 'mistake_category',
       reason: `You logged free-text mistakes on ${reviewedLossesWithMistakes.length} losing trades but never tagged the underlying cause. A category select lets the report attribute leaks precisely (technical vs psychological vs execution).`,
       proposed_widget: 'select',
@@ -531,20 +616,20 @@ function schemaSuggestions(trades: TradeRow[], reviews: Map<string, ReviewRow>, 
       example_trade_ids: reviewedLossesWithMistakes.slice(0, 5).map(t => t.id),
       proposed_question: {
         id: 'mistake_category',
-        label: 'Primary cause of mistake',
+        label: 'Primary cause of mistake category',
         type: 'select',
         options: ['Technical', 'Psychological', 'Execution', 'External'],
       },
     });
   }
 
-  // 3) news_risk if missing on losses
+  // 3) news_risk — only if user has not added a news field yet
   const lossesWithNoNews = closed.filter(t => {
     const r = reviews.get(t.id);
     return (t.net_pnl ?? 0) < 0 && (!r || !r['news_risk' as keyof ReviewRow]);
   });
-  if (lossesWithNoNews.length >= 4 && !existingIds.has('pre_news_entry')) {
-    suggestions.push({
+  if (lossesWithNoNews.length >= 4) {
+    candidates.push({
       missing_field: 'pre_news_entry',
       reason: `${lossesWithNoNews.length} losses had no news-context tag. A simple boolean "entered within 30min of red-folder news?" would isolate this leak in future reports.`,
       proposed_widget: 'boolean',
@@ -557,7 +642,8 @@ function schemaSuggestions(trades: TradeRow[], reviews: Map<string, ReviewRow>, 
     });
   }
 
-  return suggestions;
+  // Filter out anything that collides with an existing journal field
+  return candidates.filter(c => !suggestionAlreadyExists(c, existing));
 }
 
 // ------------------------------ LLM call ------------------------------
