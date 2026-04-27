@@ -91,6 +91,7 @@ export function useUserSettings() {
           detail_field_order: [],
           detail_visible_sections: [],
           detail_section_order: [],
+          field_label_overrides: {},
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as UserSettings;
