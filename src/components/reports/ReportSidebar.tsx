@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, FileText } from "lucide-react";
+import { Plus, FileText, Trash2 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import type { Report } from "@/types/reports";
 
@@ -10,6 +10,7 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onGenerateClick: () => void;
+  onDelete?: (id: string) => void;
 }
 
 function gradeColorClasses(grade: string | null | undefined): string {
@@ -21,7 +22,7 @@ function gradeColorClasses(grade: string | null | undefined): string {
   return "bg-destructive/15 text-destructive border-destructive/40";
 }
 
-export function ReportSidebar({ reports, selectedId, onSelect, onGenerateClick }: Props) {
+export function ReportSidebar({ reports, selectedId, onSelect, onGenerateClick, onDelete }: Props) {
   const grouped = useMemo(() => {
     const byMonth = new Map<string, Report[]>();
     for (const r of reports) {
@@ -65,30 +66,51 @@ export function ReportSidebar({ reports, selectedId, onSelect, onGenerateClick }
                     r.report_type === "monthly" ? "Monthly" : "Custom";
                   const period = `${format(parseISO(r.period_start), "MMM d")} – ${format(parseISO(r.period_end), "MMM d")}`;
                   return (
-                    <button
+                    <div
                       key={r.id}
-                      onClick={() => onSelect(r.id)}
-                      className={`w-full text-left mb-1 rounded-md border-l-2 transition-colors group ${
+                      className={`group relative mb-1 rounded-md border-l-2 transition-colors ${
                         active
                           ? "bg-accent border-l-primary"
                           : "border-l-transparent hover:bg-accent/50"
                       }`}
                     >
-                      <div className="flex items-stretch gap-3 p-2.5">
-                        {/* Grade pill */}
-                        <div className={`shrink-0 w-11 rounded-md border flex items-center justify-center text-base font-bold tabular-nums ${gradeColorClasses(r.grade)}`}>
-                          {r.status === "failed" ? "!" : (r.grade || "—")}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs text-muted-foreground">
-                            {typeLabel} <span className="text-foreground/80">{period}</span>
+                      <button
+                        onClick={() => onSelect(r.id)}
+                        className="w-full text-left"
+                      >
+                        <div className="flex items-stretch gap-3 p-2.5 pr-9">
+                          {/* Grade pill */}
+                          <div className={`shrink-0 w-11 rounded-md border flex items-center justify-center text-base font-bold tabular-nums ${gradeColorClasses(r.grade)}`}>
+                            {r.status === "failed" ? "!" : (r.grade || "—")}
                           </div>
-                          <div className="text-[13px] leading-snug mt-0.5 line-clamp-2 text-foreground/90">
-                            {r.verdict || "Generating…"}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs text-muted-foreground">
+                              {typeLabel} <span className="text-foreground/80">{period}</span>
+                            </div>
+                            <div className="text-[13px] leading-snug mt-0.5 line-clamp-2 text-foreground/90">
+                              {r.verdict || "Generating…"}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
+                      {onDelete && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-destructive/10"
+                          aria-label={`Delete report ${period}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete this ${typeLabel.toLowerCase()} report (${period})?`)) {
+                              onDelete(r.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
                   );
                 })}
               </div>
