@@ -501,25 +501,9 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
     .eq("account_id", account_id)
     .single();
 
-  // Determine session from timestamp
-  const eventDate = new Date(event.event_timestamp);
-  const etFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour: 'numeric',
-    minute: 'numeric',
-    hour12: false,
-  });
-  
-  const parts = etFormatter.formatToParts(eventDate);
-  const etHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-  const etMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
-  const etTime = etHour + etMinute / 60;
-  
-  let session = "off_hours";
-  if (etTime >= 3 && etTime < 8) session = "london";
-  else if (etTime >= 8 && etTime < 12) session = "new_york_am";
-  else if (etTime >= 12 && etTime < 17) session = "new_york_pm";
-  else if (etTime >= 19 || etTime < 3) session = "tokyo";
+  // Determine session from timestamp using user's session_definitions
+  const sessions = await loadSessions(supabase, userId);
+  const session = getSessionFromTime(event.event_timestamp, sessions);
 
   // Fetch account data
   const { data: accountData } = await supabase
