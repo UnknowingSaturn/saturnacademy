@@ -467,12 +467,12 @@ export function ReportView({ report }: Props) {
           )}
 
           {/* §8 Schema suggestions */}
-          {report.schema_suggestions && report.schema_suggestions.length > 0 && (
+          {filteredSuggestions.length > 0 && (
             <div className="space-y-3">
               <h2 className="text-base font-semibold flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" /> Make next period's report sharper
               </h2>
-              {report.schema_suggestions.map((s, i) => <SchemaSuggestionCard key={i} suggestion={s} />)}
+              {filteredSuggestions.map((s, i) => <SchemaSuggestionCard key={i} suggestion={s} />)}
             </div>
           )}
         </div>
