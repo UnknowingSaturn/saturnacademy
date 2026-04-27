@@ -5,6 +5,7 @@ import { SessionConfigPanel } from "./settings/SessionConfigPanel";
 import { PropertyOptionsPanel } from "./settings/PropertyOptionsPanel";
 import { ColumnConfigPanel } from "./settings/ColumnConfigPanel";
 import { FilterPresetsPanel } from "./settings/FilterPresetsPanel";
+import { DetailLayoutPanel } from "./settings/DetailLayoutPanel";
 
 interface JournalSettingsDialogProps {
   open: boolean;
@@ -13,7 +14,7 @@ interface JournalSettingsDialogProps {
 }
 
 export function JournalSettingsDialog({ open, onOpenChange, defaultTab }: JournalSettingsDialogProps) {
-  const [activeTab, setActiveTab] = useState(defaultTab || "sessions");
+  const [activeTab, setActiveTab] = useState(defaultTab || "fields");
 
   useEffect(() => {
     if (open && defaultTab) setActiveTab(defaultTab);
@@ -27,24 +28,29 @@ export function JournalSettingsDialog({ open, onOpenChange, defaultTab }: Journa
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid grid-cols-4 w-full">
-            <TabsTrigger value="sessions">Sessions</TabsTrigger>
-            <TabsTrigger value="properties">Properties</TabsTrigger>
+          <TabsList className="grid grid-cols-5 w-full">
+            <TabsTrigger value="fields">Fields</TabsTrigger>
+            <TabsTrigger value="layout">Layout</TabsTrigger>
             <TabsTrigger value="columns">Columns</TabsTrigger>
+            <TabsTrigger value="sessions">Sessions</TabsTrigger>
             <TabsTrigger value="filters">Filters</TabsTrigger>
           </TabsList>
 
           <div className="flex-1 overflow-y-auto mt-4">
-            <TabsContent value="sessions" className="mt-0 h-full">
-              <SessionConfigPanel />
+            <TabsContent value="fields" className="mt-0 h-full">
+              <PropertyOptionsPanel />
             </TabsContent>
 
-            <TabsContent value="properties" className="mt-0 h-full">
-              <PropertyOptionsPanel />
+            <TabsContent value="layout" className="mt-0 h-full">
+              <DetailLayoutPanel />
             </TabsContent>
 
             <TabsContent value="columns" className="mt-0 h-full">
               <ColumnConfigPanel />
+            </TabsContent>
+
+            <TabsContent value="sessions" className="mt-0 h-full">
+              <SessionConfigPanel />
             </TabsContent>
 
             <TabsContent value="filters" className="mt-0 h-full">
