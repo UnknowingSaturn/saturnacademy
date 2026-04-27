@@ -109,7 +109,7 @@ serve(async (req) => {
       }
 
       // Calculate session from entry_time in America/New_York
-      const session = getSessionFromTime(trade.entry_time);
+      const session = getSessionFromTime(trade.entry_time, sessions);
 
       updates.push({
         id: trade.id,
@@ -132,7 +132,7 @@ serve(async (req) => {
       .order("entry_time", { ascending: true });
 
     for (const trade of openTrades || []) {
-      const session = getSessionFromTime(trade.entry_time);
+      const session = getSessionFromTime(trade.entry_time, sessions);
       updates.push({
         id: trade.id,
         balance_at_entry: runningBalance,
@@ -192,29 +192,71 @@ serve(async (req) => {
   }
 });
 
-/**
- * Determine trading session from timestamp using America/New_York timezone
- */
-function getSessionFromTime(timestamp: string): string {
+// ============================================================================
+// Session classification — honors user's session_definitions table
+// ============================================================================
+
+interface SessionDefinition {
+  key: string;
+  start_hour: number;
+  start_minute: number;
+  end_hour: number;
+  end_minute: number;
+  timezone: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+const DEFAULT_SESSIONS: SessionDefinition[] = [
+  { key: "london", start_hour: 3, start_minute: 0, end_hour: 8, end_minute: 0, timezone: "America/New_York", sort_order: 0, is_active: true },
+  { key: "new_york_am", start_hour: 8, start_minute: 0, end_hour: 12, end_minute: 0, timezone: "America/New_York", sort_order: 1, is_active: true },
+  { key: "new_york_pm", start_hour: 12, start_minute: 0, end_hour: 17, end_minute: 0, timezone: "America/New_York", sort_order: 2, is_active: true },
+  { key: "off_hours", start_hour: 17, start_minute: 0, end_hour: 19, end_minute: 0, timezone: "America/New_York", sort_order: 3, is_active: true },
+  { key: "tokyo", start_hour: 19, start_minute: 0, end_hour: 3, end_minute: 0, timezone: "America/New_York", sort_order: 4, is_active: true },
+];
+
+async function loadSessions(supabase: any, userId: string): Promise<SessionDefinition[]> {
+  const { data, error } = await supabase
+    .from("session_definitions")
+    .select("key,start_hour,start_minute,end_hour,end_minute,timezone,sort_order,is_active")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .order("sort_order");
+  if (error) {
+    console.error("loadSessions error, falling back to defaults:", error);
+    return DEFAULT_SESSIONS;
+  }
+  return data && data.length > 0 ? (data as SessionDefinition[]) : DEFAULT_SESSIONS;
+}
+
+function getSessionFromTime(timestamp: string, sessions: SessionDefinition[]): string {
   const date = new Date(timestamp);
-  
-  // Use Intl.DateTimeFormat to get hour in America/New_York (handles DST)
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour: 'numeric',
-    minute: 'numeric',
-    hour12: false,
-  });
-  
-  const parts = formatter.formatToParts(date);
-  const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-  const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
-  const time = hour + minute / 60;
-  
-  // Session windows in ET
-  if (time >= 19 || time < 4) return "tokyo";
-  if (time >= 3 && time < 8) return "london";
-  if (time >= 8 && time < 12) return "new_york_am";
-  if (time >= 12 && time < 17) return "new_york_pm";
+
+  for (const session of sessions) {
+    if (!session.is_active) continue;
+
+    // Format the timestamp in this session's timezone
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: session.timezone || "America/New_York",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(date);
+    const hour = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+    const minute = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
+    const minutes = hour * 60 + minute;
+
+    const startMin = session.start_hour * 60 + session.start_minute;
+    const endMin = session.end_hour * 60 + session.end_minute;
+
+    if (startMin > endMin) {
+      // Overnight wrap (e.g. Tokyo 19:00 → 03:00)
+      if (minutes >= startMin || minutes < endMin) return session.key;
+    } else {
+      if (minutes >= startMin && minutes < endMin) return session.key;
+    }
+  }
+
   return "off_hours";
 }
