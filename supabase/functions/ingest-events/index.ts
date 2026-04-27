@@ -789,22 +789,23 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       let totalGrossPnl = event.profit || 0;
       let totalCommission = event.commission || 0;
       let totalSwap = event.swap || 0;
-      
-      if (existingTrade.partial_closes) {
+
+      // When repairing a snapshot_closed trade, ignore the snapshot marker entries
+      if (existingTrade.partial_closes && !isRepair) {
         for (const partial of existingTrade.partial_closes) {
           totalGrossPnl += partial.pnl || 0;
         }
       }
       totalCommission += existingTrade.commission || 0;
       totalSwap += existingTrade.swap || 0;
-      
+
       const netPnl = totalGrossPnl - totalCommission - Math.abs(totalSwap);
-      
+
       let rMultiple = null;
       const slPrice = existingTrade.sl_initial || existingTrade.sl_final;
       const entryPrice = existingTrade.entry_price;
-      const originalLots = existingTrade.original_lots || existingTrade.total_lots;
-      
+      const originalLots = existingTrade.original_lots || existingTrade.total_lots || lot_size;
+
       if (slPrice && entryPrice && slPrice !== entryPrice) {
         const pipSize = getPipSize(existingTrade.symbol);
         const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
@@ -820,10 +821,20 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         }
       }
 
-      // Update account equity
-      const equityForUpdate = existingTrade.equity_at_entry || existingTrade.balance_at_entry || currentEquity;
-      const newEquity = equityForUpdate + netPnl;
-      await supabase.from("accounts").update({ equity_current: newEquity }).eq("id", account_id);
+      // Update account equity (skip on repair to avoid drift; equity has already been updated by broker since)
+      if (!isRepair) {
+        const equityForUpdate = existingTrade.equity_at_entry || existingTrade.balance_at_entry || currentEquity;
+        const newEquity = equityForUpdate + netPnl;
+        await supabase.from("accounts").update({ equity_current: newEquity }).eq("id", account_id);
+      }
+
+      const finalPartialCloses = isRepair
+        ? [{
+            type: "repaired_from_snapshot",
+            repaired_at: new Date().toISOString(),
+            note: "Real PnL recovered from MT5 deal history after EA reconnect",
+          }]
+        : existingTrade.partial_closes;
 
       await supabase.from("trades").update({
         exit_price: event.price,
@@ -838,9 +849,10 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         total_lots: 0,
         sl_final: event.sl || existingTrade.sl_final,
         tp_final: event.tp || existingTrade.tp_final,
+        partial_closes: finalPartialCloses,
       }).eq("id", existingTrade.id);
-      
-      console.log("Processed full close for position:", ticket, "PnL:", netPnl, "R:", rMultiple);
+
+      console.log(isRepair ? "REPAIRED full close" : "Processed full close", "for position:", ticket, "PnL:", netPnl, "R:", rMultiple);
     }
   }
 
