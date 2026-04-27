@@ -5,28 +5,59 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Session detection logic (DST-aware, same as ingest-events)
-function detectSession(utcTimestamp: string): string {
-  const date = new Date(utcTimestamp);
-  
-  // Use Intl.DateTimeFormat to get the hour in America/New_York timezone (handles DST)
-  const etFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour: 'numeric',
-    minute: 'numeric',
-    hour12: false,
-  });
-  
-  const parts = etFormatter.formatToParts(date);
-  const etHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-  const etMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
-  const etTime = etHour + etMinute / 60;
+// Session detection — honors user's session_definitions table
+interface SessionDefinition {
+  key: string;
+  start_hour: number;
+  start_minute: number;
+  end_hour: number;
+  end_minute: number;
+  timezone: string;
+  sort_order: number;
+  is_active: boolean;
+}
 
-  // Session detection priority (London takes precedence in the 03:00-04:00 overlap):
-  if (etTime >= 3 && etTime < 8) return "london";
-  if (etTime >= 8 && etTime < 12) return "new_york_am";
-  if (etTime >= 12 && etTime < 17) return "new_york_pm";
-  if (etTime >= 19 || etTime < 3) return "tokyo";
+const DEFAULT_SESSIONS: SessionDefinition[] = [
+  { key: "london", start_hour: 3, start_minute: 0, end_hour: 8, end_minute: 0, timezone: "America/New_York", sort_order: 0, is_active: true },
+  { key: "new_york_am", start_hour: 8, start_minute: 0, end_hour: 12, end_minute: 0, timezone: "America/New_York", sort_order: 1, is_active: true },
+  { key: "new_york_pm", start_hour: 12, start_minute: 0, end_hour: 17, end_minute: 0, timezone: "America/New_York", sort_order: 2, is_active: true },
+  { key: "off_hours", start_hour: 17, start_minute: 0, end_hour: 19, end_minute: 0, timezone: "America/New_York", sort_order: 3, is_active: true },
+  { key: "tokyo", start_hour: 19, start_minute: 0, end_hour: 3, end_minute: 0, timezone: "America/New_York", sort_order: 4, is_active: true },
+];
+
+async function loadSessions(supabase: any, userId: string): Promise<SessionDefinition[]> {
+  const { data, error } = await supabase
+    .from("session_definitions")
+    .select("key,start_hour,start_minute,end_hour,end_minute,timezone,sort_order,is_active")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .order("sort_order");
+  if (error) return DEFAULT_SESSIONS;
+  return data && data.length > 0 ? (data as SessionDefinition[]) : DEFAULT_SESSIONS;
+}
+
+function detectSession(utcTimestamp: string, sessions: SessionDefinition[]): string {
+  const date = new Date(utcTimestamp);
+  for (const session of sessions) {
+    if (!session.is_active) continue;
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: session.timezone || "America/New_York",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(date);
+    const hour = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+    const minute = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
+    const minutes = hour * 60 + minute;
+    const startMin = session.start_hour * 60 + session.start_minute;
+    const endMin = session.end_hour * 60 + session.end_minute;
+    if (startMin > endMin) {
+      if (minutes >= startMin || minutes < endMin) return session.key;
+    } else {
+      if (minutes >= startMin && minutes < endMin) return session.key;
+    }
+  }
   return "off_hours";
 }
 
@@ -137,6 +168,9 @@ Deno.serve(async (req) => {
     const accountIds = accounts.map(a => a.id);
     const accountEquityMap = new Map(accounts.map(a => [a.id, a.equity_current || a.balance_start || 0]));
 
+    // Load user's session definitions for classification
+    const sessions = await loadSessions(supabase, user.id);
+
     // Find all processed close events for user's accounts (exit events are stored as "close" in the db)
     const { data: exitEvents, error: eventsError } = await supabase
       .from("events")
@@ -191,7 +225,7 @@ Deno.serve(async (req) => {
       const netPnl = grossPnl - commission - Math.abs(swap);
       
       // Get session
-      const session = detectSession(entryTime);
+      const session = detectSession(entryTime, sessions);
       
       // R-multiple calculation using actual risk
       const currentEquity = accountEquityMap.get(event.account_id) || 0;

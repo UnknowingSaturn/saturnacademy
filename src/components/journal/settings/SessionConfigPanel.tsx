@@ -6,9 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Plus, Trash2, GripVertical, Clock } from "lucide-react";
+import { Plus, Trash2, GripVertical, Clock, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SessionDefinition } from "@/types/settings";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
   closestCenter,
@@ -163,6 +166,8 @@ export function SessionConfigPanel() {
   const updateSession = useUpdateSession();
   const deleteSession = useDeleteSession();
   const reorderSessions = useReorderSessions();
+  const queryClient = useQueryClient();
+  const [reclassifying, setReclassifying] = useState(false);
   
   const [editingSession, setEditingSession] = useState<SessionDefinition | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -239,15 +244,45 @@ export function SessionConfigPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div>
           <h3 className="font-medium">Trading Sessions</h3>
           <p className="text-sm text-muted-foreground">Define your trading sessions. Click to edit, drag to reorder.</p>
         </div>
-        <Button size="sm" onClick={() => setShowAddForm(true)}>
-          <Plus className="w-4 h-4 mr-1" />
-          Add Session
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={reclassifying}
+            onClick={async () => {
+              setReclassifying(true);
+              try {
+                const { data, error } = await supabase.functions.invoke("reclassify-sessions", { body: {} });
+                if (error) throw error;
+                toast({
+                  title: "Sessions reclassified",
+                  description: `Updated ${data?.updated ?? 0} of ${data?.scanned ?? 0} trade${data?.scanned === 1 ? "" : "s"}.`,
+                });
+                queryClient.invalidateQueries({ queryKey: ["trades"] });
+              } catch (err) {
+                toast({
+                  title: "Reclassify failed",
+                  description: err instanceof Error ? err.message : "Unknown error",
+                  variant: "destructive",
+                });
+              } finally {
+                setReclassifying(false);
+              }
+            }}
+          >
+            <RefreshCw className={cn("w-4 h-4 mr-1", reclassifying && "animate-spin")} />
+            {reclassifying ? "Reclassifying…" : "Reclassify trades"}
+          </Button>
+          <Button size="sm" onClick={() => setShowAddForm(true)}>
+            <Plus className="w-4 h-4 mr-1" />
+            Add Session
+          </Button>
+        </div>
       </div>
 
       {/* Add Session Form */}

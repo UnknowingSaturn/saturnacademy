@@ -1,67 +1,56 @@
-## Problem
+# Fix: trade #227 (2:08 AM EST) labelled Tokyo instead of London
 
-Right now every entry renders as:
+## Root cause
+Your `session_definitions` table has **Tokyo 20:00→00:00** and **London 02:00→05:00 EST**, so 2:08 AM is London. But every backend classifier ignores that table and uses hardcoded defaults where Tokyo runs `19:00→04:00`, so anything before 4 AM is auto-tagged Tokyo.
 
-1. A dense "Detailed Report" markdown block at the top (all the prose squashed together)
-2. An "Illustrations" gallery far below (all images stacked, divorced from the text that explains them)
-3. Then takeaways, concepts, tags
+Affected files (all hardcode session windows):
+- `supabase/functions/backfill-trades/index.ts` — `sessionFromTime()` lines ~210-215
+- `supabase/functions/reprocess-trades/index.ts` — `DEFAULT_SESSIONS` const + `sessionFromTime()`; the `use_custom_sessions` request flag is declared but never read
+- `supabase/functions/reprocess-orphan-exits/index.ts` — same hardcoded windows
+- `supabase/functions/ingest-events/index.ts` — needs verification (likely also hardcoded for live events)
 
-The user's article (the OTG Substack volume-profile post) flows as **paragraphs → image → paragraphs → numbered section → image → paragraphs → next numbered section → multiple images → …**. We need the rendered entry to mirror that shape so it reads like the original article, not a report dump with an appendix.
+## Changes
 
-## Approach: stream the original article markdown with images placed where they appear
+### 1. Shared session classifier (per edge function)
+For each function above, replace the hardcoded array with:
+```ts
+async function loadSessions(supabase, userId): Promise<SessionDefinition[]> {
+  const { data } = await supabase
+    .from('session_definitions')
+    .select('key,name,start_hour,start_minute,end_hour,end_minute,timezone,sort_order,is_active')
+    .eq('user_id', userId)
+    .eq('is_active', true)
+    .order('sort_order');
+  return (data && data.length) ? data : DEFAULT_SESSIONS;
+}
+```
+Then `sessionFromTime(entryTime, sessions)` walks them in `sort_order` (first match wins, with overnight wrap handling already in `reprocess-trades`).
 
-Instead of asking the AI to rewrite the article into a "report" and separately captioning images, we keep the **article's natural structure** and just enhance it.
+### 2. `ingest-events` (live trade ingest)
+If it sets `session` on insert, load the owning user's sessions once per request and use the same helper. If it currently leaves `session` null and relies on a downstream pass, no change needed — confirm during implementation.
 
-### 1. `supabase/functions/extract-knowledge/index.ts` — change extraction output
+### 3. `reprocess-trades`
+- Actually read `use_custom_sessions` (default `true`).
+- Resolve the user from `account_id` (`accounts.user_id`) before loading sessions.
 
-Replace the current "detailed_report + screenshot_descriptions" tool schema with a structure that preserves order:
+### 4. One-shot reclassification for existing data
+Add a small action — either:
+- a button in Journal Settings → Sessions panel ("Reclassify all trades with current sessions"), or
+- a new `reclassify-sessions` edge function the same panel calls — that re-runs `sessionFromTime` over every trade for the current user using their live `session_definitions` and updates only the `session` column. No P&L touched.
 
-- **`article_markdown`**: the cleaned, well-formatted markdown of the original article body, with image placeholders embedded **at the exact position they appear in the source**. Use a stable token like `{{IMG:0}}`, `{{IMG:1}}`, etc. The AI is instructed to:
-  - Preserve the original headings, numbered sections, paragraph breaks, lists, and quotes.
-  - Strip site chrome (subscribe boxes, share buttons, footers, "Read more" links, author bios).
-  - Keep paragraphs intact — do NOT collapse multi-paragraph sections into bullets.
-  - Insert `{{IMG:N}}` on its own line where each image originally appeared.
-  - Never invent content; this is faithful re-flow, not summarization.
-- **`tldr`**: a short 2–3 sentence intro shown above the article (replaces the bloated "Detailed Report" intro).
-- **`key_takeaways`**, **`concepts`**, **`tags`** — unchanged.
-- **`screenshot_descriptions`** — kept (used as figcaption for each image).
+This fixes #227 and any other historically mis-tagged trade in one click without a full reprocess.
 
-Implementation details:
-- Build the input by replacing each matched image in the source markdown with `{{IMG:N}}` before sending to the AI, so the model sees exactly where images go and just has to clean the surrounding prose.
-- Cap input at ~30k chars (already done).
-- Store `article_markdown` in the existing `summary` text column (no schema change needed) and continue to fill `screenshots[].description` from `screenshot_descriptions`.
+### 5. Sanity / regression
+- Add unit-style assertions in the helper (or an inline self-check) for overnight wrap (Tokyo 20→00) and adjacency (Tokyo ends 00:00, London starts 02:00 — the 00:00–02:00 gap stays unclassified, matching your current config).
+- Verify `src/types/settings.ts` `DEFAULT_SESSIONS` (Tokyo 19→04, London 3→12) is only used as a *seed* when a brand-new user has no rows — keep it as-is, but document that it is not the source of truth once a user customises.
 
-### 2. `src/types/knowledge.ts` — no breaking changes
+## Out of scope
+- No schema changes; `session_definitions` already exists with the right shape.
+- No UI redesign of the Session column — only the auto-classifier and a reclassify button.
+- DST handling stays as-is (sessions are stored in `America/New_York`, classifier compares in that TZ).
 
-Reuse `summary` for the new ordered article markdown. Add a JSDoc note that it now contains `{{IMG:N}}` placeholders. No DB migration needed.
-
-### 3. `src/pages/Knowledge.tsx` — new inline renderer
-
-Replace the current "Detailed Report" + "Illustrations" sections with a single **Article view** that:
-
-- Splits `entry.summary` on `{{IMG:N}}` tokens.
-- For each text chunk, renders it with `ReactMarkdown` + `remarkGfm` inside the existing `prose` styles.
-- For each placeholder, renders a `<figure>` with the matching screenshot + AI description as `<figcaption>`.
-- Falls back gracefully:
-  - If `summary` has no placeholders (older entries), render markdown then append remaining un-referenced screenshots in a small gallery at the end so nothing is lost.
-  - If a referenced index is missing from `screenshots`, just skip it.
-- Wider reading column: bump `max-w-3xl` → `max-w-3xl` stays, but add comfortable vertical rhythm (`space-y-6`), proper figure margins, and a subtle border + rounded corners on images (already present).
-- Keep the optional **TL;DR** callout above the article body when present.
-- Keep "Key Takeaways", "Concepts", "Tags" sections **below** the article (unchanged).
-
-### 4. Backfill existing entries
-
-No migration. The user just clicks the existing **Refresh** (re-extract) icon in the header to upgrade an entry to the new inline format. Old entries that haven't been refreshed continue to render via the fallback path (markdown + appended gallery), so nothing breaks.
-
-## Files to change
-
-- `supabase/functions/extract-knowledge/index.ts` — new tool schema (`article_markdown`, `tldr`), inject `{{IMG:N}}` tokens into the source markdown before AI call, keep image upload + per-image descriptions.
-- `src/types/knowledge.ts` — JSDoc only (clarify `summary` now contains image placeholders).
-- `src/pages/Knowledge.tsx` — replace report+illustrations layout with the interleaved renderer described above.
-
-## What stays the same
-
-- Database schema, tables, RLS.
-- Storage bucket + image upload pipeline.
-- Chat tab and `knowledge-chat` edge function.
-- Sidebar entry list, add-URL form, delete, refresh.
+## Verification after implementation
+1. Re-deploy the three edge functions.
+2. Click the new "Reclassify sessions" button.
+3. Confirm trade #227 flips from Tokyo → London.
+4. Spot-check a few NY-AM and Tokyo-overnight trades to make sure they didn't regress.
