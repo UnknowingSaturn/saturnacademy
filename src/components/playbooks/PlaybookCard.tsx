@@ -199,6 +199,28 @@ export const PlaybookCard = React.forwardRef<HTMLDivElement, PlaybookCardProps>(
           </Button>
         </div>
 
+        {/* Read accuracy (only when user has graded planned-vs-actual on enough trades) */}
+        {stats && stats.readGradedCount > 0 && (
+          <div
+            className="flex items-center justify-between text-xs text-muted-foreground border-t border-border/40 pt-2"
+            title="How often this model was BOTH the planned read AND the setup that actually played out. Mismatched trades are credited to the actual model instead."
+          >
+            <span>Read accuracy</span>
+            <span>
+              <span className={cn(
+                "font-medium",
+                stats.readAccuracy >= 70 ? "text-profit" : stats.readAccuracy >= 40 ? "text-foreground" : "text-destructive"
+              )}>
+                {stats.readAccuracy.toFixed(0)}%
+              </span>
+              <span className="ml-1 opacity-70">({stats.readMatches}/{stats.readGradedCount})</span>
+              {stats.falsePositives > 0 && (
+                <span className="ml-2 text-destructive/80">{stats.falsePositives} misread</span>
+              )}
+            </span>
+          </div>
+        )}
+
         {/* Checklist Questions Count */}
         {playbook.checklist_questions.length > 0 && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
