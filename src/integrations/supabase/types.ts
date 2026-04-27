@@ -1322,6 +1322,7 @@ export type Database = {
       shared_reports: {
         Row: {
           author_display_name: string | null
+          auto_title: boolean
           created_at: string
           id: string
           intro: string | null
@@ -1337,6 +1338,7 @@ export type Database = {
         }
         Insert: {
           author_display_name?: string | null
+          auto_title?: boolean
           created_at?: string
           id?: string
           intro?: string | null
@@ -1352,6 +1354,7 @@ export type Database = {
         }
         Update: {
           author_display_name?: string | null
+          auto_title?: boolean
           created_at?: string
           id?: string
           intro?: string | null

@@ -1,109 +1,59 @@
-The current implementation made layout configurable, but it still splits field management across separate places and does not fully support Notion-style editing of every non-core field. I’ll tighten the architecture so settings can add options, rename fields, soft-delete fields, restore them, and hard-delete custom fields where safe.
+## Goal
 
-## Plan
+Make the shared report's **title and date range adapt automatically to the trades you pick**, and make the **trade picker easier to filter by date** (so daily/weekly reports are quick to build).
 
-### 1. Make “Fields” the main customization panel
-Replace the current confusing split where:
+---
 
-- Fields = dropdown options only
-- Layout = detail sidebar visibility/order
-- Columns = table visibility/order/custom fields
+## What changes
 
-with a clearer Fields workflow:
+### 1. Auto-adapting title & date range
 
-- Field name editing
-- Table visibility
-- Trade-detail visibility
-- Reordering
-- Dropdown option editing for select fields
-- Add custom field
-- Delete / restore / hard delete where allowed
+Right now the title and `From`/`To` dates are blind manual inputs. We'll derive them from the actually picked trades:
 
-The existing Columns and Layout logic can remain internally, but the user-facing settings should feel like one schema editor instead of three disconnected panels.
+- **Auto date range** — Whenever the picked-trade set changes, recompute `period_start = min(entry_time)` and `period_end = max(entry_time)` across selected trades and save them automatically.
+- **Auto title** — If the user hasn't manually typed a custom title (we track an `auto_title` flag), regenerate the title from the picked-trade date range:
+  - 1 day → `"Daily recap — Apr 27, 2026"`
+  - same week → `"Week of Apr 21 – Apr 27, 2026"`
+  - same month → `"April 2026 recap"`
+  - cross-month → `"Apr 21 – May 3, 2026"`
+- The `Title` field shows a small **"Auto"** badge when auto-generated. As soon as the user edits it, the badge disappears and we stop overwriting it. A small **↻ Reset to auto** button lets them snap back.
+- The `From`/`To` inputs become **read-only display fields** by default (showing the auto-detected range from picks), with an **"Override dates"** toggle for users who want to manually widen the period (e.g., to mention context outside their selected trades).
 
-### 2. Define field deletion rules explicitly
-Implement three field categories:
+### 2. Easier trade-picker filtering
 
-```text
-Core fields
-- Cannot be hard deleted
-- Can be hidden/soft deleted from views where safe
-- Examples: date, pair, direction, P&L, prices, lots, trade number
+Replace the single search box with stacked, compact filters in the Pick Trades panel:
 
-Editable system fields
-- Cannot be hard deleted as database columns
-- Can be renamed, hidden/soft deleted, restored
-- Can optionally erase field values where safe
-- Examples: session, profile, regime, emotion, place, timeframes, planned/actual model
+- **Quick chips**: `Today` · `Yesterday` · `This week` · `Last week` · `This month` · `Custom`
+- **Custom range**: when `Custom` is selected, two compact date inputs appear (From / To)
+- **Symbol/session search**: keep the existing free-text search below the chips
+- **Group by day**: results render grouped under sticky day headers (e.g., `Mon, Apr 27 · 8 trades`) so daily/weekly picking is visual
+- **"Select all visible"** action at the top of the list — one click adds every trade currently in the filtered view to the report (and the inverse "Clear visible")
+- Bump the result cap from 100 to a much higher number when a date filter is active (since filters already narrow it)
 
-Custom fields
-- Can be renamed, edited, soft deleted/restored
-- Can have options added/renamed/deleted for select/multi-select fields
-- Can be hard deleted from the field definition
-- Can optionally erase values from all trades before/with hard delete
-```
+### 3. Live-preview header reflects auto values
 
-### 3. Add real field label overrides for the detail sidebar
-Right now system column renames apply mainly to the table. I’ll extend the settings model so renamed labels are used consistently in:
+The right-hand live preview already shows title + date range, so it will automatically update as picks change. No extra work there beyond making sure the formatted range matches the auto-title style (single-day shows just one date, etc.).
 
-- Journal table headers
-- Trade detail sidebar property labels
-- Layout/fields settings rows
+---
 
-This means renaming “Profile” to something else will update the journal wherever that field appears, not only in the table.
+## Technical notes
 
-### 4. Fix dropdown option management
-Update option handling so system dropdowns and custom dropdowns both support:
+**Files to edit**
+- `src/pages/SharedReportEditor.tsx` — add auto-title/auto-date logic, derived `pickedTrades` memo, "Auto" badge + reset button, override toggle for dates.
+- `src/components/shared-reports/TradePickerPanel.tsx` — add date-range chip filter, custom range inputs, day-group rendering, "Select all visible" action. Accepts an optional `onBulkAdd` / `onBulkRemove` from the editor.
+- `src/types/sharedReports.ts` — add `auto_title: boolean` to `SharedReport` interface.
+- `supabase/migrations/<timestamp>_shared_reports_auto_title.sql` — add `auto_title boolean not null default true` to `shared_reports`.
 
-- Add option
-- Rename option
-- Change color
-- Reorder option
-- Soft delete option / hide from dropdown
-- Restore hidden option
-- Hard delete option from the option list
+**Auto-title formatting helper** lives inline in the editor (small pure function using `date-fns` `isSameDay`, `isSameWeek`, `isSameMonth`, `format`).
 
-Historical trades will stay safe: if an old trade still uses a deleted option value, the stored value will not be silently rewritten.
+**Save behavior** — auto-derived title/dates are debounced through the existing `debouncedSave` mutation, so no extra network chatter.
 
-### 5. Upgrade custom field editing
-Improve custom fields so they behave like Notion properties:
+**Backwards-compatible** — existing reports default to `auto_title = true`; first edit sets it to `false`. New reports start auto.
 
-- Add custom field from Fields settings
-- Rename custom field
-- Edit select/multi-select options after creation
-- Soft delete custom field by setting it inactive
-- Show hidden custom fields in a restore/manage section
-- Hard delete the custom field definition
-- Offer an explicit “erase values from all trades” action before or alongside hard delete
+---
 
-### 6. Sync table and trade-detail layout settings
-When a field is soft deleted or restored, update both table and detail settings where applicable:
+## Out of scope
 
-- Soft delete removes it from table visibility/order and detail visibility/order
-- Restore adds it back to both views
-- Reordering can remain separate per view, but the settings UI will make both controls accessible from the same field row
-
-Review sections like Screenshots, Checklist, Psychology Notes, Mistakes, etc. will remain configurable as layout blocks and not be treated like database fields.
-
-### 7. Technical implementation
-
-- Add/extend typed settings helpers in `src/types/settings.ts` for field categories, core protection, and label overrides.
-- Extend `user_settings` with a detail/system label override JSON field if needed, instead of hardcoding labels in `DETAIL_FIELD_CATALOG`.
-- Refactor `DetailLayoutPanel`, `ColumnConfigPanel`, and `PropertyOptionsPanel` into a unified field-management experience, reusing existing hooks where possible.
-- Update `TradeProperties.tsx` to resolve field labels from user overrides instead of hardcoded labels.
-- Update dropdown option hooks to support active/inactive option visibility and hard delete semantics.
-- Keep generated backend client/type files untouched.
-
-## Expected result
-
-After this pass, you should be able to open Journal Settings and fully manage the journal schema:
-
-- Add fields
-- Rename fields
-- Add dropdown options
-- Rename/delete/restore dropdown options
-- Hide or soft-delete non-core fields
-- Restore hidden fields
-- Hard-delete custom fields
-- Keep core trade record fields protected from destructive deletion
-- See changes reflected in both the table and each trade’s detail journal
+- Changing the visual layout of the editor's three columns
+- Changing the public report renderer
+- Multi-account-aware date filtering (the picker already shows trades from the active account filter)
