@@ -101,6 +101,35 @@ export function ReportView({ report }: Props) {
   const rerun = useRerunSensei();
   const isRerunning = rerun.isPending && rerun.variables === report.id;
 
+  // Frontend dedupe — protects historical reports from re-suggesting fields the user already has
+  const { user } = useAuth();
+  const { data: existingFields } = useQuery({
+    queryKey: ["existing_journal_fields", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const [{ data: settings }, { data: customFields }] = await Promise.all([
+        supabase.from("user_settings").select("live_trade_questions").eq("user_id", user!.id).maybeSingle(),
+        (supabase as any).from("custom_field_definitions").select("key,label,is_active").eq("user_id", user!.id).eq("is_active", true),
+      ]);
+      const keys = new Set<string>(SYSTEM_FIELD_KEYS);
+      const labels = new Set<string>(SYSTEM_FIELD_LABEL_TOKENS);
+      for (const q of (settings?.live_trade_questions as any[]) || []) {
+        if (q?.id) keys.add(String(q.id));
+        if (q?.label) labels.add(normalizeLabel(q.label));
+      }
+      for (const f of (customFields as any[]) || []) {
+        if (f?.key) keys.add(String(f.key));
+        if (f?.label) labels.add(normalizeLabel(f.label));
+      }
+      return { keys, labels };
+    },
+  });
+  const filteredSuggestions = useMemo(() => {
+    const list = report.schema_suggestions || [];
+    if (!existingFields) return list;
+    return list.filter((s) => !suggestionExists(s, existingFields.keys, existingFields.labels));
+  }, [report.schema_suggestions, existingFields]);
+
   return (
     <article className="max-w-4xl mx-auto pb-16">
       {/* HERO */}
