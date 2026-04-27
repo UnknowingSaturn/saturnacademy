@@ -129,6 +129,79 @@ export default function SharedReportEditor() {
     });
   };
 
+  // Bulk add/remove (used by trade picker "Select all visible")
+  const handleBulkAdd = (tradeIds: string[]) => {
+    if (!id || !data) return;
+    let sort = data.trades.length;
+    for (const tradeId of tradeIds) {
+      if (selectedTradeIds.has(tradeId)) continue;
+      addTrade.mutate({ shared_report_id: id, trade_id: tradeId, sort_order: sort++ });
+    }
+  };
+  const handleBulkRemove = (tradeIds: string[]) => {
+    if (!id || !data) return;
+    for (const tradeId of tradeIds) {
+      const link = data.trades.find(t => t.trade_id === tradeId);
+      if (link) removeTrade.mutate({ id: link.id, shared_report_id: id });
+    }
+  };
+
+  // Override-dates toggle: when off, From/To are auto-derived from picks and read-only.
+  const [overrideDates, setOverrideDates] = useState(false);
+
+  // Compute date range derived from currently picked trades' entry_time.
+  const pickedDateRange = useMemo<{ start: Date | null; end: Date | null }>(() => {
+    const times: number[] = [];
+    for (const link of (data?.trades || [])) {
+      const t = allTrades.find(x => x.id === link.trade_id);
+      const iso = (link as any).entry_time_override ?? t?.entry_time;
+      if (iso) {
+        const d = parseISO(iso);
+        if (!isNaN(d.getTime())) times.push(d.getTime());
+      }
+    }
+    if (!times.length) return { start: null, end: null };
+    return { start: new Date(Math.min(...times)), end: new Date(Math.max(...times)) };
+  }, [data?.trades, allTrades]);
+
+  // Auto-sync period_start / period_end to picked range (unless user is overriding dates).
+  useEffect(() => {
+    if (!data?.report || overrideDates) return;
+    const { start, end } = pickedDateRange;
+    const newStart = start ? format(start, "yyyy-MM-dd") : null;
+    const newEnd = end ? format(end, "yyyy-MM-dd") : null;
+    const patch: any = {};
+    if ((data.report.period_start || null) !== newStart) patch.period_start = newStart;
+    if ((data.report.period_end || null) !== newEnd) patch.period_end = newEnd;
+    if (Object.keys(patch).length) debouncedSave(patch);
+  }, [pickedDateRange, overrideDates, data?.report, debouncedSave]);
+
+  // Auto-sync title from picked range when auto_title flag is true.
+  useEffect(() => {
+    if (!data?.report) return;
+    if (data.report.auto_title === false) return;
+    const { start, end } = pickedDateRange;
+    if (!start || !end) return;
+    const next = buildAutoTitle(start, end);
+    if (next !== title) {
+      setTitle(next);
+      debouncedSave({ title: next });
+    }
+  }, [pickedDateRange, data?.report, debouncedSave]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isAutoTitle = data?.report?.auto_title !== false;
+  const handleTitleChange = (val: string) => {
+    setTitle(val);
+    // First user edit flips auto_title off
+    debouncedSave({ title: val, auto_title: false });
+  };
+  const handleResetAutoTitle = () => {
+    const { start, end } = pickedDateRange;
+    const next = start && end ? buildAutoTitle(start, end) : "Untitled report";
+    setTitle(next);
+    debouncedSave({ title: next, auto_title: true });
+  };
+
   if (isLoading) {
     return <div className="h-full flex items-center justify-center text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading…</div>;
   }
