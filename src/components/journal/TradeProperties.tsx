@@ -128,7 +128,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
     const customDef = customFields.find(f => f.key === key && f.is_active);
     if (customDef) {
       return (
-        <PropertyRow key={key} label={customDef.label}>
+        <PropertyRow key={key} label={labelFor(key, customDef.label)}>
           <CustomFieldCell trade={trade} field={customDef} />
         </PropertyRow>
       );
