@@ -168,6 +168,9 @@ Deno.serve(async (req) => {
     const accountIds = accounts.map(a => a.id);
     const accountEquityMap = new Map(accounts.map(a => [a.id, a.equity_current || a.balance_start || 0]));
 
+    // Load user's session definitions for classification
+    const sessions = await loadSessions(supabase, user.id);
+
     // Find all processed close events for user's accounts (exit events are stored as "close" in the db)
     const { data: exitEvents, error: eventsError } = await supabase
       .from("events")
@@ -222,7 +225,7 @@ Deno.serve(async (req) => {
       const netPnl = grossPnl - commission - Math.abs(swap);
       
       // Get session
-      const session = detectSession(entryTime);
+      const session = detectSession(entryTime, sessions);
       
       // R-multiple calculation using actual risk
       const currentEquity = accountEquityMap.get(event.account_id) || 0;
