@@ -1,50 +1,80 @@
+## Part 1 — Playbook stats when Planned ≠ Actual
 
-## Where we are
+**Current behaviour:** `usePlaybookStats` (and the `playbook_id` foreign key on every chart, report, recent-trades panel) credits a trade entirely to the **Planned** model, even if you graded the actual setup as a different one. So a "London Reversal" stat card silently includes trades you ex-post tagged as "Continuation."
 
-Last loop introduced `ReportTradeEditor`, the lightbox, daily/weekly/custom presets and the public payload override pipeline — but `SharedReportEditor.tsx` still references a removed `handleCaptionChange` helper and an unimported `X` icon, so the project does not build. Sensei delete, prompt tightening, and dedupe were not started.
+**Industry best practice** (this is what serious prop desks / journalling tools do):
 
-## What I'll finish in this pass
+> Edge stats should be attributed to the **Actual** model, because that's what the market actually paid you for. The **Planned** model is a *read-quality / discipline* metric, not an *edge* metric.
 
-### 1. Fix the Shared Report editor (`src/pages/SharedReportEditor.tsx`)
-- Replace the broken caption block (lines ~243‑274) with the real `ReportTradeEditor`, passing in `link`, the live trade fallback values (`liveSymbol`, `liveDirection`, `liveEntryTime`, `liveSession`, `livePlaybookName`), the source screenshots, position controls (`onMoveUp` / `onMoveDown` reusing `handleMoveCard`), `onRemove`, and `onPatch` (uses `handlePatchTrade`).
-- Drop the leftover `CaptionInput` / `handleCaptionChange` / unused `X` imports — captions live inside `ReportTradeEditor` now.
-- Result: full per-trade editing (symbol, direction, entry time, session, playbook, screenshot reorder/hide/edit, captions) renders inline next to each preview card.
+So a mismatch shouldn't pollute either playbook's edge — it should:
+- Count toward the **Actual** playbook's win-rate / avg-R / equity curve (that's the setup that actually played out).
+- Count as a **read miss** in a separate "Read Quality" stat on the **Planned** playbook (so you can see "you call London Reversal correctly 62% of the time").
+- Count as **discretionary / un-modeled** if Actual is blank.
 
-### 2. Sensei Reports — delete from sidebar (`src/components/reports/ReportSidebar.tsx` + `src/pages/Reports.tsx`)
-- Add a small trash icon that appears on row hover, wired to `useDeleteReport` with a confirm dialog.
-- Pass an `onDelete(id)` prop from `Reports.tsx`. After delete, if the deleted report was selected, clear `selectedId` so the empty state shows again.
+### Proposed change
 
-### 3. Sensei AI — be more helpful, less guessy (`supabase/functions/generate-report/index.ts`)
-- Drop `temperature` from `0.7` → `0.4` in `callSensei`.
-- Add evidence-only rules to the system prompt:
-  - "If a number, behavior, or pattern is not in the supplied data, say *'I don't have enough evidence yet'* in that section instead of guessing."
-  - "If `top_emotions` is empty or all sample sizes are too small, do not assert emotional patterns — name the journaling gap as the bleed instead."
-  - "If `tilt_sequences` is empty, the Pattern Underneath section must say so explicitly rather than invent a tilt narrative."
-- Add a runtime guard: when there are fewer than 3 closed trades or fewer than 2 reviewed trades, skip the LLM call entirely and write a "Not enough data yet — log more trades and reviews" placeholder verdict + sections, so the AI never fabricates a story over thin data.
+**`usePlaybookStats.tsx`** — switch the attribution column from `playbook_id` to `COALESCE(actual_playbook_id, playbook_id)`. Trades stay attributed to Planned by default, but the moment you grade an Actual, the stats follow the Actual.
 
-### 4. Smarter schema suggestions (`supabase/functions/generate-report/index.ts`)
-- Extend `schemaSuggestions` to also pull `custom_field_definitions` (columns the user already added) AND a hardcoded set of system column keys that already exist on every trade: `mistakes`, `did_well`, `to_improve`, `psychology_notes`, `emotional_state_before`, `emotional_state_after`, `news_risk`, `regime`, `score`, `checklist_answers`, plus the live‑trade question ids.
-- Build a single `existingFieldKeys: Set<string>` covering all three sources, then skip any suggestion whose `proposed_question.id` OR a normalized form of its `label` ("primary cause of mistake" → "mistake", "minutes since your last trade" → "time since last trade") collides with an existing key/label.
-- Rationale: this is exactly the case where the AI suggested adding a "Mistakes" field that already exists in `trade_reviews.mistakes`.
+Add three new fields per playbook:
+- `readAccuracy` — % of trades where this playbook was the Planned *and* Actual.
+- `falsePositives` — count of trades where this was Planned but Actual was something else (read misses).
+- `discoveredHere` — count of trades where this was Actual but Planned was something else (mistagged-into-this-model).
 
-### 5. Frontend dedupe safety net (`src/components/reports/SchemaSuggestionCard.tsx` + `src/components/reports/ReportView.tsx`)
-- Before rendering the suggestion list, fetch `custom_field_definitions` (one query, cached) and the user's live‑trade questions, and filter out any suggestion whose id/label already exists. This protects historical reports that were generated before the backend dedupe shipped.
+**`PlaybookCard.tsx` / `PlaybookStatsCard.tsx`** — show a small "Read accuracy: 62% (8 misreads)" line under the headline metrics. Trades you misread won't quietly inflate a model's win-rate any more.
 
-## What I will NOT touch this loop
-- The `EducationalTradeCard` lightbox (already shipped & working).
-- The `get-shared-report` override pipeline (already shipped & working).
-- Database schema (the override columns + `screenshot_overrides` jsonb already exist from last migration).
+**Reports (`generate-report` edge function)** — the existing `read_quality` block already covers the cross-cutting view; no change needed there.
 
-## Files
+**Migration concerns:** none. `actual_playbook_id` is nullable and most trades have it blank, so behaviour is identical for ungraded trades. Only graded mismatches shift attribution.
 
-**Edited**
-- `src/pages/SharedReportEditor.tsx` — wire `ReportTradeEditor`, remove dead code/imports
-- `src/components/reports/ReportSidebar.tsx` — add hover delete button
-- `src/pages/Reports.tsx` — pass `onDelete`, clear selection on delete
-- `supabase/functions/generate-report/index.ts` — temp 0.4, evidence-only rules, low-data guard, dedupe with custom_field_definitions + system keys
-- `src/components/reports/ReportView.tsx` — filter `schema_suggestions` against existing fields before rendering
-- `src/components/reports/SchemaSuggestionCard.tsx` — minor: rely on parent to filter (no behavior change beyond hook order)
+---
 
-**Edge functions to deploy**: `generate-report`
+## Part 2 — Properties tab: collapse the redundant Profile / Regime duplication
 
-After this loop the editor builds again, you can delete Sensei reports inline, the AI will refuse to fabricate when data is thin, and the "add to journal" suggestions will only show fields you actually don't have yet.
+You're right that **Profile** and **Regime** are doing overlapping work:
+
+| Field | Current options | What it really means |
+|---|---|---|
+| **Profile** | Consolidation, Expansion, Reversal, Continuation | *Price-action structure* the trade is built on |
+| **Regime** | Rotational, Transitional | *Market state* (range vs trending) |
+
+In practice: "Consolidation + Rotational" and "Expansion + Transitional" are nearly always the same call worded twice. The other combinations rarely get used.
+
+### Proposed change
+
+**Option A — Merge into a single "Market Profile" field** (recommended):
+- Deprecate `regime` as a user-facing dropdown.
+- Expand `profile` options to: Rotational-Consolidation, Rotational-Reversal, Transitional-Expansion, Transitional-Continuation (or let the user define their own — see below).
+- Keep `regime` column in the DB (and `valid_regimes` on playbooks) for backward compat and for the Sensei AI to keep grouping, but auto-derive it from the profile via a tiny mapping.
+
+**Option B — Keep both but stop showing them as separate rows**:
+- Render a single "Profile · Regime" row in `TradeProperties.tsx` with two compact pickers side-by-side (and one row for Planned, one for Actual). Goes from **6 rows → 2 rows** for the Profile/Regime block.
+
+I'll implement **Option B** by default since it preserves your existing report data and doesn't require a migration — but if you confirm you'd rather collapse to a single concept (Option A), I'll do that instead.
+
+### Make all property dropdowns user-editable
+
+Right now `Settings → Properties` only lets you customise **Profile / Timeframe / Emotion**. The Regime, Session, and Direction dropdowns are hardcoded. Add **Regime** and **Session** to the `PROPERTY_TYPES` array in `PropertyOptionsPanel.tsx` and wire `TradeProperties.tsx` to read those options from `usePropertyOptions(...)` instead of the hardcoded `regimeOptions` / `sessionOptions` constants. (Sessions already have their own dedicated tab for time-window editing — this just lets you rename the labels.)
+
+### Tighten the Properties side-panel layout
+
+Also collapse:
+- **Planned Model + Actual Model** → one row, two pickers ("Planned ⟶ Actual").
+- **Alignment + Entry TF** → one row labelled "Timeframes" (HTF chips on the left, entry chips on the right). They're both timeframe pickers and visually identical today.
+
+Net result: Properties panel goes from ~14 rows to ~8, and every dropdown is user-editable from Settings.
+
+---
+
+## Files I'll touch
+
+- `src/hooks/usePlaybookStats.tsx` — switch attribution to `COALESCE(actual_playbook_id, playbook_id)`, add read-accuracy fields.
+- `src/components/playbooks/PlaybookCard.tsx`, `PlaybookStatsCard.tsx` — surface read-accuracy line.
+- `src/components/journal/TradeProperties.tsx` — merge Planned/Actual rows for Model, Profile, Regime; merge Alignment/Entry TF; pull regime/session options from `usePropertyOptions` instead of hardcoded arrays.
+- `src/components/journal/settings/PropertyOptionsPanel.tsx` — add Regime + Session to `PROPERTY_TYPES`.
+- `src/hooks/useUserSettings.tsx` — seed default Regime + Session options on first load (so existing users see the same labels they have now).
+
+No DB migration needed.
+
+---
+
+**One question before I build it:** for the Profile/Regime overlap, do you want me to **merge them into a single "Market Profile" field (Option A — cleaner, irreversible)**, or **keep both but show them side-by-side in one row (Option B — safer, recommended)**? I'll default to **B** unless you say otherwise.
