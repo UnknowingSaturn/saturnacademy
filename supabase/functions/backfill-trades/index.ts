@@ -35,10 +35,10 @@ serve(async (req) => {
 
     console.log("Starting backfill for account:", account_id);
 
-    // Get account info
+    // Get account info (need user_id to load custom session_definitions)
     const { data: account, error: accountError } = await supabase
       .from("accounts")
-      .select("id, balance_start, equity_current")
+      .select("id, user_id, balance_start, equity_current")
       .eq("id", account_id)
       .single();
 
