@@ -316,79 +316,71 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           />
         </PropertyRow>
 
-        <PropertyRow label="Planned Model">
+        {/* Model — planned + actual side-by-side */}
+        <DualPropertyRow label="Model">
           <BadgeSelect
             value={trade.playbook_id || ""}
             onChange={(v) => handleModelChange(v as string)}
             options={modelOptions}
-            placeholder="Select..."
+            placeholder="Planned..."
           />
-        </PropertyRow>
-
-        <PropertyRow label="Actual Model">
           <BadgeSelect
             value={trade.actual_playbook_id || ""}
             onChange={(v) => handleActualModelChange(v as string)}
             options={modelOptions}
-            placeholder="Hindsight..."
+            placeholder="Actual..."
           />
-        </PropertyRow>
+        </DualPropertyRow>
 
-        <PropertyRow label="Alignment">
-          <BadgeSelect
-            value={trade.alignment || []}
-            onChange={(v) => handleAlignmentChange(v as string[])}
-            options={timeframeOptions}
-            placeholder="Select..."
-            multiple
-          />
-        </PropertyRow>
-
-        <PropertyRow label="Entry TF">
-          <BadgeSelect
-            value={trade.entry_timeframes || []}
-            onChange={(v) => handleEntryTimeframesChange(v as string[])}
-            options={timeframeOptions}
-            placeholder="Select..."
-            multiple
-          />
-        </PropertyRow>
-
-        <PropertyRow label="Planned Profile">
+        {/* Profile — planned + actual side-by-side */}
+        <DualPropertyRow label="Profile">
           <BadgeSelect
             value={trade.profile || ""}
             onChange={(v) => handleProfileChange(v as string)}
             options={profileOptions}
-            placeholder="Select..."
+            placeholder="Planned..."
           />
-        </PropertyRow>
-
-        <PropertyRow label="Actual Profile">
           <BadgeSelect
             value={(trade.actual_profile as string) || ""}
             onChange={(v) => handleActualProfileChange(v as string)}
             options={profileOptions}
-            placeholder="Hindsight..."
+            placeholder="Actual..."
           />
-        </PropertyRow>
+        </DualPropertyRow>
 
-        <PropertyRow label="Planned Regime">
+        {/* Regime — planned + actual side-by-side */}
+        <DualPropertyRow label="Regime">
           <BadgeSelect
             value={trade.review?.regime || ""}
             onChange={(v) => handleRegimeChange(v as string)}
             options={regimeOptions}
-            placeholder="Select..."
+            placeholder="Planned..."
           />
-        </PropertyRow>
-
-        <PropertyRow label="Actual Regime">
           <BadgeSelect
             value={(trade.actual_regime as string) || ""}
             onChange={(v) => handleActualRegimeChange(v as string)}
             options={regimeOptions}
-            placeholder="Hindsight..."
+            placeholder="Actual..."
           />
-        </PropertyRow>
+        </DualPropertyRow>
+
+        {/* Timeframes — HTF alignment + entry TF side-by-side */}
+        <DualPropertyRow label="Timeframes">
+          <BadgeSelect
+            value={trade.alignment || []}
+            onChange={(v) => handleAlignmentChange(v as string[])}
+            options={timeframeOptions}
+            placeholder="HTF..."
+            multiple
+          />
+          <BadgeSelect
+            value={trade.entry_timeframes || []}
+            onChange={(v) => handleEntryTimeframesChange(v as string[])}
+            options={timeframeOptions}
+            placeholder="Entry..."
+            multiple
+          />
+        </DualPropertyRow>
 
         <PropertyRow label="Place">
           <span className="text-sm text-muted-foreground">{trade.place || "Empty"}</span>
