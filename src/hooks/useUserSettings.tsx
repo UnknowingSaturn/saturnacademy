@@ -310,13 +310,14 @@ export function useReorderSessions() {
 }
 
 // Property Options Hook with auto-initialization
-export function usePropertyOptions(propertyName?: string) {
+// Pass activeOnly=true to filter out soft-deleted options for end-user dropdowns.
+export function usePropertyOptions(propertyName?: string, activeOnly: boolean = false) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const initializingRef = useRef(false);
 
   const query = useQuery({
-    queryKey: ['property_options', user?.id, propertyName],
+    queryKey: ['property_options', user?.id, propertyName, activeOnly],
     queryFn: async () => {
       if (!user?.id) return [];
 
@@ -328,6 +329,9 @@ export function usePropertyOptions(propertyName?: string) {
 
       if (propertyName) {
         q = q.eq('property_name', propertyName);
+      }
+      if (activeOnly) {
+        q = q.eq('is_active', true);
       }
 
       const { data, error } = await q;
