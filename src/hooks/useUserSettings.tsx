@@ -1,7 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { UserSettings, SessionDefinition, PropertyOption, FilterCondition, DEFAULT_VISIBLE_COLUMNS, DEFAULT_SESSIONS, DEFAULT_PROPERTY_OPTIONS, DEFAULT_LIVE_TRADE_QUESTIONS, LiveTradeQuestion } from "@/types/settings";
+import {
+  UserSettings, SessionDefinition, PropertyOption, FilterCondition,
+  DEFAULT_VISIBLE_COLUMNS, DEFAULT_SESSIONS, DEFAULT_PROPERTY_OPTIONS,
+  DEFAULT_LIVE_TRADE_QUESTIONS, LiveTradeQuestion,
+} from "@/types/settings";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
 import { setDisplayTimezone } from "@/lib/time";
@@ -16,6 +20,10 @@ const transformSettings = (row: any): UserSettings => ({
   default_filters: row.default_filters || [],
   live_trade_questions: (row.live_trade_questions as LiveTradeQuestion[]) || DEFAULT_LIVE_TRADE_QUESTIONS,
   display_timezone: row.display_timezone || 'America/New_York',
+  detail_visible_fields: (row.detail_visible_fields as string[]) || [],
+  detail_field_order: (row.detail_field_order as string[]) || [],
+  detail_visible_sections: (row.detail_visible_sections as string[]) || [],
+  detail_section_order: (row.detail_section_order as string[]) || [],
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -78,6 +86,10 @@ export function useUserSettings() {
           default_filters: [] as FilterCondition[],
           live_trade_questions: DEFAULT_LIVE_TRADE_QUESTIONS,
           display_timezone: 'America/New_York',
+          detail_visible_fields: [],
+          detail_field_order: [],
+          detail_visible_sections: [],
+          detail_section_order: [],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as UserSettings;
@@ -114,6 +126,10 @@ export function useUpdateUserSettings() {
       if (updates.default_filters) dbUpdates.default_filters = updates.default_filters as any;
       if (updates.live_trade_questions) dbUpdates.live_trade_questions = updates.live_trade_questions as any;
       if (updates.display_timezone) dbUpdates.display_timezone = updates.display_timezone;
+      if (updates.detail_visible_fields !== undefined) dbUpdates.detail_visible_fields = updates.detail_visible_fields as any;
+      if (updates.detail_field_order !== undefined) dbUpdates.detail_field_order = updates.detail_field_order as any;
+      if (updates.detail_visible_sections !== undefined) dbUpdates.detail_visible_sections = updates.detail_visible_sections as any;
+      if (updates.detail_section_order !== undefined) dbUpdates.detail_section_order = updates.detail_section_order as any;
 
       // Check if settings exist
       const { data: existing } = await supabase
