@@ -126,6 +126,10 @@ export function useUpdateUserSettings() {
       if (updates.default_filters) dbUpdates.default_filters = updates.default_filters as any;
       if (updates.live_trade_questions) dbUpdates.live_trade_questions = updates.live_trade_questions as any;
       if (updates.display_timezone) dbUpdates.display_timezone = updates.display_timezone;
+      if (updates.detail_visible_fields !== undefined) dbUpdates.detail_visible_fields = updates.detail_visible_fields as any;
+      if (updates.detail_field_order !== undefined) dbUpdates.detail_field_order = updates.detail_field_order as any;
+      if (updates.detail_visible_sections !== undefined) dbUpdates.detail_visible_sections = updates.detail_visible_sections as any;
+      if (updates.detail_section_order !== undefined) dbUpdates.detail_section_order = updates.detail_section_order as any;
 
       // Check if settings exist
       const { data: existing } = await supabase
