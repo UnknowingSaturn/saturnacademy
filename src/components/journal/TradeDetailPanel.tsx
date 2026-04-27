@@ -1,8 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep, TradeScreenshot } from "@/types/trading";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useUpsertTradeReview, useTrade } from "@/hooks/useTrades";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { useUserSettings } from "@/hooks/useUserSettings";
+import {
+  DETAIL_SECTION_CATALOG,
+  DEFAULT_DETAIL_VISIBLE_SECTIONS,
+  DEFAULT_DETAIL_SECTION_ORDER,
+  type DetailSectionKey,
+} from "@/types/settings";
 import { SaveStatusIndicator } from "./SaveStatusIndicator";
 
 import { TradeProperties } from "./TradeProperties";
