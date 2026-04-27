@@ -48,6 +48,12 @@ export interface PlaybookStats {
   complianceStatus: ComplianceStatus;
   equityCurve: EquityPoint[];
   rDistribution: RDistributionBucket[];
+  // Read-quality stats (planned vs actual model accuracy)
+  readGradedCount: number;     // # of trades planned-as-this-playbook that ALSO have an Actual model graded
+  readMatches: number;         // of those, how many had Actual === Planned
+  readAccuracy: number;        // readMatches / readGradedCount * 100
+  falsePositives: number;      // trades planned as this playbook but Actual was a different model
+  discoveredHere: number;      // trades planned as something else but Actual was this playbook
 }
 
 function calculateStreakStats(trades: { net_pnl: number | null; entry_time: string }[]): StreakStats {
