@@ -1,56 +1,102 @@
-# Fix: trade #227 (2:08 AM EST) labelled Tokyo instead of London
+## Overview
 
-## Root cause
-Your `session_definitions` table has **Tokyo 20:00→00:00** and **London 02:00→05:00 EST**, so 2:08 AM is London. But every backend classifier ignores that table and uses hardcoded defaults where Tokyo runs `19:00→04:00`, so anything before 4 AM is auto-tagged Tokyo.
+Three areas to upgrade:
 
-Affected files (all hardcode session windows):
-- `supabase/functions/backfill-trades/index.ts` — `sessionFromTime()` lines ~210-215
-- `supabase/functions/reprocess-trades/index.ts` — `DEFAULT_SESSIONS` const + `sessionFromTime()`; the `use_custom_sessions` request flag is declared but never read
-- `supabase/functions/reprocess-orphan-exits/index.ts` — same hardcoded windows
-- `supabase/functions/ingest-events/index.ts` — needs verification (likely also hardcoded for live events)
+1. **Shared Reports (public + editor)** — add screenshot lightbox, full editability of every field per trade, and a "Daily" preset alongside the existing weekly creator.
+2. **Sensei Reports** — add a Delete button on each report and stop the Sensei from guessing.
+3. **Schema suggestions** — only suggest fields that don't already exist in the user's journal (live trade questions OR custom fields OR system columns like `mistakes`).
 
-## Changes
+---
 
-### 1. Shared session classifier (per edge function)
-For each function above, replace the hardcoded array with:
-```ts
-async function loadSessions(supabase, userId): Promise<SessionDefinition[]> {
-  const { data } = await supabase
-    .from('session_definitions')
-    .select('key,name,start_hour,start_minute,end_hour,end_minute,timezone,sort_order,is_active')
-    .eq('user_id', userId)
-    .eq('is_active', true)
-    .order('sort_order');
-  return (data && data.length) ? data : DEFAULT_SESSIONS;
-}
-```
-Then `sessionFromTime(entryTime, sessions)` walks them in `sort_order` (first match wins, with overnight wrap handling already in `reprocess-trades`).
+## 1. Shared Reports — Screenshot lightbox + per-trade editing + Daily preset
 
-### 2. `ingest-events` (live trade ingest)
-If it sets `session` on insert, load the owning user's sessions once per request and use the same helper. If it currently leaves `session` null and relies on a downstream pass, no change needed — confirm during implementation.
+### A. Clickable screenshots with lightbox (public page + editor preview)
 
-### 3. `reprocess-trades`
-- Actually read `use_custom_sessions` (default `true`).
-- Resolve the user from `account_id` (`accounts.user_id`) before loading sessions.
+**File:** `src/components/shared-reports/EducationalTradeCard.tsx`
+- Wrap each `<img>` in a button that opens a full-screen Dialog showing the image at native resolution with the timeframe badge and description caption.
+- Add prev/next navigation when a card has multiple screenshots and keyboard support (Esc / ← / →).
+- Use the existing `Dialog` primitive from `@/components/ui/dialog` so it works on both the editor preview and the public `/r/:slug` page (no separate component duplication).
 
-### 4. One-shot reclassification for existing data
-Add a small action — either:
-- a button in Journal Settings → Sessions panel ("Reclassify all trades with current sessions"), or
-- a new `reclassify-sessions` edge function the same panel calls — that re-runs `sessionFromTime` over every trade for the current user using their live `session_definitions` and updates only the `session` column. No P&L touched.
+### B. Full editability per trade in the editor
 
-This fixes #227 and any other historically mis-tagged trade in one click without a full reprocess.
+**File:** `src/pages/SharedReportEditor.tsx` + `src/components/shared-reports/EducationalTradeCard.tsx`
 
-### 5. Sanity / regression
-- Add unit-style assertions in the helper (or an inline self-check) for overnight wrap (Tokyo 20→00) and adjacency (Tokyo ends 00:00, London starts 02:00 — the 00:00–02:00 gap stays unclassified, matching your current config).
-- Verify `src/types/settings.ts` `DEFAULT_SESSIONS` (Tokyo 19→04, London 3→12) is only used as a *seed* when a brand-new user has no rows — keep it as-is, but document that it is not the source of truth once a user customises.
+Currently only the three captions (well/wrong/improve) are editable. Add inline editing for everything that ends up on the public card:
 
-## Out of scope
-- No schema changes; `session_definitions` already exists with the right shape.
-- No UI redesign of the Session column — only the auto-classifier and a reclassify button.
-- DST handling stays as-is (sessions are stored in `America/New_York`, classifier compares in that TZ).
+- **Header overrides** stored in `shared_report_trades` as new optional columns (or inside an existing JSON column to avoid migration if present): `symbol_override`, `direction_override`, `entry_time_override`, `session_override`, `playbook_name_override`. When `null`, the public payload falls back to the live trade values (today's behavior).
+- **Per-screenshot overrides** — extend the existing `screenshot_overrides` JSON to support `{ id, description?, timeframe?, hidden? }`. The editor surfaces a small "edit" pencil on each screenshot thumbnail (timeframe, caption, hide toggle).
+- **Reorder screenshots** within a card via drag handles (persist order in `screenshot_overrides` as `sort_index`).
+- The render order of the cards themselves is already controlled by `sort_order` — add up/down arrows on each card so the user can reorder without re-adding.
 
-## Verification after implementation
-1. Re-deploy the three edge functions.
-2. Click the new "Reclassify sessions" button.
-3. Confirm trade #227 flips from Tokyo → London.
-4. Spot-check a few NY-AM and Tokyo-overnight trades to make sure they didn't regress.
+**Migration (additive, non-breaking):** add nullable columns to `shared_report_trades` for the override fields above, OR widen the existing `screenshot_overrides` jsonb shape — preferring widening to minimize migration surface. Bump `useUpdateReportTrade` to accept the new patch shape.
+
+**Public payload:** update `supabase/functions/get-shared-report/index.ts` to apply overrides on top of the live trade record before returning, so the public page reflects edits.
+
+### C. Daily report preset
+
+**File:** `src/pages/SharedReports.tsx`
+- Replace the single "New report" button with a small dropdown (split button) offering: **Daily**, **Weekly**, **Custom range**.
+  - Daily → title `"<Weekday>, MMM d, yyyy"`, period_start = period_end = today.
+  - Weekly → existing behavior.
+  - Custom → opens a small dialog with two date pickers and a title field.
+- The editor already exposes free `period_start` / `period_end` date inputs, so existing reports remain fully editable; we're only changing the creation defaults.
+
+---
+
+## 2. Sensei Reports — Delete + smarter, less guessing AI
+
+### A. Delete a report
+
+**Files:** `src/components/reports/ReportSidebar.tsx`, `src/pages/Reports.tsx`
+- Add a small trash icon on hover for each row in the sidebar list. Confirms via `confirm()` then calls the existing `useDeleteReport` mutation (already implemented in `useSenseiReports.tsx`).
+- After deletion, if the deleted report was selected, clear `selectedId` and let the auto-select fall back to the next report.
+
+### B. Stop the Sensei from guessing
+
+**File:** `supabase/functions/generate-report/index.ts`
+
+Tighten `callSensei` so it only writes what the data supports:
+
+- **Add explicit "evidence-only" rules to the system prompt:**
+  - "If the data does not contain enough evidence for a section (e.g. no losing streak, no edge cluster, fewer than 5 reviewed trades), explicitly write a one-sentence section like *'Not enough data this week to call a pattern.'* and skip naming any pattern."
+  - "Do not infer emotions, intent, or 'meta-patterns' that are not directly supported by the supplied `top_emotions`, `tilt_sequences`, `revenge`, `oversize`, or `worst_trade_narratives`."
+  - "Cite at least one whitelisted trade ID for every claim that names a pattern. If you cannot, say so plainly instead of fabricating."
+- **Reduce temperature** from `0.7` → `0.4` for less creative leaps.
+- **Drop low-evidence sections in post-processing** (already partially done): if a non-Verdict section has zero citations AND its body contains language like "likely", "probably", "suggests", "appears to" — replace it with the canonical "not enough data this period" sentence rather than keeping a guessed paragraph.
+- Add a small `evidence_summary` block to the LLM payload that explicitly tells the model what's *missing* (e.g. `"no_losing_streak": true`, `"no_revenge_pattern": true`, `"reviewed_count_low": true`) so it has explicit signals not to invent.
+
+### C. Schema suggestions must only propose NEW fields
+
+**File:** `supabase/functions/generate-report/index.ts` (function `schemaSuggestions`)
+
+Today the dedupe only checks `live_trade_questions`. The user reported that "mistakes" is being re-suggested though it already exists in their journal. Expand the existence check:
+
+1. Load the user's `custom_field_definitions` (active rows) in addition to `live_trade_questions`.
+2. Build a normalized set of "field signatures" combining:
+   - `id` from live_trade_questions
+   - `key` (and slugified `label`) from custom_field_definitions
+   - A hardcoded list of system fields already captured by the journal: `mistakes`, `did_well`, `to_improve`, `thoughts`, `psychology_notes`, `emotional_state_before`, `emotional_state_after`, `regime`, `profile`, `playbook_id`, `actual_playbook_id`, `actual_profile`, `session`.
+3. Skip any candidate whose `missing_field` / `proposed_question.id` / slugified label collides with that set.
+4. Rename the current `mistake_category` suggestion logic so it checks for `mistakes` (system field) first — if present, it's not re-suggested.
+5. **Also dedupe in the UI** as a defensive belt-and-suspenders: in `SchemaSuggestionCard.tsx`, query `custom_field_definitions` + `live_trade_questions` and hide the card entirely if a field with the same key/label slug already exists. This protects historic reports too.
+
+---
+
+## Files touched
+
+**Edited:**
+- `src/components/shared-reports/EducationalTradeCard.tsx` — clickable screenshots with lightbox dialog
+- `src/components/shared-reports/TradePickerPanel.tsx` (minor — show ordered chevrons context if helpful)
+- `src/pages/SharedReports.tsx` — split-button with Daily / Weekly / Custom presets
+- `src/pages/SharedReportEditor.tsx` — inline edit fields for header/screenshots, reorder cards
+- `src/hooks/useSharedReports.tsx` — extend `useUpdateReportTrade` patch shape
+- `src/types/sharedReports.ts` — extend `SharedReportTrade` and `PublicTradeCard` for overrides
+- `supabase/functions/get-shared-report/index.ts` — apply overrides to public payload
+- `src/components/reports/ReportSidebar.tsx` — delete-on-hover button
+- `src/components/reports/SchemaSuggestionCard.tsx` — client-side dedupe against existing fields
+- `supabase/functions/generate-report/index.ts` — tightened sensei prompt + temperature, evidence-only rules, expanded `schemaSuggestions` dedupe (includes `custom_field_definitions` + system fields)
+
+**Migration:**
+- Additive widening of `shared_report_trades.screenshot_overrides` shape (no schema change required — it's already `jsonb`) and addition of nullable override columns (`symbol_override`, `direction_override`, `entry_time_override`, `session_override`, `playbook_name_override`).
+
+No destructive changes. Existing shared reports continue to render exactly as today until the user edits an override.
