@@ -192,7 +192,48 @@ export default function Accounts() {
             ))}
           </div>
 
-          {/* Danger Zone */}
+          {/* Maintenance Zone — Repair stuck trades */}
+          <div className="mt-8 border border-amber-500/30 rounded-lg overflow-hidden">
+            <div className="flex items-center gap-2 p-4 bg-amber-500/5 border-b border-amber-500/20">
+              <Wrench className="h-5 w-5 text-amber-600" />
+              <h3 className="font-semibold text-amber-600">Repair</h3>
+            </div>
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <RefreshCw className="h-4 w-4 text-amber-500" />
+                <h4 className="font-medium">Repair stuck "break-even" trades</h4>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                If you switch broker logins inside the same MT5 terminal, some trades may have been incorrectly closed at PnL 0.
+                This rebuilds them from the real MT5 deal history. Trades that still need MT5 reconnect to heal will be flagged.
+              </p>
+
+              <div className="flex items-center gap-3">
+                <Select value={repairAccountId} onValueChange={setRepairAccountId}>
+                  <SelectTrigger className="w-[250px]">
+                    <SelectValue placeholder="Select account..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts?.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  variant="outline"
+                  className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                  onClick={handleRepairStuckTrades}
+                  disabled={!repairAccountId || isRepairing}
+                >
+                  {isRepairing ? 'Repairing...' : 'Repair stuck trades'}
+                </Button>
+              </div>
+            </div>
+          </div>
+
           <div className="mt-8 border border-destructive/30 rounded-lg overflow-hidden">
             <div className="flex items-center gap-2 p-4 bg-destructive/5 border-b border-destructive/20">
               <AlertTriangle className="h-5 w-5 text-destructive" />
