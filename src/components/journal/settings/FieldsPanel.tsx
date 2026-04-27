@@ -30,6 +30,7 @@ import {
   isCoreField,
   resolveFieldLabel,
   customFieldToColumn,
+  canEraseSystemField,
 } from "@/types/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -351,7 +352,7 @@ export function FieldsPanel() {
     }
     if (row.category === "core") return;
     // System (non-core): if it has erasable underlying data, offer the erase choice
-    if (canEraseSystem(row.key)) {
+    if (canEraseSystemField(row.key)) {
       setDeleteTarget({ kind: "system-erasable", field: row });
     } else {
       setDeleteTarget({ kind: "system-soft", field: row });
@@ -1188,12 +1189,5 @@ function kindHint(kind: string): string {
   }
 }
 
-const ERASABLE = new Set([
-  "session", "playbook_id", "actual_playbook_id",
-  "profile", "actual_profile", "actual_regime", "place",
-  "alignment", "entry_timeframes", "emotional_state_before",
-  "emotion", "regime", "model", "timeframes",
-]);
-function canEraseSystem(key: string): boolean {
-  return ERASABLE.has(key);
-}
+// canEraseSystem is now provided by `canEraseSystemField` from @/types/settings,
+// which derives directly from SYSTEM_FIELD_SOURCES (single source of truth).

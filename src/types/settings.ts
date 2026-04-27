@@ -246,26 +246,48 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'place', label: 'Place', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'editable' },
 ];
 
-// System fields whose values can be safely bulk-wiped from every trade without breaking
-// the journal. Anything NOT in this set is core record data (symbol, prices, lots, P&L, times)
-// and only supports soft-delete (hide).
-export const ERASABLE_SYSTEM_FIELDS: Record<string, true> = {
-  session: true,
-  playbook_id: true,
-  actual_playbook_id: true,
-  profile: true,
-  actual_profile: true,
-  actual_regime: true,
-  place: true,
-  alignment: true,
-  entry_timeframes: true,
-  emotional_state_before: true,
-  // computed/display columns — non-destructive (no underlying field to wipe)
-  // they are listed here so the UI can offer Erase as a no-op-safe action
-  // omit: trade_number, account, day, symbol, entry_time, r_multiple_actual,
-  //       account_pct, result, trade_type, model (display-only), actual_model,
-  //       read_quality (computed)
+// Source map: where each system field's data physically lives.
+// Some fields live on `trades`, some on `trade_reviews`, and "dual" fields span two columns.
+// This is the single source of truth for both counting and bulk-erasing system fields.
+export type SystemFieldSource = { table: 'trades' | 'trade_reviews'; column: string };
+
+export const SYSTEM_FIELD_SOURCES: Record<string, SystemFieldSource[]> = {
+  // ── Single-column trades fields ────────────────────────────────────────────
+  session:          [{ table: 'trades', column: 'session' }],
+  profile:          [{ table: 'trades', column: 'profile' }],
+  place:            [{ table: 'trades', column: 'place' }],
+  alignment:        [{ table: 'trades', column: 'alignment' }],
+  entry_timeframes: [{ table: 'trades', column: 'entry_timeframes' }],
+  actual_profile:   [{ table: 'trades', column: 'actual_profile' }],
+  actual_regime:    [{ table: 'trades', column: 'actual_regime' }],
+  playbook_id:        [{ table: 'trades', column: 'playbook_id' }],
+  actual_playbook_id: [{ table: 'trades', column: 'actual_playbook_id' }],
+
+  // ── Single-column trade_reviews fields ─────────────────────────────────────
+  emotion:                [{ table: 'trade_reviews', column: 'emotional_state_before' }],
+  emotional_state_before: [{ table: 'trade_reviews', column: 'emotional_state_before' }],
+  news_risk:              [{ table: 'trade_reviews', column: 'news_risk' }],
+  psychology_notes:       [{ table: 'trade_reviews', column: 'psychology_notes' }],
+
+  // ── Dual planned + actual ──────────────────────────────────────────────────
+  regime: [
+    { table: 'trade_reviews', column: 'regime' },
+    { table: 'trades',        column: 'actual_regime' },
+  ],
+  model: [
+    { table: 'trades', column: 'playbook_id' },
+    { table: 'trades', column: 'actual_playbook_id' },
+  ],
+  timeframes: [
+    { table: 'trades', column: 'alignment' },
+    { table: 'trades', column: 'entry_timeframes' },
+  ],
 };
+
+// Back-compat alias: anything in SYSTEM_FIELD_SOURCES is erasable.
+export const ERASABLE_SYSTEM_FIELDS: Record<string, true> = Object.fromEntries(
+  Object.keys(SYSTEM_FIELD_SOURCES).map((k) => [k, true as const])
+);
 
 // Some columns are computed/display-only — they have no underlying scalar field on `trades`,
 // so "erase" doesn't make sense. They support soft-delete (hide) only.
@@ -278,14 +300,12 @@ export const COMPUTED_DISPLAY_COLUMNS: Record<string, true> = {
   result: true,
   trade_type: true,
   read_quality: true,
-  model: true,
-  actual_model: true,
   entry_time: true,
   symbol: true,
 };
 
 export function canEraseSystemField(key: string): boolean {
-  return ERASABLE_SYSTEM_FIELDS[key] === true;
+  return key in SYSTEM_FIELD_SOURCES;
 }
 
 export const DEFAULT_VISIBLE_COLUMNS = [
