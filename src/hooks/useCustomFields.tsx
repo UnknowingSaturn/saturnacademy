@@ -219,8 +219,9 @@ export function useReorderCustomFields() {
   });
 }
 
-// Erase a SYSTEM field's value from every trade for this user (bulk-null).
-// Only call this for keys in ERASABLE_SYSTEM_FIELDS. Skips array fields properly.
+// Erase a SYSTEM field's value across every relevant row for this user.
+// Uses SYSTEM_FIELD_SOURCES so dual fields (regime, model, timeframes) and
+// review-backed fields (emotion, news_risk, …) are wiped from the right table.
 export function useEraseSystemFieldData() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -228,30 +229,28 @@ export function useEraseSystemFieldData() {
   return useMutation({
     mutationFn: async (columnKey: string) => {
       if (!user?.id) throw new Error('Not authenticated');
+      const sources = SYSTEM_FIELD_SOURCES[columnKey];
+      if (!sources || sources.length === 0) return 0;
 
-      // Array fields must be set to null (or [], but null is cleaner)
-      const ARRAY_FIELDS = new Set(['alignment', 'entry_timeframes']);
-      const update: Record<string, any> = {};
-      update[columnKey] = null;
-
-      // For array fields, also acceptable to use null — Postgres accepts it for nullable arrays
-      if (ARRAY_FIELDS.has(columnKey)) {
-        update[columnKey] = null;
+      let total = 0;
+      for (const { table, column } of sources) {
+        // For trades: scope by user_id explicitly. For trade_reviews: RLS already
+        // restricts rows to the user's own trades, so no extra filter is needed.
+        let q: any = (supabase as any)
+          .from(table)
+          .update({ [column]: null })
+          .not(column, 'is', null);
+        if (table === 'trades') q = q.eq('user_id', user.id);
+        const { data, error } = await q.select('id');
+        if (error) throw error;
+        total += data?.length || 0;
       }
-
-      const { data, error } = await (supabase as any)
-        .from('trades')
-        .update(update)
-        .eq('user_id', user.id)
-        .not(columnKey, 'is', null)
-        .select('id');
-
-      if (error) throw error;
-      return data?.length || 0;
+      return total;
     },
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ['trades'] });
       queryClient.invalidateQueries({ queryKey: ['open-trades'] });
+      queryClient.invalidateQueries({ queryKey: ['trade_reviews'] });
       toast.success(`Cleared values from ${count} trade${count === 1 ? '' : 's'}`);
     },
     onError: (e: any) => {
@@ -261,20 +260,29 @@ export function useEraseSystemFieldData() {
   });
 }
 
-// Count trades with a non-null value for a system column key.
+// Count rows that currently have a value for this system field, walking every
+// underlying source table/column (so dual + review-backed fields are accurate).
 export function useCountTradesWithSystemField(columnKey: string | null) {
   const { user } = useAuth();
   return useQuery({
     queryKey: ['system_field_value_count', user?.id, columnKey],
     queryFn: async () => {
       if (!user?.id || !columnKey) return 0;
-      const { count, error } = await (supabase as any)
-        .from('trades')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .not(columnKey, 'is', null);
-      if (error) throw error;
-      return count || 0;
+      const sources = SYSTEM_FIELD_SOURCES[columnKey];
+      if (!sources || sources.length === 0) return 0;
+
+      let total = 0;
+      for (const { table, column } of sources) {
+        let q: any = (supabase as any)
+          .from(table)
+          .select('id', { count: 'exact', head: true })
+          .not(column, 'is', null);
+        if (table === 'trades') q = q.eq('user_id', user.id);
+        const { count, error } = await q;
+        if (error) throw error;
+        total += count || 0;
+      }
+      return total;
     },
     enabled: !!user?.id && !!columnKey,
   });
