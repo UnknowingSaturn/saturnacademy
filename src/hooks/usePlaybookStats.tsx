@@ -48,6 +48,12 @@ export interface PlaybookStats {
   complianceStatus: ComplianceStatus;
   equityCurve: EquityPoint[];
   rDistribution: RDistributionBucket[];
+  // Read-quality stats (planned vs actual model accuracy)
+  readGradedCount: number;     // # of trades planned-as-this-playbook that ALSO have an Actual model graded
+  readMatches: number;         // of those, how many had Actual === Planned
+  readAccuracy: number;        // readMatches / readGradedCount * 100
+  falsePositives: number;      // trades planned as this playbook but Actual was a different model
+  discoveredHere: number;      // trades planned as something else but Actual was this playbook
 }
 
 function calculateStreakStats(trades: { net_pnl: number | null; entry_time: string }[]): StreakStats {
@@ -163,10 +169,10 @@ export function usePlaybookStats() {
     queryFn: async (): Promise<Record<string, PlaybookStats>> => {
       if (!playbooks || playbooks.length === 0) return {};
       
-      // Get all closed, non-archived trades with their playbook_id field
+      // Get all closed, non-archived trades with both planned and actual playbook ids
       const { data: trades, error: tradesError } = await supabase
         .from('trades')
-        .select('id, net_pnl, r_multiple_actual, entry_time, playbook_id')
+        .select('id, net_pnl, r_multiple_actual, entry_time, playbook_id, actual_playbook_id')
         .eq('is_open', false)
         .eq('is_archived', false);
 
@@ -197,17 +203,26 @@ export function usePlaybookStats() {
           complianceStatus: { tradesUsed: 0, tradesLimit: null, rUsed: 0, rLimit: null, isWithinLimits: true, warnings: [] },
           equityCurve: [],
           rDistribution: [],
+          readGradedCount: 0,
+          readMatches: 0,
+          readAccuracy: 0,
+          falsePositives: 0,
+          discoveredHere: 0,
         };
       }
 
-      // Match trades to playbooks by playbook_id
+      // Attribute each trade to its ACTUAL playbook when graded, otherwise to PLANNED.
+      // This means: edge stats follow what the market actually paid you for; read-misses
+      // don't pollute the planned model's win-rate.
       const tradesByPlaybook: Record<string, typeof trades> = {};
-      
+
       for (const trade of trades || []) {
-        if (!trade.playbook_id) continue;
-        
-        // Find playbook by ID match
-        const matchedPlaybook = playbooks.find(pb => pb.id === trade.playbook_id);
+        const planned = trade.playbook_id;
+        const actual = trade.actual_playbook_id;
+        const attributedTo = actual || planned;
+        if (!attributedTo) continue;
+
+        const matchedPlaybook = playbooks.find(pb => pb.id === attributedTo);
         if (!matchedPlaybook) continue;
 
         if (!tradesByPlaybook[matchedPlaybook.id]) {
@@ -234,9 +249,26 @@ export function usePlaybookStats() {
         if (isToday) {
           stats.todayTrades++;
           stats.todayPnl += pnl;
-          // Only count negative R for "R used" (losses count against daily limit)
           if (rMultiple < 0) {
             stats.todayRUsed += Math.abs(rMultiple);
+          }
+        }
+
+        // Read-quality bookkeeping (only counts when both planned + actual are filled in)
+        if (planned && actual) {
+          if (planned === actual) {
+            // Correct read — credit the matched playbook
+            stats.readGradedCount++;
+            stats.readMatches++;
+          } else {
+            // Mismatch — count one false-positive on the PLANNED playbook,
+            // and one "discovered here" on the ACTUAL playbook.
+            const plannedStats = statsByPlaybook[planned];
+            if (plannedStats) {
+              plannedStats.readGradedCount++;
+              plannedStats.falsePositives++;
+            }
+            stats.discoveredHere++;
           }
         }
       }
@@ -272,6 +304,11 @@ export function usePlaybookStats() {
 
         // R distribution
         stats.rDistribution = calculateRDistribution(playbookTrades);
+
+        // Read accuracy = correct reads / total graded reads (only counts trades where both planned + actual were graded)
+        stats.readAccuracy = stats.readGradedCount > 0
+          ? (stats.readMatches / stats.readGradedCount) * 100
+          : 0;
 
         // Compliance status
         const warnings: string[] = [];

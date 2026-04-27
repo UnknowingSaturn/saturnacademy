@@ -2,6 +2,7 @@ import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, R
 import { useUpdateTrade, useUpsertTradeReview } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useAccounts } from "@/hooks/useAccounts";
+import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { cn } from "@/lib/utils";
 import { formatFullDateTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
@@ -14,17 +15,8 @@ interface TradePropertiesProps {
   trade: Trade;
 }
 
-const sessionOptions = [
-  { value: "new_york_am", label: "New York AM", color: "newyork" },
-  { value: "london", label: "London", color: "london" },
-  { value: "tokyo", label: "Tokyo", color: "tokyo" },
-  { value: "new_york_pm", label: "New York PM", color: "newyork" },
-  { value: "off_hours", label: "Off Hours", color: "muted" },
-];
-
-// Model options are now dynamic from playbooks - see useModelOptions hook below
-
-const emotionOptions = [
+// Static fallbacks (only used until user's customisable options have loaded)
+const fallbackEmotionOptions = [
   { value: "great", label: "Great", color: "profit" },
   { value: "good", label: "Good", color: "profit" },
   { value: "calm", label: "Calm", color: "profit" },
@@ -41,7 +33,7 @@ const emotionOptions = [
   { value: "exhausted", label: "Exhausted", color: "loss" },
 ];
 
-const timeframeOptions = [
+const fallbackTimeframeOptions = [
   { value: "1min", label: "1min", color: "muted" },
   { value: "5min", label: "5min", color: "muted" },
   { value: "15min", label: "15min", color: "primary" },
@@ -50,23 +42,18 @@ const timeframeOptions = [
   { value: "daily", label: "Daily", color: "profit" },
 ];
 
-const profileOptions = [
-  { value: "consolidation", label: "Consolidation", color: "primary" },
-  { value: "expansion", label: "Expansion", color: "profit" },
-  { value: "reversal", label: "Reversal", color: "breakeven" },
-  { value: "continuation", label: "Continuation", color: "muted" },
-];
-
-const regimeOptions = [
-  { value: "rotational", label: "Rotational", color: "primary" },
-  { value: "transitional", label: "Transitional", color: "profit" },
-];
-
 export function TradeProperties({ trade }: TradePropertiesProps) {
   const updateTrade = useUpdateTrade();
   const upsertReview = useUpsertTradeReview();
   const { data: playbooks } = usePlaybooks();
   const { data: accounts } = useAccounts();
+
+  // User-editable property dropdowns (from Settings → Properties)
+  const { data: profileOpts } = usePropertyOptions("profile");
+  const { data: regimeOpts } = usePropertyOptions("regime");
+  const { data: sessionOpts } = usePropertyOptions("session");
+  const { data: timeframeOpts } = usePropertyOptions("timeframe");
+  const { data: emotionOpts } = usePropertyOptions("emotion");
 
   // Check if trade is manually added (no ticket = not from EA)
   const isManualTrade = !trade.ticket;
@@ -80,6 +67,51 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
       color: "primary",
     }));
   }, [accounts]);
+
+  // Convert user's PropertyOption rows into BadgeSelect option shape (preserves their custom hex color)
+  const toBadgeOptions = (rows?: { value: string; label: string; color: string }[], fallback: { value: string; label: string; color: string }[] = []) => {
+    if (!rows || rows.length === 0) return fallback;
+    return rows.map(r => ({ value: r.value, label: r.label, customColor: r.color, color: "primary" }));
+  };
+
+  const sessionOptions = useMemo(
+    () => toBadgeOptions(sessionOpts, [
+      { value: "new_york_am", label: "New York AM", color: "newyork" },
+      { value: "london", label: "London", color: "london" },
+      { value: "tokyo", label: "Tokyo", color: "tokyo" },
+      { value: "new_york_pm", label: "New York PM", color: "newyork" },
+      { value: "off_hours", label: "Off Hours", color: "muted" },
+    ]),
+    [sessionOpts]
+  );
+
+  const profileOptions = useMemo(
+    () => toBadgeOptions(profileOpts, [
+      { value: "consolidation", label: "Consolidation", color: "primary" },
+      { value: "expansion", label: "Expansion", color: "profit" },
+      { value: "reversal", label: "Reversal", color: "breakeven" },
+      { value: "continuation", label: "Continuation", color: "muted" },
+    ]),
+    [profileOpts]
+  );
+
+  const regimeOptions = useMemo(
+    () => toBadgeOptions(regimeOpts, [
+      { value: "rotational", label: "Rotational", color: "primary" },
+      { value: "transitional", label: "Transitional", color: "profit" },
+    ]),
+    [regimeOpts]
+  );
+
+  const timeframeOptions = useMemo(
+    () => toBadgeOptions(timeframeOpts, fallbackTimeframeOptions),
+    [timeframeOpts]
+  );
+
+  const emotionOptions = useMemo(
+    () => toBadgeOptions(emotionOpts, fallbackEmotionOptions),
+    [emotionOpts]
+  );
 
   // Generate model options from active playbooks using ID as value
   const modelOptions = useMemo(() => {
@@ -284,79 +316,71 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           />
         </PropertyRow>
 
-        <PropertyRow label="Planned Model">
+        {/* Model — planned + actual side-by-side */}
+        <DualPropertyRow label="Model">
           <BadgeSelect
             value={trade.playbook_id || ""}
             onChange={(v) => handleModelChange(v as string)}
             options={modelOptions}
-            placeholder="Select..."
+            placeholder="Planned..."
           />
-        </PropertyRow>
-
-        <PropertyRow label="Actual Model">
           <BadgeSelect
             value={trade.actual_playbook_id || ""}
             onChange={(v) => handleActualModelChange(v as string)}
             options={modelOptions}
-            placeholder="Hindsight..."
+            placeholder="Actual..."
           />
-        </PropertyRow>
+        </DualPropertyRow>
 
-        <PropertyRow label="Alignment">
-          <BadgeSelect
-            value={trade.alignment || []}
-            onChange={(v) => handleAlignmentChange(v as string[])}
-            options={timeframeOptions}
-            placeholder="Select..."
-            multiple
-          />
-        </PropertyRow>
-
-        <PropertyRow label="Entry TF">
-          <BadgeSelect
-            value={trade.entry_timeframes || []}
-            onChange={(v) => handleEntryTimeframesChange(v as string[])}
-            options={timeframeOptions}
-            placeholder="Select..."
-            multiple
-          />
-        </PropertyRow>
-
-        <PropertyRow label="Planned Profile">
+        {/* Profile — planned + actual side-by-side */}
+        <DualPropertyRow label="Profile">
           <BadgeSelect
             value={trade.profile || ""}
             onChange={(v) => handleProfileChange(v as string)}
             options={profileOptions}
-            placeholder="Select..."
+            placeholder="Planned..."
           />
-        </PropertyRow>
-
-        <PropertyRow label="Actual Profile">
           <BadgeSelect
             value={(trade.actual_profile as string) || ""}
             onChange={(v) => handleActualProfileChange(v as string)}
             options={profileOptions}
-            placeholder="Hindsight..."
+            placeholder="Actual..."
           />
-        </PropertyRow>
+        </DualPropertyRow>
 
-        <PropertyRow label="Planned Regime">
+        {/* Regime — planned + actual side-by-side */}
+        <DualPropertyRow label="Regime">
           <BadgeSelect
             value={trade.review?.regime || ""}
             onChange={(v) => handleRegimeChange(v as string)}
             options={regimeOptions}
-            placeholder="Select..."
+            placeholder="Planned..."
           />
-        </PropertyRow>
-
-        <PropertyRow label="Actual Regime">
           <BadgeSelect
             value={(trade.actual_regime as string) || ""}
             onChange={(v) => handleActualRegimeChange(v as string)}
             options={regimeOptions}
-            placeholder="Hindsight..."
+            placeholder="Actual..."
           />
-        </PropertyRow>
+        </DualPropertyRow>
+
+        {/* Timeframes — HTF alignment + entry TF side-by-side */}
+        <DualPropertyRow label="Timeframes">
+          <BadgeSelect
+            value={trade.alignment || []}
+            onChange={(v) => handleAlignmentChange(v as string[])}
+            options={timeframeOptions}
+            placeholder="HTF..."
+            multiple
+          />
+          <BadgeSelect
+            value={trade.entry_timeframes || []}
+            onChange={(v) => handleEntryTimeframesChange(v as string[])}
+            options={timeframeOptions}
+            placeholder="Entry..."
+            multiple
+          />
+        </DualPropertyRow>
 
         <PropertyRow label="Place">
           <span className="text-sm text-muted-foreground">{trade.place || "Empty"}</span>
@@ -414,6 +438,35 @@ function PropertyRow({
         <span>{label}</span>
       </div>
       <div className="text-sm">{children}</div>
+    </div>
+  );
+}
+
+// Two-picker row: shows Planned + Actual side-by-side under one label.
+// Replaces what used to be 2 separate rows for each grading concept.
+function DualPropertyRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: [React.ReactNode, React.ReactNode];
+}) {
+  const [plannedNode, actualNode] = children;
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1.5">
+        <span>{label}</span>
+      </div>
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Planned</span>
+          <div className="text-sm">{plannedNode}</div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Actual</span>
+          <div className="text-sm">{actualNode}</div>
+        </div>
+      </div>
     </div>
   );
 }

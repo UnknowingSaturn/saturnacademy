@@ -28,6 +28,8 @@ import { CSS } from '@dnd-kit/utilities';
 
 const PROPERTY_TYPES = [
   { value: 'profile', label: 'Profile' },
+  { value: 'regime', label: 'Regime' },
+  { value: 'session', label: 'Session' },
   { value: 'timeframe', label: 'Timeframe' },
   { value: 'emotion', label: 'Emotion' },
 ];
