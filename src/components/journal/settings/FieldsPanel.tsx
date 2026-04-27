@@ -352,7 +352,7 @@ export function FieldsPanel() {
     }
     if (row.category === "core") return;
     // System (non-core): if it has erasable underlying data, offer the erase choice
-    if (canEraseSystem(row.key)) {
+    if (canEraseSystemField(row.key)) {
       setDeleteTarget({ kind: "system-erasable", field: row });
     } else {
       setDeleteTarget({ kind: "system-soft", field: row });
