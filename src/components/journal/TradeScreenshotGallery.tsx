@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { TradeScreenshot, ChartTimeframe } from "@/types/trading";
 import { AddScreenshotDialog } from "./AddScreenshotDialog";
+import { EditScreenshotDialog } from "./EditScreenshotDialog";
 import { useScreenshots } from "@/hooks/useScreenshots";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Maximize2, Image as ImageIcon } from "lucide-react";
+import { Plus, Trash2, Maximize2, Pencil, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TradeScreenshotGalleryProps {
@@ -40,7 +41,18 @@ export function TradeScreenshotGallery({
 }: TradeScreenshotGalleryProps) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [expandedImage, setExpandedImage] = useState<TradeScreenshot | null>(null);
+  const [editingScreenshot, setEditingScreenshot] = useState<TradeScreenshot | null>(null);
   const { deleteScreenshot } = useScreenshots();
+
+  const handleEdit = (updated: TradeScreenshot) => {
+    onScreenshotsChange(
+      screenshots.map((s) => (s.id === updated.id ? updated : s))
+    );
+    // Keep expanded view in sync if it's the same image
+    if (expandedImage?.id === updated.id) {
+      setExpandedImage(updated);
+    }
+  };
 
   // Sort screenshots by timeframe (HTF to LTF)
   const sortedScreenshots = [...screenshots].sort((a, b) => {
@@ -116,6 +128,14 @@ export function TradeScreenshotGallery({
                   <Maximize2 className="h-4 w-4" />
                 </Button>
                 <Button
+                  variant="secondary"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={() => setEditingScreenshot(screenshot)}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
                   variant="destructive"
                   size="icon"
                   className="h-9 w-9"
@@ -179,17 +199,30 @@ export function TradeScreenshotGallery({
       <Dialog open={!!expandedImage} onOpenChange={() => setExpandedImage(null)}>
         <DialogContent className="max-w-5xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <Badge
-                variant="outline"
-                className={cn(
-                  "font-mono",
-                  expandedImage && TIMEFRAME_COLORS[expandedImage.timeframe]
-                )}
-              >
-                {expandedImage?.timeframe}
-              </Badge>
-              Chart Screenshot
+            <DialogTitle className="flex items-center justify-between gap-3 pr-8">
+              <div className="flex items-center gap-3">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "font-mono",
+                    expandedImage && TIMEFRAME_COLORS[expandedImage.timeframe]
+                  )}
+                >
+                  {expandedImage?.timeframe}
+                </Badge>
+                Chart Screenshot
+              </div>
+              {expandedImage && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => setEditingScreenshot(expandedImage)}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </Button>
+              )}
             </DialogTitle>
           </DialogHeader>
           {expandedImage && (
@@ -200,7 +233,7 @@ export function TradeScreenshotGallery({
                 className="w-full rounded-lg"
               />
               {expandedImage.description && (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
                   {expandedImage.description}
                 </p>
               )}
@@ -208,6 +241,14 @@ export function TradeScreenshotGallery({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Edit Screenshot Dialog */}
+      <EditScreenshotDialog
+        open={!!editingScreenshot}
+        onOpenChange={(open) => !open && setEditingScreenshot(null)}
+        screenshot={editingScreenshot}
+        onSave={handleEdit}
+      />
     </div>
   );
 }
