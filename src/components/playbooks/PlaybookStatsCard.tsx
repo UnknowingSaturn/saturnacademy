@@ -90,6 +90,24 @@ export function PlaybookStatsCard({ stats, isLoading }: PlaybookStatsCardProps) 
           </span>
         </div>
       )}
+
+      {stats.readGradedCount > 0 && (
+        <div
+          className="flex items-center justify-between text-xs pt-1 border-t"
+          title="How often this model was BOTH the planned read AND the actual setup that played out."
+        >
+          <span className="text-muted-foreground">Read accuracy</span>
+          <span>
+            <span className={cn(
+              "font-medium",
+              stats.readAccuracy >= 70 ? "text-profit" : stats.readAccuracy >= 40 ? "text-foreground" : "text-loss"
+            )}>
+              {stats.readAccuracy.toFixed(0)}%
+            </span>
+            <span className="ml-1 text-muted-foreground">({stats.readMatches}/{stats.readGradedCount})</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
