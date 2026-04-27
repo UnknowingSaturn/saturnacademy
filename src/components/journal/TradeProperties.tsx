@@ -11,6 +11,7 @@ import {
   DetailFieldDef,
   CustomFieldDefinition,
   customFieldToColumn,
+  resolveFieldLabel,
 } from "@/types/settings";
 import { cn } from "@/lib/utils";
 import { formatFullDateTimeET, getDayNameET } from "@/lib/time";
