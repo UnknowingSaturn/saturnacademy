@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,7 +11,46 @@ import { format, parseISO } from "date-fns";
 import { CitedTradeChip } from "./CitedTradeChip";
 import { SchemaSuggestionCard } from "./SchemaSuggestionCard";
 import { useRerunSensei } from "@/hooks/useSenseiReports";
-import type { Report } from "@/types/reports";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import type { Report, SchemaSuggestion } from "@/types/reports";
+
+// Same dedupe logic as backend — keeps historical reports honest.
+const SYSTEM_FIELD_KEYS = new Set([
+  "mistakes", "did_well", "to_improve", "psychology_notes", "thoughts",
+  "emotional_state_before", "emotional_state_after", "news_risk", "regime",
+  "score", "checklist_answers", "session", "playbook_id", "actual_playbook_id",
+  "profile", "actual_profile",
+]);
+const SYSTEM_FIELD_LABEL_TOKENS = new Set([
+  "mistake", "mistakes", "primary cause of mistake", "what went well", "did well",
+  "what to improve", "to improve", "psychology", "psychology notes", "thoughts",
+  "emotion", "emotional state", "feeling", "how are you feeling",
+  "news", "news risk", "high impact news", "regime", "score", "checklist",
+  "session", "playbook", "setup", "model", "profile",
+]);
+function normalizeLabel(s: string): string {
+  return (s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+function suggestionExists(
+  s: SchemaSuggestion,
+  keys: Set<string>,
+  labels: Set<string>,
+): boolean {
+  const id = s.proposed_question?.id;
+  const missing = s.missing_field;
+  const label = s.proposed_question?.label;
+  if (id && keys.has(id)) return true;
+  if (missing && keys.has(missing)) return true;
+  if (label) {
+    const norm = normalizeLabel(label);
+    if (labels.has(norm)) return true;
+    for (const tok of labels) {
+      if (tok && (norm.includes(tok) || tok.includes(norm))) return true;
+    }
+  }
+  return false;
+}
 
 interface Props { report: Report }
 
@@ -59,6 +100,35 @@ export function ReportView({ report }: Props) {
   const colors = gradeColors(report.grade);
   const rerun = useRerunSensei();
   const isRerunning = rerun.isPending && rerun.variables === report.id;
+
+  // Frontend dedupe — protects historical reports from re-suggesting fields the user already has
+  const { user } = useAuth();
+  const { data: existingFields } = useQuery({
+    queryKey: ["existing_journal_fields", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const [{ data: settings }, { data: customFields }] = await Promise.all([
+        supabase.from("user_settings").select("live_trade_questions").eq("user_id", user!.id).maybeSingle(),
+        (supabase as any).from("custom_field_definitions").select("key,label,is_active").eq("user_id", user!.id).eq("is_active", true),
+      ]);
+      const keys = new Set<string>(SYSTEM_FIELD_KEYS);
+      const labels = new Set<string>(SYSTEM_FIELD_LABEL_TOKENS);
+      for (const q of (settings?.live_trade_questions as any[]) || []) {
+        if (q?.id) keys.add(String(q.id));
+        if (q?.label) labels.add(normalizeLabel(q.label));
+      }
+      for (const f of (customFields as any[]) || []) {
+        if (f?.key) keys.add(String(f.key));
+        if (f?.label) labels.add(normalizeLabel(f.label));
+      }
+      return { keys, labels };
+    },
+  });
+  const filteredSuggestions = useMemo(() => {
+    const list = report.schema_suggestions || [];
+    if (!existingFields) return list;
+    return list.filter((s) => !suggestionExists(s, existingFields.keys, existingFields.labels));
+  }, [report.schema_suggestions, existingFields]);
 
   return (
     <article className="max-w-4xl mx-auto pb-16">
@@ -397,12 +467,12 @@ export function ReportView({ report }: Props) {
           )}
 
           {/* §8 Schema suggestions */}
-          {report.schema_suggestions && report.schema_suggestions.length > 0 && (
+          {filteredSuggestions.length > 0 && (
             <div className="space-y-3">
               <h2 className="text-base font-semibold flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" /> Make next period's report sharper
               </h2>
-              {report.schema_suggestions.map((s, i) => <SchemaSuggestionCard key={i} suggestion={s} />)}
+              {filteredSuggestions.map((s, i) => <SchemaSuggestionCard key={i} suggestion={s} />)}
             </div>
           )}
         </div>
