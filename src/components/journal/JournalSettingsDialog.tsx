@@ -2,10 +2,9 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SessionConfigPanel } from "./settings/SessionConfigPanel";
-import { PropertyOptionsPanel } from "./settings/PropertyOptionsPanel";
-import { ColumnConfigPanel } from "./settings/ColumnConfigPanel";
-import { FilterPresetsPanel } from "./settings/FilterPresetsPanel";
+import { FieldsPanel } from "./settings/FieldsPanel";
 import { DetailLayoutPanel } from "./settings/DetailLayoutPanel";
+import { FilterPresetsPanel } from "./settings/FilterPresetsPanel";
 
 interface JournalSettingsDialogProps {
   open: boolean;
@@ -28,25 +27,20 @@ export function JournalSettingsDialog({ open, onOpenChange, defaultTab }: Journa
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid grid-cols-5 w-full">
+          <TabsList className="grid grid-cols-4 w-full">
             <TabsTrigger value="fields">Fields</TabsTrigger>
-            <TabsTrigger value="layout">Layout</TabsTrigger>
-            <TabsTrigger value="columns">Columns</TabsTrigger>
+            <TabsTrigger value="sections">Sections</TabsTrigger>
             <TabsTrigger value="sessions">Sessions</TabsTrigger>
             <TabsTrigger value="filters">Filters</TabsTrigger>
           </TabsList>
 
           <div className="flex-1 overflow-y-auto mt-4">
             <TabsContent value="fields" className="mt-0 h-full">
-              <PropertyOptionsPanel />
+              <FieldsPanel />
             </TabsContent>
 
-            <TabsContent value="layout" className="mt-0 h-full">
+            <TabsContent value="sections" className="mt-0 h-full">
               <DetailLayoutPanel />
-            </TabsContent>
-
-            <TabsContent value="columns" className="mt-0 h-full">
-              <ColumnConfigPanel />
             </TabsContent>
 
             <TabsContent value="sessions" className="mt-0 h-full">
