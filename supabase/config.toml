@@ -48,3 +48,6 @@ verify_jwt = false
 [functions.knowledge-chat]
 verify_jwt = false
 
+
+[functions.repair-snapshot-closed]
+verify_jwt = false
