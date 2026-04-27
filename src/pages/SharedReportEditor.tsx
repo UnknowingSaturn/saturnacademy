@@ -274,10 +274,6 @@ export default function SharedReportEditor() {
   );
 }
 
-function CaptionInput({ value, placeholder, onChange }: { value: string; placeholder: string; onChange: (v: string) => void }) {
-  const [local, setLocal] = useState(value);
-  const debounced = useDebouncedCallback((v: string) => onChange(v), 600);
-  useEffect(() => setLocal(value), [value]);
   return (
     <Textarea
       value={local}
