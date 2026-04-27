@@ -216,7 +216,7 @@ export function DetailLayoutPanel() {
           <SortableContext items={sectionOrder} strategy={verticalListSortingStrategy}>
             <div className="space-y-2">
               {sectionOrder.map((key) => {
-                const cat = DETAIL_SECTION_CATALOG.find(s => s.key === key);
+                const cat = DETAIL_SECTION_CATALOG.find(s => s.key === (key as any));
                 if (!cat) return null;
                 return (
                   <SortableRow
