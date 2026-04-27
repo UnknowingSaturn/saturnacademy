@@ -288,8 +288,27 @@ export default function SharedReportEditor() {
           <div className="p-4 space-y-4">
             <div className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Report</div>
             <div className="space-y-1.5">
-              <Label htmlFor="title" className="text-xs">Title</Label>
-              <Input id="title" value={title} onChange={e => { setTitle(e.target.value); debouncedSave({ title: e.target.value }); }} />
+              <div className="flex items-center justify-between">
+                <Label htmlFor="title" className="text-xs flex items-center gap-1.5">
+                  Title
+                  {isAutoTitle && (
+                    <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 font-normal">
+                      Auto
+                    </Badge>
+                  )}
+                </Label>
+                {!isAutoTitle && pickedDateRange.start && (
+                  <button
+                    type="button"
+                    onClick={handleResetAutoTitle}
+                    className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                    title="Reset to auto-generated title"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Auto
+                  </button>
+                )}
+              </div>
+              <Input id="title" value={title} onChange={e => handleTitleChange(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="intro" className="text-xs">Intro / weekly preamble</Label>
@@ -299,16 +318,51 @@ export default function SharedReportEditor() {
               <Label htmlFor="author" className="text-xs">Display name (public)</Label>
               <Input id="author" value={authorName} onChange={e => { setAuthorName(e.target.value); debouncedSave({ author_display_name: e.target.value }); }} placeholder="e.g. @yourname" />
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs">From</Label>
-                <Input type="date" value={report.period_start || ""} onChange={e => debouncedSave({ period_start: e.target.value || null })} />
+
+            {/* Period — auto-derived from picks unless overridden */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Period</Label>
+                <button
+                  type="button"
+                  onClick={() => setOverrideDates(v => !v)}
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                >
+                  {overrideDates ? "Use auto" : "Override dates"}
+                </button>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">To</Label>
-                <Input type="date" value={report.period_end || ""} onChange={e => debouncedSave({ period_end: e.target.value || null })} />
-              </div>
+              {overrideDates ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    type="date"
+                    value={report.period_start || ""}
+                    onChange={e => debouncedSave({ period_start: e.target.value || null })}
+                  />
+                  <Input
+                    type="date"
+                    value={report.period_end || ""}
+                    onChange={e => debouncedSave({ period_end: e.target.value || null })}
+                  />
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground tabular-nums px-3 py-2 rounded-md border border-dashed border-border bg-muted/30">
+                  {pickedDateRange.start && pickedDateRange.end ? (
+                    isSameDay(pickedDateRange.start, pickedDateRange.end) ? (
+                      format(pickedDateRange.start, "MMM d, yyyy")
+                    ) : (
+                      <>
+                        {format(pickedDateRange.start, "MMM d")}
+                        {" – "}
+                        {format(pickedDateRange.end, "MMM d, yyyy")}
+                      </>
+                    )
+                  ) : (
+                    <span className="italic">Pick trades to set the period</span>
+                  )}
+                </div>
+              )}
             </div>
+
             <div className="text-[11px] text-muted-foreground italic border-t border-border pt-3">
               Public viewers see only: pair, direction, entry time, session, playbook, screenshots, and your captions. Dollar amounts, lot sizes, R-multiples, and balances are never exposed.
             </div>
@@ -320,6 +374,8 @@ export default function SharedReportEditor() {
           selectedTradeIds={selectedTradeIds}
           onAddTrade={handleAddTrade}
           onRemoveTrade={handleRemoveTrade}
+          onBulkAdd={handleBulkAdd}
+          onBulkRemove={handleBulkRemove}
         />
 
         {/* Preview + caption editor */}
