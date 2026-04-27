@@ -401,7 +401,7 @@ serve(async (req) => {
       let closedCount = 0;
       for (const staleTrade of staleTrades) {
         console.log("Closing stale trade:", staleTrade.id, "ticket:", staleTrade.ticket, "symbol:", staleTrade.symbol);
-        
+
         const { error: updateError } = await supabase
           .from("trades")
           .update({
@@ -409,7 +409,12 @@ serve(async (req) => {
             exit_time: new Date().toISOString(),
             net_pnl: 0,
             gross_pnl: 0,
-            partial_closes: JSON.stringify([{ type: "snapshot_closed", note: "Closed by position snapshot reconciliation — PnL data may be incomplete" }]),
+            partial_closes: [{
+              type: "snapshot_closed",
+              account_login: brokerLogin,
+              closed_at: new Date().toISOString(),
+              note: "Closed by position snapshot — awaiting reconnect to repair real PnL",
+            }],
           })
           .eq("id", staleTrade.id);
 
