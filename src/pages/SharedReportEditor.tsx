@@ -36,6 +36,34 @@ function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: 
 import { toast } from "sonner";
 import type { PublicTradeCard } from "@/types/sharedReports";
 
+// Build an auto title from a [start, end] date range derived from the picked trades.
+function buildAutoTitle(start: Date | null, end: Date | null): string {
+  if (!start || !end) return "Untitled report";
+  if (isSameDay(start, end)) {
+    return `Daily recap — ${format(start, "MMM d, yyyy")}`;
+  }
+  // Same Monday-week
+  if (isSameWeek(start, end, { weekStartsOn: 1 })) {
+    const ws = startOfWeek(start, { weekStartsOn: 1 });
+    const we = endOfWeek(start, { weekStartsOn: 1 });
+    // Only call it a "Week of" if the picks roughly span the full week, otherwise show a tight range
+    if (
+      differenceInCalendarDays(start, ws) <= 1 &&
+      differenceInCalendarDays(we, end) <= 1
+    ) {
+      return `Week of ${format(ws, "MMM d")} – ${format(we, "MMM d, yyyy")}`;
+    }
+    return `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`;
+  }
+  if (isSameMonth(start, end)) {
+    // Spans most of a single month → "April 2026 recap"
+    const span = differenceInCalendarDays(end, start);
+    if (span >= 14) return `${format(start, "MMMM yyyy")} recap`;
+    return `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`;
+  }
+  return `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`;
+}
+
 export default function SharedReportEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
