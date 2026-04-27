@@ -112,24 +112,109 @@ serve(async (req) => {
     const payload: EventPayload = await req.json();
     console.log("Received event:", payload.idempotency_key, payload.event_type, "position:", payload.position_id, "deal:", payload.deal_id);
 
-    // Look up account by API key
-    let { data: account, error: accountError } = await supabase
+    // ==========================================
+    // ACCOUNT RESOLUTION (multi-account aware)
+    // ==========================================
+    // Strategy: API key identifies the USER (terminal token).
+    // The actual account is resolved per-event by (user_id, account_info.login)
+    // so that one MT5 terminal switching between Hola Prime accounts routes
+    // each event to the correct journal account.
+
+    // Step 1: find any account using this API key — that gives us the user_id
+    const { data: anyAccountForKey } = await supabase
       .from("accounts")
-      .select("id, user_id, terminal_id")
+      .select("id, user_id, terminal_id, account_number")
       .eq("api_key", apiKey)
       .eq("is_active", true)
-      .single();
+      .limit(1)
+      .maybeSingle();
 
-    // If no account found, try auto-creation if we have account_info
-    if ((accountError || !account) && payload.account_info) {
-      console.log("No account found, attempting auto-creation...");
-      
-      const { data: setupToken, error: tokenError } = await supabase
+    let userIdForKey: string | null = anyAccountForKey?.user_id ?? null;
+    let setupTokenRow: any = null;
+
+    if (!userIdForKey) {
+      const { data: tok } = await supabase
         .from("setup_tokens")
         .select("user_id, used, sync_history_enabled, sync_history_from, copier_role, master_account_id")
         .eq("token", apiKey)
         .gt("expires_at", new Date().toISOString())
-        .single();
+        .maybeSingle();
+      if (tok && !tok.used) {
+        userIdForKey = tok.user_id;
+        setupTokenRow = tok;
+      }
+    }
+
+    if (!userIdForKey) {
+      console.error("Invalid API key — no account or active setup token");
+      return new Response(
+        JSON.stringify({ status: "error", message: "Invalid API key" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Step 2: resolve the target account by broker login (account_info.login)
+    const brokerLogin = payload.account_info?.login != null ? String(payload.account_info.login) : null;
+
+    let account: { id: string; user_id: string; terminal_id: string | null } | null = null;
+
+    if (brokerLogin) {
+      const { data: byLogin } = await supabase
+        .from("accounts")
+        .select("id, user_id, terminal_id")
+        .eq("user_id", userIdForKey)
+        .eq("account_number", brokerLogin)
+        .eq("is_active", true)
+        .maybeSingle();
+      account = byLogin ?? null;
+    }
+
+    // Fallback: if no broker login (e.g. older EA), use the API-key account
+    if (!account && anyAccountForKey) {
+      account = {
+        id: anyAccountForKey.id,
+        user_id: anyAccountForKey.user_id,
+        terminal_id: anyAccountForKey.terminal_id,
+      };
+    }
+
+    // Auto-create when we have account_info but no matching account row
+    if (!account && payload.account_info) {
+      console.log("No account found for login", brokerLogin, "— auto-creating");
+
+      // Re-fetch setup token data if we haven't already
+      if (!setupTokenRow) {
+        const { data: tok } = await supabase
+          .from("setup_tokens")
+          .select("user_id, used, sync_history_enabled, sync_history_from, copier_role, master_account_id")
+          .eq("token", apiKey)
+          .gt("expires_at", new Date().toISOString())
+          .maybeSingle();
+        setupTokenRow = tok ?? null;
+      }
+
+      // For multi-account on same terminal, allow auto-create even without
+      // a setup token — as long as the API key is already linked to the user.
+      const allowAutoCreate = !!anyAccountForKey || (setupTokenRow && !setupTokenRow.used);
+      if (!allowAutoCreate) {
+        console.error("Cannot auto-create account: no setup token and API key not yet bound");
+        return new Response(
+          JSON.stringify({ status: "error", message: "Invalid API key" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Reuse existing setup-token branch by falling through with synthesised values
+      const setupToken = setupTokenRow ?? {
+        user_id: userIdForKey,
+        used: false,
+        sync_history_enabled: true,
+        sync_history_from: null,
+        copier_role: 'independent',
+        master_account_id: null,
+      };
+      // (the original auto-create block below will run)
+      const tokenError = null;
 
       if (tokenError || !setupToken) {
         console.error("Invalid API key and no valid setup token:", accountError);
