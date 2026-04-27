@@ -37,6 +37,39 @@ export default function Accounts() {
   const [isFreshStarting, setIsFreshStarting] = useState(false);
   const [freshStartAccountId, setFreshStartAccountId] = useState<string>('');
   const [archiveAllAccountId, setArchiveAllAccountId] = useState<string>('');
+  const [repairAccountId, setRepairAccountId] = useState<string>('');
+  const [isRepairing, setIsRepairing] = useState(false);
+
+  const handleRepairStuckTrades = async () => {
+    if (!repairAccountId) {
+      toast.error("Please select an account");
+      return;
+    }
+    setIsRepairing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Please sign in");
+        return;
+      }
+      const { data, error } = await supabase.functions.invoke('repair-snapshot-closed', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { account_id: repairAccountId },
+      });
+      if (error) throw error;
+      toast.success(data.message, {
+        description: data.pending_mt5_reconnect > 0
+          ? `Pending tickets: ${data.pending_tickets?.slice(0, 5).join(', ')}${data.pending_tickets?.length > 5 ? '…' : ''}`
+          : undefined,
+      });
+      refetch();
+    } catch (err) {
+      console.error("Repair error:", err);
+      toast.error("Failed to repair trades");
+    } finally {
+      setIsRepairing(false);
+    }
+  };
 
   const handleRecoverTrades = async () => {
     setIsRecovering(true);
