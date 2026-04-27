@@ -39,12 +39,12 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   const { data: settings } = useUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
 
-  // User-editable property dropdowns (from Settings → Dropdown Options)
-  const { data: profileOpts } = usePropertyOptions("profile");
-  const { data: regimeOpts } = usePropertyOptions("regime");
-  const { data: sessionOpts } = usePropertyOptions("session");
-  const { data: timeframeOpts } = usePropertyOptions("timeframe");
-  const { data: emotionOpts } = usePropertyOptions("emotion");
+  // User-editable property dropdowns (from Settings → Fields). Only active options surface here.
+  const { data: profileOpts } = usePropertyOptions("profile", true);
+  const { data: regimeOpts } = usePropertyOptions("regime", true);
+  const { data: sessionOpts } = usePropertyOptions("session", true);
+  const { data: timeframeOpts } = usePropertyOptions("timeframe", true);
+  const { data: emotionOpts } = usePropertyOptions("emotion", true);
 
   const isManualTrade = !trade.ticket;
 
