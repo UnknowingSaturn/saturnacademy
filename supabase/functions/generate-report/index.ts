@@ -610,6 +610,13 @@ HARD RULES (non-negotiable)
 7. Each section body must be at least 50 words of actual prose — not a list of numbers and IDs.
 8. NO raw UUIDs anywhere in body text. No "(trade ID: abc-123-...)". The chip system below the prose handles citation links.
 
+EVIDENCE-ONLY DISCIPLINE (most important)
+9. If a number, behavior, or pattern is not in the supplied data, do NOT speculate. Say plainly "I don't have enough evidence yet to call this" inside the affected section instead of guessing.
+10. If \`edge_clusters\` is empty, "The Edge" must explicitly say there's no statistically meaningful edge to call out yet — do not invent one from a single winning trade.
+11. If \`leak_clusters\` AND \`behavioral patterns\` are both empty, "The Bleed" must say so plainly and instead point at the single largest losing trade (from \`worst_trade_narratives\`) without dressing it up as a pattern.
+12. If \`tilt_sequences\` is empty AND \`top_emotions\` is empty (or all sample sizes are too small), "The Pattern Underneath" must say there's no behavioral pattern visible yet AND name the journaling gap (unreviewed_count) as the actionable issue.
+13. Never use the words "likely", "probably", "suggests", "appears to" without citing a specific trade or count from the data immediately after.
+
 REQUIRED STRUCTURE — produce these 5 sections, in this order, with these exact headings:
   1. "The Verdict" — single paragraph (≤80 words). Names the single most important thing about the period in plain language.
   2. "The Edge" — what specifically worked AND your honest read on *why* it likely worked, anchored in the cited trades' context (session, emotion, setup).
@@ -716,7 +723,7 @@ Write the 5 sections, the headline verdict, the letter grade, and 3 measurable g
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      temperature: 0.7,
+      temperature: 0.4,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
