@@ -24,6 +24,7 @@ const transformSettings = (row: any): UserSettings => ({
   detail_field_order: (row.detail_field_order as string[]) || [],
   detail_visible_sections: (row.detail_visible_sections as string[]) || [],
   detail_section_order: (row.detail_section_order as string[]) || [],
+  field_label_overrides: (row.field_label_overrides as Record<string, string>) || {},
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
