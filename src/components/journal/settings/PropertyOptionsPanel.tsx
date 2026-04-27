@@ -253,8 +253,11 @@ export function PropertyOptionsPanel() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-medium">Property Options</h3>
-          <p className="text-sm text-muted-foreground">Customize dropdown options for each property. Click label to edit, drag to reorder.</p>
+          <h3 className="font-medium">Dropdown Options</h3>
+          <p className="text-sm text-muted-foreground">
+            Edit the dropdown values that appear inside each journal field. Click a label to rename, drag to reorder.
+            Deleting an option does not change historical trades.
+          </p>
         </div>
       </div>
 
