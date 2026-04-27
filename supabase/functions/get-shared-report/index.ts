@@ -101,32 +101,42 @@ serve(async (req) => {
       for (const p of (pbs || [])) playbookNames.set(p.id, p.name);
     }
 
-    // Build public cards (whitelist only)
+    // Build public cards (whitelist only) — apply per-trade overrides on top of live data
     const cards: PublicTradeCard[] = (links || []).map(link => {
       const t = trades.find(x => x.id === link.trade_id);
       if (!t) return null;
       const review = reviewsByTrade.get(t.id);
       const rawShots: any[] = Array.isArray(review?.screenshots) ? review.screenshots : [];
       const overrides: any[] = Array.isArray(link.screenshot_overrides) ? link.screenshot_overrides : [];
+
+      // Apply per-screenshot overrides (description/timeframe/hidden/sort_index)
       const screenshots = rawShots
         .filter(s => s && typeof s === "object" && s.url)
-        .map(s => {
-          const ov = overrides.find((o: any) => o.id === s.id);
+        .map((s, idx) => {
+          const ov = overrides.find((o: any) => o.id === s.id) || {};
           return {
             url: s.url,
-            timeframe: String(s.timeframe || ""),
-            description: ov?.description ?? s.description ?? null,
+            timeframe: String(ov.timeframe ?? s.timeframe ?? ""),
+            description: ov.description ?? s.description ?? null,
+            _hidden: !!ov.hidden,
+            _sortIndex: typeof ov.sort_index === "number" ? ov.sort_index : 1000 + idx,
           };
-        });
+        })
+        .filter(s => !s._hidden)
+        .sort((a, b) => a._sortIndex - b._sortIndex)
+        .map(s => ({ url: s.url, timeframe: s.timeframe, description: s.description }));
 
       const pbId = t.actual_playbook_id || t.playbook_id;
+      const livePlaybookName = pbId ? (playbookNames.get(pbId) || null) : null;
+
+      // Apply header overrides (null override = fall back to live value)
       return {
         id: t.id,
-        symbol: t.symbol,
-        direction: t.direction,
-        entry_time: t.entry_time,
-        session: t.session,
-        playbook_name: pbId ? (playbookNames.get(pbId) || null) : null,
+        symbol: link.symbol_override ?? t.symbol,
+        direction: link.direction_override ?? t.direction,
+        entry_time: link.entry_time_override ?? t.entry_time,
+        session: link.session_override ?? t.session,
+        playbook_name: link.playbook_name_override ?? livePlaybookName,
         screenshots,
         caption_what_went_well: link.caption_what_went_well,
         caption_what_went_wrong: link.caption_what_went_wrong,
