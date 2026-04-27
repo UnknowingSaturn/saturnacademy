@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,7 +11,46 @@ import { format, parseISO } from "date-fns";
 import { CitedTradeChip } from "./CitedTradeChip";
 import { SchemaSuggestionCard } from "./SchemaSuggestionCard";
 import { useRerunSensei } from "@/hooks/useSenseiReports";
-import type { Report } from "@/types/reports";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import type { Report, SchemaSuggestion } from "@/types/reports";
+
+// Same dedupe logic as backend — keeps historical reports honest.
+const SYSTEM_FIELD_KEYS = new Set([
+  "mistakes", "did_well", "to_improve", "psychology_notes", "thoughts",
+  "emotional_state_before", "emotional_state_after", "news_risk", "regime",
+  "score", "checklist_answers", "session", "playbook_id", "actual_playbook_id",
+  "profile", "actual_profile",
+]);
+const SYSTEM_FIELD_LABEL_TOKENS = new Set([
+  "mistake", "mistakes", "primary cause of mistake", "what went well", "did well",
+  "what to improve", "to improve", "psychology", "psychology notes", "thoughts",
+  "emotion", "emotional state", "feeling", "how are you feeling",
+  "news", "news risk", "high impact news", "regime", "score", "checklist",
+  "session", "playbook", "setup", "model", "profile",
+]);
+function normalizeLabel(s: string): string {
+  return (s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+function suggestionExists(
+  s: SchemaSuggestion,
+  keys: Set<string>,
+  labels: Set<string>,
+): boolean {
+  const id = s.proposed_question?.id;
+  const missing = s.missing_field;
+  const label = s.proposed_question?.label;
+  if (id && keys.has(id)) return true;
+  if (missing && keys.has(missing)) return true;
+  if (label) {
+    const norm = normalizeLabel(label);
+    if (labels.has(norm)) return true;
+    for (const tok of labels) {
+      if (tok && (norm.includes(tok) || tok.includes(norm))) return true;
+    }
+  }
+  return false;
+}
 
 interface Props { report: Report }
 
