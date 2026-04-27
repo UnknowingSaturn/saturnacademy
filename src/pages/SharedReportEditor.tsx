@@ -100,8 +100,9 @@ export default function SharedReportEditor() {
   }
   const { report, trades: links } = data;
 
-  // Build educational preview cards from local trade data
-  const previewCards: PublicTradeCard[] = links
+  // Build educational preview cards from local trade data, applying overrides
+  const previewCards: Array<{ card: PublicTradeCard; link: typeof links[number]; sourceShots: any[]; liveTrade: any }> = links
+    .slice()
     .sort((a, b) => a.sort_order - b.sort_order)
     .map(link => {
       const t = allTrades.find(x => x.id === link.trade_id);
@@ -110,26 +111,37 @@ export default function SharedReportEditor() {
       const rawShots: any[] = Array.isArray(review?.screenshots)
         ? (review!.screenshots as any[]).filter(s => s && typeof s === "object" && (s as any).url)
         : [];
-      const screenshots = rawShots.map((s: any) => ({
-        url: s.url,
-        timeframe: String(s.timeframe || ""),
-        description: (link.screenshot_overrides as any[])?.find((o: any) => o.id === s.id)?.description ?? s.description ?? null,
-      }));
-      const pbName = (t as any).actual_playbook?.name || t.playbook?.name || null;
-      return {
+      const overrides = (link.screenshot_overrides as any[]) || [];
+      const screenshots = rawShots
+        .map((s: any, idx: number) => {
+          const ov = overrides.find((o: any) => o.id === s.id) || {};
+          return {
+            url: s.url,
+            timeframe: String(ov.timeframe ?? s.timeframe ?? ""),
+            description: ov.description ?? s.description ?? null,
+            _hidden: !!ov.hidden,
+            _sortIndex: typeof ov.sort_index === "number" ? ov.sort_index : 1000 + idx,
+          };
+        })
+        .filter((s: any) => !s._hidden)
+        .sort((a: any, b: any) => a._sortIndex - b._sortIndex)
+        .map(({ url, timeframe, description }: any) => ({ url, timeframe, description }));
+      const livePbName = (t as any).actual_playbook?.name || t.playbook?.name || null;
+      const card: PublicTradeCard = {
         id: t.id,
-        symbol: t.symbol,
-        direction: t.direction,
-        entry_time: t.entry_time,
-        session: t.session,
-        playbook_name: pbName,
+        symbol: (link as any).symbol_override ?? t.symbol,
+        direction: (link as any).direction_override ?? t.direction,
+        entry_time: (link as any).entry_time_override ?? t.entry_time,
+        session: (link as any).session_override ?? t.session,
+        playbook_name: (link as any).playbook_name_override ?? livePbName,
         screenshots,
         caption_what_went_well: link.caption_what_went_well,
         caption_what_went_wrong: link.caption_what_went_wrong,
         caption_what_to_improve: link.caption_what_to_improve,
-      } as PublicTradeCard;
+      };
+      return { card, link, sourceShots: rawShots, liveTrade: t };
     })
-    .filter(Boolean) as PublicTradeCard[];
+    .filter(Boolean) as any;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
