@@ -240,35 +240,26 @@ export default function SharedReportEditor() {
               </div>
             ) : (
               <div className="space-y-6">
-                {previewCards.map((card, i) => {
-                  const link = links.find(l => l.trade_id === card.id);
-                  if (!link) return null;
+                {previewCards.map(({ card, link, sourceShots, liveTrade }, i) => {
+                  const livePbName = (liveTrade as any).actual_playbook?.name || liveTrade.playbook?.name || null;
                   return (
                     <div key={card.id} className="space-y-3">
                       <EducationalTradeCard card={card} index={i} />
-                      <div className="space-y-2 pl-4 border-l-2 border-border ml-2">
-                        <div className="flex items-center justify-between">
-                          <div className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Captions</div>
-                          <Button variant="ghost" size="sm" className="h-6 text-xs text-destructive hover:text-destructive" onClick={() => handleRemoveTrade(card.id)}>
-                            <X className="w-3 h-3 mr-1" /> Remove
-                          </Button>
-                        </div>
-                        <CaptionInput
-                          value={link.caption_what_went_well || ""}
-                          placeholder="What went well…"
-                          onChange={(v) => handleCaptionChange(link.id, "caption_what_went_well", v)}
-                        />
-                        <CaptionInput
-                          value={link.caption_what_went_wrong || ""}
-                          placeholder="What went wrong…"
-                          onChange={(v) => handleCaptionChange(link.id, "caption_what_went_wrong", v)}
-                        />
-                        <CaptionInput
-                          value={link.caption_what_to_improve || ""}
-                          placeholder="What to improve…"
-                          onChange={(v) => handleCaptionChange(link.id, "caption_what_to_improve", v)}
-                        />
-                      </div>
+                      <ReportTradeEditor
+                        link={link}
+                        liveSymbol={liveTrade.symbol}
+                        liveDirection={liveTrade.direction}
+                        liveEntryTime={liveTrade.entry_time}
+                        liveSession={liveTrade.session ?? null}
+                        livePlaybookName={livePbName}
+                        sourceScreenshots={sourceShots}
+                        index={i}
+                        total={previewCards.length}
+                        onMoveUp={() => handleMoveCard(link.id, -1)}
+                        onMoveDown={() => handleMoveCard(link.id, 1)}
+                        onRemove={() => handleRemoveTrade(card.id)}
+                        onPatch={(patch) => handlePatchTrade(link.id, patch)}
+                      />
                     </div>
                   );
                 })}
