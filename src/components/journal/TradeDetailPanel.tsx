@@ -100,6 +100,28 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   const [newItem, setNewItem] = useState({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
   const [showProperties, setShowProperties] = useState(true);
 
+  const { data: userSettings } = useUserSettings();
+
+  // Compute which review sections to show, and in what order
+  const visibleSections = useMemo(() => {
+    const list = userSettings?.detail_visible_sections?.length
+      ? userSettings.detail_visible_sections
+      : DEFAULT_DETAIL_VISIBLE_SECTIONS;
+    return new Set<string>(list);
+  }, [userSettings?.detail_visible_sections]);
+
+  const sectionOrder = useMemo<DetailSectionKey[]>(() => {
+    const userOrder = userSettings?.detail_section_order?.length
+      ? userSettings.detail_section_order
+      : DEFAULT_DETAIL_SECTION_ORDER;
+    const known = new Set<string>(DEFAULT_DETAIL_SECTION_ORDER as string[]);
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const k of userOrder) if (known.has(k) && !seen.has(k)) { ordered.push(k); seen.add(k); }
+    for (const k of DEFAULT_DETAIL_SECTION_ORDER) if (!seen.has(k)) ordered.push(k);
+    return ordered as DetailSectionKey[];
+  }, [userSettings?.detail_section_order]);
+
   // Persist input drafts to localStorage (separate from review autosave)
   const inputDraftKey = trade?.id ? `trade_input_drafts_${trade.id}` : undefined;
 
