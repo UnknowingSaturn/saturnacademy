@@ -8,12 +8,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, Share2, Trash2, Eye, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, Share2, Trash2, Eye, Loader2, Sparkles, RotateCcw } from "lucide-react";
 import { TradePickerPanel } from "@/components/shared-reports/TradePickerPanel";
 import { EducationalTradeCard } from "@/components/shared-reports/EducationalTradeCard";
 import { ReportTradeEditor } from "@/components/shared-reports/ReportTradeEditor";
 import { ShareDialog } from "@/components/shared-reports/ShareDialog";
-import { format, parseISO } from "date-fns";
+import {
+  format,
+  parseISO,
+  isSameDay,
+  isSameMonth,
+  isSameWeek,
+  startOfWeek,
+  endOfWeek,
+  differenceInCalendarDays,
+} from "date-fns";
 // Simple inline debounced callback hook
 function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: number) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -26,6 +35,34 @@ function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: 
 }
 import { toast } from "sonner";
 import type { PublicTradeCard } from "@/types/sharedReports";
+
+// Build an auto title from a [start, end] date range derived from the picked trades.
+function buildAutoTitle(start: Date | null, end: Date | null): string {
+  if (!start || !end) return "Untitled report";
+  if (isSameDay(start, end)) {
+    return `Daily recap — ${format(start, "MMM d, yyyy")}`;
+  }
+  // Same Monday-week
+  if (isSameWeek(start, end, { weekStartsOn: 1 })) {
+    const ws = startOfWeek(start, { weekStartsOn: 1 });
+    const we = endOfWeek(start, { weekStartsOn: 1 });
+    // Only call it a "Week of" if the picks roughly span the full week, otherwise show a tight range
+    if (
+      differenceInCalendarDays(start, ws) <= 1 &&
+      differenceInCalendarDays(we, end) <= 1
+    ) {
+      return `Week of ${format(ws, "MMM d")} – ${format(we, "MMM d, yyyy")}`;
+    }
+    return `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`;
+  }
+  if (isSameMonth(start, end)) {
+    // Spans most of a single month → "April 2026 recap"
+    const span = differenceInCalendarDays(end, start);
+    if (span >= 14) return `${format(start, "MMMM yyyy")} recap`;
+    return `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`;
+  }
+  return `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`;
+}
 
 export default function SharedReportEditor() {
   const { id } = useParams<{ id: string }>();
@@ -90,6 +127,79 @@ export default function SharedReportEditor() {
         updateTrade.mutate({ id: l.id, shared_report_id: id, patch: { sort_order: idx } as any });
       }
     });
+  };
+
+  // Bulk add/remove (used by trade picker "Select all visible")
+  const handleBulkAdd = (tradeIds: string[]) => {
+    if (!id || !data) return;
+    let sort = data.trades.length;
+    for (const tradeId of tradeIds) {
+      if (selectedTradeIds.has(tradeId)) continue;
+      addTrade.mutate({ shared_report_id: id, trade_id: tradeId, sort_order: sort++ });
+    }
+  };
+  const handleBulkRemove = (tradeIds: string[]) => {
+    if (!id || !data) return;
+    for (const tradeId of tradeIds) {
+      const link = data.trades.find(t => t.trade_id === tradeId);
+      if (link) removeTrade.mutate({ id: link.id, shared_report_id: id });
+    }
+  };
+
+  // Override-dates toggle: when off, From/To are auto-derived from picks and read-only.
+  const [overrideDates, setOverrideDates] = useState(false);
+
+  // Compute date range derived from currently picked trades' entry_time.
+  const pickedDateRange = useMemo<{ start: Date | null; end: Date | null }>(() => {
+    const times: number[] = [];
+    for (const link of (data?.trades || [])) {
+      const t = allTrades.find(x => x.id === link.trade_id);
+      const iso = (link as any).entry_time_override ?? t?.entry_time;
+      if (iso) {
+        const d = parseISO(iso);
+        if (!isNaN(d.getTime())) times.push(d.getTime());
+      }
+    }
+    if (!times.length) return { start: null, end: null };
+    return { start: new Date(Math.min(...times)), end: new Date(Math.max(...times)) };
+  }, [data?.trades, allTrades]);
+
+  // Auto-sync period_start / period_end to picked range (unless user is overriding dates).
+  useEffect(() => {
+    if (!data?.report || overrideDates) return;
+    const { start, end } = pickedDateRange;
+    const newStart = start ? format(start, "yyyy-MM-dd") : null;
+    const newEnd = end ? format(end, "yyyy-MM-dd") : null;
+    const patch: any = {};
+    if ((data.report.period_start || null) !== newStart) patch.period_start = newStart;
+    if ((data.report.period_end || null) !== newEnd) patch.period_end = newEnd;
+    if (Object.keys(patch).length) debouncedSave(patch);
+  }, [pickedDateRange, overrideDates, data?.report, debouncedSave]);
+
+  // Auto-sync title from picked range when auto_title flag is true.
+  useEffect(() => {
+    if (!data?.report) return;
+    if (data.report.auto_title === false) return;
+    const { start, end } = pickedDateRange;
+    if (!start || !end) return;
+    const next = buildAutoTitle(start, end);
+    if (next !== title) {
+      setTitle(next);
+      debouncedSave({ title: next });
+    }
+  }, [pickedDateRange, data?.report, debouncedSave]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isAutoTitle = data?.report?.auto_title !== false;
+  const handleTitleChange = (val: string) => {
+    setTitle(val);
+    // First user edit flips auto_title off
+    debouncedSave({ title: val, auto_title: false });
+  };
+  const handleResetAutoTitle = () => {
+    const { start, end } = pickedDateRange;
+    const next = start && end ? buildAutoTitle(start, end) : "Untitled report";
+    setTitle(next);
+    debouncedSave({ title: next, auto_title: true });
   };
 
   if (isLoading) {
@@ -178,8 +288,27 @@ export default function SharedReportEditor() {
           <div className="p-4 space-y-4">
             <div className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Report</div>
             <div className="space-y-1.5">
-              <Label htmlFor="title" className="text-xs">Title</Label>
-              <Input id="title" value={title} onChange={e => { setTitle(e.target.value); debouncedSave({ title: e.target.value }); }} />
+              <div className="flex items-center justify-between">
+                <Label htmlFor="title" className="text-xs flex items-center gap-1.5">
+                  Title
+                  {isAutoTitle && (
+                    <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 font-normal">
+                      Auto
+                    </Badge>
+                  )}
+                </Label>
+                {!isAutoTitle && pickedDateRange.start && (
+                  <button
+                    type="button"
+                    onClick={handleResetAutoTitle}
+                    className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                    title="Reset to auto-generated title"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Auto
+                  </button>
+                )}
+              </div>
+              <Input id="title" value={title} onChange={e => handleTitleChange(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="intro" className="text-xs">Intro / weekly preamble</Label>
@@ -189,16 +318,51 @@ export default function SharedReportEditor() {
               <Label htmlFor="author" className="text-xs">Display name (public)</Label>
               <Input id="author" value={authorName} onChange={e => { setAuthorName(e.target.value); debouncedSave({ author_display_name: e.target.value }); }} placeholder="e.g. @yourname" />
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs">From</Label>
-                <Input type="date" value={report.period_start || ""} onChange={e => debouncedSave({ period_start: e.target.value || null })} />
+
+            {/* Period — auto-derived from picks unless overridden */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Period</Label>
+                <button
+                  type="button"
+                  onClick={() => setOverrideDates(v => !v)}
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                >
+                  {overrideDates ? "Use auto" : "Override dates"}
+                </button>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">To</Label>
-                <Input type="date" value={report.period_end || ""} onChange={e => debouncedSave({ period_end: e.target.value || null })} />
-              </div>
+              {overrideDates ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    type="date"
+                    value={report.period_start || ""}
+                    onChange={e => debouncedSave({ period_start: e.target.value || null })}
+                  />
+                  <Input
+                    type="date"
+                    value={report.period_end || ""}
+                    onChange={e => debouncedSave({ period_end: e.target.value || null })}
+                  />
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground tabular-nums px-3 py-2 rounded-md border border-dashed border-border bg-muted/30">
+                  {pickedDateRange.start && pickedDateRange.end ? (
+                    isSameDay(pickedDateRange.start, pickedDateRange.end) ? (
+                      format(pickedDateRange.start, "MMM d, yyyy")
+                    ) : (
+                      <>
+                        {format(pickedDateRange.start, "MMM d")}
+                        {" – "}
+                        {format(pickedDateRange.end, "MMM d, yyyy")}
+                      </>
+                    )
+                  ) : (
+                    <span className="italic">Pick trades to set the period</span>
+                  )}
+                </div>
+              )}
             </div>
+
             <div className="text-[11px] text-muted-foreground italic border-t border-border pt-3">
               Public viewers see only: pair, direction, entry time, session, playbook, screenshots, and your captions. Dollar amounts, lot sizes, R-multiples, and balances are never exposed.
             </div>
@@ -210,6 +374,8 @@ export default function SharedReportEditor() {
           selectedTradeIds={selectedTradeIds}
           onAddTrade={handleAddTrade}
           onRemoveTrade={handleRemoveTrade}
+          onBulkAdd={handleBulkAdd}
+          onBulkRemove={handleBulkRemove}
         />
 
         {/* Preview + caption editor */}

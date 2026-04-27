@@ -10,6 +10,7 @@ export interface SharedReport {
   author_display_name: string | null;
   view_count: number;
   published_at: string | null;
+  auto_title: boolean;
   created_at: string;
   updated_at: string;
 }
