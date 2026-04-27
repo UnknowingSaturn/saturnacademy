@@ -305,6 +305,11 @@ export function usePlaybookStats() {
         // R distribution
         stats.rDistribution = calculateRDistribution(playbookTrades);
 
+        // Read accuracy = correct reads / total graded reads (only counts trades where both planned + actual were graded)
+        stats.readAccuracy = stats.readGradedCount > 0
+          ? (stats.readMatches / stats.readGradedCount) * 100
+          : 0;
+
         // Compliance status
         const warnings: string[] = [];
         const tradesLimit = playbook.max_trades_per_session ?? null;
