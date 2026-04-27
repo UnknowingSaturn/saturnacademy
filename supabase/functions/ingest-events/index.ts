@@ -567,10 +567,18 @@ serve(async (req) => {
   }
 });
 
+// Detect if a trade was zeroed out by snapshot reconciliation and is awaiting repair
+function isSnapshotClosed(trade: any): boolean {
+  if (!trade || trade.is_open) return false;
+  const pc = trade.partial_closes;
+  if (!Array.isArray(pc)) return false;
+  return pc.some((entry: any) => entry?.type === "snapshot_closed");
+}
+
 async function processEvent(supabase: any, event: any, userId: string, originalPayload: EventPayload) {
   const { event_type, ticket, account_id, lot_size } = event;
-  const effectiveEventType = originalPayload.event_type === "history_sync" 
-    ? originalPayload.original_event_type 
+  const effectiveEventType = originalPayload.event_type === "history_sync"
+    ? originalPayload.original_event_type
     : originalPayload.event_type;
 
   // Find existing trade for this position_id
