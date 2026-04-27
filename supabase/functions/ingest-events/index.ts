@@ -626,11 +626,38 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
   // Handle entry event (open)
   if (effectiveEventType === "entry" || event_type === "open") {
     if (existingTrade) {
-      console.log("Trade already exists for position:", ticket);
+      // REPAIR: if a snapshot reconciliation incorrectly closed this trade,
+      // and it's actually still open in MT5, reopen it.
+      if (isSnapshotClosed(existingTrade)) {
+        console.log("REPAIR: reopening snapshot_closed trade:", existingTrade.id, "ticket:", ticket);
+        const repairedMarker = [
+          ...(existingTrade.partial_closes || []),
+          {
+            type: "repaired_reopened",
+            repaired_at: new Date().toISOString(),
+            note: "Reopened after EA reconnect — trade is still live in MT5",
+          },
+        ];
+        await supabase.from("trades").update({
+          is_open: true,
+          exit_time: null,
+          exit_price: null,
+          gross_pnl: null,
+          net_pnl: null,
+          r_multiple_actual: null,
+          duration_seconds: null,
+          total_lots: existingTrade.original_lots || event.lot_size,
+          sl_final: event.sl || existingTrade.sl_final,
+          tp_final: event.tp || existingTrade.tp_final,
+          partial_closes: repairedMarker,
+        }).eq("id", existingTrade.id);
+      } else {
+        console.log("Trade already exists for position:", ticket);
+      }
     } else {
       // Use equity_at_entry from payload if provided, otherwise use current equity
       const equityAtEntry = originalPayload.equity_at_entry || currentEquity;
-      
+
       await supabase.from("trades").insert({
         user_id: userId,
         account_id: account_id,
@@ -653,13 +680,13 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       });
       console.log("Created new trade for position:", ticket, "equity_at_entry:", equityAtEntry);
     }
-  } 
+  }
   // Handle exit event
   else if (effectiveEventType === "exit" || event_type === "close" || event_type === "partial_close") {
     if (!existingTrade) {
       // ORPHAN EXIT: Create a closed trade from exit event data
       console.log("Orphan exit event - creating closed trade for position:", ticket);
-      
+
       const rawPayload = event.raw_payload || {};
       const entryPrice = rawPayload.entry_price || originalPayload.entry_price || event.price;
       const entryTime = rawPayload.entry_time || originalPayload.entry_time || event.event_timestamp;
