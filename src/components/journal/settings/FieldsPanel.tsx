@@ -1189,12 +1189,5 @@ function kindHint(kind: string): string {
   }
 }
 
-const ERASABLE = new Set([
-  "session", "playbook_id", "actual_playbook_id",
-  "profile", "actual_profile", "actual_regime", "place",
-  "alignment", "entry_timeframes", "emotional_state_before",
-  "emotion", "regime", "model", "timeframes",
-]);
-function canEraseSystem(key: string): boolean {
-  return ERASABLE.has(key);
-}
+// canEraseSystem is now provided by `canEraseSystemField` from @/types/settings,
+// which derives directly from SYSTEM_FIELD_SOURCES (single source of truth).
