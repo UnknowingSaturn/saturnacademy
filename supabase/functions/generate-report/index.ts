@@ -1205,7 +1205,18 @@ serve(async (req) => {
     const allLeaks = [...behavioralLeakClusters, ...clusterLeaks].slice(0, 6);
     const consistency = consistencyAudit(trades as TradeRow[], baselineTradesPerDay);
     const psychology = psychologyAnalysis(trades as TradeRow[], reviews);
-    const suggestions = schemaSuggestions(trades as TradeRow[], reviews, settings?.live_trade_questions as any[] || []);
+    // Fetch user's custom field definitions so we don't suggest fields they already added
+    const { data: customFieldDefs } = await admin
+      .from('custom_field_definitions')
+      .select('key,label,is_active')
+      .eq('user_id', targetUserId)
+      .eq('is_active', true);
+    const suggestions = schemaSuggestions(
+      trades as TradeRow[],
+      reviews,
+      (settings?.live_trade_questions as any[]) || [],
+      (customFieldDefs as any[]) || [],
+    );
 
     // Evaluate prior goals (best-effort, simple metric mapping)
     let prior_goals_evaluation: any = null;
