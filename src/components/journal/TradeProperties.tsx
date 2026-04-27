@@ -441,3 +441,32 @@ function PropertyRow({
     </div>
   );
 }
+
+// Two-picker row: shows Planned + Actual side-by-side under one label.
+// Replaces what used to be 2 separate rows for each grading concept.
+function DualPropertyRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: [React.ReactNode, React.ReactNode];
+}) {
+  const [plannedNode, actualNode] = children;
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1.5">
+        <span>{label}</span>
+      </div>
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Planned</span>
+          <div className="text-sm">{plannedNode}</div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Actual</span>
+          <div className="text-sm">{actualNode}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
