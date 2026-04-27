@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { CustomFieldDefinition, CustomFieldType, CustomFieldOption } from "@/types/settings";
+import { CustomFieldDefinition, CustomFieldType, CustomFieldOption, SYSTEM_FIELD_SOURCES } from "@/types/settings";
 import { toast } from "sonner";
 
 const transform = (row: any): CustomFieldDefinition => ({
