@@ -49,6 +49,10 @@ serve(async (req) => {
       );
     }
 
+    // Load user's custom session definitions (falls back to defaults if none)
+    const sessions = await loadSessions(supabase, account.user_id);
+    console.log(`Using ${sessions.length} session definitions for classification`);
+
     // Get all closed trades for this account, ordered by entry_time
     const { data: trades, error: tradesError } = await supabase
       .from("trades")
