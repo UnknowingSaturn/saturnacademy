@@ -205,6 +205,10 @@ int OnInit()
    Print("Broker UTC Offset: ", GetBrokerUTCOffset(), 
          (InpBrokerUTCOffset < 0 ? " (auto-detected)" : " (manual)"));
    Print("");
+   Print("Multi-account safe: this API key can serve multiple broker");
+   Print("logins on the same terminal. Events will be routed to the");
+   Print("journal account matching login ", currentLogin, " automatically.");
+   Print("");
    Print("Your account will be created automatically");
    Print("after your first trade!");
    Print("=================================================");
