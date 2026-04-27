@@ -86,6 +86,10 @@ export function useUserSettings() {
           default_filters: [] as FilterCondition[],
           live_trade_questions: DEFAULT_LIVE_TRADE_QUESTIONS,
           display_timezone: 'America/New_York',
+          detail_visible_fields: [],
+          detail_field_order: [],
+          detail_visible_sections: [],
+          detail_section_order: [],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as UserSettings;
