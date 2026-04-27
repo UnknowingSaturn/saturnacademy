@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { TradeScreenshot, ChartTimeframe } from "@/types/trading";
 import { AddScreenshotDialog } from "./AddScreenshotDialog";
+import { EditScreenshotDialog } from "./EditScreenshotDialog";
 import { useScreenshots } from "@/hooks/useScreenshots";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Maximize2, Image as ImageIcon } from "lucide-react";
+import { Plus, Trash2, Maximize2, Pencil, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TradeScreenshotGalleryProps {
@@ -40,7 +41,18 @@ export function TradeScreenshotGallery({
 }: TradeScreenshotGalleryProps) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [expandedImage, setExpandedImage] = useState<TradeScreenshot | null>(null);
+  const [editingScreenshot, setEditingScreenshot] = useState<TradeScreenshot | null>(null);
   const { deleteScreenshot } = useScreenshots();
+
+  const handleEdit = (updated: TradeScreenshot) => {
+    onScreenshotsChange(
+      screenshots.map((s) => (s.id === updated.id ? updated : s))
+    );
+    // Keep expanded view in sync if it's the same image
+    if (expandedImage?.id === updated.id) {
+      setExpandedImage(updated);
+    }
+  };
 
   // Sort screenshots by timeframe (HTF to LTF)
   const sortedScreenshots = [...screenshots].sort((a, b) => {
@@ -114,6 +126,14 @@ export function TradeScreenshotGallery({
                   onClick={() => setExpandedImage(screenshot)}
                 >
                   <Maximize2 className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={() => setEditingScreenshot(screenshot)}
+                >
+                  <Pencil className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="destructive"
