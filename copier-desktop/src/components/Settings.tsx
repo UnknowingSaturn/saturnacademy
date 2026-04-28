@@ -271,8 +271,8 @@ export default function Settings({ status }: SettingsProps) {
 
       {/* App Info */}
       <div className="text-center text-xs text-muted-foreground pt-4">
-        <p>Saturn Trade Copier v{appVersion}</p>
-        <p className="mt-1">© 2024 Saturn Trading</p>
+        <p>Ephemeris Trade Copier v{appVersion}</p>
+        <p className="mt-1">© 2026 Ephemeris</p>
       </div>
     </div>
   );
