@@ -142,6 +142,7 @@ serve(async (req) => {
         caption_what_went_well: link.caption_what_went_well,
         caption_what_went_wrong: link.caption_what_went_wrong,
         caption_what_to_improve: link.caption_what_to_improve,
+        added_at: link.created_at,
       };
     }).filter(Boolean) as PublicTradeCard[];
 
@@ -164,6 +165,9 @@ serve(async (req) => {
         author_display_name: report.author_display_name,
         published_at: report.published_at,
         view_count: report.view_count,
+        live_mode: !!report.live_mode,
+        live_started_at: report.live_started_at ?? null,
+        updated_at: report.updated_at,
       },
       trades: cards,
       is_owner: isOwner,
