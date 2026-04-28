@@ -23,6 +23,7 @@ interface PublicTradeCard {
   caption_what_went_well: string | null;
   caption_what_went_wrong: string | null;
   caption_what_to_improve: string | null;
+  added_at: string;
 }
 
 serve(async (req) => {
