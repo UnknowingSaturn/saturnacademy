@@ -161,7 +161,7 @@ function App() {
               <span className="text-primary font-bold text-sm">S</span>
             </div>
             <div>
-              <span className="font-semibold">Saturn Trade Copier</span>
+              <span className="font-semibold">Ephemeris Trade Copier</span>
               <span className="text-xs text-muted-foreground ml-2">Setup Wizard</span>
             </div>
           </div>
