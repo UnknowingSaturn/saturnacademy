@@ -1,16 +1,16 @@
-# Saturn Trade Copier - Installation Guide
+# Ephemeris Trade Copier - Installation Guide
 
 ## Quick Install (Recommended)
 
 ### Step 1: Download the Installer
-1. Go to the Trade Copier page in your Saturn journal
+1. Go to the Trade Copier page in your Ephemeris journal
 2. Click the "Desktop" tab
 3. Click "Download for Windows"
 4. Save the file to your Downloads folder
 
 ### Step 2: Run the Installer
 1. Navigate to your Downloads folder
-2. Double-click `SaturnTradeCopier-setup.exe`
+2. Double-click `EphemerisTradeCopier-setup.exe`
 3. If Windows SmartScreen appears:
    - Click "More info"
    - Click "Run anyway"
@@ -28,7 +28,7 @@ The app will launch automatically after installation. You'll find it in your sys
 1. Right-click the tray icon
 2. Select "Settings"
 3. Enter your API key:
-   - Go to your Saturn journal web app
+   - Go to your Ephemeris journal web app
    - Navigate to Trade Copier → Desktop tab
    - Copy your Receiver API Key
    - Paste it in the desktop app
@@ -73,7 +73,7 @@ The app will launch automatically after installation. You'll find it in your sys
 ### Can't connect to cloud
 1. Check your internet connection
 2. Verify your API key is correct
-3. Check if the Saturn web app is accessible
+3. Check if the Ephemeris web app is accessible
 
 ### Trades not copying
 1. Ensure the Master EA is running in MT5
@@ -91,10 +91,10 @@ This is normal for new apps. The app is safe to run:
 
 1. Open Windows Settings
 2. Go to Apps → Installed apps
-3. Find "Saturn Trade Copier"
+3. Find "Ephemeris Trade Copier"
 4. Click the three dots → Uninstall
 
-Or use the uninstaller in the Start Menu under "Saturn Trade Copier".
+Or use the uninstaller in the Start Menu under "Ephemeris Trade Copier".
 
 ---
 
