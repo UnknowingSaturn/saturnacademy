@@ -42,7 +42,7 @@ export function useSharedReport(id: string | null) {
 export function useCreateSharedReport() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { title?: string; period_start?: string; period_end?: string }) => {
+    mutationFn: async (input: { title?: string; period_start?: string; period_end?: string; live_mode?: boolean }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
       const { data, error } = await supabase
@@ -54,7 +54,8 @@ export function useCreateSharedReport() {
           period_start: input.period_start || null,
           period_end: input.period_end || null,
           visibility: "private",
-        })
+          live_mode: !!input.live_mode,
+        } as any)
         .select()
         .single();
       if (error) throw error;
