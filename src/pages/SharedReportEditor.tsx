@@ -263,6 +263,20 @@ export default function SharedReportEditor() {
         <Button variant="ghost" size="sm" onClick={() => navigate("/shared-reports")}>
           <ArrowLeft className="w-4 h-4 mr-1" /> Back
         </Button>
+        {report.live_mode && (
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-success/10 border border-success/30 text-success text-[11px] font-medium">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-75 animate-ping" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+            </span>
+            Live
+            {report.published_at && (
+              <span className="text-success/70 font-normal tabular-nums">
+                · edited {formatDistanceToNow(parseISO(report.updated_at), { addSuffix: true })}
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex-1" />
         {report.published_at && (
           <Badge variant="secondary" className="text-xs">
