@@ -164,5 +164,11 @@ export function usePublicReport(slug: string | undefined) {
       return data as PublicReportPayload;
     },
     retry: false,
+    // Auto-refresh only when the report is in live mode, so static snapshots
+    // keep the original one-shot fetch behaviour.
+    refetchInterval: (query) =>
+      (query.state.data as PublicReportPayload | null)?.report?.live_mode ? 60_000 : false,
+    refetchOnWindowFocus: (query) =>
+      !!(query.state.data as PublicReportPayload | null)?.report?.live_mode,
   });
 }
