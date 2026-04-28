@@ -104,7 +104,7 @@ export default function Settings({ status }: SettingsProps) {
         </div>
 
         <p className="text-xs text-muted-foreground mb-3">
-          Enter the API key from your Saturn web dashboard to sync configuration
+          Enter the API key from your Ephemeris web dashboard to sync configuration
         </p>
 
         <div className="relative">
@@ -271,8 +271,8 @@ export default function Settings({ status }: SettingsProps) {
 
       {/* App Info */}
       <div className="text-center text-xs text-muted-foreground pt-4">
-        <p>Saturn Trade Copier v{appVersion}</p>
-        <p className="mt-1">© 2024 Saturn Trading</p>
+        <p>Ephemeris Trade Copier v{appVersion}</p>
+        <p className="mt-1">© 2026 Ephemeris</p>
       </div>
     </div>
   );

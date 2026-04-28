@@ -79,7 +79,7 @@ export function PreviewSettings({ status }: PreviewSettingsProps) {
         </div>
 
         <p className="text-xs text-muted-foreground mb-3">
-          Enter the API key from your Saturn web dashboard to sync configuration
+          Enter the API key from your Ephemeris web dashboard to sync configuration
         </p>
 
         <div className="relative">
@@ -239,8 +239,8 @@ export function PreviewSettings({ status }: PreviewSettingsProps) {
 
       {/* App Info */}
       <div className="text-center text-xs text-muted-foreground pt-4">
-        <p>Saturn Trade Copier v2.0.0</p>
-        <p className="mt-1">© 2024 Saturn Trading</p>
+        <p>Ephemeris Trade Copier v2.0.0</p>
+        <p className="mt-1">© 2026 Ephemeris</p>
       </div>
     </div>
   );
