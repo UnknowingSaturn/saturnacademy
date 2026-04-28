@@ -94,7 +94,7 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
                 <TrendingUp className="w-5 h-5 text-primary-foreground" />
               </div>
               {!collapsed && (
-                <span className="font-semibold text-lg text-sidebar-foreground">TradeLog</span>
+                <span className="font-semibold text-lg text-sidebar-foreground">Ephemeris</span>
               )}
             </div>
           </div>
