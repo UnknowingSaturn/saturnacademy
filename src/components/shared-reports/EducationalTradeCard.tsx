@@ -66,78 +66,61 @@ export function EducationalTradeCard({ card, index }: Props) {
 
   return (
     <>
-      <Card className="overflow-hidden border-border bg-card">
+      <Card className="overflow-hidden border-border bg-card shadow-sm">
         {/* Header strip */}
-        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border bg-muted/30">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-border bg-muted/20">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="text-[10px] font-bold tracking-widest text-muted-foreground tabular-nums">
-              #{String(index + 1).padStart(2, "0")}
+            <div className="font-serif text-xl font-semibold text-muted-foreground tabular-nums leading-none">
+              {String(index + 1).padStart(2, "0")}
             </div>
-            <div className="text-base font-semibold tracking-tight">{card.symbol}</div>
+            <div className="text-lg font-semibold tracking-tight">{card.symbol}</div>
             <Badge variant="outline" className={cn(
-              "gap-1 font-mono text-[11px]",
+              "gap-1 font-mono text-xs",
               isLong ? "border-success/40 text-success" : "border-destructive/40 text-destructive",
             )}>
-              {isLong ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+              {isLong ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
               {card.direction?.toUpperCase()}
             </Badge>
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+          <div className="flex items-center gap-3 text-sm text-muted-foreground shrink-0">
             {dt && <span className="tabular-nums">{format(dt, "MMM d, HH:mm")}</span>}
-            {card.session && <Badge variant="secondary" className="text-[10px]">{SESSION_LABELS[card.session] || card.session}</Badge>}
+            {card.session && <Badge variant="secondary" className="text-[11px]">{SESSION_LABELS[card.session] || card.session}</Badge>}
             {card.playbook_name && <span className="italic">{card.playbook_name}</span>}
           </div>
         </div>
 
-        {/* Screenshots */}
-        {card.screenshots.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-border">
-            {card.screenshots.map((s, i) => (
-              <figure key={i} className="bg-card">
-                <button
-                  type="button"
-                  onClick={() => setLightboxIndex(i)}
-                  className="relative aspect-video bg-muted/40 w-full block group cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  aria-label={`Open screenshot ${i + 1} of ${total}${s.timeframe ? ` (${s.timeframe})` : ""}`}
-                >
-                  <img
-                    src={s.url}
-                    alt={s.description || s.timeframe || `Screenshot ${i + 1}`}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                  {s.timeframe && (
-                    <Badge className="absolute top-2 left-2 font-mono text-[10px] bg-background/80 text-foreground border border-border">
-                      {s.timeframe}
-                    </Badge>
-                  )}
-                  <div className="absolute inset-0 bg-background/0 group-hover:bg-background/20 transition-colors flex items-center justify-center">
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-background/90 rounded-full p-2 border border-border shadow-lg">
-                      <ZoomIn className="w-4 h-4 text-foreground" />
-                    </div>
-                  </div>
-                </button>
-                {s.description && (
-                  <figcaption className="px-3 py-2 text-xs text-muted-foreground italic leading-relaxed border-t border-border/50">
-                    {s.description}
-                  </figcaption>
-                )}
-              </figure>
-            ))}
-          </div>
-        )}
+        {/* Screenshots — adaptive layout based on count */}
+        <ScreenshotLayout
+          shots={card.screenshots}
+          onOpen={(i) => setLightboxIndex(i)}
+        />
 
         {/* Captions */}
         {(card.caption_what_went_well || card.caption_what_went_wrong || card.caption_what_to_improve) && (
-          <div className="px-5 py-4 space-y-3">
+          <div className="p-4 md:p-5 space-y-3">
             {card.caption_what_went_well && (
-              <CaptionRow icon={<CheckCircle2 className="w-4 h-4 text-success" />} label="What went well" text={card.caption_what_went_well} />
+              <CaptionRow
+                tone="success"
+                icon={<CheckCircle2 className="w-5 h-5 text-success" />}
+                label="What went well"
+                text={card.caption_what_went_well}
+              />
             )}
             {card.caption_what_went_wrong && (
-              <CaptionRow icon={<AlertCircle className="w-4 h-4 text-destructive" />} label="What went wrong" text={card.caption_what_went_wrong} />
+              <CaptionRow
+                tone="destructive"
+                icon={<AlertCircle className="w-5 h-5 text-destructive" />}
+                label="What went wrong"
+                text={card.caption_what_went_wrong}
+              />
             )}
             {card.caption_what_to_improve && (
-              <CaptionRow icon={<Lightbulb className="w-4 h-4 text-warning" />} label="What to improve" text={card.caption_what_to_improve} />
+              <CaptionRow
+                tone="warning"
+                icon={<Lightbulb className="w-5 h-5 text-warning" />}
+                label="What to improve"
+                text={card.caption_what_to_improve}
+              />
             )}
           </div>
         )}
@@ -218,13 +201,138 @@ export function EducationalTradeCard({ card, index }: Props) {
   );
 }
 
-function CaptionRow({ icon, label, text }: { icon: React.ReactNode; label: string; text: string }) {
+/* ----------------------------- subcomponents ----------------------------- */
+
+type Shot = { url: string; timeframe: string; description: string | null };
+
+function ScreenshotLayout({
+  shots,
+  onOpen,
+}: {
+  shots: Shot[];
+  onOpen: (i: number) => void;
+}) {
+  if (!shots.length) return null;
+
+  // Adaptive grid: keep cards from feeling empty when there are 1–3 screenshots.
+  // - 1 shot: full-width hero
+  // - 2 shots: two side-by-side (stack on mobile)
+  // - 3 shots: hero on top, two below
+  // - 4+ shots: even 2-column grid
+
+  if (shots.length === 1) {
+    return (
+      <div className="bg-border">
+        <ShotFigure shot={shots[0]} index={0} aspect="aspect-[16/10]" onOpen={() => onOpen(0)} total={1} />
+      </div>
+    );
+  }
+
+  if (shots.length === 2) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-border">
+        {shots.map((s, i) => (
+          <ShotFigure key={i} shot={s} index={i} aspect="aspect-[16/10]" onOpen={() => onOpen(i)} total={2} />
+        ))}
+      </div>
+    );
+  }
+
+  if (shots.length === 3) {
+    return (
+      <div className="grid grid-cols-2 gap-px bg-border">
+        <div className="col-span-2">
+          <ShotFigure shot={shots[0]} index={0} aspect="aspect-[16/9]" onOpen={() => onOpen(0)} total={3} />
+        </div>
+        <ShotFigure shot={shots[1]} index={1} aspect="aspect-[16/10]" onOpen={() => onOpen(1)} total={3} />
+        <ShotFigure shot={shots[2]} index={2} aspect="aspect-[16/10]" onOpen={() => onOpen(2)} total={3} />
+      </div>
+    );
+  }
+
+  // 4+
   return (
-    <div className="flex gap-3 items-start">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-border">
+      {shots.map((s, i) => (
+        <ShotFigure key={i} shot={s} index={i} aspect="aspect-[16/10]" onOpen={() => onOpen(i)} total={shots.length} />
+      ))}
+    </div>
+  );
+}
+
+function ShotFigure({
+  shot,
+  index,
+  aspect,
+  onOpen,
+  total,
+}: {
+  shot: Shot;
+  index: number;
+  aspect: string;
+  onOpen: () => void;
+  total: number;
+}) {
+  return (
+    <figure className="bg-card">
+      <button
+        type="button"
+        onClick={onOpen}
+        className={cn(
+          "relative bg-muted/40 w-full block group cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          aspect,
+        )}
+        aria-label={`Open screenshot ${index + 1} of ${total}${shot.timeframe ? ` (${shot.timeframe})` : ""}`}
+      >
+        <img
+          src={shot.url}
+          alt={shot.description || shot.timeframe || `Screenshot ${index + 1}`}
+          className="w-full h-full object-cover"
+          loading="lazy"
+        />
+        {shot.timeframe && (
+          <Badge className="absolute top-3 left-3 font-mono text-[11px] bg-background/85 text-foreground border border-border">
+            {shot.timeframe}
+          </Badge>
+        )}
+        <div className="absolute inset-0 bg-background/0 group-hover:bg-background/20 transition-colors flex items-center justify-center">
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-background/90 rounded-full p-2.5 border border-border shadow-lg">
+            <ZoomIn className="w-5 h-5 text-foreground" />
+          </div>
+        </div>
+      </button>
+      {shot.description && (
+        <figcaption className="px-4 py-3 text-sm text-muted-foreground italic leading-relaxed border-t border-border/50">
+          {shot.description}
+        </figcaption>
+      )}
+    </figure>
+  );
+}
+
+const TONE_BG: Record<"success" | "destructive" | "warning", string> = {
+  success: "bg-success/[0.06] border-success/20",
+  destructive: "bg-destructive/[0.06] border-destructive/20",
+  warning: "bg-warning/[0.06] border-warning/20",
+};
+
+function CaptionRow({
+  icon,
+  label,
+  text,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  text: string;
+  tone: "success" | "destructive" | "warning";
+}) {
+  return (
+    <div className={cn("flex gap-4 items-start rounded-lg border p-4 md:p-5", TONE_BG[tone])}>
       <div className="mt-0.5 shrink-0">{icon}</div>
       <div className="flex-1 min-w-0">
-        <div className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase mb-1">{label}</div>
-        <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-line">{text}</p>
+        <div className="text-xs font-bold tracking-widest text-muted-foreground uppercase mb-1.5">{label}</div>
+        <p className="text-base text-foreground/90 leading-relaxed whitespace-pre-line">{text}</p>
       </div>
     </div>
   );

@@ -1326,6 +1326,8 @@ export type Database = {
           created_at: string
           id: string
           intro: string | null
+          live_mode: boolean
+          live_started_at: string | null
           period_end: string | null
           period_start: string | null
           published_at: string | null
@@ -1342,6 +1344,8 @@ export type Database = {
           created_at?: string
           id?: string
           intro?: string | null
+          live_mode?: boolean
+          live_started_at?: string | null
           period_end?: string | null
           period_start?: string | null
           published_at?: string | null
@@ -1358,6 +1362,8 @@ export type Database = {
           created_at?: string
           id?: string
           intro?: string | null
+          live_mode?: boolean
+          live_started_at?: string | null
           period_end?: string | null
           period_start?: string | null
           published_at?: string | null

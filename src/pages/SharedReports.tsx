@@ -20,8 +20,8 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { ChevronDown, Plus, Share2, Globe, Lock, Trash2, Eye, ExternalLink, Calendar, CalendarRange, CalendarDays } from "lucide-react";
-import { format, parseISO, subDays } from "date-fns";
+import { ChevronDown, Plus, Share2, Globe, Lock, Trash2, Eye, ExternalLink, Calendar, CalendarRange, CalendarDays, Radio } from "lucide-react";
+import { format, parseISO, subDays, formatDistanceToNow } from "date-fns";
 
 const SharedReportsPage = React.forwardRef<HTMLDivElement, object>(function SharedReportsPage(_p, _r) {
   const navigate = useNavigate();
@@ -50,6 +50,15 @@ const SharedReportsPage = React.forwardRef<HTMLDivElement, object>(function Shar
       title: `Week of ${format(subDays(today, 6), "MMM d")} – ${format(today, "MMM d, yyyy")}`,
       period_start: format(subDays(today, 6), "yyyy-MM-dd"),
       period_end: format(today, "yyyy-MM-dd"),
+    });
+    navigate(`/shared-reports/${result.id}`);
+  };
+
+  const createLive = async () => {
+    const today = new Date();
+    const result = await create.mutateAsync({
+      title: `Live journal — week of ${format(subDays(today, today.getDay() === 0 ? 6 : today.getDay() - 1), "MMM d")}`,
+      live_mode: true,
     });
     navigate(`/shared-reports/${result.id}`);
   };

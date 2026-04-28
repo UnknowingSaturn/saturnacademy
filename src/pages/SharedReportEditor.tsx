@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, Share2, Trash2, Eye, Loader2, Sparkles, RotateCcw } from "lucide-react";
+import { ArrowLeft, Share2, Trash2, Eye, Loader2, Sparkles, RotateCcw, Radio } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { TradePickerPanel } from "@/components/shared-reports/TradePickerPanel";
 import { EducationalTradeCard } from "@/components/shared-reports/EducationalTradeCard";
 import { ReportTradeEditor } from "@/components/shared-reports/ReportTradeEditor";
@@ -22,6 +23,7 @@ import {
   startOfWeek,
   endOfWeek,
   differenceInCalendarDays,
+  formatDistanceToNow,
 } from "date-fns";
 // Simple inline debounced callback hook
 function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: number) {
@@ -248,6 +250,7 @@ export default function SharedReportEditor() {
         caption_what_went_well: link.caption_what_went_well,
         caption_what_went_wrong: link.caption_what_went_wrong,
         caption_what_to_improve: link.caption_what_to_improve,
+        added_at: link.created_at,
       };
       return { card, link, sourceShots: rawShots, liveTrade: t };
     })
@@ -260,6 +263,20 @@ export default function SharedReportEditor() {
         <Button variant="ghost" size="sm" onClick={() => navigate("/shared-reports")}>
           <ArrowLeft className="w-4 h-4 mr-1" /> Back
         </Button>
+        {report.live_mode && (
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-success/10 border border-success/30 text-success text-[11px] font-medium">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-75 animate-ping" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+            </span>
+            Live
+            {report.published_at && (
+              <span className="text-success/70 font-normal tabular-nums">
+                · edited {formatDistanceToNow(parseISO(report.updated_at), { addSuffix: true })}
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex-1" />
         {report.published_at && (
           <Badge variant="secondary" className="text-xs">
@@ -359,6 +376,30 @@ export default function SharedReportEditor() {
                   ) : (
                     <span className="italic">Pick trades to set the period</span>
                   )}
+                </div>
+              )}
+            </div>
+
+            {/* Live updates toggle */}
+            <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-0.5 min-w-0">
+                  <Label className="text-xs flex items-center gap-1.5 cursor-pointer">
+                    <Radio className="w-3.5 h-3.5 text-success" />
+                    Live updates
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    Keep adding trades after publishing — viewers see updates instantly.
+                  </p>
+                </div>
+                <Switch
+                  checked={!!report.live_mode}
+                  onCheckedChange={(v) => update.mutate({ id: report.id, patch: { live_mode: v } as any })}
+                />
+              </div>
+              {report.live_mode && report.live_started_at && (
+                <div className="text-[11px] text-success/80 tabular-nums">
+                  Live since {format(parseISO(report.live_started_at), "MMM d, HH:mm")}
                 </div>
               )}
             </div>
