@@ -11,6 +11,8 @@ export interface SharedReport {
   view_count: number;
   published_at: string | null;
   auto_title: boolean;
+  live_mode: boolean;
+  live_started_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -63,6 +65,11 @@ export interface PublicTradeCard {
   caption_what_went_well: string | null;
   caption_what_went_wrong: string | null;
   caption_what_to_improve: string | null;
+  /**
+   * When this trade was added to the report (used by public page to show a
+   * "New" badge on recently-added cards in live mode).
+   */
+  added_at: string;
 }
 
 export interface PublicReportPayload {
@@ -76,6 +83,9 @@ export interface PublicReportPayload {
     author_display_name: string | null;
     published_at: string | null;
     view_count: number;
+    live_mode: boolean;
+    live_started_at: string | null;
+    updated_at: string;
   };
   trades: PublicTradeCard[];
   is_owner: boolean;
