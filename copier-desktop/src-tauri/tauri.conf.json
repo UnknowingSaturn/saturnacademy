@@ -6,7 +6,7 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "Saturn Trade Copier",
+    "productName": "Ephemeris Trade Copier",
     "version": "2.1.0"
   },
   "tauri": {
