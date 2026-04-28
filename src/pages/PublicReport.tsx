@@ -104,7 +104,7 @@ export default function PublicReport() {
 
           <footer className="pt-8 border-t border-border text-center text-xs text-muted-foreground">
             <p>Educational content only — not financial advice.</p>
-            <p className="mt-1">Built with <a href="/" className="text-primary hover:underline">TradeLog</a></p>
+            <p className="mt-1">Built with <a href="/" className="text-primary hover:underline">Ephemeris</a></p>
           </footer>
         </article>
       </div>
