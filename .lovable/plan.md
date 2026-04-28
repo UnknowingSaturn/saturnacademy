@@ -1,107 +1,60 @@
-## Problem confirmed
+## Goal
 
-The "Delete field" dialog in **Journal Settings → Fields** displays wrong counts (always `0`) and the "Also permanently erase data" action is a no-op for many system fields.
+Rename every user-visible "Saturn Trade Copier", "Saturn", "Saturn Trading", and "TradeLog" reference to **Ephemeris** so the brand is consistent across the web app, the desktop copier, the MQL5 EAs and supporting docs.
 
-**Root cause**: `useCountTradesWithSystemField` and `useEraseSystemFieldData` always query the `trades` table by the field's `key`, but several system fields actually live on the `trade_reviews` table or under a different column name, and "dual" fields span two columns.
+## Scope at a glance
 
-Verified against your real data right now:
+Three brand strings exist today:
 
-| Field key (UI) | Where the data really lives | Real count | Dialog shows |
-|---|---|---|---|
-| `regime` | `trade_reviews.regime` (planned) + `trades.actual_regime` (actual) | 10 + 6 | **0** |
-| `emotion` | `trade_reviews.emotional_state_before` | 16 | **0** |
-| `model` | `trades.playbook_id` + `trades.actual_playbook_id` | varies | wrong key |
-| `timeframes` | `trades.alignment` + `trades.entry_timeframes` | 11 + 20 | wrong key |
-| `news_risk` | `trade_reviews.news_risk` | 29 | **0** |
-| `psychology_notes` | `trade_reviews.psychology_notes` | — | **0** |
-| `session`, `profile`, `place`, `actual_*` | `trades.<key>` (correct already) | — | OK |
+- **TradeLog** — used in the web app (sidebar, auth pages, public report footer, OG meta).
+- **Saturn / Saturn Trade Copier / Saturn Trading** — used in the desktop copier app and its docs.
+- **Ephemeris** — already the page `<title>` in `index.html`. Will become the single brand.
 
-So when you saw *"0 trades have a value for it"* on Regime, the dialog was checking the non-existent `trades.regime` column instead of the real `trade_reviews.regime` (10) + `trades.actual_regime` (6) = **16 trades**. Erasing would also have done nothing.
+## Web app changes (user-visible)
 
----
+1. **`index.html`** — change `<meta name="author">` and `<meta name="twitter:site">` from `TradeLog` to `Ephemeris` (title is already correct).
+2. **`src/components/layout/AppSidebar.tsx`** — sidebar wordmark "TradeLog" → "Ephemeris".
+3. **`src/pages/Auth.tsx`** — both `<h1>` headings (sign-in and sign-up cards) → "Ephemeris".
+4. **`src/pages/ResetPassword.tsx`** — `<h1>` → "Ephemeris".
+5. **`src/pages/PublicReport.tsx`** — header wordmark and footer "Built with TradeLog" → "Ephemeris".
+6. **`src/components/copier-preview/PreviewSidebar.tsx`** — "Saturn" → "Ephemeris".
+7. **`src/components/copier-preview/PreviewSettings.tsx`** — copy mentioning "Saturn web dashboard", "Saturn Trade Copier v2.0.0", "© 2024 Saturn Trading" → "Ephemeris" equivalents (e.g. "Ephemeris Trade Copier", "© 2026 Ephemeris").
 
-## Fix
+Localstorage key in `AccountFilterContext.tsx` (`tradelog-selected-account`) stays as-is — renaming it would log every existing user out of their saved account filter for no visible benefit. Noted as an internal identifier only.
 
-### 1. Centralise a system-field source map
+## Desktop copier (Tauri) changes
 
-In `src/types/settings.ts`, export a single source-of-truth map describing where each system field's data lives. Each entry lists one or two `{ table, column }` pairs:
+User-visible strings:
 
-```ts
-export const SYSTEM_FIELD_SOURCES: Record<string, Array<{ table: 'trades' | 'trade_reviews'; column: string }>> = {
-  // Single-column trade fields
-  session:  [{ table: 'trades', column: 'session' }],
-  profile:  [{ table: 'trades', column: 'profile' }],
-  place:    [{ table: 'trades', column: 'place' }],
-  alignment:        [{ table: 'trades', column: 'alignment' }],
-  entry_timeframes: [{ table: 'trades', column: 'entry_timeframes' }],
-  actual_profile:   [{ table: 'trades', column: 'actual_profile' }],
-  actual_regime:    [{ table: 'trades', column: 'actual_regime' }],
+7. **`copier-desktop/index.html`** — `<title>` → "Ephemeris Trade Copier".
+8. **`copier-desktop/src/App.tsx`** — header label "Saturn Trade Copier" → "Ephemeris Trade Copier".
+9. **`copier-desktop/src/components/Sidebar.tsx`** — "Saturn" → "Ephemeris".
+10. **`copier-desktop/src/components/Settings.tsx`** — Settings copy referring to "Saturn web dashboard", "Saturn Trade Copier v{appVersion}", "© 2024 Saturn Trading" → Ephemeris equivalents (year bumped to 2026).
+11. **`copier-desktop/src/components/wizard/ConfirmationStep.tsx`** — "Saturn web app" → "Ephemeris web app".
+12. **`copier-desktop/src-tauri/tauri.conf.json`** — `productName`, window `title` → "Ephemeris Trade Copier". `bundle.identifier` stays `com.saturn.tradecopier` (changing it would break auto-updates and existing installs — see Technical notes).
 
-  // Single-column review fields
-  emotion:                   [{ table: 'trade_reviews', column: 'emotional_state_before' }],
-  emotional_state_before:    [{ table: 'trade_reviews', column: 'emotional_state_before' }],
-  news_risk:                 [{ table: 'trade_reviews', column: 'news_risk' }],
-  psychology_notes:          [{ table: 'trade_reviews', column: 'psychology_notes' }],
+Documentation:
 
-  // Dual planned + actual
-  regime: [
-    { table: 'trade_reviews', column: 'regime' },
-    { table: 'trades', column: 'actual_regime' },
-  ],
-  model: [
-    { table: 'trades', column: 'playbook_id' },
-    { table: 'trades', column: 'actual_playbook_id' },
-  ],
-  timeframes: [
-    { table: 'trades', column: 'alignment' },
-    { table: 'trades', column: 'entry_timeframes' },
-  ],
-};
-```
+13. **`copier-desktop/INSTALLATION.md`**, **`copier-desktop/README.md`**, **`copier-desktop/RELEASE.md`** — replace prose mentions of "Saturn Trade Copier" / "Saturn journal" / "Saturn web app" with Ephemeris. GitHub repo URLs and the signing-key filename stay untouched (they are real external references, not brand prose).
 
-Update `canEraseSystemField` (and the duplicate `canEraseSystem` helper inside `FieldsPanel.tsx`) to derive from the keys of this map — eliminating drift between the two lists.
+## Edge function
 
-### 2. Rewrite `useCountTradesWithSystemField`
+14. **`supabase/functions/copier-update-check/index.ts`** — `User-Agent` header → `Ephemeris-Trade-Copier-Updater`. `GITHUB_OWNER` / `GITHUB_REPO` stay as the real repo names that host the released binaries.
 
-`src/hooks/useCustomFields.tsx` — replace the body to:
+## Things intentionally left unchanged (technical identifiers)
 
-1. Look up the source map for `columnKey`. If unknown, return 0.
-2. For each `{ table, column }` entry, count rows owned by the user where the column is non-null:
-   - For `trades`: `select id, head, count: 'exact'` with `eq('user_id', user.id).not(column, 'is', null)`.
-   - For `trade_reviews`: review rows have no `user_id` column, so filter via the `trade_id` join: `select id, head, count: 'exact'` with `not(column, 'is', null)` and an `in('trade_id', <ids of user's trades>)`. To avoid loading every trade id, use `.in('trade_id', supabase.from('trades').select('id').eq('user_id', user.id))` via PostgREST's `in.(select …)` is not available — instead use a single fetch of `trade_ids` for the user (already cached) or just run the query through the existing RLS (RLS already restricts `trade_reviews` to the user's trades), so we can simply do `select('id', { count: 'exact', head: true }).not(column, 'is', null)` and rely on RLS to limit it.
-3. Sum the per-source counts. Return the total.
+To avoid breaking installed users, releases or persisted state, these stay as-is:
 
-(Confirmed: `trade_reviews` RLS already restricts to `trade_id IN (user's trades)`, so a plain count with the auth client is correct.)
+- `package.json` `name: "saturn-trade-copier"` (npm package id, not user-visible).
+- `Cargo.toml` `name = "saturn-trade-copier"` and crate-internal references.
+- Tauri `bundle.identifier` `com.saturn.tradecopier` — changing it would orphan existing Windows installations and break the signed auto-updater channel.
+- `APP_DATA_FOLDER = "SaturnTradeCopier"`, `saturn_copier_config.json`, `ProjectDirs::from("com", "saturn", …)`, log filename `saturn-copier.log` — renaming these would lose every existing user's local config, queue state and logs.
+- `STORAGE_KEY = "tradelog-selected-account"` in the web app — renaming would silently reset every user's saved account filter.
+- `supabase/functions/copier-update-check`: `GITHUB_OWNER`/`GITHUB_REPO` remain pointed at the actual release repo.
 
-### 3. Rewrite `useEraseSystemFieldData`
+If you want the desktop app's bundle identifier and on-disk paths migrated too (with a one-time migration that copies old config into the new location on first launch), say so and I will add that as a follow-up step — it is a meaningfully larger change and risks data loss if rushed.
 
-Same map-driven approach:
+## Verification after implementation
 
-1. For each `{ table, column }` entry in `SYSTEM_FIELD_SOURCES[columnKey]`:
-   - `update({ [column]: null }).not(column, 'is', null)` on that table (with `eq('user_id', user.id)` on `trades`; `trade_reviews` is RLS-restricted automatically).
-   - Collect the affected row count.
-2. After all updates, invalidate `['trades']`, `['open-trades']`, **and** `['trade_reviews', ...]` queries.
-3. Toast with the combined count.
-
-### 4. Apply the same fix in `ColumnConfigPanel.tsx`
-
-That panel also has a delete-with-erase flow using the same hooks (or a parallel implementation). Verify it now consumes the corrected `useCountTradesWithSystemField` / `useEraseSystemFieldData` so its count and erase work for review-backed fields too. (No code change expected if it already imports the hooks.)
-
-### 5. Sanity-check core fields
-
-Keep the existing guard: core fields (`entry_time`, `symbol`, `direction`, `r_multiple_actual`, etc.) must remain non-erasable — `SYSTEM_FIELD_SOURCES` only contains erasable keys, and `canEraseSystemField` returns `false` for anything not in the map.
-
----
-
-## Files touched
-
-- `src/types/settings.ts` — add `SYSTEM_FIELD_SOURCES`, update `canEraseSystemField`.
-- `src/hooks/useCustomFields.tsx` — rewrite `useCountTradesWithSystemField` and `useEraseSystemFieldData` to walk the source map across `trades` + `trade_reviews`.
-- `src/components/journal/settings/FieldsPanel.tsx` — replace the local `canEraseSystem` helper with the centralised one (single source of truth).
-- (No DB migration; no UI layout changes.)
-
-## Out of scope
-
-- Custom fields (`useCountTradesWithCustomField` already correctly walks `trades.custom_fields` JSONB — confirmed showing real counts).
-- Changing the dialog visuals (the screenshot's UI stays as is).
-- Row-level safety: erase still requires the explicit "Also permanently erase data" checkbox.
+- `rg -i 'saturn|tradelog'` in the repo should return only the intentionally-preserved technical identifiers listed above.
+- Manual visual check: web sidebar, Auth page, Reset password, Public report header/footer; desktop app titlebar, sidebar, Settings page, Wizard confirmation step.
