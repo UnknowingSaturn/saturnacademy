@@ -1,4 +1,4 @@
-# Saturn Trade Copier - Desktop App
+# Ephemeris Trade Copier - Desktop App
 
 A lightweight Tauri-based desktop application for ultra-low latency trade copying between MetaTrader 5 terminals.
 
@@ -52,7 +52,7 @@ This desktop app runs in your system tray and monitors your MT5 master account f
 
 1. Download the latest `.msi` installer from the [Releases](https://github.com/your-org/saturn-copier-desktop/releases) page
 2. Run the installer
-3. Launch "Saturn Trade Copier" from the Start Menu
+3. Launch "Ephemeris Trade Copier" from the Start Menu
 
 ### Option 2: Build from Source
 
@@ -79,7 +79,7 @@ npm run tauri build
 
 ### 1. Get Your API Key
 
-1. Go to the Saturn Trading Journal web app
+1. Go to the Ephemeris web app
 2. Navigate to **Accounts** page
 3. Click on your receiver account
 4. Generate or copy the API key

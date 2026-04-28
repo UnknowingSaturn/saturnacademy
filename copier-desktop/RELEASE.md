@@ -1,4 +1,4 @@
-# Saturn Trade Copier - Release Guide
+# Ephemeris Trade Copier - Release Guide
 
 ## Prerequisites
 
