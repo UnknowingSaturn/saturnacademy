@@ -54,6 +54,15 @@ const SharedReportsPage = React.forwardRef<HTMLDivElement, object>(function Shar
     navigate(`/shared-reports/${result.id}`);
   };
 
+  const createLive = async () => {
+    const today = new Date();
+    const result = await create.mutateAsync({
+      title: `Live journal — week of ${format(subDays(today, today.getDay() === 0 ? 6 : today.getDay() - 1), "MMM d")}`,
+      live_mode: true,
+    });
+    navigate(`/shared-reports/${result.id}`);
+  };
+
   const createCustom = async () => {
     if (!customStart || !customEnd) return;
     const start = parseISO(customStart);
