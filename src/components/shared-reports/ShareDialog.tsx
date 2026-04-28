@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Copy, Check, Globe, Lock, Radio } from "lucide-react";
+import { Copy, Check, Globe, Lock, Radio, Info } from "lucide-react";
 import { useUpdateSharedReport } from "@/hooks/useSharedReports";
 import type { SharedReport } from "@/types/sharedReports";
 import { toast } from "sonner";
 import { formatDistanceToNow, parseISO } from "date-fns";
+import { getPublicReportUrl, isEditorPreviewHost } from "@/lib/utils";
 
 interface Props {
   open: boolean;
@@ -22,7 +23,8 @@ export function ShareDialog({ open, onOpenChange, report }: Props) {
   const isPublic = report.visibility === "public_link";
   const isPublished = !!report.published_at;
   const isLive = !!report.live_mode;
-  const url = `${window.location.origin}/r/${report.slug}`;
+  const url = getPublicReportUrl(report.slug);
+  const inEditorPreview = isEditorPreviewHost();
 
   const handleVisibilityToggle = (checked: boolean) => {
     update.mutate({ id: report.id, patch: { visibility: checked ? "public_link" : "private" } });
@@ -92,6 +94,11 @@ export function ShareDialog({ open, onOpenChange, report }: Props) {
                 {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
               </Button>
             </div>
+            {isPublished && isPublic && (
+              <p className="text-xs text-muted-foreground">
+                Anyone with this link can view it — no account needed.
+              </p>
+            )}
             {!isPublished && (
               <p className="text-xs text-warning">This report is a draft. Publish it to share publicly.</p>
             )}
@@ -102,6 +109,14 @@ export function ShareDialog({ open, onOpenChange, report }: Props) {
                   <> · updated {formatDistanceToNow(parseISO(report.updated_at), { addSuffix: true })}</>
                 )}
               </p>
+            )}
+            {inEditorPreview && (
+              <div className="flex items-start gap-2 p-2 rounded-md border border-border bg-muted/30 mt-1">
+                <Info className="w-3.5 h-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  You're in the editor preview. The link above points to your live published site so anyone can open it.
+                </p>
+              </div>
             )}
           </div>
         </div>
