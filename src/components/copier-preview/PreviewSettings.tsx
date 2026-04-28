@@ -79,7 +79,7 @@ export function PreviewSettings({ status }: PreviewSettingsProps) {
         </div>
 
         <p className="text-xs text-muted-foreground mb-3">
-          Enter the API key from your Saturn web dashboard to sync configuration
+          Enter the API key from your Ephemeris web dashboard to sync configuration
         </p>
 
         <div className="relative">
