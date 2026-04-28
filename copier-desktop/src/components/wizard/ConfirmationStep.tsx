@@ -190,7 +190,7 @@ export default function ConfirmationStep({
           <li>Open each MT5 terminal</li>
           <li>Navigate to Navigator → Expert Advisors → Right-click → Refresh</li>
           <li>Drag the EA (TradeCopierMaster/Receiver) onto any chart</li>
-          <li>Enter your API key from the Saturn web app in the EA settings</li>
+          <li>Enter your API key from the Ephemeris web app in the EA settings</li>
           <li>Click OK to start the EA</li>
         </ol>
       </div>
