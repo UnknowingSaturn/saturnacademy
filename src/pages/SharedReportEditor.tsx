@@ -380,6 +380,30 @@ export default function SharedReportEditor() {
               )}
             </div>
 
+            {/* Live updates toggle */}
+            <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-0.5 min-w-0">
+                  <Label className="text-xs flex items-center gap-1.5 cursor-pointer">
+                    <Radio className="w-3.5 h-3.5 text-success" />
+                    Live updates
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    Keep adding trades after publishing — viewers see updates instantly.
+                  </p>
+                </div>
+                <Switch
+                  checked={!!report.live_mode}
+                  onCheckedChange={(v) => update.mutate({ id: report.id, patch: { live_mode: v } as any })}
+                />
+              </div>
+              {report.live_mode && report.live_started_at && (
+                <div className="text-[11px] text-success/80 tabular-nums">
+                  Live since {format(parseISO(report.live_started_at), "MMM d, HH:mm")}
+                </div>
+              )}
+            </div>
+
             <div className="text-[11px] text-muted-foreground italic border-t border-border pt-3">
               Public viewers see only: pair, direction, entry time, session, playbook, screenshots, and your captions. Dollar amounts, lot sizes, R-multiples, and balances are never exposed.
             </div>
