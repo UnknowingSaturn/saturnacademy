@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Copy, Check, Globe, Lock, Radio } from "lucide-react";
+import { Copy, Check, Globe, Lock, Radio, Info } from "lucide-react";
 import { useUpdateSharedReport } from "@/hooks/useSharedReports";
 import type { SharedReport } from "@/types/sharedReports";
 import { toast } from "sonner";
 import { formatDistanceToNow, parseISO } from "date-fns";
+import { getPublicReportUrl, isEditorPreviewHost } from "@/lib/utils";
 
 interface Props {
   open: boolean;
@@ -22,7 +23,8 @@ export function ShareDialog({ open, onOpenChange, report }: Props) {
   const isPublic = report.visibility === "public_link";
   const isPublished = !!report.published_at;
   const isLive = !!report.live_mode;
-  const url = `${window.location.origin}/r/${report.slug}`;
+  const url = getPublicReportUrl(report.slug);
+  const inEditorPreview = isEditorPreviewHost();
 
   const handleVisibilityToggle = (checked: boolean) => {
     update.mutate({ id: report.id, patch: { visibility: checked ? "public_link" : "private" } });
