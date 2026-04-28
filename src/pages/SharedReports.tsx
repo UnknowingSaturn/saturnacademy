@@ -106,6 +106,9 @@ const SharedReportsPage = React.forwardRef<HTMLDivElement, object>(function Shar
             <DropdownMenuItem onClick={() => setCustomOpen(true)}>
               <CalendarRange className="w-4 h-4 mr-2" /> Custom range…
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={createLive}>
+              <Radio className="w-4 h-4 mr-2 text-destructive" /> Live (rolling)
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
@@ -137,11 +140,23 @@ const SharedReportsPage = React.forwardRef<HTMLDivElement, object>(function Shar
                          isPublic ? <><Globe className="w-2.5 h-2.5" /> Draft</> :
                          <><Lock className="w-2.5 h-2.5" /> Private</>}
                       </Badge>
+                      {r.live_mode && (
+                        <Badge className="text-[10px] gap-1 bg-destructive/15 text-destructive border-destructive/30 hover:bg-destructive/20" variant="outline">
+                          <span className="relative flex w-2 h-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive" />
+                          </span>
+                          Live
+                        </Badge>
+                      )}
                       {isPublished && (
                         <Badge variant="secondary" className="text-[10px] gap-1">
                           <Eye className="w-2.5 h-2.5" /> {r.view_count}
                         </Badge>
                       )}
+                      <span className="text-[10px] text-muted-foreground ml-auto">
+                        Updated {formatDistanceToNow(parseISO(r.updated_at), { addSuffix: true })}
+                      </span>
                     </div>
                     {r.period_start && r.period_end && (
                       <div className="text-xs text-muted-foreground mt-1 tabular-nums">
