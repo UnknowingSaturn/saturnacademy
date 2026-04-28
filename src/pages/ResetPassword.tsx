@@ -86,7 +86,7 @@ export default function ResetPassword() {
           <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
             <TrendingUp className="w-7 h-7 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">TradeLog</h1>
+          <h1 className="text-2xl font-bold text-foreground">Ephemeris</h1>
         </div>
 
         <Card className="border-border bg-card">
