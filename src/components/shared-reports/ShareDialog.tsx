@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Copy, Check, Globe, Lock } from "lucide-react";
+import { Copy, Check, Globe, Lock, Radio } from "lucide-react";
 import { useUpdateSharedReport } from "@/hooks/useSharedReports";
 import type { SharedReport } from "@/types/sharedReports";
 import { toast } from "sonner";
+import { formatDistanceToNow, parseISO } from "date-fns";
 
 interface Props {
   open: boolean;
@@ -20,6 +21,7 @@ export function ShareDialog({ open, onOpenChange, report }: Props) {
   const [copied, setCopied] = useState(false);
   const isPublic = report.visibility === "public_link";
   const isPublished = !!report.published_at;
+  const isLive = !!report.live_mode;
   const url = `${window.location.origin}/r/${report.slug}`;
 
   const handleVisibilityToggle = (checked: boolean) => {
@@ -39,6 +41,13 @@ export function ShareDialog({ open, onOpenChange, report }: Props) {
     toast.success("Link copied");
     setTimeout(() => setCopied(false), 1500);
   };
+
+  // Button copy adapts to live/snapshot mode
+  const publishLabel = isPublished
+    ? "Stop sharing"
+    : isLive
+      ? "Publish live link"
+      : "Publish snapshot";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -63,6 +72,18 @@ export function ShareDialog({ open, onOpenChange, report }: Props) {
             <Switch checked={isPublic} onCheckedChange={handleVisibilityToggle} disabled={update.isPending} />
           </div>
 
+          {isLive && (
+            <div className="flex items-start gap-3 p-3 rounded-md border border-success/30 bg-success/5">
+              <Radio className="w-4 h-4 mt-0.5 text-success" />
+              <div className="text-xs leading-relaxed">
+                <span className="font-medium text-success">Live mode is on.</span>{" "}
+                <span className="text-muted-foreground">
+                  Any trades, captions, or screenshots you add later will appear on the public link automatically — you don't need to re-publish.
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="share-url">Share URL</Label>
             <div className="flex gap-2">
@@ -77,6 +98,9 @@ export function ShareDialog({ open, onOpenChange, report }: Props) {
             {isPublished && isPublic && (
               <p className="text-xs text-muted-foreground">
                 {report.view_count} {report.view_count === 1 ? "view" : "views"}
+                {isLive && (
+                  <> · updated {formatDistanceToNow(parseISO(report.updated_at), { addSuffix: true })}</>
+                )}
               </p>
             )}
           </div>
@@ -85,7 +109,7 @@ export function ShareDialog({ open, onOpenChange, report }: Props) {
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
           <Button onClick={handlePublish} disabled={update.isPending}>
-            {isPublished ? "Unpublish" : "Publish"}
+            {publishLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
