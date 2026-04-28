@@ -101,7 +101,7 @@ export function PreviewSidebar({ activeItem, onNavigate, status, masterHeartbeat
               <Activity className="w-4 h-4 text-primary" />
             </div>
             <div className="flex flex-col">
-              <span className="text-sm font-semibold text-foreground">Saturn</span>
+              <span className="text-sm font-semibold text-foreground">Ephemeris</span>
               <span className="text-[10px] text-muted-foreground">Trade Copier</span>
             </div>
           </div>
