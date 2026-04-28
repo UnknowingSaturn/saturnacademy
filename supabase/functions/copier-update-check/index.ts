@@ -49,7 +49,7 @@ async function fetchLatestRelease(): Promise<GitHubRelease | null> {
   try {
     const headers: Record<string, string> = {
       'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'Saturn-Trade-Copier-Updater',
+      'User-Agent': 'Ephemeris-Trade-Copier-Updater',
     };
     
     // Add authentication for private repos
