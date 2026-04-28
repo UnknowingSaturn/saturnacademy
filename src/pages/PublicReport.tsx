@@ -62,7 +62,7 @@ export default function PublicReport() {
             <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center">
               <TrendingUp className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="text-sm font-semibold tracking-tight">TradeLog</span>
+            <span className="text-sm font-semibold tracking-tight">Ephemeris</span>
             <div className="flex-1" />
             <a href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
               Build your own →
