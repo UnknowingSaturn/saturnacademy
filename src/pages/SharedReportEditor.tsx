@@ -248,6 +248,7 @@ export default function SharedReportEditor() {
         caption_what_went_well: link.caption_what_went_well,
         caption_what_went_wrong: link.caption_what_went_wrong,
         caption_what_to_improve: link.caption_what_to_improve,
+        added_at: link.created_at,
       };
       return { card, link, sourceShots: rawShots, liveTrade: t };
     })
