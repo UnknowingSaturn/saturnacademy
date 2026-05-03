@@ -342,33 +342,48 @@ pub fn install_ea_to_terminal(
     Ok(ea_path.to_string_lossy().to_string())
 }
 
+/// Resolve a terminal_id (from `discovery` or legacy `portable_*`) to its
+/// data folder (where `MQL5/Files` lives).
+///
+/// Strategy:
+///  1. Look up against the unified discovery cache first.
+///  2. Fall back to a literal `%APPDATA%\MetaQuotes\Terminal\<id>` path.
 fn find_terminal_path(terminal_id: &str) -> Result<PathBuf, String> {
-    // Check if it's a portable terminal
-    if terminal_id.starts_with("portable_") {
-        // Search for it in known locations
-        let terminals = find_mt5_terminals();
-        for terminal in terminals {
-            if terminal.terminal_id == terminal_id {
-                return Ok(PathBuf::from(terminal.path));
+    // 1. Discovery cache (covers AppData hashes, Registry installs, manual paths,
+    //    LocalAppData\Programs, portable installs).
+    let terminals = discovery::discover_all_terminals();
+    let discovered_count = terminals.len();
+    for t in &terminals {
+        if t.terminal_id == terminal_id {
+            // Prefer whichever path actually contains MQL5/Files
+            let data_path = PathBuf::from(&t.data_folder);
+            if data_path.join("MQL5").join("Files").exists() {
+                return Ok(data_path);
             }
+            // Fallback to install dir if data folder is incomplete
+            if let Some(exe) = &t.executable_path {
+                if let Some(install_dir) = Path::new(exe).parent() {
+                    if install_dir.join("MQL5").join("Files").exists() {
+                        return Ok(install_dir.to_path_buf());
+                    }
+                }
+            }
+            return Ok(data_path);
         }
-        return Err(format!("Portable terminal {} not found", terminal_id));
     }
 
-    // Standard AppData terminal
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| "Could not find APPDATA directory".to_string())?;
-    
-    let terminal_path = PathBuf::from(format!(
-        "{}\\MetaQuotes\\Terminal\\{}",
-        appdata, terminal_id
-    ));
-    
-    if terminal_path.exists() {
-        Ok(terminal_path)
-    } else {
-        Err(format!("Terminal {} not found", terminal_id))
+    // 2. Literal AppData fallback
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let p = PathBuf::from(format!("{}\\MetaQuotes\\Terminal\\{}", appdata, terminal_id));
+        if p.exists() {
+            return Ok(p);
+        }
     }
+
+    Err(format!(
+        "Terminal '{}' not found ({} terminals known to discovery)",
+        terminal_id, discovered_count
+    ))
 }
 
 /// Get account info from MT5 terminal via file
