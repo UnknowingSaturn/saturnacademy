@@ -32,8 +32,12 @@ impl TerminalCache {
     
     fn get_terminals(&mut self) -> Vec<crate::mt5::bridge::Mt5Terminal> {
         if self.last_refresh.elapsed() > self.ttl {
-            debug!("Refreshing terminal cache");
-            self.terminals = crate::mt5::bridge::find_mt5_terminals();
+            debug!("Refreshing terminal cache (via discovery)");
+            // Use unified discovery as source of truth, then adapt
+            self.terminals = crate::mt5::discovery::discover_all_terminals_cached(false)
+                .into_iter()
+                .filter_map(crate::mt5::bridge::Mt5Terminal::from_terminal_info)
+                .collect();
             self.last_refresh = Instant::now();
         }
         self.terminals.clone()
