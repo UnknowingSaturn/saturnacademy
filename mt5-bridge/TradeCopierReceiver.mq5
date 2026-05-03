@@ -163,6 +163,7 @@ int OnInit()
                   StringSubstr(AccountInfoString(ACCOUNT_SERVER), 0, 10);
    
    // Initialize equity tracking
+   RefreshUtcOffset();
    g_startingEquity = AccountInfoDouble(ACCOUNT_EQUITY);
    g_highWaterMark = g_startingEquity;
    
