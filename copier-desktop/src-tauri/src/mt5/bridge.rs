@@ -225,11 +225,8 @@ fn detect_portable_terminal(path: &Path) -> Option<Mt5Terminal> {
         return None;
     }
 
-    // Check for terminal executable to confirm it's an MT5 installation
-    let has_terminal = path.join("terminal64.exe").exists() || path.join("terminal.exe").exists();
-    if !has_terminal {
-        return None;
-    }
+    // terminal64.exe is preferred but not required (some users add a data folder directly)
+    let _has_terminal = path.join("terminal64.exe").exists() || path.join("terminal.exe").exists();
 
     // Generate a unique ID from the path
     let terminal_id = format!("portable_{}", path.file_name()?.to_str()?.replace(' ', "_"));
