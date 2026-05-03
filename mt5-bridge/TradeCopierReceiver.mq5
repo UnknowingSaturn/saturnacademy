@@ -23,7 +23,7 @@ input int      InpPollIntervalMs     = 1000;                       // Poll inter
 
 input group "=== Journal Settings ==="
 input string   InpApiKey             = "";                         // API Key (for journaling to cloud)
-input int      InpBrokerUTCOffset    = 2;                          // Broker Server UTC Offset (e.g., 2 for UTC+2)
+input int      InpBrokerUTCOffset    = 0;                          // Manual UTC Offset (0 = auto-detect)
 input bool     InpEnableJournaling   = true;                       // Enable cloud journaling
 
 input group "=== Safety Overrides ==="
