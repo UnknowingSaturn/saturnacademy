@@ -84,6 +84,9 @@ pub async fn process_queue(api_key: &str) -> Result<usize, ExecutionSyncError> {
         return Ok(0);
     }
 
+    // Cap per-run flush size
+    let entries: Vec<_> = entries.into_iter().take(MAX_PER_FLUSH).collect();
+
     let mut executions = Vec::new();
     let mut files_to_delete = Vec::new();
 
