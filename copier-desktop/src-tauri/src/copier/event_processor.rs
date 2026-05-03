@@ -127,6 +127,11 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             symbol_info.as_ref(),
         );
 
+        // Build canonical idempotency key {terminal_id}:{deal_id}:{event_type}
+        let term = event.terminal_id.clone().unwrap_or_else(|| "unknown".into());
+        let deal = event.deal_id.unwrap_or(event.ticket);
+        let idem = format!("{}:{}:{}", term, deal, event.event_type);
+
         // Create execution record
         let execution = Execution {
             id: Uuid::new_v4().to_string(),
@@ -142,6 +147,10 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             status: "pending".to_string(),
             error_message: None,
             receiver_account: receiver.account_number.clone(),
+            master_position_id: Some(deal),
+            receiver_position_id: None,
+            idempotency_key: Some(idem.clone()),
+            master_account_number: event.master_account_number.clone(),
         };
 
         info!(
@@ -167,11 +176,11 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
                 final_execution.status = "success".to_string();
                 final_execution.executed_price = Some(price);
                 final_execution.slippage_pips = Some(slippage);
-                
+
                 // Update stats
                 let mut copier = state.lock();
                 copier.trades_today += 1;
-                
+
                 info!(
                     "Trade executed: {} @ {} (slippage: {} pips)",
                     mapped_symbol, price, slippage
@@ -180,12 +189,17 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             Err(e) => {
                 final_execution.status = "error".to_string();
                 final_execution.error_message = Some(e.to_string());
-                
+
                 let mut copier = state.lock();
                 copier.last_error = Some(e.to_string());
-                
+
                 error!("Trade execution failed: {}", e);
             }
+        }
+
+        // Queue execution for cloud upload (best-effort)
+        if let Err(e) = exec_sync::queue_for_upload(&final_execution) {
+            warn!("Failed to queue execution for cloud upload: {}", e);
         }
 
         // Store execution in recent list
