@@ -1,197 +1,124 @@
 
-# Trade Copier — Full Audit & Rebuild Plan
+# Trade Copier — Verification + Discovery Overhaul
 
-After reading the Master EA, Receiver EA, the entire `copier-desktop/src-tauri` Rust code, the web surface, and `copier-config` edge function, I found that the system has **three independent pipelines that don't fit together**. Many "bugs" you've been hitting are not isolated — they're symptoms of architectural drift between the desktop app, the EAs, and the schema/memory rules. I'm proposing a phased fix.
+## Audit of prior phases (status)
 
-This plan is grouped by severity. Phase 1 must land or nothing copies reliably. Phases 2–4 are stabilization and polish.
+| Item | Status | Evidence |
+|---|---|---|
+| 1.1 Receiver handles `execute` cmds + writes `resp_*.json` | ✅ Done | `TradeCopierReceiver.mq5` L430–434, `ProcessExecuteCommand` L538+ |
+| 1.2 Use `DEAL_POSITION_ID` not `result.order` | ✅ Done | Receiver `ExecuteEntry` resolves via `HistoryDealGetInteger` |
+| 1.3 EA stops recalculating risk; uses `calculated_lots` | ✅ Done | desktop `trade_executor.rs` L117 |
+| 1.4 Canonical idempotency key everywhere | ✅ Done | Master EA + desktop |
+| 1.5 Auto UTC offset in both EAs | ✅ Done | `RefreshUtcOffset` in both |
+| 2.2 Per-receiver dynamic magic | ✅ Done | `ComputeCopierMagic` FNV-1a |
+| 2.3 Slippage normalization | ✅ Done |
+| 2.4 Daily P&L scoped to copier magic | ✅ Done |
+| 2.7 Atomic heartbeat write | ✅ Done |
+| 2.8 Per-receiver config parser | ✅ Done |
+| 3.2 `copier-config` returns 200/empty when no master | ✅ Done |
+| 3.4 `failedToday` filtered to today | ✅ Done |
+| 3.3 server: `copier-executions` edge function | ✅ Done (last turn) |
+| **3.3 client: actually call upload + process_queue** | ❌ **Still dead code** |
+| **MT5 discovery — UI sometimes finds nothing** | ❌ **Two divergent discovery paths** |
 
----
-
-## Phase 1 — Make trades actually copy (CRITICAL)
-
-These are blocker-class bugs. Until fixed, the copier cannot work end-to-end.
-
-### 1.1 Pipeline mismatch: desktop writes commands the receiver EA ignores
-
-The desktop's `trade_executor::execute_trade` writes `cmd_<timestamp>.json` files into each receiver's `MQL5/Files/CopierCommands/` folder with `action` = `"entry" | "exit" | "modify" | "partial_close"`. It then polls for a `resp_<timestamp>.json` file for up to 15 seconds.
-
-The Receiver EA's `CheckEmergencyCommands` / `ProcessEmergencyCommand` (TradeCopierReceiver.mq5 ~L315–419) only handles `command_type = "close_all" | "pause_copying" | "resume_copying" | "open" | "close"`. Command files with `action = "entry"` etc. fall through every `if/else if`, then get **deleted unread** at the end of the function. **No response file is ever written.** Every desktop-driven trade times out.
-
-Meanwhile the Receiver EA tries to read events directly from `InpQueuePath = "CopierQueue"` (its OWN `MQL5/Files/CopierQueue/pending/`) — but the Master EA writes to its own terminal's queue, not the receiver's. So in a typical two-terminal setup the receiver EA's pending folder is empty too.
-
-**Fix — pick ONE pipeline and commit to it. Recommended (matches the existing memory rule "lot calc lives in desktop"):**
-
-- Desktop app is the authoritative router. Master EA only writes events; Receiver EA only executes commands from the desktop.
-- Add a new command schema: `{ "command_type": "execute", "action": "entry|exit|modify|partial_close", "symbol", "direction", "lots", "sl", "tp", "max_slippage_pips", "master_position_id", "request_id" }`.
-- Receiver EA: extend `ProcessEmergencyCommand` with branches for `execute` that call `ExecuteEntry/ExecuteExit/ExecutePartialClose/ExecuteModify` and **write a `resp_<request_id>.json`** with `{ success, executed_price, slippage_pips, receiver_position_id, error }` before deleting the cmd file.
-- Desktop `trade_executor` continues to use `cmd_*.json` filenames keyed by `request_id` (not raw timestamp — collisions are possible at ms resolution under load).
-- Remove the receiver EA's direct `ProcessPendingEvents` reading from its own queue, OR keep it only as a same-machine fallback when desktop is offline (clearly flagged).
-
-### 1.2 Position-id vs order-id mix-up on the receiver
-
-`TradeCopierReceiver.mq5 ExecuteEntry` (~L978) stores `receiverPosId = (long)result.order`. That's the **order** ticket, not the **position** ticket. On exit/modify it does `PositionSelectByTicket((ulong)receiverPosId)`, which requires the position ticket. They are sometimes equal on initial market fills, but diverge after partial closes, requotes, or if `result.deal` differs.
-
-**Fix:**
-- After successful `OrderSend`, look up the resulting position via `HistoryDealSelect(result.deal)` then `HistoryDealGetInteger(result.deal, DEAL_POSITION_ID)` and store THAT as `receiver_position_id`.
-- Apply the same change wherever `result.order` is being treated as a position id.
-
-### 1.3 Receiver EA recalculates risk — contradicts the architecture rule
-
-Memory rule: *"Risk lot size calculation is centralized in desktop app; MQL5 EA only clamps."* Currently `TradeCopierReceiver.CalculateLotSize` (~L1687) re-implements `balance_multiplier`, `risk_percent`, `risk_dollar`, `intent`. Two implementations drift; behavior depends on which path you go through.
-
-**Fix:** Receiver EA's `CalculateLotSize` collapses to:
-1. Take `calculated_lots` from the command payload (desktop already computed it).
-2. Clamp to `[SYMBOL_VOLUME_MIN, SYMBOL_VOLUME_MAX]` and round to `SYMBOL_VOLUME_STEP`.
-3. Log if clamping changed the value materially (>5% diff) so the desktop can warn the user.
-
-Delete the duplicated risk-mode branches in MQL.
-
-### 1.4 Idempotency key inconsistency across all three layers
-
-Three different formats are in use today:
-
-- Master EA writes `idempotency_key = g_terminalId + "_" + dealTicket + "_" + eventType`
-- Desktop generates `format!("{}:{}:{}:{}:{}", event_type, ticket, deal_id, symbol, timestamp)`
-- Memory says canonical is `{terminal_id}:{deal_id}:{event_type}`
-
-This means the desktop's idempotency cache cannot dedupe master-supplied keys, and vice-versa. Re-runs and reconnects will double-execute or drop legitimate events.
-
-**Fix:**
-- Pick the memory-canonical form `{terminal_id}:{deal_id}:{event_type}` everywhere.
-- Master EA emits it.
-- Desktop uses it as-is (don't regenerate). If the field is missing, fall back to `unknown:{deal_id}:{event_type}`.
-- Receiver EA's `IsEventExecuted` keys on the same string.
-- Add a one-time migration: ignore old-format keys on first boot, then write new format.
-
-### 1.5 Broker-time → UTC drift
-
-Memory says: *"Auto UTC offset detection via TimeCurrent vs TimeGMT."* The current EAs use a manual `InpBrokerUTCOffset` input (default 2). If the user gets it wrong (most do), the heartbeat staleness check, daily-P&L window, and event timestamps all skew, breaking master-online detection and the daily-loss reset.
-
-**Fix in both EAs:**
-- On `OnInit`, compute `g_utcOffsetSec = (long)TimeCurrent() - (long)TimeGMT()` and round to nearest 1800s (handles half-hour brokers).
-- Recompute on each `OnTimer` tick (Mon-Fri DST shifts).
-- Treat `InpBrokerUTCOffset` as "manual override only when non-zero".
+The two remaining gaps are what this plan finishes.
 
 ---
 
-## Phase 2 — Stabilization (HIGH priority)
+## Problem 1 — MT5 terminal discovery is unreliable
 
-### 2.1 Master EA queue is write-only with no consumer ack
+There are two parallel discovery modules in `copier-desktop/src-tauri/src/mt5/`:
 
-`pending/*.json` files are deleted by whoever consumes them (desktop watcher OR a co-located receiver EA — race) and there's no record of which receiver successfully executed. With multiple receivers the first one wins and the others never see the event.
+- `discovery.rs` (modern, used by UI/Tauri commands): registry + WMIC + AppData + `LOCALAPPDATA\Programs` + manual paths, cached, returns `TerminalInfo` with hash-based `terminal_id`.
+- `bridge.rs::find_mt5_terminals` (legacy, used by `trade_executor`, `event_processor`, `file_watcher`, `position_sync`, `symbol_catalog`): scans only `%APPDATA%\MetaQuotes\Terminal` + a hard-coded list of Program Files / drive roots. Returns `Mt5Terminal` with `portable_<folder_name>` id.
 
-**Fix:**
-- Desktop watcher reads, parses, and **moves** the file to a per-receiver `pending/<receiver_terminal_id>/` subfolder so each receiver consumes its own copy. Or: keep one queue, but only the desktop deletes after all receivers have ack'd via `resp_*.json`.
-- Add a `delivered_to[]` array updated by the desktop in a sidecar `<filename>.ack` file.
+Concrete failure modes this causes:
 
-### 2.2 Magic number collisions
+1. Installs only present in **registry** or `LOCALAPPDATA\Programs` (Windows 11 default location for many broker installers) are invisible to bridge → file_watcher never starts watching, event_processor never resolves accounts.
+2. UI saves `accounts.terminal_id` from `discovery` (hash id). `trade_executor::find_terminal_path` later calls `bridge::find_mt5_terminals` and fails to match → "Terminal not found" silently aborts every trade.
+3. `event_processor`'s 30s `TerminalCache` wraps `bridge` only, so `get_cached_account_info` returns `None` and lot-size calc falls back to `10000.0` baseline.
+4. WMIC is gone from Windows 11 23H2+ default → `is_running` always false; discovery still works because of registry + AppData walk, but live status never flips on.
+5. `find_terminal_path` doesn't know how to resolve a `discovery`-style hash id at all unless it happens to live under `%APPDATA%\MetaQuotes\Terminal\<id>`.
 
-Receiver EA hard-codes `request.magic = 12345`. Any other EA using 12345 will be picked up by `CloseAllCopierPositions` and accidentally closed.
+### Fix — collapse to one source of truth
 
-**Fix:**
-- Generate a per-receiver magic from a hash of `(receiver_id, master_account_id)` so each install has a unique magic.
-- Persist it in `copier-config.json` (already cached) so it's stable across restarts.
-- Update `CloseAllCopierPositions` and the position-discovery code to use the configured magic.
+1. **Make `discovery::discover_all_terminals` the only discovery API.** Convert `bridge::find_mt5_terminals` into a thin wrapper:
+   ```text
+   discovery::discover_all_terminals()
+       .into_iter()
+       .map(Mt5Terminal::from)   // adapter preserves shape for old callers
+       .collect()
+   ```
+   This is non-breaking: same return type, same fields, but now the callers (`trade_executor`, `event_processor`, `file_watcher`, `position_sync`, `symbol_catalog`) inherit registry + LocalAppData + manual paths automatically.
 
-### 2.3 Slippage calc wrong for indices and 4-digit forex
+2. **Single, robust `find_terminal_path`** in `bridge.rs`:
+   - Look up by `terminal_id` against the cached discovery list first → return its `data_folder`.
+   - If `terminal_id` starts with `portable_` and not found → fall back to scanning manual paths.
+   - Only as last resort, try `%APPDATA%\MetaQuotes\Terminal\<id>` literal.
+   - Return a structured error including which id was searched and how many terminals were known.
 
-`CalculateSlippage` divides by 10 only when `digits == 5 || digits == 3`. For indices (digits 1–2) and 4-digit pairs the value is reported in **points** but compared against `max_slippage_pips`. Threshold checks become meaningless.
+3. **Replace WMIC** with PowerShell `Get-CimInstance Win32_Process` (works on Windows 11) or, even better, the `sysinfo` crate (already a common Tauri dep — verify in `Cargo.toml`; if not present, add it). This restores `is_running` for the diagnostics tab and the wizard.
 
-**Fix:** Use the same digit/symbol-type table that already exists in `lot_calculator.rs::SymbolType` and convert everything to a consistent "pips" unit per symbol class (1pt for indices, 10pt for 5-digit forex, 1pt for 4-digit, 10pt for JPY 3-digit).
+4. **`event_processor::TerminalCache`** keeps its own 30s cache but now wraps `discovery::discover_all_terminals_cached(false)` so it benefits from the same 10s discovery cache rather than re-walking the FS.
 
-### 2.4 Daily P&L includes non-copier trades on the receiver
+5. **Diagnostic surface:** add a Tauri command `get_discovery_debug()` returning `{registry: N, appdata: N, common_paths: N, manual: N, running: N, total: N}` so the user (and we) can immediately see which strategy succeeded. Wire to a small section in the existing `Diagnostics` tab.
 
-`CalculateDailyPnL` sums every deal in the receiver's history today. If the user trades manually, the daily-loss kill switch trips on their manual losses too.
+6. **Manual-path UX safety net:** the wizard already has "Add terminal manually". Verify it: when the user picks a folder, we should accept it if it contains either `terminal64.exe` (install root) **or** `MQL5\\Files` (data root) — current code only accepts the install-root case.
 
-**Fix:** Filter `HistoryDealGetInteger(ticket, DEAL_MAGIC) == g_copierMagic` (after 2.2 lands).
+### Files to touch
 
-### 2.5 Symbol mapping has no contract-spec fallback
-
-Memory rule: *"Prioritizes contract specs over names for cross-broker match."* Today `MapSymbol` only does an exact lookup in `g_symbolMappings` and falls back to `SymbolInfoInteger(masterSymbol, SYMBOL_EXIST)`. No normalization (`USTECm` → `USTEC`, `EURUSD.cash` → `EURUSD`), no contract-size tie-breaker.
-
-**Fix:**
-- Receiver EA generates `CopierSymbolCatalog.json` on startup with `{name, normalized_key, tick_value, contract_size, digits, profit_currency}` — the structure already expected by `symbol_catalog.rs`.
-- Desktop, on receiving a master event whose symbol has no mapping, picks the receiver symbol with the closest `(contract_size, profit_currency, digits)` triple and writes the resolved symbol into the command.
-- Persist auto-mapped pairs back to `copier_symbol_mappings` with `auto_mapped=true` and surface them in the Web UI for confirmation.
-
-### 2.6 Receiver-side reconciliation never auto-mapped through the executor
-
-`reconciliation.rs handle_discrepancy` writes `SyncCommand { command_type: "open" }` with raw master volume. It bypasses the lot calculator AND skips symbol mapping. After 2.1/2.5 land, route reconciliation through the same `execute` command path so risk + symbol logic apply.
-
-### 2.7 Master heartbeat write race
-
-`WriteHeartbeat` opens with `FILE_WRITE` and overwrites in place — readers can hit a half-written file. Fix to write `heartbeat.json.tmp` then `FileMove` rename, matching the pattern already used for event files.
-
-### 2.8 Receiver EA `ParseConfigJson` is fragile
-
-The current parser uses string-find positional parsing on the JSON. With multiple receivers in a config it picks fields from the **first** receiver's block regardless of `InpReceiverId` (the `receiverId` lookup at L609 is computed but its `configStart` is never used to scope subsequent extractions — `ExtractJsonString(json, "account_name", receiversStart)` ignores it).
-
-**Fix:** Replace the hand-rolled parser with a tiny purpose-built JSON walker (or use the `JAson.mqh` include) and restrict every extraction to the substring between the matched receiver's `{` and its closing `}`.
-
-### 2.9 The "execute_trade_async" path is dead code that confuses maintenance
-
-`execute_trade()` is sync; `execute_trade_async` and the `ExecutionQueue` are `#[allow(dead_code)]`. Either wire them in (better: process events through a tokio queue so multiple receivers get parallel execution) or delete them. Recommend: keep async, delete sync, and move `process_event` onto a `tokio::spawn` per receiver so a slow broker on receiver A doesn't block receiver B.
+- `copier-desktop/src-tauri/src/mt5/bridge.rs` — gut `find_mt5_terminals`, rewrite `find_terminal_path`, add `From<TerminalInfo> for Mt5Terminal` adapter.
+- `copier-desktop/src-tauri/src/mt5/discovery.rs` — replace WMIC with sysinfo (or PS fallback); broaden manual-path acceptance.
+- `copier-desktop/src-tauri/src/copier/event_processor.rs` — point `TerminalCache` at discovery.
+- `copier-desktop/src-tauri/src/main.rs` — register `get_discovery_debug` command.
+- `copier-desktop/src/components/copier/Diagnostics.tsx` (or equivalent) — render the debug counts.
 
 ---
 
-## Phase 3 — Web app surface fixes
+## Problem 2 — Phase 3.3 client side is still dead
 
-### 3.1 No web fallback if desktop wizard fails
+Server endpoint exists now, but the desktop never calls it, so the web Activity tab will stay empty.
 
-All setup happens in the Tauri wizard. The web `Trade Copier` page can only show status. Add to the web app:
+### Fix
 
-- A "Manual Setup" mode under `src/components/copier/`: pick which existing accounts are master/receivers, set risk mode/value, set per-receiver symbol map. Writes directly to `accounts`, `copier_receiver_settings`, `copier_symbol_mappings`. The desktop app then only needs to scan terminals and install EAs.
-- A "Copy this api key" button on each receiver account in `Accounts.tsx` (right now `receiverWithApiKey` only surfaces the first one found).
+1. In `event_processor::process_event`, after the success/error branch, call `sync::executions::queue_for_upload(&final_execution)` (best-effort; log on err).
+2. In `main.rs` startup, spawn a tokio task:
+   ```text
+   loop {
+       tokio::time::sleep(Duration::from_secs(30)).await;
+       if let Some(api_key) = state.lock().api_key.clone() {
+           let _ = sync::executions::process_queue(&api_key).await;
+       }
+   }
+   ```
+3. Remove `#[allow(dead_code)]` from `sync/executions.rs` items now that they're used.
+4. Extend the `Execution` struct with optional `master_position_id`, `receiver_position_id`, `idempotency_key`, `master_account_number` so the edge function can dedupe and link rows correctly. Populate these in `event_processor` from the `TradeEvent` and the `TradeResponse`.
 
-### 3.2 `copier-config` edge function returns 404 instead of empty receivers
+### Files to touch
 
-When a receiver's API key is valid but the user hasn't marked any account as master yet, the function returns 404 "No active master account found", which the desktop reports as "config sync failed". Better UX: return `{master: null, receivers: []}` with 200 so the desktop can show "Set up a master in the web app".
-
-### 3.3 Realtime executions list never receives non-DB writes
-
-`useCopierExecutionsRealtime` listens on `copier_executions` INSERTs, but the desktop currently has `sync/executions.rs` marked `#[allow(dead_code)]` and **never uploads** executions to the cloud. The web Activity tab will always be empty.
-
-**Fix:** Wire `executions::queue_for_upload` into `event_processor` after each execution and run `process_queue` on a 30s tokio interval. Add a `copier-executions` edge function (currently referenced by the Rust code as `{API}/copier-executions` but does not exist in `supabase/functions/`).
-
-### 3.4 Stats card miscalculates "Failed Today"
-
-`CopierDashboard.tsx` shows `stats.failedCount` which is "all-time failed across last 1000 executions", labeled as "Failed Today". Filter by `executed_at >= startOfToday`.
-
----
-
-## Phase 4 — Quality, observability, polish
-
-- **Diagnostics tab is mostly placeholder zeros** (`get_diagnostics` returns hard-coded `queue_pending: 0`, etc.). Wire in real counts by listing `pending/` and counting `cmd_*.json` files per receiver.
-- **No structured logs from EAs.** Master/Receiver write plain text. Convert to one-JSON-per-line so the desktop's `export_debug_bundle` can parse and filter.
-- **Tests:** Rust has tests for lot calculator and idempotency. Add tests for: command serialization roundtrip, symbol normalization, the new request_id flow, and the new resp_*.json wait/timeout.
-- **Receiver EA `ProcessPendingEvents` sorts files alphabetically** — but filenames are date-prefixed without time, so ordering within a day is by deal_id, not chronological. Switch to timestamped filenames or sort by `FileGetInteger(..., FILE_CREATE_DATE)`.
-- **Reconciliation default interval is 30s, disabled by default** — fine, but UI should make it obvious it's off and provide a one-click "enable safe defaults" (auto-sync SL/TP only).
+- `copier-desktop/src-tauri/src/copier/mod.rs` — extend `Execution`.
+- `copier-desktop/src-tauri/src/copier/event_processor.rs` — populate new fields, call `queue_for_upload`.
+- `copier-desktop/src-tauri/src/sync/executions.rs` — drop dead-code allows.
+- `copier-desktop/src-tauri/src/main.rs` — spawn periodic flush task.
 
 ---
 
-## Suggested execution order
+## Out of scope for this batch
 
-1. ✅ Phase 1.1 + 1.2 + 1.4 — pipeline + position id + idempotency.
-2. ✅ Phase 1.3 + 1.5 — lot calc and timezones.
-3. ✅ Phase 2.2 — per-receiver magic numbers (ComputeCopierMagic via FNV-1a hash).
-4. ✅ Phase 2.3 — slippage normalization for indices and 4-digit FX.
-5. ✅ Phase 2.4 — daily P&L filtered by copier magic.
-6. ✅ Phase 2.7 — atomic master heartbeat write.
-7. ✅ Phase 2.8 — robust per-receiver config block parser.
-8. ✅ Phase 3.2 — copier-config returns 200 + empty receivers when no master.
-9. ✅ Phase 3.4 — "Failed Today" filtered to today only.
-10. ⏳ Phase 2.1 — per-receiver queue routing (Rust file_watcher fans out master events into pending/<receiver_terminal_id>/).
-11. ⏳ Phase 2.5 — symbol catalog from receiver EA + auto-mapping by contract specs.
-12. ⏳ Phase 2.6 — reconciliation goes through trade_executor (lot calc + symbol map).
-13. ⏳ Phase 2.9 — keep async, drop sync executor; tokio per-receiver tasks.
-14. ⏳ Phase 3.1 — manual setup mode in web app.
-15. ⏳ Phase 3.3 — desktop uploads executions; new copier-executions edge function.
-16. ⏳ Phase 4 — diagnostics, structured logs, tests.
+These remain queued from `.lovable/plan.md`, untouched here:
+
+- 2.1 per-receiver queue routing
+- 2.5 symbol catalog auto-mapping
+- 2.6 reconciliation through trade_executor
+- 2.9 drop sync executor / per-receiver tokio tasks
+- 3.1 web manual-setup mode
+- Phase 4 polish
 
 ---
 
-## Open questions for the next batch
+## Risks / things to watch after this lands
 
-1. **2.1 routing direction:** should I fan out by *moving* files into per-receiver subfolders (loses original pending dir semantics) or keep one queue + sidecar `.ack` files? Sidecar is safer for restart recovery.
-2. **2.5 symbol catalog:** OK with the receiver EA dumping `CopierSymbolCatalog.json` on init and on every config reload, plus a 1× refresh per hour? Alternative: only on init (cheaper but stale after broker symbol additions).
-3. **3.1 manual setup:** how prominent — full standalone wizard, or a "Manual mode" toggle inside the existing wizard step?
+- The discovery unification means callers that relied on the bridge's `Mt5Terminal.path` being the **install dir** will now get the **data folder** for AppData installs. The adapter must preserve "path = data folder when MQL5 is in data folder, else install dir" so command/event/queue file paths still resolve. I'll keep the existing behavior by selecting whichever of `data_folder` or install_dir contains `MQL5\\Files`.
+- `sysinfo` adds ~200KB to the binary; acceptable.
+- The first execution-upload run after release will flush whatever's in the local queue dir. That could be hundreds of stale entries from previous broken runs — wrap the first flush in a "max 200" cap so we don't hammer the edge function.
+
