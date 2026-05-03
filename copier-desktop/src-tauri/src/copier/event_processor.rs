@@ -220,6 +220,8 @@ fn record_blocked_execution(
     reason: &str,
     state: Arc<Mutex<CopierState>>,
 ) {
+    let term = event.terminal_id.clone().unwrap_or_else(|| "unknown".into());
+    let deal = event.deal_id.unwrap_or(event.ticket);
     let execution = Execution {
         id: Uuid::new_v4().to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -234,7 +236,14 @@ fn record_blocked_execution(
         status: "blocked".to_string(),
         error_message: Some(reason.to_string()),
         receiver_account: receiver.account_number.clone(),
+        master_position_id: Some(deal),
+        receiver_position_id: None,
+        idempotency_key: Some(format!("{}:{}:{}", term, deal, event.event_type)),
+        master_account_number: event.master_account_number.clone(),
     };
+
+    // Best-effort: blocked executions also flow to cloud (status will normalize to "skipped")
+    let _ = exec_sync::queue_for_upload(&execution);
     
     let mut copier = state.lock();
     copier.recent_executions.insert(0, execution);
