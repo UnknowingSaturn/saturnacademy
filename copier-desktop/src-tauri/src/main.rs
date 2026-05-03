@@ -757,7 +757,23 @@ fn main() {
             std::thread::spawn(move || {
                 copier::file_watcher::start_watching(copier);
             });
-            
+
+            // Periodic execution upload to cloud (Phase 3.3 client side)
+            let copier_for_flush = state.copier.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    let api_key = { copier_for_flush.lock().api_key.clone() };
+                    if let Some(key) = api_key {
+                        match sync::executions::process_queue(&key).await {
+                            Ok(n) if n > 0 => info!("Uploaded {} queued executions to cloud", n),
+                            Ok(_) => {}
+                            Err(e) => warn!("Execution upload failed: {}", e),
+                        }
+                    }
+                }
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())
