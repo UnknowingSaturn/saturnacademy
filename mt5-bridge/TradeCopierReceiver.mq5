@@ -2010,14 +2010,21 @@ double GetCurrentPrice(string symbol, string direction, string eventType)
 double CalculateSlippage(double masterPrice, double currentPrice, string symbol)
 {
    double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   if(point <= 0) return 0;
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
-   
+
    double diff = MathAbs(currentPrice - masterPrice);
-   double pips = diff / point;
-   
+   double points = diff / point;
+
+   // Phase 2.3: normalize "points" to "pips" per symbol class.
+   //   5-digit FX (EURUSD 1.23456) and 3-digit JPY (USDJPY 123.456) → 1 pip = 10 points
+   //   4-digit FX (EURUSD 1.2345) and 2-digit JPY (USDJPY 123.45)   → 1 pip = 1 point
+   //   Indices / metals (digits 0..2)                                → use 1 pip = 1 point
+   double pips;
    if(digits == 5 || digits == 3)
-      pips /= 10;
-   
+      pips = points / 10.0;
+   else
+      pips = points;
    return pips;
 }
 
