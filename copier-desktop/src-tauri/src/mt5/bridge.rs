@@ -15,6 +15,7 @@ pub fn find_mt5_terminals() -> Vec<Mt5Terminal> {
         .collect()
 }
 
+#[allow(dead_code)]
 fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
     tracing::debug!("Detecting terminal at path: {:?}", path);
     
