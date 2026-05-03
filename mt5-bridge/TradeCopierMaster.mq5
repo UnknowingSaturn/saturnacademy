@@ -291,7 +291,7 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
    string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
    
    // Generate modify event
-   string idempotencyKey = g_terminalId + "_modify_" + IntegerToString(posId) + "_" + 
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(posId) + ":modify:" +
                            IntegerToString(TimeCurrent());
    
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
