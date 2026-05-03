@@ -706,7 +706,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    
    // Check if this is a copier trade (magic number check)
    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
-   if(magic == 12345) // Copier magic - already handled by ExecuteEntry/ExecuteExit
+   if(magic == g_copierMagic) // Copier magic - already handled by ExecuteEntry/ExecuteExit
       return;
    
    // Check if already processed
