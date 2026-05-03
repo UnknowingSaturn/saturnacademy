@@ -1,7 +1,8 @@
-#![allow(dead_code)]
 use crate::copier::Execution;
 
 const API_BASE_URL: &str = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1";
+/// Max executions flushed per `process_queue` invocation (avoid hammering after long offline)
+const MAX_PER_FLUSH: usize = 200;
 
 /// Upload execution records to the cloud
 pub async fn upload_executions(
