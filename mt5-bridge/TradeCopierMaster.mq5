@@ -146,6 +146,7 @@ int OnInit()
    }
    
    // Set timer for queue processing and heartbeat
+   RefreshUtcOffset();
    EventSetTimer(1); // 1 second timer for responsive heartbeat
    
    // Initialize processed deals array
@@ -360,6 +361,8 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+   if(TimeCurrent() - g_lastUtcRefresh > 3600)
+      RefreshUtcOffset();
    datetime now = TimeCurrent();
    
    // Heartbeat every N seconds
