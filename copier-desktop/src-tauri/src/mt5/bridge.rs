@@ -1,83 +1,21 @@
 use std::path::{Path, PathBuf};
-use std::collections::HashSet;
 
-/// Find all MT5 terminal installations on the system
+use super::discovery::{self, TerminalInfo};
+
+/// Find all MT5 terminal installations on the system.
+///
+/// Single source of truth: delegates to `mt5::discovery::discover_all_terminals`
+/// (registry + Program Files + LocalAppData\Programs + AppData + manual paths,
+/// cached). The returned `Mt5Terminal` shape is preserved for legacy callers
+/// (trade_executor, file_watcher, position_sync, symbol_catalog, event_processor).
 pub fn find_mt5_terminals() -> Vec<Mt5Terminal> {
-    let mut terminals = Vec::new();
-    let mut seen_ids: HashSet<String> = HashSet::new();
-
-    // Method 1: Check standard MetaQuotes Terminal folder (AppData)
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let terminals_path = format!("{}\\MetaQuotes\\Terminal", appdata);
-        
-        if let Ok(entries) = std::fs::read_dir(&terminals_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    if let Some(terminal) = detect_terminal(&path) {
-                        if seen_ids.insert(terminal.terminal_id.clone()) {
-                            terminals.push(terminal);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Method 2: Check Program Files for portable installations (with debug logging - m2 fix)
-    for program_files in &["C:\\Program Files", "C:\\Program Files (x86)", "D:\\Program Files"] {
-        match std::fs::read_dir(program_files) {
-            Ok(entries) => {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let name = path.file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("");
-                    
-                    // Check for MT5 installations
-                    if name.to_lowercase().contains("metatrader") 
-                        || name.to_lowercase().contains("mt5") 
-                        || name.to_lowercase().contains("terminal") {
-                        if let Some(terminal) = detect_portable_terminal(&path) {
-                            if seen_ids.insert(terminal.terminal_id.clone()) {
-                                terminals.push(terminal);
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::debug!("Could not scan directory {}: {}", program_files, e);
-            }
-        }
-    }
-
-    // Method 3: Check common broker installation paths (expanded to more drive letters)
-    let common_paths = [
-        "C:\\MetaTrader 5",
-        "C:\\MT5",
-        "D:\\MetaTrader 5",
-        "D:\\MT5",
-        "E:\\MetaTrader 5",
-        "E:\\MT5",
-        "F:\\MetaTrader 5",
-        "F:\\MT5",
-    ];
-
-    for path_str in &common_paths {
-        let path = Path::new(path_str);
-        if path.exists() {
-            if let Some(terminal) = detect_portable_terminal(path) {
-                if seen_ids.insert(terminal.terminal_id.clone()) {
-                    terminals.push(terminal);
-                }
-            }
-        }
-    }
-
-    terminals
+    discovery::discover_all_terminals()
+        .into_iter()
+        .filter_map(Mt5Terminal::from_terminal_info)
+        .collect()
 }
 
+#[allow(dead_code)]
 fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
     tracing::debug!("Detecting terminal at path: {:?}", path);
     
@@ -287,11 +225,8 @@ fn detect_portable_terminal(path: &Path) -> Option<Mt5Terminal> {
         return None;
     }
 
-    // Check for terminal executable to confirm it's an MT5 installation
-    let has_terminal = path.join("terminal64.exe").exists() || path.join("terminal.exe").exists();
-    if !has_terminal {
-        return None;
-    }
+    // terminal64.exe is preferred but not required (some users add a data folder directly)
+    let _has_terminal = path.join("terminal64.exe").exists() || path.join("terminal.exe").exists();
 
     // Generate a unique ID from the path
     let terminal_id = format!("portable_{}", path.file_name()?.to_str()?.replace(' ', "_"));
@@ -405,33 +340,48 @@ pub fn install_ea_to_terminal(
     Ok(ea_path.to_string_lossy().to_string())
 }
 
+/// Resolve a terminal_id (from `discovery` or legacy `portable_*`) to its
+/// data folder (where `MQL5/Files` lives).
+///
+/// Strategy:
+///  1. Look up against the unified discovery cache first.
+///  2. Fall back to a literal `%APPDATA%\MetaQuotes\Terminal\<id>` path.
 fn find_terminal_path(terminal_id: &str) -> Result<PathBuf, String> {
-    // Check if it's a portable terminal
-    if terminal_id.starts_with("portable_") {
-        // Search for it in known locations
-        let terminals = find_mt5_terminals();
-        for terminal in terminals {
-            if terminal.terminal_id == terminal_id {
-                return Ok(PathBuf::from(terminal.path));
+    // 1. Discovery cache (covers AppData hashes, Registry installs, manual paths,
+    //    LocalAppData\Programs, portable installs).
+    let terminals = discovery::discover_all_terminals();
+    let discovered_count = terminals.len();
+    for t in &terminals {
+        if t.terminal_id == terminal_id {
+            // Prefer whichever path actually contains MQL5/Files
+            let data_path = PathBuf::from(&t.data_folder);
+            if data_path.join("MQL5").join("Files").exists() {
+                return Ok(data_path);
             }
+            // Fallback to install dir if data folder is incomplete
+            if let Some(exe) = &t.executable_path {
+                if let Some(install_dir) = Path::new(exe).parent() {
+                    if install_dir.join("MQL5").join("Files").exists() {
+                        return Ok(install_dir.to_path_buf());
+                    }
+                }
+            }
+            return Ok(data_path);
         }
-        return Err(format!("Portable terminal {} not found", terminal_id));
     }
 
-    // Standard AppData terminal
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| "Could not find APPDATA directory".to_string())?;
-    
-    let terminal_path = PathBuf::from(format!(
-        "{}\\MetaQuotes\\Terminal\\{}",
-        appdata, terminal_id
-    ));
-    
-    if terminal_path.exists() {
-        Ok(terminal_path)
-    } else {
-        Err(format!("Terminal {} not found", terminal_id))
+    // 2. Literal AppData fallback
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let p = PathBuf::from(format!("{}\\MetaQuotes\\Terminal\\{}", appdata, terminal_id));
+        if p.exists() {
+            return Ok(p);
+        }
     }
+
+    Err(format!(
+        "Terminal '{}' not found ({} terminals known to discovery)",
+        terminal_id, discovered_count
+    ))
 }
 
 /// Get account info from MT5 terminal via file
@@ -503,6 +453,43 @@ pub struct Mt5Terminal {
     pub receiver_installed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_info: Option<AccountInfo>,
+}
+
+impl Mt5Terminal {
+    /// Adapt a `discovery::TerminalInfo` into the legacy `Mt5Terminal` shape
+    /// used by trade_executor / file_watcher / position_sync / symbol_catalog.
+    /// `path` is set to whichever of (data_folder, install_dir) actually contains MQL5/Files.
+    pub fn from_terminal_info(t: TerminalInfo) -> Option<Mt5Terminal> {
+        let data_path = Path::new(&t.data_folder);
+        let install_dir = t.executable_path.as_ref()
+            .and_then(|p| Path::new(p).parent().map(|x| x.to_path_buf()));
+
+        let path = if data_path.join("MQL5").join("Files").exists() {
+            t.data_folder.clone()
+        } else if let Some(ref inst) = install_dir {
+            if inst.join("MQL5").join("Files").exists() {
+                inst.to_string_lossy().to_string()
+            } else {
+                t.data_folder.clone()
+            }
+        } else {
+            t.data_folder.clone()
+        };
+
+        // Reuse handshake to populate AccountInfo if present
+        let files_path = Path::new(&path).join("MQL5").join("Files");
+        let account_info = get_account_info_internal(&files_path);
+
+        Some(Mt5Terminal {
+            terminal_id: t.terminal_id,
+            path,
+            broker: t.broker,
+            has_mql5: t.has_mql5,
+            master_installed: t.master_installed,
+            receiver_installed: t.receiver_installed,
+            account_info,
+        })
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

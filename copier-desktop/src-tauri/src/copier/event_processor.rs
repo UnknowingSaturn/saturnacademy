@@ -9,6 +9,7 @@ use tracing::{info, warn, error, debug};
 use uuid::Uuid;
 
 use super::{lot_calculator, safety, trade_executor, CopierConfig, CopierState, Execution, TradeEvent};
+use crate::sync::executions as exec_sync;
 
 // Terminal cache to avoid repeated filesystem scans
 static TERMINAL_CACHE: std::sync::LazyLock<Mutex<TerminalCache>> = 
@@ -31,8 +32,12 @@ impl TerminalCache {
     
     fn get_terminals(&mut self) -> Vec<crate::mt5::bridge::Mt5Terminal> {
         if self.last_refresh.elapsed() > self.ttl {
-            debug!("Refreshing terminal cache");
-            self.terminals = crate::mt5::bridge::find_mt5_terminals();
+            debug!("Refreshing terminal cache (via discovery)");
+            // Use unified discovery as source of truth, then adapt
+            self.terminals = crate::mt5::discovery::discover_all_terminals_cached(false)
+                .into_iter()
+                .filter_map(crate::mt5::bridge::Mt5Terminal::from_terminal_info)
+                .collect();
             self.last_refresh = Instant::now();
         }
         self.terminals.clone()
@@ -122,6 +127,11 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             symbol_info.as_ref(),
         );
 
+        // Build canonical idempotency key {terminal_id}:{deal_id}:{event_type}
+        let term = event.terminal_id.clone().unwrap_or_else(|| "unknown".into());
+        let deal = event.deal_id.unwrap_or(event.ticket);
+        let idem = format!("{}:{}:{}", term, deal, event.event_type);
+
         // Create execution record
         let execution = Execution {
             id: Uuid::new_v4().to_string(),
@@ -137,6 +147,10 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             status: "pending".to_string(),
             error_message: None,
             receiver_account: receiver.account_number.clone(),
+            master_position_id: Some(deal),
+            receiver_position_id: None,
+            idempotency_key: Some(idem.clone()),
+            master_account_number: event.master_account_number.clone(),
         };
 
         info!(
@@ -162,11 +176,11 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
                 final_execution.status = "success".to_string();
                 final_execution.executed_price = Some(price);
                 final_execution.slippage_pips = Some(slippage);
-                
+
                 // Update stats
                 let mut copier = state.lock();
                 copier.trades_today += 1;
-                
+
                 info!(
                     "Trade executed: {} @ {} (slippage: {} pips)",
                     mapped_symbol, price, slippage
@@ -175,12 +189,17 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             Err(e) => {
                 final_execution.status = "error".to_string();
                 final_execution.error_message = Some(e.to_string());
-                
+
                 let mut copier = state.lock();
                 copier.last_error = Some(e.to_string());
-                
+
                 error!("Trade execution failed: {}", e);
             }
+        }
+
+        // Queue execution for cloud upload (best-effort)
+        if let Err(e) = exec_sync::queue_for_upload(&final_execution) {
+            warn!("Failed to queue execution for cloud upload: {}", e);
         }
 
         // Store execution in recent list
@@ -201,6 +220,8 @@ fn record_blocked_execution(
     reason: &str,
     state: Arc<Mutex<CopierState>>,
 ) {
+    let term = event.terminal_id.clone().unwrap_or_else(|| "unknown".into());
+    let deal = event.deal_id.unwrap_or(event.ticket);
     let execution = Execution {
         id: Uuid::new_v4().to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -215,7 +236,14 @@ fn record_blocked_execution(
         status: "blocked".to_string(),
         error_message: Some(reason.to_string()),
         receiver_account: receiver.account_number.clone(),
+        master_position_id: Some(deal),
+        receiver_position_id: None,
+        idempotency_key: Some(format!("{}:{}:{}", term, deal, event.event_type)),
+        master_account_number: event.master_account_number.clone(),
     };
+
+    // Best-effort: blocked executions also flow to cloud (status will normalize to "skipped")
+    let _ = exec_sync::queue_for_upload(&execution);
     
     let mut copier = state.lock();
     copier.recent_executions.insert(0, execution);

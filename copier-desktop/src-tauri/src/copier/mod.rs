@@ -91,6 +91,12 @@ pub struct TradeEvent {
     /// Symbol point size
     #[serde(default)]
     pub point: Option<f64>,
+    /// Master terminal id (for canonical idempotency key)
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+    /// Master account number (string form, matches accounts.account_number)
+    #[serde(default)]
+    pub master_account_number: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +114,18 @@ pub struct Execution {
     pub status: String,
     pub error_message: Option<String>,
     pub receiver_account: String,
+    /// Master deal/position id (for cross-link in cloud)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master_position_id: Option<i64>,
+    /// Receiver position id after execution
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receiver_position_id: Option<i64>,
+    /// Canonical {terminal_id}:{deal_id}:{event_type}
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+    /// Master account number (for cloud linking)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master_account_number: Option<String>,
 }
 
 #[derive(Debug, Default)]

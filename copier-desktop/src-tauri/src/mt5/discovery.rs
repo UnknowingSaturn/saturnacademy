@@ -287,37 +287,28 @@ fn build_appdata_index() -> Vec<(String, String, String)> {
     index
 }
 
-/// Get running terminal64.exe paths (without spawning visible console)
+/// Get running terminal64.exe paths via sysinfo (works on Windows 11 23H2+).
 fn get_running_terminal_exes() -> HashSet<String> {
     let mut exes = HashSet::new();
-    
+
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-        use std::process::Command;
-        
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        
-        // Use WMIC with hidden window
-        let output = Command::new("wmic")
-            .args(["process", "where", "name='terminal64.exe'", "get", "ExecutablePath", "/format:csv"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
+        use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 
-        if let Ok(output) = output {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines().skip(1) {
-                let parts: Vec<&str> = line.split(',').collect();
-                if parts.len() >= 2 {
-                    let exe_path = parts[1].trim();
-                    if !exe_path.is_empty() {
-                        exes.insert(exe_path.to_lowercase());
-                    }
+        let sys = System::new_with_specifics(
+            RefreshKind::new().with_processes(ProcessRefreshKind::new()),
+        );
+
+        for (_pid, proc) in sys.processes() {
+            let name = proc.name().to_lowercase();
+            if name == "terminal64.exe" || name == "terminal.exe" {
+                if let Some(exe_path) = proc.exe() {
+                    exes.insert(exe_path.to_string_lossy().to_lowercase());
                 }
             }
         }
     }
-    
+
     exes
 }
 

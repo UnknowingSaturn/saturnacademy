@@ -1,7 +1,8 @@
-#![allow(dead_code)]
 use crate::copier::Execution;
 
 const API_BASE_URL: &str = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1";
+/// Max executions flushed per `process_queue` invocation (avoid hammering after long offline)
+const MAX_PER_FLUSH: usize = 200;
 
 /// Upload execution records to the cloud
 pub async fn upload_executions(
@@ -82,6 +83,9 @@ pub async fn process_queue(api_key: &str) -> Result<usize, ExecutionSyncError> {
     if entries.is_empty() {
         return Ok(0);
     }
+
+    // Cap per-run flush size
+    let entries: Vec<_> = entries.into_iter().take(MAX_PER_FLUSH).collect();
 
     let mut executions = Vec::new();
     let mut files_to_delete = Vec::new();

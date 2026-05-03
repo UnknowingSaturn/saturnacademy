@@ -140,15 +140,20 @@ fn add_manual_terminal(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn add_terminal_path(path: String) -> Option<mt5::bridge::Mt5Terminal> {
-    let path = std::path::Path::new(&path);
-    
-    // Validate it's a valid MT5 terminal (check for terminal executable)
-    if !path.join("terminal64.exe").exists() && !path.join("terminal.exe").exists() {
+    let p = std::path::Path::new(&path);
+
+    // Accept either an install root (terminal64.exe) OR a data folder (MQL5/Files).
+    let is_install_root = p.join("terminal64.exe").exists() || p.join("terminal.exe").exists();
+    let is_data_root = p.join("MQL5").join("Files").exists();
+    if !is_install_root && !is_data_root {
         return None;
     }
-    
-    // Use the portable detection logic
-    mt5::bridge::detect_terminal_at_path(path)
+
+    // Persist as a manual path so all future discovery passes see it
+    let _ = mt5::discovery::add_manual_terminal(&path);
+
+    // Use the portable detection logic (works for both install + data roots when MQL5 is present)
+    mt5::bridge::detect_terminal_at_path(p)
 }
 
 /// Get symbol catalog from a receiver terminal
@@ -173,11 +178,33 @@ fn auto_map_symbols(
     Ok(copier::symbol_catalog::auto_map_symbols(&master_symbols, &catalog))
 }
 
+/// Discovery debug counts (which strategy succeeded?)
+#[tauri::command]
+fn get_discovery_debug() -> serde_json::Value {
+    let terminals = mt5::discovery::refresh_discovery_cache();
+    let mut registry = 0; let mut appdata = 0; let mut common = 0;
+    let mut manual = 0; let mut process = 0; let mut running = 0;
+    for t in &terminals {
+        if t.is_running { running += 1; }
+        match t.discovery_method {
+            mt5::discovery::DiscoveryMethod::Registry => registry += 1,
+            mt5::discovery::DiscoveryMethod::AppData => appdata += 1,
+            mt5::discovery::DiscoveryMethod::CommonPath => common += 1,
+            mt5::discovery::DiscoveryMethod::Manual => manual += 1,
+            mt5::discovery::DiscoveryMethod::Process => process += 1,
+        }
+    }
+    serde_json::json!({
+        "total": terminals.len(), "registry": registry, "appdata": appdata,
+        "common_paths": common, "manual": manual, "process": process, "running": running,
+    })
+}
+
 /// Get diagnostics information
 #[tauri::command]
 fn get_diagnostics() -> copier::DiagnosticsInfo {
     let terminals = mt5::discovery::discover_all_terminals();
-    
+
     let terminal_diags: Vec<copier::TerminalDiagnostic> = terminals.iter().map(|t| {
         let heartbeat_age = t.last_heartbeat.as_ref().and_then(|ts| {
             chrono::DateTime::parse_from_rfc3339(ts).ok().map(|dt| {
@@ -695,6 +722,7 @@ fn main() {
             get_master_symbols,
             auto_map_symbols,
             get_diagnostics,
+            get_discovery_debug,
             // Config & sync commands
             save_copier_config,
             get_position_sync_status,
@@ -729,7 +757,23 @@ fn main() {
             std::thread::spawn(move || {
                 copier::file_watcher::start_watching(copier);
             });
-            
+
+            // Periodic execution upload to cloud (Phase 3.3 client side)
+            let copier_for_flush = state.copier.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    let api_key = { copier_for_flush.lock().api_key.clone() };
+                    if let Some(key) = api_key {
+                        match sync::executions::process_queue(&key).await {
+                            Ok(n) if n > 0 => info!("Uploaded {} queued executions to cloud", n),
+                            Ok(_) => {}
+                            Err(e) => warn!("Execution upload failed: {}", e),
+                        }
+                    }
+                }
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())
