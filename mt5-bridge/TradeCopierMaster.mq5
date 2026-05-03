@@ -529,21 +529,24 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
 //+------------------------------------------------------------------+
 void WriteHeartbeat()
 {
-   int handle = FileOpen(g_heartbeatFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
-   if(handle != INVALID_HANDLE)
-   {
-      string json = "{\n";
-      json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\",\n";
-      json += "  \"terminal_id\": \"" + g_terminalId + "\",\n";
-      json += "  \"account\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",\n";
-      json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
-      json += "  \"equity\": " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",\n";
-      json += "  \"open_positions\": " + IntegerToString(PositionsTotal()) + "\n";
-      json += "}";
-      
-      FileWriteString(handle, json);
-      FileClose(handle);
-   }
+   // Phase 2.7: write atomically via .tmp + FileMove so readers never see a half-written file.
+   string tmpFile = g_heartbeatFile + ".tmp";
+   int handle = FileOpen(tmpFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+      return;
+
+   string json = "{\n";
+   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\",\n";
+   json += "  \"terminal_id\": \"" + g_terminalId + "\",\n";
+   json += "  \"account\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",\n";
+   json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
+   json += "  \"equity\": " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",\n";
+   json += "  \"open_positions\": " + IntegerToString(PositionsTotal()) + "\n";
+   json += "}";
+
+   FileWriteString(handle, json);
+   FileClose(handle);
+   FileMove(tmpFile, 0, g_heartbeatFile, FILE_REWRITE);
 }
 
 //+------------------------------------------------------------------+
