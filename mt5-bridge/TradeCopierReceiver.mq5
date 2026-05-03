@@ -115,6 +115,26 @@ ulong          g_processedDeals[];
 int            g_maxProcessedDeals   = 1000;
 int            g_brokerUtcOffsetSec  = 0;        // Auto-detected offset (sec)
 datetime       g_lastUtcRefresh      = 0;
+long           g_copierMagic         = 12345;    // Per-receiver magic (computed on init)
+
+//+------------------------------------------------------------------+
+//| Compute a stable per-receiver magic from receiver_id              |
+//| Uses a simple FNV-1a 32-bit hash so each receiver install gets    |
+//| its own magic and won't collide with other EAs using 12345.       |
+//+------------------------------------------------------------------+
+long ComputeCopierMagic(string receiverId, long accountLogin)
+{
+   string seed = receiverId + ":" + IntegerToString(accountLogin);
+   uint hash = 2166136261;
+   for(int i = 0; i < StringLen(seed); i++)
+   {
+      hash ^= (uint)StringGetCharacter(seed, i);
+      hash *= 16777619;
+   }
+   // Restrict to a safe range (avoid 0 and very small numbers used by humans)
+   long magic = (long)(hash % 9000000) + 1000000; // [1_000_000, 9_999_999]
+   return magic;
+}
 
 //+------------------------------------------------------------------+
 //| Refresh broker UTC offset (auto-detect)                          |
