@@ -354,6 +354,9 @@ void CheckEmergencyCommands()
    {
       do
       {
+         // Skip our own response files and temp/partial writes
+         if(StringFind(filename, "resp_") == 0) continue;
+         if(StringFind(filename, ".tmp") >= 0) continue;
          string fullPath = g_commandsFolder + "\\" + filename;
          ProcessEmergencyCommand(fullPath, filename);
       }
