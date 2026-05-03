@@ -140,15 +140,20 @@ fn add_manual_terminal(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn add_terminal_path(path: String) -> Option<mt5::bridge::Mt5Terminal> {
-    let path = std::path::Path::new(&path);
-    
-    // Validate it's a valid MT5 terminal (check for terminal executable)
-    if !path.join("terminal64.exe").exists() && !path.join("terminal.exe").exists() {
+    let p = std::path::Path::new(&path);
+
+    // Accept either an install root (terminal64.exe) OR a data folder (MQL5/Files).
+    let is_install_root = p.join("terminal64.exe").exists() || p.join("terminal.exe").exists();
+    let is_data_root = p.join("MQL5").join("Files").exists();
+    if !is_install_root && !is_data_root {
         return None;
     }
-    
-    // Use the portable detection logic
-    mt5::bridge::detect_terminal_at_path(path)
+
+    // Persist as a manual path so all future discovery passes see it
+    let _ = mt5::discovery::add_manual_terminal(&path);
+
+    // Use the portable detection logic (works for both install + data roots when MQL5 is present)
+    mt5::bridge::detect_terminal_at_path(p)
 }
 
 /// Get symbol catalog from a receiver terminal
