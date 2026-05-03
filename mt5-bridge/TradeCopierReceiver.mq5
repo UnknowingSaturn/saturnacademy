@@ -1166,7 +1166,7 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
    request.type = (direction == "buy") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
    request.price = (direction == "buy") ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
    request.deviation = (ulong)(g_config.max_slippage_pips * 10);
-   request.magic = 12345;
+   request.magic = g_copierMagic;
    request.comment = "Copier:" + IntegerToString(masterPosId);
    
    if(masterSL > 0)
