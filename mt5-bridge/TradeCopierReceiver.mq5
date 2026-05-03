@@ -113,6 +113,33 @@ bool           g_webRequestOk        = false;
 string         g_journalQueueFile    = "ReceiverJournalQueue.txt";
 ulong          g_processedDeals[];
 int            g_maxProcessedDeals   = 1000;
+int            g_brokerUtcOffsetSec  = 0;        // Auto-detected offset (sec)
+datetime       g_lastUtcRefresh      = 0;
+
+//+------------------------------------------------------------------+
+//| Refresh broker UTC offset (auto-detect)                          |
+//+------------------------------------------------------------------+
+void RefreshUtcOffset()
+{
+   if(InpBrokerUTCOffset != 0)
+   {
+      g_brokerUtcOffsetSec = InpBrokerUTCOffset * 3600;
+      return;
+   }
+   long diff = (long)TimeCurrent() - (long)TimeGMT();
+   // Round to nearest 1800s (handles half-hour brokers)
+   long rounded = ((diff + (diff >= 0 ? 900 : -900)) / 1800) * 1800;
+   g_brokerUtcOffsetSec = (int)rounded;
+   g_lastUtcRefresh = TimeCurrent();
+}
+
+//+------------------------------------------------------------------+
+//| Convert broker time to UTC datetime                               |
+//+------------------------------------------------------------------+
+datetime BrokerToUtc(datetime brokerTime)
+{
+   return brokerTime - g_brokerUtcOffsetSec;
+}
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                    |
