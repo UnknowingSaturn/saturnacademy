@@ -1,81 +1,18 @@
 use std::path::{Path, PathBuf};
-use std::collections::HashSet;
 
-/// Find all MT5 terminal installations on the system
+use super::discovery::{self, TerminalInfo};
+
+/// Find all MT5 terminal installations on the system.
+///
+/// Single source of truth: delegates to `mt5::discovery::discover_all_terminals`
+/// (registry + Program Files + LocalAppData\Programs + AppData + manual paths,
+/// cached). The returned `Mt5Terminal` shape is preserved for legacy callers
+/// (trade_executor, file_watcher, position_sync, symbol_catalog, event_processor).
 pub fn find_mt5_terminals() -> Vec<Mt5Terminal> {
-    let mut terminals = Vec::new();
-    let mut seen_ids: HashSet<String> = HashSet::new();
-
-    // Method 1: Check standard MetaQuotes Terminal folder (AppData)
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let terminals_path = format!("{}\\MetaQuotes\\Terminal", appdata);
-        
-        if let Ok(entries) = std::fs::read_dir(&terminals_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    if let Some(terminal) = detect_terminal(&path) {
-                        if seen_ids.insert(terminal.terminal_id.clone()) {
-                            terminals.push(terminal);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Method 2: Check Program Files for portable installations (with debug logging - m2 fix)
-    for program_files in &["C:\\Program Files", "C:\\Program Files (x86)", "D:\\Program Files"] {
-        match std::fs::read_dir(program_files) {
-            Ok(entries) => {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let name = path.file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("");
-                    
-                    // Check for MT5 installations
-                    if name.to_lowercase().contains("metatrader") 
-                        || name.to_lowercase().contains("mt5") 
-                        || name.to_lowercase().contains("terminal") {
-                        if let Some(terminal) = detect_portable_terminal(&path) {
-                            if seen_ids.insert(terminal.terminal_id.clone()) {
-                                terminals.push(terminal);
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::debug!("Could not scan directory {}: {}", program_files, e);
-            }
-        }
-    }
-
-    // Method 3: Check common broker installation paths (expanded to more drive letters)
-    let common_paths = [
-        "C:\\MetaTrader 5",
-        "C:\\MT5",
-        "D:\\MetaTrader 5",
-        "D:\\MT5",
-        "E:\\MetaTrader 5",
-        "E:\\MT5",
-        "F:\\MetaTrader 5",
-        "F:\\MT5",
-    ];
-
-    for path_str in &common_paths {
-        let path = Path::new(path_str);
-        if path.exists() {
-            if let Some(terminal) = detect_portable_terminal(path) {
-                if seen_ids.insert(terminal.terminal_id.clone()) {
-                    terminals.push(terminal);
-                }
-            }
-        }
-    }
-
-    terminals
+    discovery::discover_all_terminals()
+        .into_iter()
+        .filter_map(Mt5Terminal::from_terminal_info)
+        .collect()
 }
 
 fn detect_terminal(path: &Path) -> Option<Mt5Terminal> {
