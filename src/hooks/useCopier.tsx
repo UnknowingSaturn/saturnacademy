@@ -385,16 +385,24 @@ export function useCopierStats() {
   
   const successful = executions.filter(e => e.status === 'success');
   const failed = executions.filter(e => e.status === 'failed');
-  
+
+  // Phase 3.4: "Failed Today" should only count today's failures.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const failedToday = failed.filter(
+    e => e.executed_at && new Date(e.executed_at) >= startOfToday
+  );
+
   const avgSlippage = successful.length > 0
     ? successful.reduce((sum, e) => sum + (e.slippage_pips || 0), 0) / successful.length
     : 0;
-  
+
   return {
     totalExecutions: executions.length,
     successRate: (successful.length / executions.length) * 100,
     avgSlippage,
-    failedCount: failed.length,
+    failedCount: failedToday.length,
+    failedAllTime: failed.length,
   };
 }
 

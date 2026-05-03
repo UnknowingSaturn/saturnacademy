@@ -108,10 +108,30 @@ serve(async (req) => {
       .eq('copier_enabled', true)
       .maybeSingle();
 
-    if (masterError || !masterAccount) {
+    if (masterError) {
+      console.error('Master lookup error:', masterError);
       return new Response(
-        JSON.stringify({ error: 'No active master account found for this user.' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: 'Failed to look up master account.', details: masterError.message }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Phase 3.2: when no master is configured yet, return 200 with empty receivers
+    // and a friendly status so the desktop can show "set up a master in the web app"
+    // instead of failing with "config sync failed".
+    if (!masterAccount) {
+      const emptyConfig = {
+        version: 0,
+        generated_at: new Date().toISOString(),
+        config_hash: '00000000',
+        status: 'no_master',
+        message: 'No active master account configured. Set one up in the web app.',
+        master: null,
+        receivers: [] as CopierReceiverConfig[],
+      };
+      return new Response(
+        JSON.stringify(emptyConfig),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

@@ -171,18 +171,27 @@ When a receiver's API key is valid but the user hasn't marked any account as mas
 
 ## Suggested execution order
 
-1. Phase 1.1 + 1.2 + 1.4 together (one PR) — pipeline + position id + idempotency. Without these nothing else matters.
-2. Phase 1.3 + 1.5 (lot calc and timezones).
-3. Phase 2.1, 2.2, 2.5, 2.8 (multi-receiver, magic, symbol catalog, parser).
-4. Phase 2.3, 2.4, 2.6, 2.7, 2.9 (correctness polish).
-5. Phase 3 (web surface) once desktop is solid.
-6. Phase 4 (observability) last.
+1. ✅ Phase 1.1 + 1.2 + 1.4 — pipeline + position id + idempotency.
+2. ✅ Phase 1.3 + 1.5 — lot calc and timezones.
+3. ✅ Phase 2.2 — per-receiver magic numbers (ComputeCopierMagic via FNV-1a hash).
+4. ✅ Phase 2.3 — slippage normalization for indices and 4-digit FX.
+5. ✅ Phase 2.4 — daily P&L filtered by copier magic.
+6. ✅ Phase 2.7 — atomic master heartbeat write.
+7. ✅ Phase 2.8 — robust per-receiver config block parser.
+8. ✅ Phase 3.2 — copier-config returns 200 + empty receivers when no master.
+9. ✅ Phase 3.4 — "Failed Today" filtered to today only.
+10. ⏳ Phase 2.1 — per-receiver queue routing (Rust file_watcher fans out master events into pending/<receiver_terminal_id>/).
+11. ⏳ Phase 2.5 — symbol catalog from receiver EA + auto-mapping by contract specs.
+12. ⏳ Phase 2.6 — reconciliation goes through trade_executor (lot calc + symbol map).
+13. ⏳ Phase 2.9 — keep async, drop sync executor; tokio per-receiver tasks.
+14. ⏳ Phase 3.1 — manual setup mode in web app.
+15. ⏳ Phase 3.3 — desktop uploads executions; new copier-executions edge function.
+16. ⏳ Phase 4 — diagnostics, structured logs, tests.
 
 ---
 
-## What I need from you before starting
+## Open questions for the next batch
 
-I've laid out everything I see as broken or risky. Two things to confirm before I start coding:
-
-1. **Pipeline direction (1.1):** OK with making the desktop app the sole router (Master EA → desktop → Receiver EA via cmd/resp), and deprecating the receiver EA's direct queue read? This is the cleanest design but means the desktop app must be running for any copying to occur. Alternative is a same-machine direct EA-to-EA mode as a fallback, which doubles the test matrix.
-2. **Scope:** Want me to land all of Phase 1 in the next message, or stage it (1.1 + 1.4 first as smallest blast radius, then 1.2 + 1.3 + 1.5)?
+1. **2.1 routing direction:** should I fan out by *moving* files into per-receiver subfolders (loses original pending dir semantics) or keep one queue + sidecar `.ack` files? Sidecar is safer for restart recovery.
+2. **2.5 symbol catalog:** OK with the receiver EA dumping `CopierSymbolCatalog.json` on init and on every config reload, plus a 1× refresh per hour? Alternative: only on init (cheaper but stale after broker symbol additions).
+3. **3.1 manual setup:** how prominent — full standalone wizard, or a "Manual mode" toggle inside the existing wizard step?
