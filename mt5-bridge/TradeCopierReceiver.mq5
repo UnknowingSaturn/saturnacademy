@@ -220,6 +220,10 @@ int OnInit()
       TestWebRequest();
    }
    
+   // Compute per-receiver magic (Phase 2.2 — replaces hard-coded 12345)
+   g_copierMagic = ComputeCopierMagic(g_config.receiver_id, AccountInfoInteger(ACCOUNT_LOGIN));
+   Print("Copier magic for this receiver: ", g_copierMagic);
+
    // Set timer for polling
    int pollMs = g_config.poll_interval_ms > 0 ? g_config.poll_interval_ms : InpPollIntervalMs;
    EventSetMillisecondTimer(pollMs);
