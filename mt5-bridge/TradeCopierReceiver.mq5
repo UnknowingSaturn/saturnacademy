@@ -115,6 +115,26 @@ ulong          g_processedDeals[];
 int            g_maxProcessedDeals   = 1000;
 int            g_brokerUtcOffsetSec  = 0;        // Auto-detected offset (sec)
 datetime       g_lastUtcRefresh      = 0;
+long           g_copierMagic         = 12345;    // Per-receiver magic (computed on init)
+
+//+------------------------------------------------------------------+
+//| Compute a stable per-receiver magic from receiver_id              |
+//| Uses a simple FNV-1a 32-bit hash so each receiver install gets    |
+//| its own magic and won't collide with other EAs using 12345.       |
+//+------------------------------------------------------------------+
+long ComputeCopierMagic(string receiverId, long accountLogin)
+{
+   string seed = receiverId + ":" + IntegerToString(accountLogin);
+   uint hash = 2166136261;
+   for(int i = 0; i < StringLen(seed); i++)
+   {
+      hash ^= (uint)StringGetCharacter(seed, i);
+      hash *= 16777619;
+   }
+   // Restrict to a safe range (avoid 0 and very small numbers used by humans)
+   long magic = (long)(hash % 9000000) + 1000000; // [1_000_000, 9_999_999]
+   return magic;
+}
 
 //+------------------------------------------------------------------+
 //| Refresh broker UTC offset (auto-detect)                          |
@@ -200,6 +220,10 @@ int OnInit()
       TestWebRequest();
    }
    
+   // Compute per-receiver magic (Phase 2.2 — replaces hard-coded 12345)
+   g_copierMagic = ComputeCopierMagic(g_config.receiver_id, AccountInfoInteger(ACCOUNT_LOGIN));
+   Print("Copier magic for this receiver: ", g_copierMagic);
+
    // Set timer for polling
    int pollMs = g_config.poll_interval_ms > 0 ? g_config.poll_interval_ms : InpPollIntervalMs;
    EventSetMillisecondTimer(pollMs);
@@ -618,8 +642,8 @@ void CloseAllCopierPositions()
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0) continue;
       
-      // Only close copier positions (magic 12345)
-      if(PositionGetInteger(POSITION_MAGIC) != 12345)
+      // Only close copier positions (per-receiver magic)
+      if(PositionGetInteger(POSITION_MAGIC) != g_copierMagic)
          continue;
       
       string symbol = PositionGetString(POSITION_SYMBOL);
@@ -682,7 +706,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    
    // Check if this is a copier trade (magic number check)
    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
-   if(magic == 12345) // Copier magic - already handled by ExecuteEntry/ExecuteExit
+   if(magic == g_copierMagic) // Copier magic - already handled by ExecuteEntry/ExecuteExit
       return;
    
    // Check if already processed
@@ -768,61 +792,99 @@ bool LoadConfig()
 bool ParseConfigJson(string json)
 {
    g_configVersion = (int)ExtractJsonNumber(json, "version");
-   
+
    int receiversStart = StringFind(json, "\"receivers\"");
    if(receiversStart < 0)
    {
       Print("No receivers found in config");
       return false;
    }
-   
+
    string receiverId = InpReceiverId;
-   
+
    if(StringLen(receiverId) == 0)
    {
-      int receiverStart = StringFind(json, "\"receiver_id\"", receiversStart);
-      if(receiverStart > 0)
-      {
-         receiverId = ExtractJsonString(json, "receiver_id", receiverStart);
-      }
+      // Auto-detect from first receiver block
+      int firstIdPos = StringFind(json, "\"receiver_id\"", receiversStart);
+      if(firstIdPos > 0)
+         receiverId = ExtractJsonString(json, "receiver_id", firstIdPos);
    }
-   
+
    if(StringLen(receiverId) == 0)
    {
       Print("Could not determine receiver ID");
       return false;
    }
-   
+
    g_config.receiver_id = receiverId;
-   
-   int configStart = StringFind(json, "\"" + receiverId + "\"");
-   if(configStart < 0)
+
+   // Phase 2.8: locate THIS receiver's block by walking receiver_id occurrences
+   // and matching, then bounding all subsequent extractions to that block.
+   int blockStart = -1;
+   int searchFrom = receiversStart;
+   while(true)
    {
-      configStart = StringFind(json, receiverId);
+      int idPos = StringFind(json, "\"receiver_id\"", searchFrom);
+      if(idPos < 0) break;
+      string thisId = ExtractJsonString(json, "receiver_id", idPos);
+      if(thisId == receiverId)
+      {
+         // Find opening { of the object that contains this receiver_id by
+         // walking backwards.
+         int b = idPos;
+         while(b > receiversStart && StringGetCharacter(json, b) != '{')
+            b--;
+         blockStart = b;
+         break;
+      }
+      searchFrom = idPos + 13;
    }
-   
-   g_config.account_name = ExtractJsonString(json, "account_name", receiversStart);
-   
-   int riskStart = StringFind(json, "\"risk\"", receiversStart);
+
+   if(blockStart < 0)
+   {
+      Print("Could not locate config block for receiver_id=", receiverId);
+      return false;
+   }
+
+   // Find the matching closing brace for this receiver's object.
+   int depth = 0;
+   int blockEnd = -1;
+   for(int i = blockStart; i < StringLen(json); i++)
+   {
+      ushort c = StringGetCharacter(json, i);
+      if(c == '{') depth++;
+      else if(c == '}')
+      {
+         depth--;
+         if(depth == 0) { blockEnd = i; break; }
+      }
+   }
+   if(blockEnd < 0) blockEnd = StringLen(json);
+
+   string blk = StringSubstr(json, blockStart, blockEnd - blockStart + 1);
+
+   g_config.account_name = ExtractJsonString(blk, "account_name");
+
+   int riskStart = StringFind(blk, "\"risk\"");
    if(riskStart > 0)
    {
-      g_config.risk_mode = ExtractJsonString(json, "mode", riskStart);
-      g_config.risk_value = ExtractJsonNumber(json, "value", riskStart);
+      g_config.risk_mode = ExtractJsonString(blk, "mode", riskStart);
+      g_config.risk_value = ExtractJsonNumber(blk, "value", riskStart);
    }
    else
    {
       g_config.risk_mode = "balance_multiplier";
       g_config.risk_value = 1.0;
    }
-   
-   int safetyStart = StringFind(json, "\"safety\"", receiversStart);
+
+   int safetyStart = StringFind(blk, "\"safety\"");
    if(safetyStart > 0)
    {
-      g_config.max_slippage_pips = ExtractJsonNumber(json, "max_slippage_pips", safetyStart);
-      g_config.max_daily_loss_r = ExtractJsonNumber(json, "max_daily_loss_r", safetyStart);
-      g_config.manual_confirm_mode = ExtractJsonBool(json, "manual_confirm_mode", safetyStart);
-      g_config.prop_firm_safe_mode = ExtractJsonBool(json, "prop_firm_safe_mode", safetyStart);
-      g_config.poll_interval_ms = (int)ExtractJsonNumber(json, "poll_interval_ms", safetyStart);
+      g_config.max_slippage_pips = ExtractJsonNumber(blk, "max_slippage_pips", safetyStart);
+      g_config.max_daily_loss_r = ExtractJsonNumber(blk, "max_daily_loss_r", safetyStart);
+      g_config.manual_confirm_mode = ExtractJsonBool(blk, "manual_confirm_mode", safetyStart);
+      g_config.prop_firm_safe_mode = ExtractJsonBool(blk, "prop_firm_safe_mode", safetyStart);
+      g_config.poll_interval_ms = (int)ExtractJsonNumber(blk, "poll_interval_ms", safetyStart);
    }
    else
    {
@@ -832,13 +894,13 @@ bool ParseConfigJson(string json)
       g_config.prop_firm_safe_mode = false;
       g_config.poll_interval_ms = 1000;
    }
-   
-   int mappingsStart = StringFind(json, "\"symbol_mappings\"", receiversStart);
+
+   int mappingsStart = StringFind(blk, "\"symbol_mappings\"");
    if(mappingsStart > 0)
    {
-      ParseSymbolMappings(json, mappingsStart);
+      ParseSymbolMappings(blk, mappingsStart);
    }
-   
+
    return true;
 }
 
@@ -1141,8 +1203,11 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
    request.volume = lots;
    request.type = (direction == "buy") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
    request.price = (direction == "buy") ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
-   request.deviation = (ulong)(g_config.max_slippage_pips * 10);
-   request.magic = 12345;
+   // Slippage tolerance in points: pips × (10 for 5/3-digit FX, 1 otherwise).
+   int devDigits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   double pipsToPoints = (devDigits == 5 || devDigits == 3) ? 10.0 : 1.0;
+   request.deviation = (ulong)(g_config.max_slippage_pips * pipsToPoints);
+   request.magic = g_copierMagic;
    request.comment = "Copier:" + IntegerToString(masterPosId);
    
    if(masterSL > 0)
@@ -1511,7 +1576,7 @@ string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string 
    json += "},";
    
    json += "\"raw_payload\":{";
-   json += "\"magic\":12345,";
+   json += "\"magic\":" + IntegerToString(g_copierMagic) + ",";
    json += "\"comment\":\"Copier\",";
    json += "\"source\":\"receiver_ea\"";
    json += "}";
@@ -1986,14 +2051,21 @@ double GetCurrentPrice(string symbol, string direction, string eventType)
 double CalculateSlippage(double masterPrice, double currentPrice, string symbol)
 {
    double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   if(point <= 0) return 0;
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
-   
+
    double diff = MathAbs(currentPrice - masterPrice);
-   double pips = diff / point;
-   
+   double points = diff / point;
+
+   // Phase 2.3: normalize "points" to "pips" per symbol class.
+   //   5-digit FX (EURUSD 1.23456) and 3-digit JPY (USDJPY 123.456) → 1 pip = 10 points
+   //   4-digit FX (EURUSD 1.2345) and 2-digit JPY (USDJPY 123.45)   → 1 pip = 1 point
+   //   Indices / metals (digits 0..2)                                → use 1 pip = 1 point
+   double pips;
    if(digits == 5 || digits == 3)
-      pips /= 10;
-   
+      pips = points / 10.0;
+   else
+      pips = points;
    return pips;
 }
 
@@ -2072,11 +2144,16 @@ void CalculateDailyPnL()
    {
       ulong ticket = HistoryDealGetTicket(i);
       if(ticket == 0) continue;
-      
+
       ENUM_DEAL_TYPE type = (ENUM_DEAL_TYPE)HistoryDealGetInteger(ticket, DEAL_TYPE);
       if(type == DEAL_TYPE_BALANCE || type == DEAL_TYPE_CREDIT)
          continue;
-      
+
+      // Phase 2.4: only count copier-magic deals so manual trades don't trip the kill switch.
+      long dealMagic = HistoryDealGetInteger(ticket, DEAL_MAGIC);
+      if(dealMagic != g_copierMagic)
+         continue;
+
       g_dailyPnL += HistoryDealGetDouble(ticket, DEAL_PROFIT);
       g_dailyPnL += HistoryDealGetDouble(ticket, DEAL_COMMISSION);
       g_dailyPnL += HistoryDealGetDouble(ticket, DEAL_SWAP);
