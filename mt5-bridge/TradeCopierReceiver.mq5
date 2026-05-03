@@ -2096,11 +2096,16 @@ void CalculateDailyPnL()
    {
       ulong ticket = HistoryDealGetTicket(i);
       if(ticket == 0) continue;
-      
+
       ENUM_DEAL_TYPE type = (ENUM_DEAL_TYPE)HistoryDealGetInteger(ticket, DEAL_TYPE);
       if(type == DEAL_TYPE_BALANCE || type == DEAL_TYPE_CREDIT)
          continue;
-      
+
+      // Phase 2.4: only count copier-magic deals so manual trades don't trip the kill switch.
+      long dealMagic = HistoryDealGetInteger(ticket, DEAL_MAGIC);
+      if(dealMagic != g_copierMagic)
+         continue;
+
       g_dailyPnL += HistoryDealGetDouble(ticket, DEAL_PROFIT);
       g_dailyPnL += HistoryDealGetDouble(ticket, DEAL_COMMISSION);
       g_dailyPnL += HistoryDealGetDouble(ticket, DEAL_SWAP);
