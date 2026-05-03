@@ -242,6 +242,17 @@ export default function Diagnostics() {
                 {diagnostics.terminals.length}
               </span>
             </div>
+            {discoveryDebug && (
+              <div className="px-4 py-2 border-b border-border bg-muted/20 flex flex-wrap gap-2 text-xs">
+                <span className="text-muted-foreground">Discovery sources:</span>
+                <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-500">Registry: {discoveryDebug.registry}</span>
+                <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-500">AppData: {discoveryDebug.appdata}</span>
+                <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-500">Common: {discoveryDebug.common_paths}</span>
+                <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-500">Manual: {discoveryDebug.manual}</span>
+                <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-500">Process: {discoveryDebug.process}</span>
+                <span className="ml-auto px-2 py-0.5 rounded bg-primary/20 text-primary">Running: {discoveryDebug.running}/{discoveryDebug.total}</span>
+              </div>
+            )}
             <div className="divide-y divide-border">
               {diagnostics.terminals.length === 0 ? (
                 <div className="p-8 text-center">
