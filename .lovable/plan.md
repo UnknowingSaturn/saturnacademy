@@ -18,8 +18,8 @@
 | 3.2 `copier-config` returns 200/empty when no master | ✅ Done |
 | 3.4 `failedToday` filtered to today | ✅ Done |
 | 3.3 server: `copier-executions` edge function | ✅ Done (last turn) |
-| **3.3 client: actually call upload + process_queue** | ❌ **Still dead code** |
-| **MT5 discovery — UI sometimes finds nothing** | ❌ **Two divergent discovery paths** |
+| **3.3 client: actually call upload + process_queue** | ✅ Done |
+| **MT5 discovery — UI sometimes finds nothing** | ✅ Done (unified + sysinfo + debug surface) |
 
 The two remaining gaps are what this plan finishes.
 
