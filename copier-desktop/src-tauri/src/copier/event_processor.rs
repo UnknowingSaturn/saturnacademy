@@ -9,6 +9,7 @@ use tracing::{info, warn, error, debug};
 use uuid::Uuid;
 
 use super::{lot_calculator, safety, trade_executor, CopierConfig, CopierState, Execution, TradeEvent};
+use crate::sync::executions as exec_sync;
 
 // Terminal cache to avoid repeated filesystem scans
 static TERMINAL_CACHE: std::sync::LazyLock<Mutex<TerminalCache>> = 
