@@ -1164,7 +1164,16 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
       return false;
    }
    
+   // Resolve the *position* id from the deal (result.order is the order id, not position id).
    receiverPosId = (long)result.order;
+   if(result.deal > 0)
+   {
+      if(HistorySelect(TimeCurrent() - 60, TimeCurrent() + 60) && HistoryDealSelect(result.deal))
+      {
+         long pid = HistoryDealGetInteger(result.deal, DEAL_POSITION_ID);
+         if(pid > 0) receiverPosId = pid;
+      }
+   }
    
    // Store position mapping
    int idx = ArraySize(g_positionMaps);
