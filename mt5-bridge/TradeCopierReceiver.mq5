@@ -642,8 +642,8 @@ void CloseAllCopierPositions()
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0) continue;
       
-      // Only close copier positions (magic 12345)
-      if(PositionGetInteger(POSITION_MAGIC) != 12345)
+      // Only close copier positions (per-receiver magic)
+      if(PositionGetInteger(POSITION_MAGIC) != g_copierMagic)
          continue;
       
       string symbol = PositionGetString(POSITION_SYMBOL);
