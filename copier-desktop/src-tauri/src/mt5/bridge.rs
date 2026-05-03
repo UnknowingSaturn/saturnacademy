@@ -457,6 +457,43 @@ pub struct Mt5Terminal {
     pub account_info: Option<AccountInfo>,
 }
 
+impl Mt5Terminal {
+    /// Adapt a `discovery::TerminalInfo` into the legacy `Mt5Terminal` shape
+    /// used by trade_executor / file_watcher / position_sync / symbol_catalog.
+    /// `path` is set to whichever of (data_folder, install_dir) actually contains MQL5/Files.
+    pub fn from_terminal_info(t: TerminalInfo) -> Option<Mt5Terminal> {
+        let data_path = Path::new(&t.data_folder);
+        let install_dir = t.executable_path.as_ref()
+            .and_then(|p| Path::new(p).parent().map(|x| x.to_path_buf()));
+
+        let path = if data_path.join("MQL5").join("Files").exists() {
+            t.data_folder.clone()
+        } else if let Some(ref inst) = install_dir {
+            if inst.join("MQL5").join("Files").exists() {
+                inst.to_string_lossy().to_string()
+            } else {
+                t.data_folder.clone()
+            }
+        } else {
+            t.data_folder.clone()
+        };
+
+        // Reuse handshake to populate AccountInfo if present
+        let files_path = Path::new(&path).join("MQL5").join("Files");
+        let account_info = get_account_info_internal(&files_path);
+
+        Some(Mt5Terminal {
+            terminal_id: t.terminal_id,
+            path,
+            broker: t.broker,
+            has_mql5: t.has_mql5,
+            master_installed: t.master_installed,
+            receiver_installed: t.receiver_installed,
+            account_info,
+        })
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AccountInfo {
     pub account_number: String,
