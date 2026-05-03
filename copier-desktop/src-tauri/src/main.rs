@@ -178,11 +178,6 @@ fn auto_map_symbols(
     Ok(copier::symbol_catalog::auto_map_symbols(&master_symbols, &catalog))
 }
 
-/// Get diagnostics information
-#[tauri::command]
-fn get_diagnostics() -> copier::DiagnosticsInfo {
-    let terminals = mt5::discovery::discover_all_terminals();
-
 /// Discovery debug counts (which strategy succeeded?)
 #[tauri::command]
 fn get_discovery_debug() -> serde_json::Value {
@@ -204,7 +199,12 @@ fn get_discovery_debug() -> serde_json::Value {
         "common_paths": common, "manual": manual, "process": process, "running": running,
     })
 }
-    
+
+/// Get diagnostics information
+#[tauri::command]
+fn get_diagnostics() -> copier::DiagnosticsInfo {
+    let terminals = mt5::discovery::discover_all_terminals();
+
     let terminal_diags: Vec<copier::TerminalDiagnostic> = terminals.iter().map(|t| {
         let heartbeat_age = t.last_heartbeat.as_ref().and_then(|ts| {
             chrono::DateTime::parse_from_rfc3339(ts).ok().map(|dt| {
