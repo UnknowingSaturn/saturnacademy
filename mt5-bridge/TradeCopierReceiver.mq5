@@ -792,61 +792,99 @@ bool LoadConfig()
 bool ParseConfigJson(string json)
 {
    g_configVersion = (int)ExtractJsonNumber(json, "version");
-   
+
    int receiversStart = StringFind(json, "\"receivers\"");
    if(receiversStart < 0)
    {
       Print("No receivers found in config");
       return false;
    }
-   
+
    string receiverId = InpReceiverId;
-   
+
    if(StringLen(receiverId) == 0)
    {
-      int receiverStart = StringFind(json, "\"receiver_id\"", receiversStart);
-      if(receiverStart > 0)
-      {
-         receiverId = ExtractJsonString(json, "receiver_id", receiverStart);
-      }
+      // Auto-detect from first receiver block
+      int firstIdPos = StringFind(json, "\"receiver_id\"", receiversStart);
+      if(firstIdPos > 0)
+         receiverId = ExtractJsonString(json, "receiver_id", firstIdPos);
    }
-   
+
    if(StringLen(receiverId) == 0)
    {
       Print("Could not determine receiver ID");
       return false;
    }
-   
+
    g_config.receiver_id = receiverId;
-   
-   int configStart = StringFind(json, "\"" + receiverId + "\"");
-   if(configStart < 0)
+
+   // Phase 2.8: locate THIS receiver's block by walking receiver_id occurrences
+   // and matching, then bounding all subsequent extractions to that block.
+   int blockStart = -1;
+   int searchFrom = receiversStart;
+   while(true)
    {
-      configStart = StringFind(json, receiverId);
+      int idPos = StringFind(json, "\"receiver_id\"", searchFrom);
+      if(idPos < 0) break;
+      string thisId = ExtractJsonString(json, "receiver_id", idPos);
+      if(thisId == receiverId)
+      {
+         // Find opening { of the object that contains this receiver_id by
+         // walking backwards.
+         int b = idPos;
+         while(b > receiversStart && StringGetCharacter(json, b) != '{')
+            b--;
+         blockStart = b;
+         break;
+      }
+      searchFrom = idPos + 13;
    }
-   
-   g_config.account_name = ExtractJsonString(json, "account_name", receiversStart);
-   
-   int riskStart = StringFind(json, "\"risk\"", receiversStart);
+
+   if(blockStart < 0)
+   {
+      Print("Could not locate config block for receiver_id=", receiverId);
+      return false;
+   }
+
+   // Find the matching closing brace for this receiver's object.
+   int depth = 0;
+   int blockEnd = -1;
+   for(int i = blockStart; i < StringLen(json); i++)
+   {
+      ushort c = StringGetCharacter(json, i);
+      if(c == '{') depth++;
+      else if(c == '}')
+      {
+         depth--;
+         if(depth == 0) { blockEnd = i; break; }
+      }
+   }
+   if(blockEnd < 0) blockEnd = StringLen(json);
+
+   string blk = StringSubstr(json, blockStart, blockEnd - blockStart + 1);
+
+   g_config.account_name = ExtractJsonString(blk, "account_name");
+
+   int riskStart = StringFind(blk, "\"risk\"");
    if(riskStart > 0)
    {
-      g_config.risk_mode = ExtractJsonString(json, "mode", riskStart);
-      g_config.risk_value = ExtractJsonNumber(json, "value", riskStart);
+      g_config.risk_mode = ExtractJsonString(blk, "mode", riskStart);
+      g_config.risk_value = ExtractJsonNumber(blk, "value", riskStart);
    }
    else
    {
       g_config.risk_mode = "balance_multiplier";
       g_config.risk_value = 1.0;
    }
-   
-   int safetyStart = StringFind(json, "\"safety\"", receiversStart);
+
+   int safetyStart = StringFind(blk, "\"safety\"");
    if(safetyStart > 0)
    {
-      g_config.max_slippage_pips = ExtractJsonNumber(json, "max_slippage_pips", safetyStart);
-      g_config.max_daily_loss_r = ExtractJsonNumber(json, "max_daily_loss_r", safetyStart);
-      g_config.manual_confirm_mode = ExtractJsonBool(json, "manual_confirm_mode", safetyStart);
-      g_config.prop_firm_safe_mode = ExtractJsonBool(json, "prop_firm_safe_mode", safetyStart);
-      g_config.poll_interval_ms = (int)ExtractJsonNumber(json, "poll_interval_ms", safetyStart);
+      g_config.max_slippage_pips = ExtractJsonNumber(blk, "max_slippage_pips", safetyStart);
+      g_config.max_daily_loss_r = ExtractJsonNumber(blk, "max_daily_loss_r", safetyStart);
+      g_config.manual_confirm_mode = ExtractJsonBool(blk, "manual_confirm_mode", safetyStart);
+      g_config.prop_firm_safe_mode = ExtractJsonBool(blk, "prop_firm_safe_mode", safetyStart);
+      g_config.poll_interval_ms = (int)ExtractJsonNumber(blk, "poll_interval_ms", safetyStart);
    }
    else
    {
@@ -856,13 +894,13 @@ bool ParseConfigJson(string json)
       g_config.prop_firm_safe_mode = false;
       g_config.poll_interval_ms = 1000;
    }
-   
-   int mappingsStart = StringFind(json, "\"symbol_mappings\"", receiversStart);
+
+   int mappingsStart = StringFind(blk, "\"symbol_mappings\"");
    if(mappingsStart > 0)
    {
-      ParseSymbolMappings(json, mappingsStart);
+      ParseSymbolMappings(blk, mappingsStart);
    }
-   
+
    return true;
 }
 
