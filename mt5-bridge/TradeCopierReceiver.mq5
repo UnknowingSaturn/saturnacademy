@@ -1285,7 +1285,7 @@ void JournalCopiedTrade(ulong dealTicket, string eventType, string direction, st
 string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string direction, string symbol, double lots, double price, double sl, double tp)
 {
    datetime dealTime = TimeCurrent();
-   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
+   datetime dealTimeUTC = BrokerToUtc(dealTime);
    string utcTimestamp = FormatTimestampUTC(dealTimeUTC);
    
    long accountLogin = AccountInfoInteger(ACCOUNT_LOGIN);
@@ -1325,7 +1325,7 @@ string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string 
       json += "\"tp\":" + DoubleToString(tp, digits) + ",";
    
    json += "\"timestamp\":\"" + utcTimestamp + "\",";
-   json += "\"broker_utc_offset\":" + IntegerToString(InpBrokerUTCOffset) + ",";
+   json += "\"broker_utc_offset\":" + IntegerToString(g_brokerUtcOffsetSec/3600) + ",";
    
    if(eventType == "entry")
       json += "\"equity_at_entry\":" + DoubleToString(equity, 2) + ",";
@@ -1369,7 +1369,7 @@ string BuildJournalPayload(ulong dealTicket, string eventType, string direction)
    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
    string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
    
-   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
+   datetime dealTimeUTC = BrokerToUtc(dealTime);
    string utcTimestamp = FormatTimestampUTC(dealTimeUTC);
    
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -1413,7 +1413,7 @@ string BuildJournalPayload(ulong dealTicket, string eventType, string direction)
    json += "\"swap\":" + DoubleToString(swap, 2) + ",";
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
    json += "\"timestamp\":\"" + utcTimestamp + "\",";
-   json += "\"broker_utc_offset\":" + IntegerToString(InpBrokerUTCOffset) + ",";
+   json += "\"broker_utc_offset\":" + IntegerToString(g_brokerUtcOffsetSec/3600) + ",";
    
    if(eventType == "entry")
       json += "\"equity_at_entry\":" + DoubleToString(equity, 2) + ",";
