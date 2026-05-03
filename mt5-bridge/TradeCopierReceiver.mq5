@@ -1165,7 +1165,10 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
    request.volume = lots;
    request.type = (direction == "buy") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
    request.price = (direction == "buy") ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
-   request.deviation = (ulong)(g_config.max_slippage_pips * 10);
+   // Slippage tolerance in points: pips × (10 for 5/3-digit FX, 1 otherwise).
+   int devDigits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   double pipsToPoints = (devDigits == 5 || devDigits == 3) ? 10.0 : 1.0;
+   request.deviation = (ulong)(g_config.max_slippage_pips * pipsToPoints);
    request.magic = g_copierMagic;
    request.comment = "Copier:" + IntegerToString(masterPosId);
    
