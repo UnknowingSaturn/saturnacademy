@@ -15,7 +15,7 @@
 //+------------------------------------------------------------------+
 input group "=== Journal Settings (Cloud Sync) ==="
 input string   InpApiKey             = "";                         // API Key (from journal app)
-input int      InpBrokerUTCOffset    = 2;                          // Broker Server UTC Offset
+input int      InpBrokerUTCOffset    = 0;                          // Manual UTC Offset (0 = auto-detect)
 
 input group "=== Local Copier Settings ==="
 input bool     InpEnableCopier       = true;                       // Enable Local Copier
@@ -61,6 +61,28 @@ datetime       g_lastHeartbeat       = 0;
 datetime       g_lastCleanup         = 0;
 bool           g_webRequestOk        = false;
 string         g_terminalId          = "";
+
+// Auto-detected broker UTC offset (seconds). Refreshed hourly.
+int            g_brokerUtcOffsetSec  = 0;
+datetime       g_lastUtcRefresh      = 0;
+
+void RefreshUtcOffset()
+{
+   if(InpBrokerUTCOffset != 0)
+   {
+      g_brokerUtcOffsetSec = InpBrokerUTCOffset * 3600;
+      return;
+   }
+   long diff = (long)TimeCurrent() - (long)TimeGMT();
+   long rounded = ((diff + (diff >= 0 ? 900 : -900)) / 1800) * 1800;
+   g_brokerUtcOffsetSec = (int)rounded;
+   g_lastUtcRefresh = TimeCurrent();
+}
+
+datetime BrokerToUtc(datetime brokerTime)
+{
+   return brokerTime - g_brokerUtcOffsetSec;
+}
 
 // Track processed deals
 ulong          g_processedDeals[];
