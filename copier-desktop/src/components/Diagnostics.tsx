@@ -40,9 +40,20 @@ interface ReconciliationStatus {
   }>;
 }
 
+interface DiscoveryDebug {
+  total: number;
+  registry: number;
+  appdata: number;
+  common_paths: number;
+  manual: number;
+  process: number;
+  running: number;
+}
+
 export default function Diagnostics() {
   const [diagnostics, setDiagnostics] = useState<DiagnosticsInfo | null>(null);
   const [reconStatus, setReconStatus] = useState<ReconciliationStatus | null>(null);
+  const [discoveryDebug, setDiscoveryDebug] = useState<DiscoveryDebug | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
