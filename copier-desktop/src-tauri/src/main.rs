@@ -722,6 +722,7 @@ fn main() {
             get_master_symbols,
             auto_map_symbols,
             get_diagnostics,
+            get_discovery_debug,
             // Config & sync commands
             save_copier_config,
             get_position_sync_status,
