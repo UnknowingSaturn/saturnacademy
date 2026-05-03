@@ -62,12 +62,14 @@ export default function Diagnostics() {
 
   const fetchDiagnostics = async () => {
     try {
-      const [data, recon] = await Promise.all([
+      const [data, recon, debug] = await Promise.all([
         invoke<DiagnosticsInfo>("get_diagnostics"),
         invoke<ReconciliationStatus>("get_recon_status"),
+        invoke<DiscoveryDebug>("get_discovery_debug").catch(() => null),
       ]);
       setDiagnostics(data);
       setReconStatus(recon);
+      setDiscoveryDebug(debug);
       setError(null);
     } catch (err) {
       setError(`Failed to fetch diagnostics: ${err}`);
