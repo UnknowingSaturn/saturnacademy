@@ -182,6 +182,28 @@ fn auto_map_symbols(
 #[tauri::command]
 fn get_diagnostics() -> copier::DiagnosticsInfo {
     let terminals = mt5::discovery::discover_all_terminals();
+
+/// Discovery debug counts (which strategy succeeded?)
+#[tauri::command]
+fn get_discovery_debug() -> serde_json::Value {
+    let terminals = mt5::discovery::refresh_discovery_cache();
+    let mut registry = 0; let mut appdata = 0; let mut common = 0;
+    let mut manual = 0; let mut process = 0; let mut running = 0;
+    for t in &terminals {
+        if t.is_running { running += 1; }
+        match t.discovery_method {
+            mt5::discovery::DiscoveryMethod::Registry => registry += 1,
+            mt5::discovery::DiscoveryMethod::AppData => appdata += 1,
+            mt5::discovery::DiscoveryMethod::CommonPath => common += 1,
+            mt5::discovery::DiscoveryMethod::Manual => manual += 1,
+            mt5::discovery::DiscoveryMethod::Process => process += 1,
+        }
+    }
+    serde_json::json!({
+        "total": terminals.len(), "registry": registry, "appdata": appdata,
+        "common_paths": common, "manual": manual, "process": process, "running": running,
+    })
+}
     
     let terminal_diags: Vec<copier::TerminalDiagnostic> = terminals.iter().map(|t| {
         let heartbeat_age = t.last_heartbeat.as_ref().and_then(|ts| {
