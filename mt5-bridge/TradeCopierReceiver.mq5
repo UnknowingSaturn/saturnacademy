@@ -1476,7 +1476,7 @@ string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string 
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
    
-   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(dealTicket) + ":" + eventType;
    
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
@@ -1560,7 +1560,7 @@ string BuildJournalPayload(ulong dealTicket, string eventType, string direction)
    else if(StringFind(serverLower, "ftmo") >= 0 || StringFind(serverLower, "fundednext") >= 0 || StringFind(serverLower, "prop") >= 0)
       accountType = "prop";
    
-   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(dealTicket) + ":" + eventType;
    
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";

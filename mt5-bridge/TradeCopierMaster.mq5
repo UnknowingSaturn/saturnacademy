@@ -425,7 +425,7 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
    if(digits <= 0) digits = 5;
    
    // Build idempotency key
-   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(dealTicket) + ":" + eventType;
    
    // Get account info
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -716,7 +716,7 @@ string BuildCloudPayload(ulong dealTicket, string eventType, string direction)
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
    
-   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(dealTicket) + ":" + eventType;
    
    long accountLogin = AccountInfoInteger(ACCOUNT_LOGIN);
    string broker = AccountInfoString(ACCOUNT_COMPANY);
