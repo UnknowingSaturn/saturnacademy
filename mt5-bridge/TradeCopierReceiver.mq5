@@ -247,6 +247,10 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+   // Refresh UTC offset hourly (handles DST)
+   if(TimeCurrent() - g_lastUtcRefresh > 3600)
+      RefreshUtcOffset();
+
    // Kill switch check
    if(InpEnableKillSwitch)
    {
