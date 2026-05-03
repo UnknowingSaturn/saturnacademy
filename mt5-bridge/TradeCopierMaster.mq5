@@ -15,7 +15,7 @@
 //+------------------------------------------------------------------+
 input group "=== Journal Settings (Cloud Sync) ==="
 input string   InpApiKey             = "";                         // API Key (from journal app)
-input int      InpBrokerUTCOffset    = 2;                          // Broker Server UTC Offset
+input int      InpBrokerUTCOffset    = 0;                          // Manual UTC Offset (0 = auto-detect)
 
 input group "=== Local Copier Settings ==="
 input bool     InpEnableCopier       = true;                       // Enable Local Copier
@@ -61,6 +61,28 @@ datetime       g_lastHeartbeat       = 0;
 datetime       g_lastCleanup         = 0;
 bool           g_webRequestOk        = false;
 string         g_terminalId          = "";
+
+// Auto-detected broker UTC offset (seconds). Refreshed hourly.
+int            g_brokerUtcOffsetSec  = 0;
+datetime       g_lastUtcRefresh      = 0;
+
+void RefreshUtcOffset()
+{
+   if(InpBrokerUTCOffset != 0)
+   {
+      g_brokerUtcOffsetSec = InpBrokerUTCOffset * 3600;
+      return;
+   }
+   long diff = (long)TimeCurrent() - (long)TimeGMT();
+   long rounded = ((diff + (diff >= 0 ? 900 : -900)) / 1800) * 1800;
+   g_brokerUtcOffsetSec = (int)rounded;
+   g_lastUtcRefresh = TimeCurrent();
+}
+
+datetime BrokerToUtc(datetime brokerTime)
+{
+   return brokerTime - g_brokerUtcOffsetSec;
+}
 
 // Track processed deals
 ulong          g_processedDeals[];
@@ -124,6 +146,7 @@ int OnInit()
    }
    
    // Set timer for queue processing and heartbeat
+   RefreshUtcOffset();
    EventSetTimer(1); // 1 second timer for responsive heartbeat
    
    // Initialize processed deals array
@@ -291,7 +314,7 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
    string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
    
    // Generate modify event
-   string idempotencyKey = g_terminalId + "_modify_" + IntegerToString(posId) + "_" + 
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(posId) + ":modify:" +
                            IntegerToString(TimeCurrent());
    
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -338,6 +361,8 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+   if(TimeCurrent() - g_lastUtcRefresh > 3600)
+      RefreshUtcOffset();
    datetime now = TimeCurrent();
    
    // Heartbeat every N seconds
@@ -425,7 +450,7 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
    if(digits <= 0) digits = 5;
    
    // Build idempotency key
-   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(dealTicket) + ":" + eventType;
    
    // Get account info
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -716,7 +741,7 @@ string BuildCloudPayload(ulong dealTicket, string eventType, string direction)
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
    
-   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(dealTicket) + ":" + eventType;
    
    long accountLogin = AccountInfoInteger(ACCOUNT_LOGIN);
    string broker = AccountInfoString(ACCOUNT_COMPANY);

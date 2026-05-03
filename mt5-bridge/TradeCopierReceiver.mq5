@@ -23,7 +23,7 @@ input int      InpPollIntervalMs     = 1000;                       // Poll inter
 
 input group "=== Journal Settings ==="
 input string   InpApiKey             = "";                         // API Key (for journaling to cloud)
-input int      InpBrokerUTCOffset    = 2;                          // Broker Server UTC Offset (e.g., 2 for UTC+2)
+input int      InpBrokerUTCOffset    = 0;                          // Manual UTC Offset (0 = auto-detect)
 input bool     InpEnableJournaling   = true;                       // Enable cloud journaling
 
 input group "=== Safety Overrides ==="
@@ -113,6 +113,33 @@ bool           g_webRequestOk        = false;
 string         g_journalQueueFile    = "ReceiverJournalQueue.txt";
 ulong          g_processedDeals[];
 int            g_maxProcessedDeals   = 1000;
+int            g_brokerUtcOffsetSec  = 0;        // Auto-detected offset (sec)
+datetime       g_lastUtcRefresh      = 0;
+
+//+------------------------------------------------------------------+
+//| Refresh broker UTC offset (auto-detect)                          |
+//+------------------------------------------------------------------+
+void RefreshUtcOffset()
+{
+   if(InpBrokerUTCOffset != 0)
+   {
+      g_brokerUtcOffsetSec = InpBrokerUTCOffset * 3600;
+      return;
+   }
+   long diff = (long)TimeCurrent() - (long)TimeGMT();
+   // Round to nearest 1800s (handles half-hour brokers)
+   long rounded = ((diff + (diff >= 0 ? 900 : -900)) / 1800) * 1800;
+   g_brokerUtcOffsetSec = (int)rounded;
+   g_lastUtcRefresh = TimeCurrent();
+}
+
+//+------------------------------------------------------------------+
+//| Convert broker time to UTC datetime                               |
+//+------------------------------------------------------------------+
+datetime BrokerToUtc(datetime brokerTime)
+{
+   return brokerTime - g_brokerUtcOffsetSec;
+}
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                    |
@@ -136,6 +163,7 @@ int OnInit()
                   StringSubstr(AccountInfoString(ACCOUNT_SERVER), 0, 10);
    
    // Initialize equity tracking
+   RefreshUtcOffset();
    g_startingEquity = AccountInfoDouble(ACCOUNT_EQUITY);
    g_highWaterMark = g_startingEquity;
    
@@ -219,6 +247,10 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+   // Refresh UTC offset hourly (handles DST)
+   if(TimeCurrent() - g_lastUtcRefresh > 3600)
+      RefreshUtcOffset();
+
    // Kill switch check
    if(InpEnableKillSwitch)
    {
@@ -322,6 +354,9 @@ void CheckEmergencyCommands()
    {
       do
       {
+         // Skip our own response files and temp/partial writes
+         if(StringFind(filename, "resp_") == 0) continue;
+         if(StringFind(filename, ".tmp") >= 0) continue;
          string fullPath = g_commandsFolder + "\\" + filename;
          ProcessEmergencyCommand(fullPath, filename);
       }
@@ -347,9 +382,12 @@ void ProcessEmergencyCommand(string fullPath, string filename)
    }
    FileClose(fHandle);
    
-   // Parse command type
+   // Parse command type. Desktop "execute" commands use the "action" field; emergency/sync ones use "command_type".
    string commandType = ExtractJsonString(content, "command_type");
-   
+   string action      = ExtractJsonString(content, "action");
+   if(commandType == "" && action != "")
+      commandType = "execute";
+
    if(commandType == "close_all")
    {
       LogMessage("EMERGENCY: Close all positions command received");
@@ -364,6 +402,12 @@ void ProcessEmergencyCommand(string fullPath, string filename)
    {
       LogMessage("Resume copying command received");
       g_isPaused = false;
+   }
+   else if(commandType == "execute")
+   {
+      ProcessExecuteCommand(fullPath, filename, content, action);
+      // ProcessExecuteCommand handles response + deletion itself
+      return;
    }
    else if(commandType == "open")
    {
@@ -415,6 +459,151 @@ void ProcessEmergencyCommand(string fullPath, string filename)
    }
    
    // Delete the command file after processing
+   FileDelete(fullPath);
+}
+
+//+------------------------------------------------------------------+
+//| Extract a numeric "request_id" or fallback timestamp from filename |
+//+------------------------------------------------------------------+
+string ExtractRequestIdFromFilename(string filename)
+{
+   // Expected: cmd_<id>.json — strip prefix/suffix
+   string s = filename;
+   int p = StringFind(s, "cmd_");
+   if(p >= 0) s = StringSubstr(s, p + 4);
+   p = StringFind(s, ".json");
+   if(p >= 0) s = StringSubstr(s, 0, p);
+   return s;
+}
+
+//+------------------------------------------------------------------+
+//| Write a response file for desktop trade_executor to consume       |
+//+------------------------------------------------------------------+
+void WriteExecuteResponse(string requestId, bool success, double executedPrice,
+                          double slippagePips, long receiverPositionId, string errorMsg)
+{
+   string respFile  = g_commandsFolder + "\\resp_" + requestId + ".json";
+   string tmpFile   = respFile + ".tmp";
+   
+   string json = "{";
+   json += "\"success\":" + (success ? "true" : "false") + ",";
+   json += "\"executed_price\":" + DoubleToString(executedPrice, 5) + ",";
+   json += "\"slippage_pips\":" + DoubleToString(slippagePips, 2) + ",";
+   json += "\"receiver_position_id\":" + IntegerToString(receiverPositionId) + ",";
+   json += "\"timestamp\":" + IntegerToString((long)TimeCurrent()) + ",";
+   if(errorMsg != "")
+      json += "\"error\":\"" + EscapeJsonString(errorMsg) + "\"";
+   else
+      json += "\"error\":null";
+   json += "}";
+   
+   int h = FileOpen(tmpFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(h == INVALID_HANDLE)
+   {
+      Print("WriteExecuteResponse: failed to open ", tmpFile, " err=", GetLastError());
+      return;
+   }
+   FileWriteString(h, json);
+   FileClose(h);
+   FileMove(tmpFile, 0, respFile, FILE_REWRITE);
+}
+
+//+------------------------------------------------------------------+
+//| Process an "execute" command from the desktop app                 |
+//+------------------------------------------------------------------+
+void ProcessExecuteCommand(string fullPath, string filename, string content, string action)
+{
+   string requestId = ExtractRequestIdFromFilename(filename);
+   
+   // Idempotency: master-supplied key wins, fallback to deal-id form
+   string idemKey = ExtractJsonString(content, "idempotency_key");
+   long   masterPosId = (long)ExtractJsonNumber(content, "master_position_id");
+   long   dealId      = (long)ExtractJsonNumber(content, "deal_id");
+   if(idemKey == "")
+      idemKey = "rcv:" + IntegerToString(dealId > 0 ? dealId : masterPosId) + ":" + action;
+   
+   if(IsEventExecuted(idemKey))
+   {
+      WriteExecuteResponse(requestId, true, 0, 0, GetReceiverPositionId(masterPosId),
+                           "duplicate (already executed)");
+      FileDelete(fullPath);
+      return;
+   }
+   
+   string masterSymbol = ExtractJsonString(content, "symbol");
+   string direction    = ExtractJsonString(content, "direction");
+   // Desktop already calculated lots; "calculated_lots" is authoritative, "lots" is legacy fallback.
+   double lots         = ExtractJsonNumber(content, "calculated_lots");
+   if(lots <= 0) lots = ExtractJsonNumber(content, "lots");
+   double sl           = ExtractJsonNumber(content, "sl");
+   double tp           = ExtractJsonNumber(content, "tp");
+   
+   string receiverSymbol = MapSymbol(masterSymbol);
+   if(StringLen(receiverSymbol) == 0)
+   {
+      WriteExecuteResponse(requestId, false, 0, 0, 0,
+                           "No symbol mapping for " + masterSymbol);
+      MarkEventExecuted(idemKey, 0, 0);
+      FileDelete(fullPath);
+      return;
+   }
+   
+   // Clamp lots to broker constraints (memory rule: EA only clamps)
+   double minLot  = SymbolInfoDouble(receiverSymbol, SYMBOL_VOLUME_MIN);
+   double maxLot  = SymbolInfoDouble(receiverSymbol, SYMBOL_VOLUME_MAX);
+   double lotStep = SymbolInfoDouble(receiverSymbol, SYMBOL_VOLUME_STEP);
+   if(lotStep <= 0) lotStep = 0.01;
+   double clamped = MathMax(minLot, MathMin(maxLot, lots));
+   clamped = MathFloor(clamped / lotStep) * lotStep;
+   clamped = NormalizeDouble(clamped, 2);
+   if(MathAbs(clamped - lots) / MathMax(lots, 0.0001) > 0.05)
+      LogMessage("Lot clamp: requested=" + DoubleToString(lots, 2) +
+                 " applied=" + DoubleToString(clamped, 2) + " on " + receiverSymbol);
+   lots = clamped;
+   
+   long   receiverPosId = 0;
+   bool   ok            = false;
+   double executedPrice = 0;
+   double slippagePips  = 0;
+   string errMsg        = "";
+   
+   if(action == "entry")
+   {
+      ok = ExecuteEntry(receiverSymbol, direction, lots, sl, tp, masterPosId, receiverPosId);
+      if(ok)
+      {
+         executedPrice = (direction == "buy")
+                          ? SymbolInfoDouble(receiverSymbol, SYMBOL_ASK)
+                          : SymbolInfoDouble(receiverSymbol, SYMBOL_BID);
+         double masterPrice = ExtractJsonNumber(content, "price");
+         if(masterPrice > 0)
+            slippagePips = CalculateSlippage(masterPrice, executedPrice, receiverSymbol);
+      }
+      else errMsg = "ExecuteEntry failed";
+   }
+   else if(action == "exit")
+   {
+      ok = ExecuteExit(masterPosId, receiverPosId);
+      if(!ok) errMsg = "ExecuteExit failed";
+   }
+   else if(action == "partial_close")
+   {
+      ok = ExecutePartialClose(content, masterPosId, receiverPosId);
+      if(!ok) errMsg = "ExecutePartialClose failed";
+   }
+   else if(action == "modify")
+   {
+      ok = ExecuteModify(content, masterPosId);
+      receiverPosId = GetReceiverPositionId(masterPosId);
+      if(!ok) errMsg = "ExecuteModify failed";
+   }
+   else
+   {
+      errMsg = "Unknown action: " + action;
+   }
+   
+   MarkEventExecuted(idemKey, receiverPosId, slippagePips);
+   WriteExecuteResponse(requestId, ok, executedPrice, slippagePips, receiverPosId, errMsg);
    FileDelete(fullPath);
 }
 
@@ -975,7 +1164,16 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
       return false;
    }
    
+   // Resolve the *position* id from the deal (result.order is the order id, not position id).
    receiverPosId = (long)result.order;
+   if(result.deal > 0)
+   {
+      if(HistorySelect(TimeCurrent() - 60, TimeCurrent() + 60) && HistoryDealSelect(result.deal))
+      {
+         long pid = HistoryDealGetInteger(result.deal, DEAL_POSITION_ID);
+         if(pid > 0) receiverPosId = pid;
+      }
+   }
    
    // Store position mapping
    int idx = ArraySize(g_positionMaps);
@@ -1258,7 +1456,7 @@ void JournalCopiedTrade(ulong dealTicket, string eventType, string direction, st
 string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string direction, string symbol, double lots, double price, double sl, double tp)
 {
    datetime dealTime = TimeCurrent();
-   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
+   datetime dealTimeUTC = BrokerToUtc(dealTime);
    string utcTimestamp = FormatTimestampUTC(dealTimeUTC);
    
    long accountLogin = AccountInfoInteger(ACCOUNT_LOGIN);
@@ -1278,7 +1476,7 @@ string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string 
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
    
-   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(dealTicket) + ":" + eventType;
    
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
@@ -1298,7 +1496,7 @@ string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string 
       json += "\"tp\":" + DoubleToString(tp, digits) + ",";
    
    json += "\"timestamp\":\"" + utcTimestamp + "\",";
-   json += "\"broker_utc_offset\":" + IntegerToString(InpBrokerUTCOffset) + ",";
+   json += "\"broker_utc_offset\":" + IntegerToString(g_brokerUtcOffsetSec/3600) + ",";
    
    if(eventType == "entry")
       json += "\"equity_at_entry\":" + DoubleToString(equity, 2) + ",";
@@ -1342,7 +1540,7 @@ string BuildJournalPayload(ulong dealTicket, string eventType, string direction)
    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
    string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
    
-   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
+   datetime dealTimeUTC = BrokerToUtc(dealTime);
    string utcTimestamp = FormatTimestampUTC(dealTimeUTC);
    
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -1362,7 +1560,7 @@ string BuildJournalPayload(ulong dealTicket, string eventType, string direction)
    else if(StringFind(serverLower, "ftmo") >= 0 || StringFind(serverLower, "fundednext") >= 0 || StringFind(serverLower, "prop") >= 0)
       accountType = "prop";
    
-   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(dealTicket) + ":" + eventType;
    
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
@@ -1386,7 +1584,7 @@ string BuildJournalPayload(ulong dealTicket, string eventType, string direction)
    json += "\"swap\":" + DoubleToString(swap, 2) + ",";
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
    json += "\"timestamp\":\"" + utcTimestamp + "\",";
-   json += "\"broker_utc_offset\":" + IntegerToString(InpBrokerUTCOffset) + ",";
+   json += "\"broker_utc_offset\":" + IntegerToString(g_brokerUtcOffsetSec/3600) + ",";
    
    if(eventType == "entry")
       json += "\"equity_at_entry\":" + DoubleToString(equity, 2) + ",";
