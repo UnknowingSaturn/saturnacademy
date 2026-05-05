@@ -89,8 +89,8 @@ export function CustomFieldDialog({ open, onOpenChange, initial, onSubmit }: Cus
           </div>
 
           <div className="space-y-2">
-            <Label>Type {initial && <span className="text-xs text-muted-foreground">(can't change after creation)</span>}</Label>
-            <Select value={type} onValueChange={(v) => setType(v as CustomFieldType)} disabled={!!initial}>
+            <Label>Type</Label>
+            <Select value={type} onValueChange={(v) => setType(v as CustomFieldType)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -105,6 +105,11 @@ export function CustomFieldDialog({ open, onOpenChange, initial, onSubmit }: Cus
                 ))}
               </SelectContent>
             </Select>
+            {initial && type !== initial.type && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Existing values will be converted to <strong>{type}</strong>. Incompatible values may be cleared.
+              </p>
+            )}
           </div>
 
           {isOptionType && (
