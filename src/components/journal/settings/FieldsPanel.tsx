@@ -607,7 +607,13 @@ export function FieldsPanel() {
         initial={editingField}
         onSubmit={async (input) => {
           if (editingField) {
-            await updateField.mutateAsync({ id: editingField.id, label: input.label, options: input.options });
+            await updateField.mutateAsync({
+              id: editingField.id,
+              label: input.label,
+              type: input.type,
+              previousType: editingField.type,
+              options: input.options,
+            });
           } else {
             await createField.mutateAsync(input);
           }
