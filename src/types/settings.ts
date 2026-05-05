@@ -104,24 +104,47 @@ export interface DetailSectionDef {
 }
 
 // Default catalog used by both the renderer and the settings UI.
-// "model" entries map to playbook columns, "regime" lives on trade_reviews.
+// Each planned/actual concept is its own independently-editable field
+// so users can rename, hide, reorder, or delete them like Notion properties.
 export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
-  { key: 'status',       label: 'Status',     kind: 'readonly', defaultVisible: true },
-  { key: 'account',      label: 'Account',    kind: 'account-select', defaultVisible: true },
-  { key: 'pair',         label: 'Pair',       kind: 'readonly', defaultVisible: true },
-  { key: 'day',          label: 'Day',        kind: 'readonly', defaultVisible: true },
-  { key: 'date',         label: 'Date (ET)',  kind: 'readonly', defaultVisible: true },
-  { key: 'direction',    label: 'Direction',  kind: 'readonly', defaultVisible: true },
-  { key: 'pnl',          label: 'P&L',        kind: 'readonly', defaultVisible: true },
-  { key: 'r_pct',        label: 'R%',         kind: 'readonly', defaultVisible: true },
-  { key: 'emotion',      label: 'Emotion',    kind: 'select',   propertyName: 'emotion', isReviewField: true, field: 'emotional_state_before', defaultVisible: true },
-  { key: 'session',      label: 'Session',    kind: 'select',   propertyName: 'session', field: 'session', defaultVisible: true },
-  { key: 'model',        label: 'Model',      kind: 'dual-playbook', plannedField: 'playbook_id', actualField: 'actual_playbook_id', defaultVisible: true },
-  { key: 'profile',      label: 'Profile',    kind: 'dual-select', propertyName: 'profile', plannedField: 'profile', actualField: 'actual_profile', defaultVisible: true },
-  { key: 'regime',       label: 'Regime',     kind: 'dual-select', propertyName: 'regime', plannedField: 'regime', actualField: 'actual_regime', defaultVisible: true },
-  { key: 'timeframes',   label: 'Timeframes', kind: 'dual-multi',  propertyName: 'timeframe', plannedField: 'alignment', actualField: 'entry_timeframes', defaultVisible: true },
-  { key: 'place',        label: 'Place',      kind: 'text', field: 'place', defaultVisible: true },
+  { key: 'status',           label: 'Status',          kind: 'readonly', defaultVisible: true },
+  { key: 'account',          label: 'Account',         kind: 'account-select', defaultVisible: true },
+  { key: 'pair',             label: 'Pair',            kind: 'readonly', defaultVisible: true },
+  { key: 'day',              label: 'Day',             kind: 'readonly', defaultVisible: true },
+  { key: 'date',             label: 'Date (ET)',       kind: 'readonly', defaultVisible: true },
+  { key: 'direction',        label: 'Direction',       kind: 'readonly', defaultVisible: true },
+  { key: 'pnl',              label: 'P&L',             kind: 'readonly', defaultVisible: true },
+  { key: 'r_pct',            label: 'R%',              kind: 'readonly', defaultVisible: true },
+  { key: 'emotion',          label: 'Emotion',         kind: 'select',  propertyName: 'emotion', isReviewField: true, field: 'emotional_state_before', defaultVisible: true },
+  { key: 'session',          label: 'Session',         kind: 'select',  propertyName: 'session', field: 'session', defaultVisible: true },
+  { key: 'model',            label: 'Planned Model',   kind: 'playbook-select', field: 'playbook_id', defaultVisible: true },
+  { key: 'actual_model',     label: 'Actual Model',    kind: 'playbook-select', field: 'actual_playbook_id', defaultVisible: true },
+  { key: 'profile',          label: 'Planned Profile', kind: 'select', propertyName: 'profile', field: 'profile', defaultVisible: true },
+  { key: 'actual_profile',   label: 'Actual Profile',  kind: 'select', propertyName: 'profile', field: 'actual_profile', defaultVisible: true },
+  { key: 'regime',           label: 'Planned Regime',  kind: 'select', propertyName: 'regime', isReviewField: true, field: 'regime', defaultVisible: true },
+  { key: 'actual_regime',    label: 'Actual Regime',   kind: 'select', propertyName: 'regime', field: 'actual_regime', defaultVisible: true },
+  { key: 'alignment',        label: 'HTF Timeframes',  kind: 'multi-select', propertyName: 'timeframe', field: 'alignment', defaultVisible: true },
+  { key: 'entry_timeframes', label: 'Entry Timeframes', kind: 'multi-select', propertyName: 'timeframe', field: 'entry_timeframes', defaultVisible: true },
+  { key: 'place',            label: 'Place',           kind: 'text', field: 'place', defaultVisible: true },
 ];
+
+// Migrate legacy "bundled" detail keys saved in user_settings to the new split keys.
+// Keeps existing user layouts working after the catalog split.
+const LEGACY_DETAIL_KEY_MIGRATION: Record<string, string[]> = {
+  timeframes: ['alignment', 'entry_timeframes'],
+};
+
+export function migrateDetailKeys(keys: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const k of keys) {
+    const expanded = LEGACY_DETAIL_KEY_MIGRATION[k] ?? [k];
+    for (const e of expanded) {
+      if (!seen.has(e)) { seen.add(e); out.push(e); }
+    }
+  }
+  return out;
+}
 
 export const DETAIL_SECTION_CATALOG: DetailSectionDef[] = [
   { key: 'screenshots',       label: 'Screenshots',       defaultVisible: true },
