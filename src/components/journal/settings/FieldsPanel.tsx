@@ -814,6 +814,7 @@ function FieldRowCard({
   onToggleDetail,
   onDelete,
   onEditCustom,
+  onConfigureSystem,
 }: FieldRowCardProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(label);
