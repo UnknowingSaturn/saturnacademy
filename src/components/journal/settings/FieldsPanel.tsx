@@ -162,6 +162,7 @@ export function FieldsPanel() {
   const overrides = settings?.field_label_overrides || {};
   const visibleColumns = settings?.visible_columns || DEFAULT_VISIBLE_COLUMNS;
   const columnOrder: string[] = (settings?.column_order as string[]) || DEFAULT_VISIBLE_COLUMNS;
+  const deletedSet = useMemo(() => new Set(settings?.deleted_system_fields || []), [settings?.deleted_system_fields]);
 
   // Detail visibility
   const detailVisible = useMemo(() => {
