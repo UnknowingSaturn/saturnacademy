@@ -264,7 +264,10 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'read_quality', label: 'Read', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.8fr)', category: 'calculated' },
   { key: 'alignment', label: 'Alignment', type: 'multi-select', sortable: false, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'timeframe', category: 'editable' },
   { key: 'entry_timeframes', label: 'Entry', type: 'multi-select', sortable: false, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'timeframe', category: 'editable' },
-  { key: 'profile', label: 'Profile', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'profile', category: 'editable' },
+  { key: 'profile', label: 'Planned Profile', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'profile', category: 'editable' },
+  { key: 'actual_profile', label: 'Actual Profile', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'profile', category: 'editable' },
+  { key: 'regime', label: 'Planned Regime', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'regime', category: 'editable' },
+  { key: 'actual_regime', label: 'Actual Regime', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'regime', category: 'editable' },
   { key: 'emotional_state_before', label: 'Emotion', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'emotion', category: 'editable' },
   { key: 'place', label: 'Place', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'editable' },
 ];
