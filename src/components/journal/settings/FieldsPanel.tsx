@@ -525,7 +525,34 @@ export function FieldsPanel() {
         </div>
       )}
 
-      {/* Hidden custom fields */}
+      {/* Deleted fields (per-user tombstones) */}
+      {deletedSystem.length > 0 && (
+        <div className="pt-4 border-t border-border">
+          <div className="text-xs font-medium text-muted-foreground mb-2">
+            Deleted fields ({deletedSystem.length})
+          </div>
+          <div className="space-y-2">
+            {deletedSystem.map((c) => (
+              <div
+                key={c.key}
+                className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-destructive/40 bg-destructive/5"
+              >
+                <div>
+                  <div className="text-sm font-medium">
+                    {resolveFieldLabel(c.key, c.label, overrides)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Deleted · {c.type}</div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => restoreSystem(c.key)}>
+                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                  Restore
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {inactiveCustom.length > 0 && (
         <div className="pt-4 border-t border-border">
           <div className="text-xs font-medium text-muted-foreground mb-2">
