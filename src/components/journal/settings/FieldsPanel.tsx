@@ -140,6 +140,12 @@ export function FieldsPanel() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState<CustomFieldDefinition | null>(null);
+  const [systemConfigKey, setSystemConfigKey] = useState<string | null>(null);
+  const { data: fieldOverrides = [] } = useFieldOverrides();
+  const overrideByKey = useMemo(() => {
+    const map = new Map(fieldOverrides.map((o) => [o.field_key, o]));
+    return map;
+  }, [fieldOverrides]);
   const [deleteTarget, setDeleteTarget] = useState<
     | { kind: "system-soft"; field: FieldRow }
     | { kind: "system-erasable"; field: FieldRow }
