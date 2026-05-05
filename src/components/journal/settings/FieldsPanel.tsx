@@ -634,6 +634,48 @@ export function FieldsPanel() {
         }}
       />
 
+      {systemConfigKey && (() => {
+        const row = rows.find((r) => r.key === systemConfigKey);
+        if (!row) return null;
+        // Map DETAIL_FIELD_CATALOG kind to CustomFieldType
+        const sys = DETAIL_FIELD_CATALOG.find((d) => d.key === systemConfigKey);
+        const col = DEFAULT_COLUMNS.find((c) => c.key === systemConfigKey);
+        const kindToType: Record<string, "text" | "number" | "select" | "multi_select" | "date" | "checkbox" | "url"> = {
+          text: "text",
+          select: "select",
+          "multi-select": "multi_select",
+          "playbook-select": "select",
+          "dual-select": "select",
+          "dual-multi": "multi_select",
+          "dual-playbook": "select",
+          readonly: "text",
+          "account-select": "select",
+        };
+        const colTypeMap: Record<string, "text" | "number" | "select" | "multi_select" | "date" | "checkbox" | "url"> = {
+          text: "text",
+          number: "number",
+          date: "date",
+          select: "select",
+          "multi-select": "multi_select",
+          badge: "text",
+        };
+        const defaultType = sys
+          ? kindToType[sys.kind] || "text"
+          : col
+          ? colTypeMap[col.type] || "text"
+          : "text";
+        return (
+          <SystemFieldConfigDialog
+            open={!!systemConfigKey}
+            onOpenChange={(o) => !o && setSystemConfigKey(null)}
+            fieldKey={systemConfigKey}
+            label={resolveLabel(row)}
+            defaultType={defaultType}
+            override={overrideByKey.get(systemConfigKey)}
+          />
+        );
+      })()}
+
       {/* Unified delete dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && closeDelete()}>
         <AlertDialogContent>
