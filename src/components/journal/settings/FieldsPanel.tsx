@@ -799,6 +799,7 @@ interface FieldRowCardProps {
   onToggleDetail: () => void;
   onDelete: () => void;
   onEditCustom?: () => void;
+  onConfigureSystem?: () => void;
 }
 
 function FieldRowCard({
