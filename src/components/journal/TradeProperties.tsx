@@ -431,6 +431,34 @@ function PropertyRow({
   );
 }
 
+function PlaceEditor({ value, onSave }: { value: string; onSave: (v: string) => void | Promise<unknown> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => { onSave(draft.trim()); setEditing(false); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { onSave(draft.trim()); setEditing(false); }
+          if (e.key === "Escape") { setDraft(value); setEditing(false); }
+        }}
+        className="h-7 text-xs w-40"
+      />
+    );
+  }
+  return (
+    <button
+      onClick={() => { setDraft(value); setEditing(true); }}
+      className={cn("text-sm hover:text-foreground transition-colors", value ? "" : "text-muted-foreground italic")}
+    >
+      {value || "Empty"}
+    </button>
+  );
+}
+
 function DualPropertyRow({
   label,
   children,
