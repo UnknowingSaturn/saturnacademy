@@ -292,19 +292,8 @@ export const SYSTEM_FIELD_SOURCES: Record<string, SystemFieldSource[]> = {
   news_risk:              [{ table: 'trade_reviews', column: 'news_risk' }],
   psychology_notes:       [{ table: 'trade_reviews', column: 'psychology_notes' }],
 
-  // ── Dual planned + actual ──────────────────────────────────────────────────
-  regime: [
-    { table: 'trade_reviews', column: 'regime' },
-    { table: 'trades',        column: 'actual_regime' },
-  ],
-  model: [
-    { table: 'trades', column: 'playbook_id' },
-    { table: 'trades', column: 'actual_playbook_id' },
-  ],
-  timeframes: [
-    { table: 'trades', column: 'alignment' },
-    { table: 'trades', column: 'entry_timeframes' },
-  ],
+  // Planned regime lives on trade_reviews
+  regime: [{ table: 'trade_reviews', column: 'regime' }],
 };
 
 // Back-compat alias: anything in SYSTEM_FIELD_SOURCES is erasable.
