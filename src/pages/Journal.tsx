@@ -399,6 +399,8 @@ export default function Journal() {
               trades={filteredTrades}
               onTradeClick={(trade) => setSelectedTradeId(trade.id)}
               visibleColumns={settings?.visible_columns}
+              columnOrder={settings?.column_order}
+              deletedFields={settings?.deleted_system_fields}
               onEditProperty={handleEditProperty}
               accounts={accounts}
             />
