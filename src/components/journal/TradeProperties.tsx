@@ -20,7 +20,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CustomFieldCell } from "./CustomFieldCell";
 import { Calendar, Clock, TrendingUp, TrendingDown, DollarSign, Target, Hash, Wallet } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Input } from "@/components/ui/input";
 
 interface TradePropertiesProps {
   trade: Trade;
@@ -252,7 +253,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         );
       case 'model':
         return (
-          <DualPropertyRow key="model" label={labelFor('model', 'Model')}>
+          <PropertyRow key="model" label={labelFor('model', 'Planned Model')}>
             <BadgeSelect
               value={trade.playbook_id || ""}
               onChange={async (v) => {
@@ -267,36 +268,46 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
                 }
               }}
               options={modelOptions}
-              placeholder="Planned..."
+              placeholder="Select..."
             />
+          </PropertyRow>
+        );
+      case 'actual_model':
+        return (
+          <PropertyRow key="actual_model" label={labelFor('actual_model', 'Actual Model')}>
             <BadgeSelect
               value={trade.actual_playbook_id || ""}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, actual_playbook_id: (v as string) || null })}
               options={modelOptions}
-              placeholder="Actual..."
+              placeholder="Select..."
             />
-          </DualPropertyRow>
+          </PropertyRow>
         );
       case 'profile':
         return (
-          <DualPropertyRow key="profile" label={labelFor('profile', 'Profile')}>
+          <PropertyRow key="profile" label={labelFor('profile', 'Planned Profile')}>
             <BadgeSelect
               value={trade.profile || ""}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, profile: (v as TradeProfile) || null })}
               options={optionsByProperty.profile}
-              placeholder="Planned..."
+              placeholder="Select..."
             />
+          </PropertyRow>
+        );
+      case 'actual_profile':
+        return (
+          <PropertyRow key="actual_profile" label={labelFor('actual_profile', 'Actual Profile')}>
             <BadgeSelect
               value={(trade.actual_profile as string) || ""}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, actual_profile: ((v as string) || null) as TradeProfile | null })}
               options={optionsByProperty.profile}
-              placeholder="Actual..."
+              placeholder="Select..."
             />
-          </DualPropertyRow>
+          </PropertyRow>
         );
       case 'regime':
         return (
-          <DualPropertyRow key="regime" label={labelFor('regime', 'Regime')}>
+          <PropertyRow key="regime" label={labelFor('regime', 'Planned Regime')}>
             <BadgeSelect
               value={trade.review?.regime || ""}
               onChange={(v) => upsertReview.mutateAsync({
@@ -304,39 +315,52 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
                 silent: true,
               })}
               options={optionsByProperty.regime}
-              placeholder="Planned..."
+              placeholder="Select..."
             />
+          </PropertyRow>
+        );
+      case 'actual_regime':
+        return (
+          <PropertyRow key="actual_regime" label={labelFor('actual_regime', 'Actual Regime')}>
             <BadgeSelect
               value={(trade.actual_regime as string) || ""}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, actual_regime: ((v as string) || null) as RegimeType | null })}
               options={optionsByProperty.regime}
-              placeholder="Actual..."
+              placeholder="Select..."
             />
-          </DualPropertyRow>
+          </PropertyRow>
         );
-      case 'timeframes':
+      case 'alignment':
         return (
-          <DualPropertyRow key="timeframes" label={labelFor('timeframes', 'Timeframes')}>
+          <PropertyRow key="alignment" label={labelFor('alignment', 'HTF Timeframes')}>
             <BadgeSelect
               value={trade.alignment || []}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, alignment: v as TimeframeAlignment[] })}
               options={optionsByProperty.timeframe}
-              placeholder="HTF..."
+              placeholder="Select..."
               multiple
             />
+          </PropertyRow>
+        );
+      case 'entry_timeframes':
+        return (
+          <PropertyRow key="entry_timeframes" label={labelFor('entry_timeframes', 'Entry Timeframes')}>
             <BadgeSelect
               value={trade.entry_timeframes || []}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, entry_timeframes: v as TimeframeAlignment[] })}
               options={optionsByProperty.timeframe}
-              placeholder="Entry..."
+              placeholder="Select..."
               multiple
             />
-          </DualPropertyRow>
+          </PropertyRow>
         );
       case 'place':
         return (
           <PropertyRow key="place" label={labelFor('place', 'Place')}>
-            <span className="text-sm text-muted-foreground">{trade.place || "Empty"}</span>
+            <PlaceEditor
+              value={trade.place || ""}
+              onSave={(v) => updateTrade.mutateAsync({ id: trade.id, place: v || null })}
+            />
           </PropertyRow>
         );
       default:
@@ -404,6 +428,34 @@ function PropertyRow({
       </div>
       <div className="text-sm">{children}</div>
     </div>
+  );
+}
+
+function PlaceEditor({ value, onSave }: { value: string; onSave: (v: string) => void | Promise<unknown> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => { onSave(draft.trim()); setEditing(false); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { onSave(draft.trim()); setEditing(false); }
+          if (e.key === "Escape") { setDraft(value); setEditing(false); }
+        }}
+        className="h-7 text-xs w-40"
+      />
+    );
+  }
+  return (
+    <button
+      onClick={() => { setDraft(value); setEditing(true); }}
+      className={cn("text-sm hover:text-foreground transition-colors", value ? "" : "text-muted-foreground italic")}
+    >
+      {value || "Empty"}
+    </button>
   );
 }
 

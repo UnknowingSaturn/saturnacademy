@@ -108,10 +108,11 @@ const SYSTEM_OPTION_PROPERTY: Record<string, string> = {
   emotional_state_before: "emotion",
   session: "session",
   profile: "profile",
+  actual_profile: "profile",
   regime: "regime",
+  actual_regime: "regime",
   alignment: "timeframe",
   entry_timeframes: "timeframe",
-  timeframes: "timeframe",
 };
 
 const COLOR_PALETTE = [

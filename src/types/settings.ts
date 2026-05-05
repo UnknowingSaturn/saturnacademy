@@ -104,24 +104,47 @@ export interface DetailSectionDef {
 }
 
 // Default catalog used by both the renderer and the settings UI.
-// "model" entries map to playbook columns, "regime" lives on trade_reviews.
+// Each planned/actual concept is its own independently-editable field
+// so users can rename, hide, reorder, or delete them like Notion properties.
 export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
-  { key: 'status',       label: 'Status',     kind: 'readonly', defaultVisible: true },
-  { key: 'account',      label: 'Account',    kind: 'account-select', defaultVisible: true },
-  { key: 'pair',         label: 'Pair',       kind: 'readonly', defaultVisible: true },
-  { key: 'day',          label: 'Day',        kind: 'readonly', defaultVisible: true },
-  { key: 'date',         label: 'Date (ET)',  kind: 'readonly', defaultVisible: true },
-  { key: 'direction',    label: 'Direction',  kind: 'readonly', defaultVisible: true },
-  { key: 'pnl',          label: 'P&L',        kind: 'readonly', defaultVisible: true },
-  { key: 'r_pct',        label: 'R%',         kind: 'readonly', defaultVisible: true },
-  { key: 'emotion',      label: 'Emotion',    kind: 'select',   propertyName: 'emotion', isReviewField: true, field: 'emotional_state_before', defaultVisible: true },
-  { key: 'session',      label: 'Session',    kind: 'select',   propertyName: 'session', field: 'session', defaultVisible: true },
-  { key: 'model',        label: 'Model',      kind: 'dual-playbook', plannedField: 'playbook_id', actualField: 'actual_playbook_id', defaultVisible: true },
-  { key: 'profile',      label: 'Profile',    kind: 'dual-select', propertyName: 'profile', plannedField: 'profile', actualField: 'actual_profile', defaultVisible: true },
-  { key: 'regime',       label: 'Regime',     kind: 'dual-select', propertyName: 'regime', plannedField: 'regime', actualField: 'actual_regime', defaultVisible: true },
-  { key: 'timeframes',   label: 'Timeframes', kind: 'dual-multi',  propertyName: 'timeframe', plannedField: 'alignment', actualField: 'entry_timeframes', defaultVisible: true },
-  { key: 'place',        label: 'Place',      kind: 'text', field: 'place', defaultVisible: true },
+  { key: 'status',           label: 'Status',          kind: 'readonly', defaultVisible: true },
+  { key: 'account',          label: 'Account',         kind: 'account-select', defaultVisible: true },
+  { key: 'pair',             label: 'Pair',            kind: 'readonly', defaultVisible: true },
+  { key: 'day',              label: 'Day',             kind: 'readonly', defaultVisible: true },
+  { key: 'date',             label: 'Date (ET)',       kind: 'readonly', defaultVisible: true },
+  { key: 'direction',        label: 'Direction',       kind: 'readonly', defaultVisible: true },
+  { key: 'pnl',              label: 'P&L',             kind: 'readonly', defaultVisible: true },
+  { key: 'r_pct',            label: 'R%',              kind: 'readonly', defaultVisible: true },
+  { key: 'emotion',          label: 'Emotion',         kind: 'select',  propertyName: 'emotion', isReviewField: true, field: 'emotional_state_before', defaultVisible: true },
+  { key: 'session',          label: 'Session',         kind: 'select',  propertyName: 'session', field: 'session', defaultVisible: true },
+  { key: 'model',            label: 'Planned Model',   kind: 'playbook-select', field: 'playbook_id', defaultVisible: true },
+  { key: 'actual_model',     label: 'Actual Model',    kind: 'playbook-select', field: 'actual_playbook_id', defaultVisible: true },
+  { key: 'profile',          label: 'Planned Profile', kind: 'select', propertyName: 'profile', field: 'profile', defaultVisible: true },
+  { key: 'actual_profile',   label: 'Actual Profile',  kind: 'select', propertyName: 'profile', field: 'actual_profile', defaultVisible: true },
+  { key: 'regime',           label: 'Planned Regime',  kind: 'select', propertyName: 'regime', isReviewField: true, field: 'regime', defaultVisible: true },
+  { key: 'actual_regime',    label: 'Actual Regime',   kind: 'select', propertyName: 'regime', field: 'actual_regime', defaultVisible: true },
+  { key: 'alignment',        label: 'HTF Timeframes',  kind: 'multi-select', propertyName: 'timeframe', field: 'alignment', defaultVisible: true },
+  { key: 'entry_timeframes', label: 'Entry Timeframes', kind: 'multi-select', propertyName: 'timeframe', field: 'entry_timeframes', defaultVisible: true },
+  { key: 'place',            label: 'Place',           kind: 'text', field: 'place', defaultVisible: true },
 ];
+
+// Migrate legacy "bundled" detail keys saved in user_settings to the new split keys.
+// Keeps existing user layouts working after the catalog split.
+const LEGACY_DETAIL_KEY_MIGRATION: Record<string, string[]> = {
+  timeframes: ['alignment', 'entry_timeframes'],
+};
+
+export function migrateDetailKeys(keys: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const k of keys) {
+    const expanded = LEGACY_DETAIL_KEY_MIGRATION[k] ?? [k];
+    for (const e of expanded) {
+      if (!seen.has(e)) { seen.add(e); out.push(e); }
+    }
+  }
+  return out;
+}
 
 export const DETAIL_SECTION_CATALOG: DetailSectionDef[] = [
   { key: 'screenshots',       label: 'Screenshots',       defaultVisible: true },
@@ -241,7 +264,10 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'read_quality', label: 'Read', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.8fr)', category: 'calculated' },
   { key: 'alignment', label: 'Alignment', type: 'multi-select', sortable: false, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'timeframe', category: 'editable' },
   { key: 'entry_timeframes', label: 'Entry', type: 'multi-select', sortable: false, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'timeframe', category: 'editable' },
-  { key: 'profile', label: 'Profile', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'profile', category: 'editable' },
+  { key: 'profile', label: 'Planned Profile', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'profile', category: 'editable' },
+  { key: 'actual_profile', label: 'Actual Profile', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'profile', category: 'editable' },
+  { key: 'regime', label: 'Planned Regime', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'regime', category: 'editable' },
+  { key: 'actual_regime', label: 'Actual Regime', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'regime', category: 'editable' },
   { key: 'emotional_state_before', label: 'Emotion', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'emotion', category: 'editable' },
   { key: 'place', label: 'Place', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'editable' },
 ];
@@ -262,6 +288,8 @@ export const SYSTEM_FIELD_SOURCES: Record<string, SystemFieldSource[]> = {
   actual_regime:    [{ table: 'trades', column: 'actual_regime' }],
   playbook_id:        [{ table: 'trades', column: 'playbook_id' }],
   actual_playbook_id: [{ table: 'trades', column: 'actual_playbook_id' }],
+  model:              [{ table: 'trades', column: 'playbook_id' }],
+  actual_model:       [{ table: 'trades', column: 'actual_playbook_id' }],
 
   // ── Single-column trade_reviews fields ─────────────────────────────────────
   emotion:                [{ table: 'trade_reviews', column: 'emotional_state_before' }],
@@ -269,19 +297,8 @@ export const SYSTEM_FIELD_SOURCES: Record<string, SystemFieldSource[]> = {
   news_risk:              [{ table: 'trade_reviews', column: 'news_risk' }],
   psychology_notes:       [{ table: 'trade_reviews', column: 'psychology_notes' }],
 
-  // ── Dual planned + actual ──────────────────────────────────────────────────
-  regime: [
-    { table: 'trade_reviews', column: 'regime' },
-    { table: 'trades',        column: 'actual_regime' },
-  ],
-  model: [
-    { table: 'trades', column: 'playbook_id' },
-    { table: 'trades', column: 'actual_playbook_id' },
-  ],
-  timeframes: [
-    { table: 'trades', column: 'alignment' },
-    { table: 'trades', column: 'entry_timeframes' },
-  ],
+  // Planned regime lives on trade_reviews
+  regime: [{ table: 'trade_reviews', column: 'regime' }],
 };
 
 // Back-compat alias: anything in SYSTEM_FIELD_SOURCES is erasable.
