@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   UserSettings, SessionDefinition, PropertyOption, FilterCondition,
   DEFAULT_VISIBLE_COLUMNS, DEFAULT_SESSIONS, DEFAULT_PROPERTY_OPTIONS,
-  DEFAULT_LIVE_TRADE_QUESTIONS, LiveTradeQuestion,
+  DEFAULT_LIVE_TRADE_QUESTIONS, LiveTradeQuestion, migrateDetailKeys,
 } from "@/types/settings";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
