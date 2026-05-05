@@ -1,54 +1,74 @@
-I’ll make the journal field/layout editor fully usable instead of partially editable.
+I’ll sort this by separating three actions that are currently blurred together: hide, delete from my table, and erase data.
 
-What I found:
-- The Fields tab already supports rename, hide, reorder, dropdown option edits, and custom fields, but several “planned/actual” fields are bundled together as one combined row (`Model`, `Profile`, `Regime`, `Timeframes`). That prevents users from independently editing/deleting/reordering Planned vs Actual.
-- The Trade Detail sidebar renders those bundled fields as fixed dual rows, so you can’t fully control the “actual/planned” pieces like Notion properties.
-- `Place` is editable in the table but only read-only in the detail panel.
-- Some delete/hide behavior only removes fields from one place or treats hidden/default state inconsistently, which can make fields feel undeletable.
+Current problem:
+- The app already stores layouts per user in `user_settings`, and custom fields/options per user with backend access rules.
+- But non-core system fields are only being removed from the visible/order arrays, so they still appear as “Hidden system fields” and can feel like they never truly delete.
+- The trade table currently mostly uses `visible_columns`, not the full per-user `column_order`, so different users can still feel like they are using the same default table structure.
+- The table header “Hide column” is wired to a no-op.
+- Some planned/actual columns exist in the registry but still need full editable cell renderers in the table.
 
-Implementation plan:
+Plan:
 
-1. Split planned/actual fields into independent editable properties
-   - Replace bundled layout keys with separate properties:
-     - `model` -> `model` / `actual_model`
-     - `profile` -> `profile` / `actual_profile`
-     - `regime` -> `regime` / `actual_regime`
-     - `timeframes` -> `alignment` / `entry_timeframes`
-   - Keep backwards compatibility so existing saved layout order/visibility that contains old bundled keys migrates gracefully in the UI.
-   - Keep labels user-editable through existing label overrides.
+1. Add a per-user deleted-fields registry
+   - Add a new setting on `user_settings`, e.g. `deleted_system_fields jsonb default []`.
+   - This is not deleting the physical database column globally; it marks the field as deleted for that specific user only.
+   - This is the Notion-style approach: everyone uses the same app schema underneath, but each user has their own field registry/layout.
+   - Keep RLS/user ownership so one user’s deleted fields never affect another user.
 
-2. Make field deletion/hiding truly Notion-style
-   - Non-core system fields can be hidden from table and detail independently, or removed from both via “Delete field”.
-   - Planned and Actual fields can be hidden/deleted separately.
-   - Existing destructive erase behavior will remain available for erasable fields.
-   - Hidden fields will show in the restore list so users can bring them back.
+2. Make delete mean “remove from my table/layout” for non-core system fields
+   - For non-core system fields, pressing Delete will:
+     - remove it from table visible columns
+     - remove it from table order
+     - remove it from detail sidebar visibility/order
+     - add it to `deleted_system_fields`
+   - Deleted fields will no longer appear in the active field list or normal hidden list.
+   - Add a separate “Deleted fields” restore area so the user can intentionally bring one back.
+   - Core fields remain protected: they can be hidden, not deleted.
 
-3. Make actual/planned values editable wherever they appear
-   - In the trade detail properties sidebar, render each planned/actual field as its own property row with its own dropdown/multi-select.
-   - Add detail support for `actual_model`, `actual_profile`, `actual_regime`, `alignment`, and `entry_timeframes` as standalone fields.
-   - Make `Place` inline-editable in the detail sidebar, not just in the table.
+3. Make destructive data erasure explicit
+   - Keep “Erase data” as a separate explicit option.
+   - For a non-core system field, users can delete the field from their layout without wiping old trade values.
+   - If they choose “also erase data”, only their own trade/review rows are cleared.
+   - For custom fields, make permanent delete easier to access instead of hiding it behind the inactive/hidden section.
 
-4. Align the table with the same field model
-   - Ensure table columns can include/hide/reorder all standalone planned/actual fields.
-   - Add missing actual-field table support where needed, especially `actual_profile` and `actual_regime`.
-   - Keep existing `actual_model` support, but ensure it’s part of default/restore/layout registries consistently.
+4. Make the table genuinely per-user
+   - Centralize how the journal table determines columns:
+     - start from that user’s `column_order`
+     - filter by that user’s `visible_columns`
+     - exclude that user’s `deleted_system_fields`
+     - append only that user’s active custom fields
+   - Pass/use this effective column list in `TradeTable` so the rendered table order is not just global defaults.
+   - Wire the table header “Hide column” menu to update the current user’s settings instead of doing nothing.
+   - Ensure newly added fields only appear for the user who created/restored them.
 
-5. Improve layout/settings UX copy and rows
-   - Update field descriptions so users understand “Planned model”, “Actual model”, “Planned profile”, etc.
-   - Remove misleading “Planned + Actual” bundled descriptions from the Fields/Layout panels.
-   - Preserve the current dark card row style shown in your screenshot while making every row actionable.
+5. Keep detail sidebar/layout in sync
+   - Detail layout will use the same deleted-field registry.
+   - Deleted fields will not be auto-appended back by defaults.
+   - Restoring a deleted field will restore it to table/detail as appropriate.
+   - Detail layout labels will respect renamed field labels consistently.
 
-6. Verify the implementation
-   - Check the Fields tab supports rename, reorder, table/detail toggle, dropdown option edit, delete/hide, restore, and erase where applicable.
-   - Check the trade detail sidebar reflects layout changes and supports editing planned/actual values separately.
-   - Check the table renders and edits the standalone planned/actual fields correctly.
+6. Finish planned/actual table edit coverage
+   - Add editable table cells for:
+     - `actual_profile`
+     - `regime` / planned regime
+     - `actual_regime`
+   - Keep `model` / `actual_model`, `alignment`, `entry_timeframes`, `profile`, `emotion`, and `place` editable.
+
+7. Verification
+   - Verify User A deleting a non-core field does not affect User B.
+   - Verify field delete no longer just moves it to normal hidden fields.
+   - Verify restore works from the deleted-fields area.
+   - Verify table ordering actually follows the user’s own order.
+   - Verify header hide works.
+   - Verify planned/actual fields are editable from both table and trade detail.
 
 Files expected to change:
 - `src/types/settings.ts`
-- `src/components/journal/TradeProperties.tsx`
+- `src/hooks/useUserSettings.tsx`
 - `src/components/journal/TradeTable.tsx`
 - `src/components/journal/settings/FieldsPanel.tsx`
 - `src/components/journal/settings/DetailLayoutPanel.tsx`
-- Possibly small updates in filtering/settings panels if they rely on the old bundled keys.
+- possibly `src/pages/Journal.tsx` if the table needs the full settings object passed in
+- one backend migration to add the per-user deleted-field setting
 
-No database migration should be required; the needed columns already exist. This is mainly fixing the field model and UI behavior so users have full control.
+No per-user physical database tables should be created. That would become hard to maintain and risky. The correct Notion-like model is one shared app schema with per-user field definitions, layout, visibility, ordering, and deleted-field tombstones.

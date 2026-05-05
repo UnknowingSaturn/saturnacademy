@@ -162,6 +162,7 @@ export function FieldsPanel() {
   const overrides = settings?.field_label_overrides || {};
   const visibleColumns = settings?.visible_columns || DEFAULT_VISIBLE_COLUMNS;
   const columnOrder: string[] = (settings?.column_order as string[]) || DEFAULT_VISIBLE_COLUMNS;
+  const deletedSet = useMemo(() => new Set(settings?.deleted_system_fields || []), [settings?.deleted_system_fields]);
 
   // Detail visibility
   const detailVisible = useMemo(() => {
@@ -189,12 +190,11 @@ export function FieldsPanel() {
   }, [settings?.detail_field_order, customFields]);
 
   // Build the unified field list. Order: detail-order first (covers system + active custom),
-  // then table-only system columns not in the detail catalog.
+  // then table-only system columns not in the detail catalog. Skips per-user deleted fields.
   const rows = useMemo<FieldRow[]>(() => {
     const out: FieldRow[] = [];
     const seen = new Set<string>();
 
-    const detailKeys = new Set(DETAIL_FIELD_CATALOG.map((d) => d.key));
     const tableKeys = new Set(DEFAULT_COLUMNS.map((c) => c.key));
 
     const activeCustomMap = new Map(customFields.filter((f) => f.is_active).map((f) => [f.key, f]));
@@ -202,6 +202,7 @@ export function FieldsPanel() {
     // Walk detail order (covers system + active custom in user order)
     for (const key of detailOrder) {
       if (seen.has(key)) continue;
+      if (deletedSet.has(key)) { seen.add(key); continue; }
       seen.add(key);
       const sys = DETAIL_FIELD_CATALOG.find((d) => d.key === key);
       const custom = activeCustomMap.get(key);
@@ -212,7 +213,7 @@ export function FieldsPanel() {
           category: "custom",
           description: `Custom · ${custom.type}`,
           customDef: custom,
-          isInTable: true,        // custom fields appear in the table registry
+          isInTable: true,
           isInDetail: true,
           optionsPropertyName: undefined,
         });
@@ -233,6 +234,7 @@ export function FieldsPanel() {
     for (const col of DEFAULT_COLUMNS) {
       if (seen.has(col.key)) continue;
       if (col.key.startsWith("cf_")) continue;
+      if (deletedSet.has(col.key)) { seen.add(col.key); continue; }
       seen.add(col.key);
       out.push({
         key: col.key,
@@ -246,7 +248,7 @@ export function FieldsPanel() {
     }
 
     return out;
-  }, [detailOrder, customFields]);
+  }, [detailOrder, customFields, deletedSet]);
 
   const inactiveCustom = customFields.filter((f) => !f.is_active);
 
@@ -369,21 +371,26 @@ export function FieldsPanel() {
     if (!deleteTarget) return;
     switch (deleteTarget.kind) {
       case "system-soft": {
-        // Soft-delete = remove from table order/visible AND detail visible
+        // Soft-delete (Notion-style): remove from table + detail AND tombstone the field
+        // so it disappears from the active list and the regular hidden-fields restore list.
         const k = deleteTarget.field.key;
+        const nextDeleted = Array.from(new Set([...(settings?.deleted_system_fields || []), k]));
         await updateSettings.mutateAsync({
           column_order: columnOrder.filter((c) => c !== k),
           visible_columns: visibleColumns.filter((c) => c !== k),
           detail_visible_fields: Array.from(detailVisible).filter((c) => c !== k),
+          deleted_system_fields: nextDeleted,
         });
         break;
       }
       case "system-erasable": {
         const k = deleteTarget.field.key;
+        const nextDeleted = Array.from(new Set([...(settings?.deleted_system_fields || []), k]));
         await updateSettings.mutateAsync({
           column_order: columnOrder.filter((c) => c !== k),
           visible_columns: visibleColumns.filter((c) => c !== k),
           detail_visible_fields: Array.from(detailVisible).filter((c) => c !== k),
+          deleted_system_fields: nextDeleted,
         });
         if (eraseAlongDelete) {
           await eraseSystemData.mutateAsync(k);
@@ -417,21 +424,35 @@ export function FieldsPanel() {
     if (DETAIL_FIELD_CATALOG.some((d) => d.key === key) && !nextDetail.includes(key)) {
       nextDetail.push(key);
     }
+    const nextDeleted = (settings?.deleted_system_fields || []).filter((k) => k !== key);
     await updateSettings.mutateAsync({
       column_order: nextOrder,
       visible_columns: nextVisible,
       detail_visible_fields: nextDetail,
+      deleted_system_fields: nextDeleted,
     });
   };
 
   // Compute the currently-rendered label for a row
   const resolveLabel = (row: FieldRow) => resolveFieldLabel(row.key, row.defaultLabel, overrides);
 
-  // Hidden system fields = present in defaults but absent from columnOrder
+  // Hidden system fields = present in defaults but absent from columnOrder AND not user-deleted
   const hiddenSystem = useMemo(() => {
     const orderSet = new Set(columnOrder);
-    return DEFAULT_COLUMNS.filter((c) => !orderSet.has(c.key) && !c.key.startsWith("cf_"));
-  }, [columnOrder]);
+    return DEFAULT_COLUMNS.filter((c) => !orderSet.has(c.key) && !c.key.startsWith("cf_") && !deletedSet.has(c.key));
+  }, [columnOrder, deletedSet]);
+
+  // Deleted (tombstoned) system fields — only shown in the Deleted area for restore.
+  const deletedSystem = useMemo(() => {
+    const list: { key: string; label: string; type: string }[] = [];
+    for (const k of settings?.deleted_system_fields || []) {
+      const col = DEFAULT_COLUMNS.find((c) => c.key === k);
+      const detail = DETAIL_FIELD_CATALOG.find((d) => d.key === k);
+      if (col) list.push({ key: k, label: col.label, type: col.type });
+      else if (detail) list.push({ key: k, label: detail.label, type: detail.kind });
+    }
+    return list;
+  }, [settings?.deleted_system_fields]);
 
   if (loadingSettings || loadingFields) {
     return <div className="p-4 text-center text-muted-foreground">Loading fields…</div>;
@@ -504,7 +525,34 @@ export function FieldsPanel() {
         </div>
       )}
 
-      {/* Hidden custom fields */}
+      {/* Deleted fields (per-user tombstones) */}
+      {deletedSystem.length > 0 && (
+        <div className="pt-4 border-t border-border">
+          <div className="text-xs font-medium text-muted-foreground mb-2">
+            Deleted fields ({deletedSystem.length})
+          </div>
+          <div className="space-y-2">
+            {deletedSystem.map((c) => (
+              <div
+                key={c.key}
+                className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-destructive/40 bg-destructive/5"
+              >
+                <div>
+                  <div className="text-sm font-medium">
+                    {resolveFieldLabel(c.key, c.label, overrides)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Deleted · {c.type}</div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => restoreSystem(c.key)}>
+                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                  Restore
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {inactiveCustom.length > 0 && (
         <div className="pt-4 border-t border-border">
           <div className="text-xs font-medium text-muted-foreground mb-2">

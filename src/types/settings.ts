@@ -34,6 +34,10 @@ export interface UserSettings {
   detail_section_order: string[];        // empty array = use defaults
   // Map field key -> renamed label (applies to detail sidebar AND table header)
   field_label_overrides: Record<string, string>;
+  // Per-user "deleted" non-core system field keys (Notion-style tombstones).
+  // These are excluded from active table + detail layouts and from the normal
+  // hidden-fields restore list, but can be brought back from the Deleted area.
+  deleted_system_fields: string[];
   created_at: string;
   updated_at: string;
 }

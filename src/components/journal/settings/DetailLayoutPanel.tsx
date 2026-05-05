@@ -76,17 +76,19 @@ export function DetailLayoutPanel() {
     const userOrder = settings?.detail_field_order?.length ? settings.detail_field_order : DEFAULT_DETAIL_FIELD_ORDER;
     const customKeys = customFields.filter(f => f.is_active).map(f => f.key);
     const known = new Set([...DEFAULT_DETAIL_FIELD_ORDER, ...customKeys]);
+    const deletedSet = new Set(settings?.deleted_system_fields || []);
     const seen = new Set<string>();
     const ordered: string[] = [];
     for (const key of userOrder) {
+      if (deletedSet.has(key)) continue;
       if (known.has(key) && !seen.has(key)) { ordered.push(key); seen.add(key); }
     }
-    // Append anything missing (e.g. newly-created custom fields)
     for (const key of [...DEFAULT_DETAIL_FIELD_ORDER, ...customKeys]) {
+      if (deletedSet.has(key)) continue;
       if (!seen.has(key)) ordered.push(key);
     }
     return ordered;
-  }, [settings?.detail_field_order, customFields]);
+  }, [settings?.detail_field_order, settings?.deleted_system_fields, customFields]);
 
   const visibleFields = useMemo(() => {
     if (!settings) return new Set(DEFAULT_DETAIL_VISIBLE_FIELDS);

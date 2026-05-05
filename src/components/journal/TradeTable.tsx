@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { ChevronRight, Lightbulb, FileText, Clock } from "lucide-react";
 import { DEFAULT_COLUMNS, ColumnDefinition, buildColumnRegistry } from "@/types/settings";
-import { useUserSettings } from "@/hooks/useUserSettings";
+import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { CustomFieldCell } from "./CustomFieldCell";
 
@@ -21,11 +21,13 @@ interface TradeTableProps {
   trades: Trade[];
   onTradeClick: (trade: Trade) => void;
   visibleColumns?: string[];
+  columnOrder?: string[];
+  deletedFields?: string[];
   onEditProperty?: (propertyName: string) => void;
   accounts?: Account[];
 }
 
-export function TradeTable({ trades, onTradeClick, visibleColumns, onEditProperty, accounts }: TradeTableProps) {
+export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, deletedFields, onEditProperty, accounts }: TradeTableProps) {
   const updateTrade = useUpdateTrade();
   const upsertReview = useUpsertTradeReview();
   const bulkArchive = useBulkArchiveTrades();
@@ -44,7 +46,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
   // Fetch playbooks for model options
   const { data: playbooks } = usePlaybooks();
   const { data: settings } = useUserSettings();
+  const updateSettings = useUpdateUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
+
+  const handleHideColumn = async (key: string) => {
+    const current = settings?.visible_columns || [];
+    if (!current.includes(key)) return;
+    await updateSettings.mutateAsync({ visible_columns: current.filter(k => k !== key) });
+  };
 
   // Merged registry: system columns + active custom field columns + user label/width overrides
   const columnRegistry = useMemo(
@@ -85,10 +94,39 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
     return colorMap[hexColor] || 'muted';
   };
 
-  // Default visible columns
-  const activeColumns = visibleColumns || DEFAULT_COLUMNS.filter(c => 
-    ['trade_number', 'entry_time', 'day', 'symbol', 'session', 'model', 'alignment', 'entry_timeframes', 'profile', 'r_multiple_actual', 'result', 'emotional_state_before', 'place'].includes(c.key)
-  ).map(c => c.key);
+  // Effective per-user column list:
+  // 1. Start from the user's column_order (or default visible)
+  // 2. Filter to currently visible
+  // 3. Exclude per-user deleted system fields
+  // 4. Only keep keys we actually know how to render (system + active custom)
+  const activeColumns = useMemo(() => {
+    const visibleSet = new Set(visibleColumns || DEFAULT_COLUMNS.filter(c =>
+      ['trade_number', 'entry_time', 'day', 'symbol', 'session', 'model', 'alignment', 'entry_timeframes', 'profile', 'r_multiple_actual', 'result', 'emotional_state_before', 'place'].includes(c.key)
+    ).map(c => c.key));
+    const deletedSet = new Set(deletedFields || []);
+    const knownSet = new Set(columnRegistry.map(c => c.key));
+    const order = (columnOrder && columnOrder.length > 0)
+      ? columnOrder
+      : columnRegistry.map(c => c.key);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const k of order) {
+      if (seen.has(k)) continue;
+      if (!visibleSet.has(k)) continue;
+      if (deletedSet.has(k)) continue;
+      if (!knownSet.has(k)) continue;
+      seen.add(k);
+      out.push(k);
+    }
+    // Append any visible keys missing from order (newly created custom fields)
+    for (const k of visibleSet) {
+      if (!seen.has(k) && !deletedSet.has(k) && knownSet.has(k)) {
+        out.push(k);
+        seen.add(k);
+      }
+    }
+    return out;
+  }, [visibleColumns, columnOrder, deletedFields, columnRegistry]);
 
   // Sort trades
   const sortedTrades = useMemo(() => {
@@ -281,7 +319,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, onEditPropert
                   sortDirection={sortDirection}
                   onSort={handleSort}
                   onFilter={() => {}}
-                  onHide={() => {}}
+                  onHide={() => handleHideColumn(key)}
                   onEditProperty={onEditProperty}
                 >
                   {column.label}
