@@ -25,6 +25,7 @@ const transformSettings = (row: any): UserSettings => ({
   detail_visible_sections: (row.detail_visible_sections as string[]) || [],
   detail_section_order: (row.detail_section_order as string[]) || [],
   field_label_overrides: (row.field_label_overrides as Record<string, string>) || {},
+  deleted_system_fields: (row.deleted_system_fields as string[]) || [],
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -92,6 +93,7 @@ export function useUserSettings() {
           detail_visible_sections: [],
           detail_section_order: [],
           field_label_overrides: {},
+          deleted_system_fields: [],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as UserSettings;
@@ -133,6 +135,7 @@ export function useUpdateUserSettings() {
       if (updates.detail_visible_sections !== undefined) dbUpdates.detail_visible_sections = updates.detail_visible_sections as any;
       if (updates.detail_section_order !== undefined) dbUpdates.detail_section_order = updates.detail_section_order as any;
       if (updates.field_label_overrides !== undefined) dbUpdates.field_label_overrides = updates.field_label_overrides as any;
+      if (updates.deleted_system_fields !== undefined) dbUpdates.deleted_system_fields = updates.deleted_system_fields as any;
 
       // Check if settings exist
       const { data: existing } = await supabase
