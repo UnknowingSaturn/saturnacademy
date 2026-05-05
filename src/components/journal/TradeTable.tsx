@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { ChevronRight, Lightbulb, FileText, Clock } from "lucide-react";
 import { DEFAULT_COLUMNS, ColumnDefinition, buildColumnRegistry } from "@/types/settings";
-import { useUserSettings } from "@/hooks/useUserSettings";
+import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { CustomFieldCell } from "./CustomFieldCell";
 
@@ -46,7 +46,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   // Fetch playbooks for model options
   const { data: playbooks } = usePlaybooks();
   const { data: settings } = useUserSettings();
+  const updateSettings = useUpdateUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
+
+  const handleHideColumn = async (key: string) => {
+    const current = settings?.visible_columns || [];
+    if (!current.includes(key)) return;
+    await updateSettings.mutateAsync({ visible_columns: current.filter(k => k !== key) });
+  };
 
   // Merged registry: system columns + active custom field columns + user label/width overrides
   const columnRegistry = useMemo(
@@ -312,7 +319,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                   sortDirection={sortDirection}
                   onSort={handleSort}
                   onFilter={() => {}}
-                  onHide={() => {}}
+                  onHide={() => handleHideColumn(key)}
                   onEditProperty={onEditProperty}
                 >
                   {column.label}
