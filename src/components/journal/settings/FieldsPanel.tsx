@@ -499,6 +499,11 @@ export function FieldsPanel() {
                 onToggleDetail={() => toggleDetail(row)}
                 onDelete={() => requestDelete(row)}
                 onEditCustom={() => { if (row.customDef) { setEditingField(row.customDef); setDialogOpen(true); } }}
+                onConfigureSystem={
+                  row.category === "system" || row.category === "core"
+                    ? () => setSystemConfigKey(row.key)
+                    : undefined
+                }
               />
             ))}
           </div>
