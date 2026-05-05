@@ -20,7 +20,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CustomFieldCell } from "./CustomFieldCell";
 import { Calendar, Clock, TrendingUp, TrendingDown, DollarSign, Target, Hash, Wallet } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Input } from "@/components/ui/input";
 
 interface TradePropertiesProps {
   trade: Trade;
