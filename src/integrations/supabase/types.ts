@@ -1844,6 +1844,7 @@ export type Database = {
           column_overrides: Json
           created_at: string
           default_filters: Json
+          deleted_system_fields: Json
           detail_field_order: Json
           detail_section_order: Json
           detail_visible_fields: Json
@@ -1861,6 +1862,7 @@ export type Database = {
           column_overrides?: Json
           created_at?: string
           default_filters?: Json
+          deleted_system_fields?: Json
           detail_field_order?: Json
           detail_section_order?: Json
           detail_visible_fields?: Json
@@ -1878,6 +1880,7 @@ export type Database = {
           column_overrides?: Json
           created_at?: string
           default_filters?: Json
+          deleted_system_fields?: Json
           detail_field_order?: Json
           detail_section_order?: Json
           detail_visible_fields?: Json
