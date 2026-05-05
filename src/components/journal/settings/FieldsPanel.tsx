@@ -945,7 +945,13 @@ function FieldRowCard({
             {row.category === "custom" && onEditCustom && (
               <DropdownMenuItem onClick={onEditCustom}>
                 <Pencil className="w-4 h-4 mr-2" />
-                Edit field…
+                Edit field & change type…
+              </DropdownMenuItem>
+            )}
+            {onConfigureSystem && row.category !== "custom" && (
+              <DropdownMenuItem onClick={onConfigureSystem}>
+                <Settings2 className="w-4 h-4 mr-2" />
+                Configure type & options…
               </DropdownMenuItem>
             )}
             {!isCore && (
