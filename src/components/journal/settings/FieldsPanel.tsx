@@ -190,12 +190,11 @@ export function FieldsPanel() {
   }, [settings?.detail_field_order, customFields]);
 
   // Build the unified field list. Order: detail-order first (covers system + active custom),
-  // then table-only system columns not in the detail catalog.
+  // then table-only system columns not in the detail catalog. Skips per-user deleted fields.
   const rows = useMemo<FieldRow[]>(() => {
     const out: FieldRow[] = [];
     const seen = new Set<string>();
 
-    const detailKeys = new Set(DETAIL_FIELD_CATALOG.map((d) => d.key));
     const tableKeys = new Set(DEFAULT_COLUMNS.map((c) => c.key));
 
     const activeCustomMap = new Map(customFields.filter((f) => f.is_active).map((f) => [f.key, f]));
@@ -203,6 +202,7 @@ export function FieldsPanel() {
     // Walk detail order (covers system + active custom in user order)
     for (const key of detailOrder) {
       if (seen.has(key)) continue;
+      if (deletedSet.has(key)) { seen.add(key); continue; }
       seen.add(key);
       const sys = DETAIL_FIELD_CATALOG.find((d) => d.key === key);
       const custom = activeCustomMap.get(key);
@@ -213,7 +213,7 @@ export function FieldsPanel() {
           category: "custom",
           description: `Custom · ${custom.type}`,
           customDef: custom,
-          isInTable: true,        // custom fields appear in the table registry
+          isInTable: true,
           isInDetail: true,
           optionsPropertyName: undefined,
         });
@@ -234,6 +234,7 @@ export function FieldsPanel() {
     for (const col of DEFAULT_COLUMNS) {
       if (seen.has(col.key)) continue;
       if (col.key.startsWith("cf_")) continue;
+      if (deletedSet.has(col.key)) { seen.add(col.key); continue; }
       seen.add(col.key);
       out.push({
         key: col.key,
@@ -247,7 +248,7 @@ export function FieldsPanel() {
     }
 
     return out;
-  }, [detailOrder, customFields]);
+  }, [detailOrder, customFields, deletedSet]);
 
   const inactiveCustom = customFields.filter((f) => !f.is_active);
 
