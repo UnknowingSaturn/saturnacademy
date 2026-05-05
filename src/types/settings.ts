@@ -285,6 +285,8 @@ export const SYSTEM_FIELD_SOURCES: Record<string, SystemFieldSource[]> = {
   actual_regime:    [{ table: 'trades', column: 'actual_regime' }],
   playbook_id:        [{ table: 'trades', column: 'playbook_id' }],
   actual_playbook_id: [{ table: 'trades', column: 'actual_playbook_id' }],
+  model:              [{ table: 'trades', column: 'playbook_id' }],
+  actual_model:       [{ table: 'trades', column: 'actual_playbook_id' }],
 
   // ── Single-column trade_reviews fields ─────────────────────────────────────
   emotion:                [{ table: 'trade_reviews', column: 'emotional_state_before' }],
