@@ -1,74 +1,113 @@
-I’ll sort this by separating three actions that are currently blurred together: hide, delete from my table, and erase data.
+## Goal
 
-Current problem:
-- The app already stores layouts per user in `user_settings`, and custom fields/options per user with backend access rules.
-- But non-core system fields are only being removed from the visible/order arrays, so they still appear as “Hidden system fields” and can feel like they never truly delete.
-- The trade table currently mostly uses `visible_columns`, not the full per-user `column_order`, so different users can still feel like they are using the same default table structure.
-- The table header “Hide column” is wired to a no-op.
-- Some planned/actual columns exist in the registry but still need full editable cell renderers in the table.
+Give every journal field — system AND custom — a full Notion-style configuration panel where the user can change its type (text / number / select / multi-select / date / checkbox / url / playbook), edit options, set defaults, rename, and control visibility — without losing data.
 
-Plan:
+Right now:
+- System fields have a fixed type baked into the catalog. You can edit dropdown options but not change "select" → "multi-select", or convert a text field into a select.
+- Custom fields lock the type after creation (`disabled={!!initial}` in `CustomFieldDialog`).
+- There is no single "Edit field" panel — config is split between the dialog, the inline options collapsible, and the row menu.
 
-1. Add a per-user deleted-fields registry
-   - Add a new setting on `user_settings`, e.g. `deleted_system_fields jsonb default []`.
-   - This is not deleting the physical database column globally; it marks the field as deleted for that specific user only.
-   - This is the Notion-style approach: everyone uses the same app schema underneath, but each user has their own field registry/layout.
-   - Keep RLS/user ownership so one user’s deleted fields never affect another user.
+## What you'll be able to do after this
 
-2. Make delete mean “remove from my table/layout” for non-core system fields
-   - For non-core system fields, pressing Delete will:
-     - remove it from table visible columns
-     - remove it from table order
-     - remove it from detail sidebar visibility/order
-     - add it to `deleted_system_fields`
-   - Deleted fields will no longer appear in the active field list or normal hidden list.
-   - Add a separate “Deleted fields” restore area so the user can intentionally bring one back.
-   - Core fields remain protected: they can be hidden, not deleted.
+For ANY field (custom or non-core system):
+1. Change its **type** (text, number, select, multi_select, date, checkbox, url, playbook-select).
+2. Edit **options** (label, color, sort, hide, delete) inline.
+3. Set a **default value**.
+4. **Rename** label.
+5. Toggle **table** + **detail** visibility.
+6. **Reorder** via drag.
+7. **Delete** (soft) or **erase data** (hard) per the existing tombstone system.
 
-3. Make destructive data erasure explicit
-   - Keep “Erase data” as a separate explicit option.
-   - For a non-core system field, users can delete the field from their layout without wiping old trade values.
-   - If they choose “also erase data”, only their own trade/review rows are cleared.
-   - For custom fields, make permanent delete easier to access instead of hiding it behind the inactive/hidden section.
+Core fields (P&L, entry_time, direction, etc.) keep their type locked but get the same rename / visibility / reorder controls.
 
-4. Make the table genuinely per-user
-   - Centralize how the journal table determines columns:
-     - start from that user’s `column_order`
-     - filter by that user’s `visible_columns`
-     - exclude that user’s `deleted_system_fields`
-     - append only that user’s active custom fields
-   - Pass/use this effective column list in `TradeTable` so the rendered table order is not just global defaults.
-   - Wire the table header “Hide column” menu to update the current user’s settings instead of doing nothing.
-   - Ensure newly added fields only appear for the user who created/restored them.
+## Technical Plan
 
-5. Keep detail sidebar/layout in sync
-   - Detail layout will use the same deleted-field registry.
-   - Deleted fields will not be auto-appended back by defaults.
-   - Restoring a deleted field will restore it to table/detail as appropriate.
-   - Detail layout labels will respect renamed field labels consistently.
+### 1. Data model
 
-6. Finish planned/actual table edit coverage
-   - Add editable table cells for:
-     - `actual_profile`
-     - `regime` / planned regime
-     - `actual_regime`
-   - Keep `model` / `actual_model`, `alignment`, `entry_timeframes`, `profile`, `emotion`, and `place` editable.
+**New table: `field_overrides`** (per-user overrides for system fields)
+```
+id uuid pk
+user_id uuid references auth.users on delete cascade
+field_key text                  -- e.g. 'profile', 'regime', 'place'
+type text                       -- 'text'|'number'|'select'|'multi_select'|'date'|'checkbox'|'url'|'playbook'
+options jsonb default '[]'      -- when type is select/multi_select; mirrors property_options shape
+default_value jsonb
+created_at, updated_at timestamps
+unique(user_id, field_key)
+```
+RLS: standard `auth.uid() = user_id` for select/insert/update/delete.
 
-7. Verification
-   - Verify User A deleting a non-core field does not affect User B.
-   - Verify field delete no longer just moves it to normal hidden fields.
-   - Verify restore works from the deleted-fields area.
-   - Verify table ordering actually follows the user’s own order.
-   - Verify header hide works.
-   - Verify planned/actual fields are editable from both table and trade detail.
+This lets the user "convert" a system field's storage interpretation without touching the underlying `trades` column. When the override type differs from the catalog type, we render the override UI and write the value into either the existing column (when compatible) or into `trades.custom_fields` under the same key as a fallback.
 
-Files expected to change:
-- `src/types/settings.ts`
-- `src/hooks/useUserSettings.tsx`
-- `src/components/journal/TradeTable.tsx`
-- `src/components/journal/settings/FieldsPanel.tsx`
-- `src/components/journal/settings/DetailLayoutPanel.tsx`
-- possibly `src/pages/Journal.tsx` if the table needs the full settings object passed in
-- one backend migration to add the per-user deleted-field setting
+**Custom fields**: drop the "type is locked after creation" rule. Allow type change with a confirmation dialog explaining data conversion rules (see §3).
 
-No per-user physical database tables should be created. That would become hard to maintain and risky. The correct Notion-like model is one shared app schema with per-user field definitions, layout, visibility, ordering, and deleted-field tombstones.
+### 2. Unified Field Config panel
+
+Replace the current `CustomFieldDialog` + inline options collapsible with a single **`FieldConfigSheet`** (right-side drawer) opened from the row menu's "Configure" item.
+
+Sections in the drawer:
+- **Name** — label input + "reset to default" for system fields.
+- **Type** — Select with all 8 types. Disabled only for core fields.
+- **Options** — visible when type is `select` / `multi_select`. Full editor (drag, color, rename, hide, delete) reusing today's `OptionRow` / `CustomOptionsEditor`.
+- **Default value** — type-aware input (checkbox toggle, number input, option dropdown, etc.).
+- **Visibility** — Table toggle + Detail toggle.
+- **Danger zone** — Delete field, Erase data (with counts), Reset to defaults (system only).
+
+Used for both system + custom fields. The data source on submit:
+- Custom field → updates `custom_field_definitions` row.
+- System field → upserts into `field_overrides`.
+
+### 3. Type-change semantics (data migration rules)
+
+When the user changes a field's type, show a confirm dialog summarising what will happen to existing values:
+
+| From → To | Behaviour |
+|---|---|
+| text → number | parse, null on failure (preview count of failures) |
+| select → multi_select | wrap value in array |
+| multi_select → select | keep first element |
+| any → text | stringify |
+| any → checkbox | truthy → true, empty → false |
+| any → date | attempt parse, null on failure |
+| any → url | keep as text, validate display only |
+
+The "preview count of failures" comes from a quick `select` over the user's trades. Conversion runs in a single mutation (`useConvertFieldType`) that updates definition + rewrites values.
+
+### 4. Renderer routing
+
+`TradeProperties.tsx` and `CustomFieldCell.tsx` already render by `type`. Update both to:
+- For system field keys, check `field_overrides` first, fall back to `DETAIL_FIELD_CATALOG`.
+- For all keys, the renderer purely switches on `effectiveType` — no hard-coded per-key logic.
+
+Add a small helper `useEffectiveFieldDef(key)` that returns `{ type, options, label, default_value, source: 'core'|'system'|'override'|'custom' }`.
+
+### 5. Row menu cleanup
+
+`FieldRowCard` dropdown becomes:
+- Configure… (opens drawer)
+- Show/Hide in table
+- Show/Hide in detail
+- Delete (non-core only)
+
+Remove the inline "Edit dropdown options" collapsible — it lives in the drawer now.
+
+### 6. Files
+
+- `supabase/migrations/<ts>_field_overrides.sql` — new table + RLS.
+- `src/types/settings.ts` — add `FieldOverride` type, `EffectiveFieldDef`, helper `getEffectiveFieldDef`.
+- `src/hooks/useFieldOverrides.tsx` — new (CRUD + cache).
+- `src/hooks/useCustomFields.tsx` — add `useConvertFieldType` for custom fields.
+- `src/components/journal/settings/FieldConfigSheet.tsx` — new unified drawer.
+- `src/components/journal/settings/FieldsPanel.tsx` — wire the drawer, drop the inline options collapsible.
+- `src/components/journal/settings/CustomFieldDialog.tsx` — keep for "Add new" only; remove the locked-type behaviour by routing edits to the drawer.
+- `src/components/journal/TradeProperties.tsx` + `CustomFieldCell.tsx` — route through `useEffectiveFieldDef`.
+
+### 7. Verification
+
+- Convert `profile` (system, select) → multi_select; existing values become single-element arrays; UI now multi-picks.
+- Convert a custom text field → select; existing text values become options automatically (top 20 distinct).
+- Change a select option's color in the drawer; reflected in table badges immediately.
+- Delete a non-core system field after type-change; restoring it brings back the override.
+- Core field "Configure" shows type as locked but still allows rename + visibility.
+
+No per-user physical schema; everything stays on the shared app schema with per-user definition + override rows.
