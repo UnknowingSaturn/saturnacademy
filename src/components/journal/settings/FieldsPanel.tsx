@@ -371,21 +371,26 @@ export function FieldsPanel() {
     if (!deleteTarget) return;
     switch (deleteTarget.kind) {
       case "system-soft": {
-        // Soft-delete = remove from table order/visible AND detail visible
+        // Soft-delete (Notion-style): remove from table + detail AND tombstone the field
+        // so it disappears from the active list and the regular hidden-fields restore list.
         const k = deleteTarget.field.key;
+        const nextDeleted = Array.from(new Set([...(settings?.deleted_system_fields || []), k]));
         await updateSettings.mutateAsync({
           column_order: columnOrder.filter((c) => c !== k),
           visible_columns: visibleColumns.filter((c) => c !== k),
           detail_visible_fields: Array.from(detailVisible).filter((c) => c !== k),
+          deleted_system_fields: nextDeleted,
         });
         break;
       }
       case "system-erasable": {
         const k = deleteTarget.field.key;
+        const nextDeleted = Array.from(new Set([...(settings?.deleted_system_fields || []), k]));
         await updateSettings.mutateAsync({
           column_order: columnOrder.filter((c) => c !== k),
           visible_columns: visibleColumns.filter((c) => c !== k),
           detail_visible_fields: Array.from(detailVisible).filter((c) => c !== k),
+          deleted_system_fields: nextDeleted,
         });
         if (eraseAlongDelete) {
           await eraseSystemData.mutateAsync(k);
@@ -419,21 +424,35 @@ export function FieldsPanel() {
     if (DETAIL_FIELD_CATALOG.some((d) => d.key === key) && !nextDetail.includes(key)) {
       nextDetail.push(key);
     }
+    const nextDeleted = (settings?.deleted_system_fields || []).filter((k) => k !== key);
     await updateSettings.mutateAsync({
       column_order: nextOrder,
       visible_columns: nextVisible,
       detail_visible_fields: nextDetail,
+      deleted_system_fields: nextDeleted,
     });
   };
 
   // Compute the currently-rendered label for a row
   const resolveLabel = (row: FieldRow) => resolveFieldLabel(row.key, row.defaultLabel, overrides);
 
-  // Hidden system fields = present in defaults but absent from columnOrder
+  // Hidden system fields = present in defaults but absent from columnOrder AND not user-deleted
   const hiddenSystem = useMemo(() => {
     const orderSet = new Set(columnOrder);
-    return DEFAULT_COLUMNS.filter((c) => !orderSet.has(c.key) && !c.key.startsWith("cf_"));
-  }, [columnOrder]);
+    return DEFAULT_COLUMNS.filter((c) => !orderSet.has(c.key) && !c.key.startsWith("cf_") && !deletedSet.has(c.key));
+  }, [columnOrder, deletedSet]);
+
+  // Deleted (tombstoned) system fields — only shown in the Deleted area for restore.
+  const deletedSystem = useMemo(() => {
+    const list: { key: string; label: string; type: string }[] = [];
+    for (const k of settings?.deleted_system_fields || []) {
+      const col = DEFAULT_COLUMNS.find((c) => c.key === k);
+      const detail = DETAIL_FIELD_CATALOG.find((d) => d.key === k);
+      if (col) list.push({ key: k, label: col.label, type: col.type });
+      else if (detail) list.push({ key: k, label: detail.label, type: detail.kind });
+    }
+    return list;
+  }, [settings?.deleted_system_fields]);
 
   if (loadingSettings || loadingFields) {
     return <div className="p-4 text-center text-muted-foreground">Loading fields…</div>;
