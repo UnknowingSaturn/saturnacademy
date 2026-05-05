@@ -654,6 +654,39 @@ export type Database = {
           },
         ]
       }
+      field_overrides: {
+        Row: {
+          created_at: string
+          default_value: Json | null
+          field_key: string
+          id: string
+          options: Json
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          default_value?: Json | null
+          field_key: string
+          id?: string
+          options?: Json
+          type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          default_value?: Json | null
+          field_key?: string
+          id?: string
+          options?: Json
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       generated_strategies: {
         Row: {
           created_at: string

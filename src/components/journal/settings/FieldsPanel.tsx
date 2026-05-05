@@ -66,10 +66,13 @@ import {
   ChevronDown,
   Lock,
   Pencil,
+  Settings2,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CustomFieldDialog } from "./CustomFieldDialog";
+import { SystemFieldConfigDialog } from "./SystemFieldConfigDialog";
+import { useFieldOverrides } from "@/hooks/useFieldOverrides";
 import {
   DndContext,
   closestCenter,
@@ -138,6 +141,12 @@ export function FieldsPanel() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState<CustomFieldDefinition | null>(null);
+  const [systemConfigKey, setSystemConfigKey] = useState<string | null>(null);
+  const { data: fieldOverrides = [] } = useFieldOverrides();
+  const overrideByKey = useMemo(() => {
+    const map = new Map(fieldOverrides.map((o) => [o.field_key, o]));
+    return map;
+  }, [fieldOverrides]);
   const [deleteTarget, setDeleteTarget] = useState<
     | { kind: "system-soft"; field: FieldRow }
     | { kind: "system-erasable"; field: FieldRow }
@@ -491,6 +500,11 @@ export function FieldsPanel() {
                 onToggleDetail={() => toggleDetail(row)}
                 onDelete={() => requestDelete(row)}
                 onEditCustom={() => { if (row.customDef) { setEditingField(row.customDef); setDialogOpen(true); } }}
+                onConfigureSystem={
+                  row.category === "system" || row.category === "core"
+                    ? () => setSystemConfigKey(row.key)
+                    : undefined
+                }
               />
             ))}
           </div>
@@ -607,12 +621,60 @@ export function FieldsPanel() {
         initial={editingField}
         onSubmit={async (input) => {
           if (editingField) {
-            await updateField.mutateAsync({ id: editingField.id, label: input.label, options: input.options });
+            await updateField.mutateAsync({
+              id: editingField.id,
+              label: input.label,
+              type: input.type,
+              previousType: editingField.type,
+              options: input.options,
+            });
           } else {
             await createField.mutateAsync(input);
           }
         }}
       />
+
+      {systemConfigKey && (() => {
+        const row = rows.find((r) => r.key === systemConfigKey);
+        if (!row) return null;
+        // Map DETAIL_FIELD_CATALOG kind to CustomFieldType
+        const sys = DETAIL_FIELD_CATALOG.find((d) => d.key === systemConfigKey);
+        const col = DEFAULT_COLUMNS.find((c) => c.key === systemConfigKey);
+        const kindToType: Record<string, "text" | "number" | "select" | "multi_select" | "date" | "checkbox" | "url"> = {
+          text: "text",
+          select: "select",
+          "multi-select": "multi_select",
+          "playbook-select": "select",
+          "dual-select": "select",
+          "dual-multi": "multi_select",
+          "dual-playbook": "select",
+          readonly: "text",
+          "account-select": "select",
+        };
+        const colTypeMap: Record<string, "text" | "number" | "select" | "multi_select" | "date" | "checkbox" | "url"> = {
+          text: "text",
+          number: "number",
+          date: "date",
+          select: "select",
+          "multi-select": "multi_select",
+          badge: "text",
+        };
+        const defaultType = sys
+          ? kindToType[sys.kind] || "text"
+          : col
+          ? colTypeMap[col.type] || "text"
+          : "text";
+        return (
+          <SystemFieldConfigDialog
+            open={!!systemConfigKey}
+            onOpenChange={(o) => !o && setSystemConfigKey(null)}
+            fieldKey={systemConfigKey}
+            label={resolveLabel(row)}
+            defaultType={defaultType}
+            override={overrideByKey.get(systemConfigKey)}
+          />
+        );
+      })()}
 
       {/* Unified delete dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && closeDelete()}>
@@ -780,6 +842,7 @@ interface FieldRowCardProps {
   onToggleDetail: () => void;
   onDelete: () => void;
   onEditCustom?: () => void;
+  onConfigureSystem?: () => void;
 }
 
 function FieldRowCard({
@@ -794,6 +857,7 @@ function FieldRowCard({
   onToggleDetail,
   onDelete,
   onEditCustom,
+  onConfigureSystem,
 }: FieldRowCardProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(label);
@@ -924,7 +988,13 @@ function FieldRowCard({
             {row.category === "custom" && onEditCustom && (
               <DropdownMenuItem onClick={onEditCustom}>
                 <Pencil className="w-4 h-4 mr-2" />
-                Edit field…
+                Edit field & change type…
+              </DropdownMenuItem>
+            )}
+            {onConfigureSystem && row.category !== "custom" && (
+              <DropdownMenuItem onClick={onConfigureSystem}>
+                <Settings2 className="w-4 h-4 mr-2" />
+                Configure type & options…
               </DropdownMenuItem>
             )}
             {!isCore && (

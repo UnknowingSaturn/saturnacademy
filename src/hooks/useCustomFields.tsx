@@ -97,26 +97,84 @@ export function useCreateCustomField() {
   });
 }
 
+// Coerce a stored value into the target field type. Returns undefined if no change.
+export function convertCustomValue(value: any, from: CustomFieldType, to: CustomFieldType): any {
+  if (from === to) return value;
+  if (value === null || value === undefined || value === "") return value;
+  switch (to) {
+    case "text":
+    case "url":
+      return Array.isArray(value) ? value.join(", ") : String(value);
+    case "number": {
+      const n = Number(Array.isArray(value) ? value[0] : value);
+      return Number.isFinite(n) ? n : null;
+    }
+    case "checkbox":
+      if (Array.isArray(value)) return value.length > 0;
+      return !!value && value !== "false" && value !== "0";
+    case "date": {
+      const d = new Date(Array.isArray(value) ? value[0] : value);
+      return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    }
+    case "select":
+      return Array.isArray(value) ? (value[0] ?? null) : String(value);
+    case "multi_select":
+      return Array.isArray(value) ? value : [String(value)];
+    default:
+      return value;
+  }
+}
+
 export function useUpdateCustomField() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   return useMutation({
-    mutationFn: async ({ id, ...updates }: Partial<CustomFieldDefinition> & { id: string }) => {
+    mutationFn: async ({
+      id,
+      previousType,
+      ...updates
+    }: Partial<CustomFieldDefinition> & { id: string; previousType?: CustomFieldType }) => {
       const dbUpdates: Record<string, any> = {};
       if (updates.label !== undefined) dbUpdates.label = updates.label;
       if (updates.options !== undefined) dbUpdates.options = updates.options as any;
       if (updates.default_value !== undefined) dbUpdates.default_value = updates.default_value;
       if (updates.sort_order !== undefined) dbUpdates.sort_order = updates.sort_order;
       if (updates.is_active !== undefined) dbUpdates.is_active = updates.is_active;
+      if (updates.type !== undefined) dbUpdates.type = updates.type;
 
       const { error } = await (supabase as any)
         .from('custom_field_definitions')
         .update(dbUpdates)
         .eq('id', id);
       if (error) throw error;
+
+      // If the type changed, convert stored values across the user's trades.
+      if (updates.type && previousType && updates.type !== previousType && user?.id) {
+        // Need the field key to read/write trades.custom_fields[key]
+        const { data: def } = await (supabase as any)
+          .from('custom_field_definitions')
+          .select('key')
+          .eq('id', id)
+          .single();
+        const key = def?.key;
+        if (key) {
+          const { data: trades } = await supabase
+            .from('trades')
+            .select('id, custom_fields' as any)
+            .eq('user_id', user.id);
+          for (const t of (trades || []) as any[]) {
+            const cf = t.custom_fields || {};
+            if (!Object.prototype.hasOwnProperty.call(cf, key)) continue;
+            const next = { ...cf, [key]: convertCustomValue(cf[key], previousType, updates.type) };
+            await (supabase as any).from('trades').update({ custom_fields: next }).eq('id', t.id);
+          }
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['custom_field_definitions'] });
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
     },
     onError: (e: any) => {
       console.error(e);
