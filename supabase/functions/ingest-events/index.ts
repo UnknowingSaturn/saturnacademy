@@ -741,21 +741,18 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       const swap = event.swap || 0;
       const netPnl = grossPnl - commission - Math.abs(swap);
       
-      let rMultiple = null;
       const equityAtEntry = rawPayload.equity_at_entry || originalPayload.equity_at_entry || currentEquity;
-      const slPrice = event.sl;
-      
-      if (slPrice && entryPrice && slPrice !== entryPrice) {
-        const pipSize = getPipSize(event.symbol);
-        const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
-        const pipValue = getPipValue(event.symbol, lot_size);
-        const riskAmount = stopDistancePips * pipValue;
-        if (riskAmount > 0) {
-          rMultiple = Math.round((netPnl / riskAmount) * 100) / 100;
-        }
-      } else if (equityAtEntry && equityAtEntry > 0) {
-        rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
-      }
+      const rMultiple = computeRMultiple({
+        entryPrice,
+        exitPrice: event.price,
+        slPrice: event.sl,
+        lots: lot_size,
+        grossPnl,
+        netPnl,
+        symbol: event.symbol,
+        equityAtEntry,
+        direction: event.direction,
+      });
       
       await supabase.from("trades").insert({
         user_id: userId,
