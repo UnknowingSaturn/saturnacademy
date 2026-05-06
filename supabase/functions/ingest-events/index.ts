@@ -90,6 +90,47 @@ function getPipValue(symbol: string, lots: number): number {
   return lots * 10;
 }
 
+// Derive R-multiple. Prefers deriving $/point from the trade's own realized PnL
+// (broker-agnostic, works for indices/metals/crypto). Falls back to pip table.
+function computeRMultiple(opts: {
+  entryPrice: number | null;
+  exitPrice: number | null;
+  slPrice: number | null;
+  lots: number | null;
+  grossPnl: number | null;
+  netPnl: number | null;
+  symbol: string;
+  equityAtEntry: number | null;
+  direction: string | null;
+}): number | null {
+  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, equityAtEntry, direction } = opts;
+  if (netPnl === null || netPnl === undefined) return null;
+
+  if (slPrice && entryPrice && slPrice !== entryPrice && lots && lots > 0) {
+    const stopDistance = Math.abs(entryPrice - slPrice);
+
+    if (exitPrice && grossPnl && grossPnl !== 0) {
+      const dirSign = direction === "sell" ? -1 : 1;
+      const priceMove = (exitPrice - entryPrice) * dirSign;
+      if (Math.abs(priceMove) > 1e-9) {
+        const dollarsPerPointPerLot = grossPnl / (priceMove * lots);
+        const risk = stopDistance * lots * Math.abs(dollarsPerPointPerLot);
+        if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
+      }
+    }
+
+    const pipSize = getPipSize(symbol);
+    const pipValue = getPipValue(symbol, lots);
+    const risk = (stopDistance / pipSize) * pipValue;
+    if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
+  }
+
+  if (equityAtEntry && equityAtEntry > 0) {
+    return Math.round((netPnl / equityAtEntry) * 10000) / 100;
+  }
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -700,21 +741,18 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       const swap = event.swap || 0;
       const netPnl = grossPnl - commission - Math.abs(swap);
       
-      let rMultiple = null;
       const equityAtEntry = rawPayload.equity_at_entry || originalPayload.equity_at_entry || currentEquity;
-      const slPrice = event.sl;
-      
-      if (slPrice && entryPrice && slPrice !== entryPrice) {
-        const pipSize = getPipSize(event.symbol);
-        const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
-        const pipValue = getPipValue(event.symbol, lot_size);
-        const riskAmount = stopDistancePips * pipValue;
-        if (riskAmount > 0) {
-          rMultiple = Math.round((netPnl / riskAmount) * 100) / 100;
-        }
-      } else if (equityAtEntry && equityAtEntry > 0) {
-        rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
-      }
+      const rMultiple = computeRMultiple({
+        entryPrice,
+        exitPrice: event.price,
+        slPrice: event.sl,
+        lots: lot_size,
+        grossPnl,
+        netPnl,
+        symbol: event.symbol,
+        equityAtEntry,
+        direction: event.direction,
+      });
       
       await supabase.from("trades").insert({
         user_id: userId,
@@ -801,25 +839,17 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
 
       const netPnl = totalGrossPnl - totalCommission - Math.abs(totalSwap);
 
-      let rMultiple = null;
-      const slPrice = existingTrade.sl_initial || existingTrade.sl_final;
-      const entryPrice = existingTrade.entry_price;
-      const originalLots = existingTrade.original_lots || existingTrade.total_lots || lot_size;
-
-      if (slPrice && entryPrice && slPrice !== entryPrice) {
-        const pipSize = getPipSize(existingTrade.symbol);
-        const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
-        const pipValue = getPipValue(existingTrade.symbol, originalLots);
-        const riskAmount = stopDistancePips * pipValue;
-        if (riskAmount > 0) {
-          rMultiple = Math.round((netPnl / riskAmount) * 100) / 100;
-        }
-      } else {
-        const equityAtEntry = existingTrade.equity_at_entry || existingTrade.balance_at_entry;
-        if (equityAtEntry && equityAtEntry > 0) {
-          rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
-        }
-      }
+      const rMultiple = computeRMultiple({
+        entryPrice: existingTrade.entry_price,
+        exitPrice: event.price,
+        slPrice: existingTrade.sl_initial || existingTrade.sl_final,
+        lots: existingTrade.original_lots || existingTrade.total_lots || lot_size,
+        grossPnl: totalGrossPnl,
+        netPnl,
+        symbol: existingTrade.symbol,
+        equityAtEntry: existingTrade.equity_at_entry || existingTrade.balance_at_entry,
+        direction: existingTrade.direction,
+      });
 
       // Update account equity (skip on repair to avoid drift; equity has already been updated by broker since)
       if (!isRepair) {
