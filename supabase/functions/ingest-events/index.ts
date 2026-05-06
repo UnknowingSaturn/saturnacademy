@@ -90,6 +90,47 @@ function getPipValue(symbol: string, lots: number): number {
   return lots * 10;
 }
 
+// Derive R-multiple. Prefers deriving $/point from the trade's own realized PnL
+// (broker-agnostic, works for indices/metals/crypto). Falls back to pip table.
+function computeRMultiple(opts: {
+  entryPrice: number | null;
+  exitPrice: number | null;
+  slPrice: number | null;
+  lots: number | null;
+  grossPnl: number | null;
+  netPnl: number | null;
+  symbol: string;
+  equityAtEntry: number | null;
+  direction: string | null;
+}): number | null {
+  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, equityAtEntry, direction } = opts;
+  if (netPnl === null || netPnl === undefined) return null;
+
+  if (slPrice && entryPrice && slPrice !== entryPrice && lots && lots > 0) {
+    const stopDistance = Math.abs(entryPrice - slPrice);
+
+    if (exitPrice && grossPnl && grossPnl !== 0) {
+      const dirSign = direction === "sell" ? -1 : 1;
+      const priceMove = (exitPrice - entryPrice) * dirSign;
+      if (Math.abs(priceMove) > 1e-9) {
+        const dollarsPerPointPerLot = grossPnl / (priceMove * lots);
+        const risk = stopDistance * lots * Math.abs(dollarsPerPointPerLot);
+        if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
+      }
+    }
+
+    const pipSize = getPipSize(symbol);
+    const pipValue = getPipValue(symbol, lots);
+    const risk = (stopDistance / pipSize) * pipValue;
+    if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
+  }
+
+  if (equityAtEntry && equityAtEntry > 0) {
+    return Math.round((netPnl / equityAtEntry) * 10000) / 100;
+  }
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
