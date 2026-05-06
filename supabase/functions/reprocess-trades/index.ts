@@ -233,28 +233,18 @@ serve(async (req) => {
         // Calculate session from entry time using custom or default sessions
         const session = getSessionFromTime(entryTime, sessions);
 
-        // Calculate R-multiple using actual risk (|entry - SL| × lots × pip value)
-        let rMultiple = null;
-        const slPrice = trade.sl_initial || trade.sl_final;
-        const entryPrice = trade.entry_price;
-        const originalLots = trade.original_lots || trade.total_lots;
-        
-        if (slPrice && entryPrice && slPrice !== entryPrice && trade.net_pnl !== null) {
-          const pipSize = getPipSize(trade.symbol);
-          const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
-          const pipValue = getPipValue(trade.symbol, originalLots);
-          const riskAmount = stopDistancePips * pipValue;
-          
-          if (riskAmount > 0) {
-            rMultiple = Math.round((trade.net_pnl / riskAmount) * 100) / 100;
-          }
-        } else if (trade.net_pnl !== null) {
-          // Fallback to equity-based if no SL
-          const equityAtEntry = trade.equity_at_entry || runningBalance;
-          if (equityAtEntry > 0) {
-            rMultiple = Math.round((trade.net_pnl / equityAtEntry) * 10000) / 100;
-          }
-        }
+        // Calculate R-multiple, preferring derivation from realized PnL
+        const rMultiple = computeRMultiple({
+          entryPrice: trade.entry_price,
+          exitPrice: trade.exit_price,
+          slPrice: trade.sl_initial || trade.sl_final,
+          lots: trade.original_lots || trade.total_lots,
+          grossPnl: trade.gross_pnl,
+          netPnl: trade.net_pnl,
+          symbol: trade.symbol,
+          equityAtEntry: trade.equity_at_entry || runningBalance,
+          direction: trade.direction,
+        });
 
         // Update the trade - only session, balance, and R%
         const { error: updateError } = await supabase
