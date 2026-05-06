@@ -839,25 +839,17 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
 
       const netPnl = totalGrossPnl - totalCommission - Math.abs(totalSwap);
 
-      let rMultiple = null;
-      const slPrice = existingTrade.sl_initial || existingTrade.sl_final;
-      const entryPrice = existingTrade.entry_price;
-      const originalLots = existingTrade.original_lots || existingTrade.total_lots || lot_size;
-
-      if (slPrice && entryPrice && slPrice !== entryPrice) {
-        const pipSize = getPipSize(existingTrade.symbol);
-        const stopDistancePips = Math.abs(entryPrice - slPrice) / pipSize;
-        const pipValue = getPipValue(existingTrade.symbol, originalLots);
-        const riskAmount = stopDistancePips * pipValue;
-        if (riskAmount > 0) {
-          rMultiple = Math.round((netPnl / riskAmount) * 100) / 100;
-        }
-      } else {
-        const equityAtEntry = existingTrade.equity_at_entry || existingTrade.balance_at_entry;
-        if (equityAtEntry && equityAtEntry > 0) {
-          rMultiple = Math.round((netPnl / equityAtEntry) * 10000) / 100;
-        }
-      }
+      const rMultiple = computeRMultiple({
+        entryPrice: existingTrade.entry_price,
+        exitPrice: event.price,
+        slPrice: existingTrade.sl_initial || existingTrade.sl_final,
+        lots: existingTrade.original_lots || existingTrade.total_lots || lot_size,
+        grossPnl: totalGrossPnl,
+        netPnl,
+        symbol: existingTrade.symbol,
+        equityAtEntry: existingTrade.equity_at_entry || existingTrade.balance_at_entry,
+        direction: existingTrade.direction,
+      });
 
       // Update account equity (skip on repair to avoid drift; equity has already been updated by broker since)
       if (!isRepair) {
