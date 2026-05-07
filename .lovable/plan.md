@@ -1,76 +1,73 @@
-## Problem
+## Diagnosis
 
-Session colors don't match what's set in Settings → Sessions because **three separate sources of truth** exist:
+For your EURUSD trade (ticket 3104747):
 
-1. `session_definitions` table — what the user actually edits in Sessions panel (e.g. London = `#3B82F6`, NY PM = `#F97316`).
-2. `property_options` table — used by the journal `BadgeSelect` for the Session dropdown (different colors, e.g. London = `#F59E0B`).
-3. Hard-coded `sessionConfig` in `SessionBreakdown.tsx` and hard-coded CSS classes (`session-london`, `session-tokyo`, `session-newyork`) in `BadgeSelect.tsx` — fixed colors that ignore both tables.
+| Field | Value | Source |
+|---|---|---|
+| `original_lots` | 15.5 | open event |
+| `partial_closes[0]` | 12.5 lots @ 1.17768, +$1,200 | partial_close event |
+| `exit_price` | 1.17706 | **final close only** |
+| `exit_time` | 13:01:06 | **final close only** |
+| `gross_pnl` | $1,302 (= 1200 + 102) | aggregated ✓ |
+| `net_pnl` | $1,311 | aggregated ✓ |
 
-Result: the dashboard and journal show different/wrong colors than the Sessions settings.
+**The data is correct.** The aggregation in `ingest-events` already sums all partial-close PnL into `gross_pnl` / `net_pnl`. The problem is purely in how the trade is **displayed** — every UI surface shows only the single `exit_price` / `exit_time`, so it looks like only the 3-lot close registered. Partial closes live in a JSONB column nothing reads.
 
-A few related small bugs surfaced while auditing:
-- `BadgeSelect` references `--session-overlap` which is not defined in `index.css` → that branch renders unstyled.
-- `TradeTable.formatOptions` hex→key map only handles ~7 hex codes; any other color (most user choices) falls back to `muted` (gray).
-- `SessionBreakdown` falls back to a single hard-coded blue for any custom session key.
-- New `property_options` for "session" can drift from `session_definitions` (two places to edit colors/labels).
+The best fix is to surface the full close timeline and a weighted-average exit price, so a multi-fill exit is visible everywhere.
 
-## Fix — single source of truth
+## Plan
 
-Make `session_definitions` the canonical source for session label + color everywhere session is displayed. Remove the parallel `property_options` "session" rows and the hard-coded color tables.
-
-### 1. New shared hook: `useSessionLookup`
-`src/hooks/useUserSettings.tsx` — small selector built on `useSessionDefinitions()`:
+### 1. Compute helpers in `src/lib/tradeMath.ts` (new file)
 ```ts
-useSessionLookup() → {
-  byKey: Record<string, { name: string; color: string; sort_order: number }>,
-  options: { value, label, customColor }[]   // for BadgeSelect
-}
+export interface CloseFill { time: string; lots: number; price: number; pnl: number; }
+export function getAllCloseFills(trade: Trade): CloseFill[]
+   // partial_closes[] (skip repair markers) + final close (exit_price/exit_time/last lots)
+export function getClosedLots(trade: Trade): number
+export function getWeightedAvgExitPrice(trade: Trade): number | null
+   // Σ(lots * price) / Σ(lots) across all fills
 ```
-Includes a built-in "Off Hours" entry (gray) so trades with `session = 'off_hours'` always render.
+Filter out the `repaired_from_snapshot` marker rows already in `partial_closes`.
 
-### 2. `SessionBreakdown.tsx` (dashboard)
-- Drop `sessionConfig` and the `session-london` / `session-tokyo` / `session-newyork` CSS classes.
-- Look up label + color via `useSessionLookup().byKey[session]`.
-- Render the badge inline using the user's hex color (same pattern `BadgeSelect` already uses for custom colors: `bg ${color}26 / text ${color} / border ${color}66`).
-- Sort sessions by the user's `sort_order` instead of trade count.
-- Bar fill + glow uses the user's hex.
+### 2. New detail field `closes` (Close Timeline)
+- Add to `DETAIL_FIELD_CATALOG` in `src/types/settings.ts` with `key: 'closes'`, label "Closes".
+- Render in `TradeProperties.tsx`: a compact list, one row per fill:
+  `12.5 lots @ 1.17768 → +$1,200  (12:50:22)`
+  ` 3.0 lots @ 1.17706 → +$102    (13:01:06)`
+- Hidden by default for trades with only a single fill.
+- Add to `DEFAULT_DETAIL_VISIBLE_FIELDS` so it shows automatically when partials exist.
 
-### 3. `BadgeSelect.tsx`
-- Remove the dead `tokyo / london / newyork / overlap` entries from `colorClasses` (the `--session-overlap` token doesn't exist).
-- No behavior change for other badges; keeps `customColor` path which is what session options will use.
+### 3. Show "Avg Exit" alongside `exit_price`
+- In `TradeProperties.tsx` exit-price row: if `partial_closes.length > 0` (excluding markers), show both
+  `Final: 1.17706` and `Avg: 1.17756` with a small "(2 closes)" badge.
+- Same treatment in any TradeTable column that renders `exit_price`.
 
-### 4. `TradeTable.tsx` + `TradeProperties.tsx` Session field
-- Replace `usePropertyOptions('session')` for the Session field with `useSessionLookup().options`.
-- Drop the hard-coded fallback list `[NY AM, London, Tokyo, NY PM, Off Hours]` (use the user's sessions; if empty, show a single "No sessions configured — add one in Settings" hint).
-- Remove the `getColorKey` hex→key map for session; sessions go through `customColor` directly.
+### 4. Show partial-close indicator in `TradeTable`
+- Add a small badge / icon next to `original_lots` (or in the Result column) when `partial_closes` has real fills, so the journal list makes multi-fill trades obvious.
 
-### 5. Remove the duplicate `property_options` rows for `session`
-Migration:
-```sql
-delete from property_options where property_name = 'session';
-```
-And in `useUserSettings.tsx` auto-init code (around line 480–509) remove `session` from the seeded property list so it never gets re-created. Sessions are now managed only in Settings → Sessions.
+### 5. Use weighted avg for derived stats that currently use `exit_price`
+Audit and update any place that consumes `exit_price` for analytics:
+- `r_multiple_actual` is already computed from aggregated PnL, not exit price → no change.
+- TradingView chart marker: continue using final `exit_price` (it's the close that flattened the position) but additionally plot markers for each partial close fill on the chart.
+- Reports / equity curve already use `net_pnl` → no change.
 
-### 6. Editor `SharedReportEditor` / Reports `SymbolBreakdownTable`
-- `SymbolBreakdownTable.sessionLabels` (hard-coded NY AM/London/Tokyo map) → look up via `useSessionLookup`, fallback to humanized key.
-- `ReportView` `flagged_sessions` display → same lookup for the label.
+### 6. Fix one schema gap (optional, recommended)
+`partial_closes` rows should always include `commission` and `swap`. Currently only the final close's commission is captured (we lose commission on each partial). Update `ingest-events`:
+- Push `commission: event.commission, swap: event.swap` into the partial_closes array.
+- In the full-close branch, sum these too instead of only `existingTrade.commission`.
+This keeps `gross_pnl` and `net_pnl` accurate when the broker charges per-fill commission.
 
-### 7. Cleanup leftover dead CSS
-`src/index.css` — drop `.session-tokyo`, `.session-london`, `.session-newyork`, `.session-badge`, and the `--session-tokyo / --session-london / --session-newyork` tokens. Nothing else references them after step 2/3.
+### 7. Backfill nothing
+Existing trades' totals are already correct (verified for ticket 3104747). The new UI just renders existing JSONB data — no migration or reprocess needed.
 
-## Files touched
+## Files
 
-- `src/hooks/useUserSettings.tsx` (add `useSessionLookup`, stop seeding `session` property options)
-- `src/components/dashboard/SessionBreakdown.tsx`
-- `src/components/journal/BadgeSelect.tsx`
-- `src/components/journal/TradeTable.tsx`
-- `src/components/journal/TradeProperties.tsx`
-- `src/components/reports/SymbolBreakdownTable.tsx`
-- `src/components/reports/ReportView.tsx` (label only)
-- `src/index.css` (remove dead tokens/classes)
-- New migration: `delete from property_options where property_name='session'`
+- New: `src/lib/tradeMath.ts`
+- `src/types/settings.ts` (add `closes` field def + default visibility)
+- `src/components/journal/TradeProperties.tsx` (Closes row, dual exit price)
+- `src/components/journal/TradeTable.tsx` (multi-fill indicator, optional dual exit in column)
+- `src/components/chart/TradingViewChart.tsx` (extra markers per partial fill)
+- `supabase/functions/ingest-events/index.ts` (capture commission/swap per partial)
 
-## Out of scope (for this pass)
-
-- Session classification logic in edge functions — already correct (uses `session_definitions`).
-- Other badge color mismatches (profile/regime/etc.) — those already use `customColor` from `property_options` correctly. Only the **session** field had a parallel table.
+## Out of scope
+- Editing partial closes manually (not a current need; keep MT5 as source of truth).
+- Reconstructing partial_closes for old trades that arrived as a single orphan exit — those are aggregated by the broker and not recoverable.
