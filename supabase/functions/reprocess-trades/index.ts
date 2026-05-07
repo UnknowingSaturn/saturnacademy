@@ -105,32 +105,47 @@ function computeRMultiple(opts: {
   symbol: string;
   equityAtEntry: number | null;
   direction: string | null;
+  fills?: Array<{ price?: number; lots?: number } | null> | null;
 }): number | null {
-  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, equityAtEntry, direction } = opts;
+  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, equityAtEntry, direction, fills } = opts;
   if (netPnl === null || netPnl === undefined) return null;
 
   if (slPrice && entryPrice && slPrice !== entryPrice && lots && lots > 0) {
     const stopDistance = Math.abs(entryPrice - slPrice);
+    const dirSign = direction === "sell" ? -1 : 1;
 
-    // Preferred: derive $/point from this trade's own PnL
-    if (exitPrice && grossPnl && grossPnl !== 0) {
-      const dirSign = direction === "sell" ? -1 : 1;
-      const priceMove = (exitPrice - entryPrice) * dirSign;
-      if (Math.abs(priceMove) > 1e-9) {
-        const dollarsPerPointPerLot = grossPnl / (priceMove * lots);
+    // Build full fill list across partial closes + final exit, weighted by lots.
+    const allFills: Array<{ price: number; lots: number }> = [];
+    if (Array.isArray(fills)) {
+      for (const f of fills) {
+        if (f && typeof f.price === "number" && typeof f.lots === "number" && f.lots > 0) {
+          allFills.push({ price: f.price, lots: f.lots });
+        }
+      }
+    }
+    if (typeof exitPrice === "number") {
+      const usedLots = allFills.reduce((s, f) => s + f.lots, 0);
+      const remaining = lots - usedLots;
+      if (remaining > 0.0001) allFills.push({ price: exitPrice, lots: remaining });
+      else if (allFills.length === 0) allFills.push({ price: exitPrice, lots });
+    }
+
+    if (grossPnl && grossPnl !== 0 && allFills.length) {
+      let totalPointLots = 0;
+      for (const f of allFills) totalPointLots += (f.price - entryPrice) * dirSign * f.lots;
+      if (Math.abs(totalPointLots) > 1e-9) {
+        const dollarsPerPointPerLot = grossPnl / totalPointLots;
         const risk = stopDistance * lots * Math.abs(dollarsPerPointPerLot);
         if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
       }
     }
 
-    // Fallback: hard-coded pip table
     const pipSize = getPipSize(symbol);
     const pipValue = getPipValue(symbol, lots);
     const risk = (stopDistance / pipSize) * pipValue;
     if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
   }
 
-  // Final fallback: equity-based R%
   if (equityAtEntry && equityAtEntry > 0) {
     return Math.round((netPnl / equityAtEntry) * 10000) / 100;
   }
