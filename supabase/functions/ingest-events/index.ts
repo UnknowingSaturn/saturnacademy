@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { computeRMultiple, getPipSize, getPipValue } from "../_shared/rMultiple.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -55,99 +56,7 @@ interface EventPayload {
   raw_payload?: Record<string, unknown>;
 }
 
-// Helper: Get pip size for a symbol (5-digit vs 3-digit pricing)
-function getPipSize(symbol: string): number {
-  const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (normalized.includes('JPY')) return 0.01;
-  if (normalized.includes('XAU') || normalized.includes('GOLD')) return 0.1;
-  if (normalized.includes('XAG') || normalized.includes('SILVER')) return 0.01;
-  if (normalized.includes('SP500') || normalized.includes('SPX') || normalized.includes('US500')) return 0.01;
-  if (normalized.includes('NAS') || normalized.includes('USTEC') || normalized.includes('US100')) return 0.01;
-  if (normalized.includes('US30') || normalized.includes('DJ30') || normalized.includes('DOW')) return 1.0;
-  if (normalized.includes('DAX') || normalized.includes('DE40') || normalized.includes('GER40')) return 0.1;
-  if (normalized.includes('FTSE') || normalized.includes('UK100')) return 0.1;
-  if (normalized.includes('OIL') || normalized.includes('BRENT') || normalized.includes('WTI') || 
-      normalized.includes('USOIL') || normalized.includes('XTIUSD')) return 0.01;
-  if (normalized.includes('BTC') || normalized.includes('BITCOIN')) return 1.0;
-  if (normalized.includes('ETH')) return 0.01;
-  return 0.0001;
-}
-
-// Helper: Get approximate pip value in USD for a given lot size
-function getPipValue(symbol: string, lots: number): number {
-  const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (normalized.includes('JPY')) return lots * 7.5;
-  if (normalized.includes('XAU') || normalized.includes('GOLD')) return lots * 10;
-  if (normalized.includes('XAG') || normalized.includes('SILVER')) return lots * 50;
-  if (normalized.includes('SP500') || normalized.includes('SPX') || normalized.includes('US500')) return lots * 0.50;
-  if (normalized.includes('NAS') || normalized.includes('USTEC') || normalized.includes('US100')) return lots * 0.20;
-  if (normalized.includes('US30') || normalized.includes('DJ30') || normalized.includes('DOW')) return lots * 0.10;
-  if (normalized.includes('DAX') || normalized.includes('DE40') || normalized.includes('GER40')) return lots * 0.10;
-  if (normalized.includes('OIL') || normalized.includes('BRENT') || normalized.includes('WTI') ||
-      normalized.includes('USOIL') || normalized.includes('XTIUSD')) return lots * 10;
-  if (normalized.includes('BTC') || normalized.includes('BITCOIN')) return lots * 1.0;
-  if (normalized.includes('ETH')) return lots * 1.0;
-  return lots * 10;
-}
-
-// Derive R-multiple. Prefers deriving $/point from the trade's own realized PnL
-// (broker-agnostic, works for indices/metals/crypto). Falls back to pip table.
-function computeRMultiple(opts: {
-  entryPrice: number | null;
-  exitPrice: number | null;
-  slPrice: number | null;
-  lots: number | null;
-  grossPnl: number | null;
-  netPnl: number | null;
-  symbol: string;
-  equityAtEntry: number | null;
-  direction: string | null;
-  fills?: Array<{ price?: number; lots?: number } | null> | null;
-}): number | null {
-  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, equityAtEntry, direction, fills } = opts;
-  if (netPnl === null || netPnl === undefined) return null;
-
-  if (slPrice && entryPrice && slPrice !== entryPrice && lots && lots > 0) {
-    const stopDistance = Math.abs(entryPrice - slPrice);
-    const dirSign = direction === "sell" ? -1 : 1;
-
-    // Build full fill list: partial closes (skip non-fill markers) + final exit for remaining lots.
-    const allFills: Array<{ price: number; lots: number }> = [];
-    if (Array.isArray(fills)) {
-      for (const f of fills) {
-        if (f && typeof f.price === "number" && typeof f.lots === "number" && f.lots > 0) {
-          allFills.push({ price: f.price, lots: f.lots });
-        }
-      }
-    }
-    if (typeof exitPrice === "number") {
-      const usedLots = allFills.reduce((s, f) => s + f.lots, 0);
-      const remaining = lots - usedLots;
-      if (remaining > 0.0001) allFills.push({ price: exitPrice, lots: remaining });
-      else if (allFills.length === 0) allFills.push({ price: exitPrice, lots });
-    }
-
-    if (grossPnl && grossPnl !== 0 && allFills.length) {
-      let totalPointLots = 0;
-      for (const f of allFills) totalPointLots += (f.price - entryPrice) * dirSign * f.lots;
-      if (Math.abs(totalPointLots) > 1e-9) {
-        const dollarsPerPointPerLot = grossPnl / totalPointLots;
-        const risk = stopDistance * lots * Math.abs(dollarsPerPointPerLot);
-        if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
-      }
-    }
-
-    const pipSize = getPipSize(symbol);
-    const pipValue = getPipValue(symbol, lots);
-    const risk = (stopDistance / pipSize) * pipValue;
-    if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
-  }
-
-  if (equityAtEntry && equityAtEntry > 0) {
-    return Math.round((netPnl / equityAtEntry) * 10000) / 100;
-  }
-  return null;
-}
+// computeRMultiple, getPipSize, getPipValue moved to ../_shared/rMultiple.ts
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {

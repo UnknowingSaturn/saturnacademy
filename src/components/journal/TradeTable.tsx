@@ -16,6 +16,7 @@ import { DEFAULT_COLUMNS, ColumnDefinition, buildColumnRegistry } from "@/types/
 import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { CustomFieldCell } from "./CustomFieldCell";
+import { getRealPartialCloses } from "@/lib/tradeMath";
 
 interface TradeTableProps {
   trades: Trade[];
@@ -563,7 +564,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                   }
 
                   if (key === 'result') {
-                    const partialCount = (trade.partial_closes || []).filter((p: any) => p && typeof p.lots === 'number' && p.lots > 0).length;
+                    const partialCount = getRealPartialCloses(trade).length;
                     return (
                       <div key={key} className="flex justify-center items-center gap-1">
                         <span className={cn(
