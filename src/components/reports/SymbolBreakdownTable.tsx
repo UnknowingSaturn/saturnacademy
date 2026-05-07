@@ -4,27 +4,24 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { BarChart3 } from 'lucide-react';
+import { useSessionLookup } from '@/hooks/useUserSettings';
 
 interface SymbolBreakdownTableProps {
   metrics: ReportMetrics;
 }
 
+const humanizeSession = (k: string) =>
+  k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
 export const SymbolBreakdownTable = React.forwardRef<HTMLDivElement, SymbolBreakdownTableProps>(
   function SymbolBreakdownTable({ metrics }, _ref) {
+  const { byKey: sessionByKey } = useSessionLookup();
+
   const symbolData = Object.entries(metrics.tradesBySymbol)
     .sort((a, b) => b[1].pnl - a[1].pnl);
 
   const sessionData = Object.entries(metrics.tradesBySession)
     .sort((a, b) => b[1].pnl - a[1].pnl);
-
-  const sessionLabels: Record<string, string> = {
-    new_york_am: 'New York AM',
-    london: 'London',
-    tokyo: 'Tokyo',
-    new_york_pm: 'New York PM',
-    off_hours: 'Off Hours',
-    unknown: 'Unknown',
-  };
 
   return (
     <div className="grid md:grid-cols-2 gap-4">
