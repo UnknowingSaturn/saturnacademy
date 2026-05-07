@@ -806,6 +806,8 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         lots: lot_size,
         price: event.price,
         pnl: event.profit || 0,
+        commission: event.commission || 0,
+        swap: event.swap || 0,
         deal_id: originalPayload.deal_id,
       });
       
