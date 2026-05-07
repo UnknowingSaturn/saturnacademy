@@ -102,18 +102,36 @@ function computeRMultiple(opts: {
   symbol: string;
   equityAtEntry: number | null;
   direction: string | null;
+  fills?: Array<{ price?: number; lots?: number } | null> | null;
 }): number | null {
-  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, equityAtEntry, direction } = opts;
+  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, equityAtEntry, direction, fills } = opts;
   if (netPnl === null || netPnl === undefined) return null;
 
   if (slPrice && entryPrice && slPrice !== entryPrice && lots && lots > 0) {
     const stopDistance = Math.abs(entryPrice - slPrice);
+    const dirSign = direction === "sell" ? -1 : 1;
 
-    if (exitPrice && grossPnl && grossPnl !== 0) {
-      const dirSign = direction === "sell" ? -1 : 1;
-      const priceMove = (exitPrice - entryPrice) * dirSign;
-      if (Math.abs(priceMove) > 1e-9) {
-        const dollarsPerPointPerLot = grossPnl / (priceMove * lots);
+    // Build full fill list: partial closes (skip non-fill markers) + final exit for remaining lots.
+    const allFills: Array<{ price: number; lots: number }> = [];
+    if (Array.isArray(fills)) {
+      for (const f of fills) {
+        if (f && typeof f.price === "number" && typeof f.lots === "number" && f.lots > 0) {
+          allFills.push({ price: f.price, lots: f.lots });
+        }
+      }
+    }
+    if (typeof exitPrice === "number") {
+      const usedLots = allFills.reduce((s, f) => s + f.lots, 0);
+      const remaining = lots - usedLots;
+      if (remaining > 0.0001) allFills.push({ price: exitPrice, lots: remaining });
+      else if (allFills.length === 0) allFills.push({ price: exitPrice, lots });
+    }
+
+    if (grossPnl && grossPnl !== 0 && allFills.length) {
+      let totalPointLots = 0;
+      for (const f of allFills) totalPointLots += (f.price - entryPrice) * dirSign * f.lots;
+      if (Math.abs(totalPointLots) > 1e-9) {
+        const dollarsPerPointPerLot = grossPnl / totalPointLots;
         const risk = stopDistance * lots * Math.abs(dollarsPerPointPerLot);
         if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
       }
@@ -855,6 +873,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         symbol: existingTrade.symbol,
         equityAtEntry: existingTrade.equity_at_entry || existingTrade.balance_at_entry,
         direction: existingTrade.direction,
+        fills: !isRepair ? existingTrade.partial_closes : null,
       });
 
       // Update account equity (skip on repair to avoid drift; equity has already been updated by broker since)
