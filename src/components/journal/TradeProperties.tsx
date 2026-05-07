@@ -370,7 +370,6 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           </PropertyRow>
         );
       case 'closes': {
-        const fills = getAllCloseFills(trade);
         if (fills.length < 2) return null;
         return (
           <div key="closes" className="space-y-1.5">
