@@ -563,8 +563,9 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                   }
 
                   if (key === 'result') {
+                    const partialCount = (trade.partial_closes || []).filter((p: any) => p && typeof p.lots === 'number' && p.lots > 0).length;
                     return (
-                      <div key={key} className="flex justify-center">
+                      <div key={key} className="flex justify-center items-center gap-1">
                         <span className={cn(
                           "px-2 py-0.5 rounded text-xs font-medium",
                           result.color === 'profit' && "bg-profit/20 text-profit",
@@ -574,6 +575,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                         )}>
                           {result.label}
                         </span>
+                        {partialCount > 0 && (
+                          <span
+                            className="text-[9px] px-1 py-0 rounded bg-muted text-muted-foreground border border-border/50"
+                            title={`${partialCount + 1} partial closes`}
+                          >
+                            {partialCount + 1}×
+                          </span>
+                        )}
                       </div>
                     );
                   }

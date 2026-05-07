@@ -130,6 +130,7 @@ export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
   { key: 'alignment',        label: 'HTF Timeframes',  kind: 'multi-select', propertyName: 'timeframe', field: 'alignment', defaultVisible: true },
   { key: 'entry_timeframes', label: 'Entry Timeframes', kind: 'multi-select', propertyName: 'timeframe', field: 'entry_timeframes', defaultVisible: true },
   { key: 'place',            label: 'Place',           kind: 'text', field: 'place', defaultVisible: true },
+  { key: 'closes',           label: 'Closes',          kind: 'readonly', defaultVisible: true },
 ];
 
 // Migrate legacy "bundled" detail keys saved in user_settings to the new split keys.

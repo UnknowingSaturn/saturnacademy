@@ -19,7 +19,8 @@ import { BadgeSelect } from "./BadgeSelect";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CustomFieldCell } from "./CustomFieldCell";
-import { Calendar, Clock, TrendingUp, TrendingDown, DollarSign, Target, Hash, Wallet } from "lucide-react";
+import { Calendar, Clock, TrendingUp, TrendingDown, DollarSign, Target, Hash, Wallet, Layers } from "lucide-react";
+import { getAllCloseFills, getWeightedAvgExitPrice, hasMultipleCloses, getRealPartialCloses } from "@/lib/tradeMath";
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 
@@ -368,6 +369,36 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             />
           </PropertyRow>
         );
+      case 'closes': {
+        const fills = getAllCloseFills(trade);
+        if (fills.length < 2) return null;
+        return (
+          <div key="closes" className="space-y-1.5">
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5" />
+              {labelFor('closes', 'Closes')} <span className="text-[10px]">({fills.length} fills)</span>
+            </div>
+            <div className="rounded-md border border-border/50 divide-y divide-border/50 overflow-hidden">
+              {fills.map((f, i) => (
+                <div key={i} className="flex items-center justify-between px-2 py-1.5 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono-numbers font-medium">{f.lots.toFixed(2)}</span>
+                    <span className="text-muted-foreground">@</span>
+                    <span className="font-mono-numbers">{f.price}</span>
+                    {f.isFinal && <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">final</Badge>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={cn("font-mono-numbers font-semibold", f.pnl > 0 && "text-profit", f.pnl < 0 && "text-loss")}>
+                      {f.pnl >= 0 ? "+" : ""}${f.pnl.toFixed(2)}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">{formatFullDateTimeET(f.time)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      }
       default:
         return null;
     }
@@ -390,10 +421,21 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           <span className="font-mono-numbers">{trade.entry_price}</span>
         </div>
         {trade.exit_price && (
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Exit Price</span>
-            <span className="font-mono-numbers">{trade.exit_price}</span>
-          </div>
+          <>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Exit Price{hasMultipleCloses(trade) ? " (final)" : ""}</span>
+              <span className="font-mono-numbers">{trade.exit_price}</span>
+            </div>
+            {hasMultipleCloses(trade) && (() => {
+              const avg = getWeightedAvgExitPrice(trade);
+              return avg != null ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Avg Exit ({getAllCloseFills(trade).length} fills)</span>
+                  <span className="font-mono-numbers">{avg.toFixed(5)}</span>
+                </div>
+              ) : null;
+            })()}
+          </>
         )}
         {trade.sl_initial && (
           <div className="flex justify-between">
@@ -409,7 +451,11 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         )}
         <div className="flex justify-between">
           <span className="text-muted-foreground">Lots</span>
-          <span className="font-mono-numbers">{trade.total_lots}</span>
+          <span className="font-mono-numbers">
+            {trade.original_lots && trade.original_lots !== trade.total_lots
+              ? `${trade.original_lots} opened`
+              : trade.total_lots}
+          </span>
         </div>
       </div>
     </div>
