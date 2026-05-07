@@ -259,6 +259,7 @@ serve(async (req) => {
           symbol: trade.symbol,
           equityAtEntry: trade.equity_at_entry || runningBalance,
           direction: trade.direction,
+          fills: Array.isArray(trade.partial_closes) ? trade.partial_closes : null,
         });
 
         // Update the trade - only session, balance, and R%
