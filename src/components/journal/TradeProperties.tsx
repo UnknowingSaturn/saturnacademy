@@ -451,7 +451,11 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         )}
         <div className="flex justify-between">
           <span className="text-muted-foreground">Lots</span>
-          <span className="font-mono-numbers">{trade.total_lots}</span>
+          <span className="font-mono-numbers">
+            {trade.original_lots && trade.original_lots !== trade.total_lots
+              ? `${trade.original_lots} opened`
+              : trade.total_lots}
+          </span>
         </div>
       </div>
     </div>
