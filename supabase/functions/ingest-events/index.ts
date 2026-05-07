@@ -833,7 +833,11 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       // When repairing a snapshot_closed trade, ignore the snapshot marker entries
       if (existingTrade.partial_closes && !isRepair) {
         for (const partial of existingTrade.partial_closes) {
-          totalGrossPnl += partial.pnl || 0;
+          if (typeof partial?.lots === "number" && partial.lots > 0) {
+            totalGrossPnl += partial.pnl || 0;
+            totalCommission += partial.commission || 0;
+            totalSwap += partial.swap || 0;
+          }
         }
       }
       totalCommission += existingTrade.commission || 0;
