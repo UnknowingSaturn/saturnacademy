@@ -7,7 +7,7 @@ import {
   DEFAULT_LIVE_TRADE_QUESTIONS, LiveTradeQuestion, migrateDetailKeys,
 } from "@/types/settings";
 import { toast } from "sonner";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { setDisplayTimezone } from "@/lib/time";
 
 // Transform database row to typed object
@@ -238,6 +238,98 @@ export function useSessionLookup() {
       .map((s) => ({ value: s.key, label: s.name, customColor: s.color, color: 'primary' as const }));
     return { byKey, options, isLoading };
   }, [sessions, isLoading]);
+}
+
+// Create a new session
+export function useCreateSession() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: async (session: Omit<SessionDefinition, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
+      if (!user?.id) throw new Error('Not authenticated');
+      const { data, error } = await supabase
+        .from('session_definitions')
+        .insert({ ...session, user_id: user.id })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session_definitions'] });
+      toast.success('Session created');
+    },
+    onError: (error) => {
+      toast.error('Failed to create session');
+      console.error(error);
+    },
+  });
+}
+
+export function useUpdateSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...updates }: Partial<SessionDefinition> & { id: string }) => {
+      const { data, error } = await supabase
+        .from('session_definitions')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session_definitions'] });
+    },
+    onError: (error) => {
+      toast.error('Failed to update session');
+      console.error(error);
+    },
+  });
+}
+
+export function useDeleteSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('session_definitions')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session_definitions'] });
+      toast.success('Session deleted');
+    },
+    onError: (error) => {
+      toast.error('Failed to delete session');
+      console.error(error);
+    },
+  });
+}
+
+export function useReorderSessions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessions: { id: string; sort_order: number }[]) => {
+      for (const session of sessions) {
+        const { error } = await supabase
+          .from('session_definitions')
+          .update({ sort_order: session.sort_order })
+          .eq('id', session.id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session_definitions'] });
+    },
+    onError: (error) => {
+      toast.error('Failed to reorder sessions');
+      console.error(error);
+    },
+  });
 }
 
 // Property Options Hook with auto-initialization
