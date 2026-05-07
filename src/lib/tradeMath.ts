@@ -8,13 +8,15 @@ export interface CloseFill {
   isFinal: boolean;
 }
 
-// A "real" partial close has lots > 0. The repair marker pushed by ingest
-// (`{ type: 'repaired_from_snapshot', ... }`) does NOT have lots and must be skipped.
+// A "real" partial close has a positive `lots` field. The repair marker pushed by
+// ingest (`{ type: 'repaired_from_snapshot', ... }`) lacks lots and must be skipped
+// by every consumer that iterates `partial_closes`. Use this guard everywhere.
+export function isRealFill(p: unknown): p is PartialClose {
+  return !!p && typeof (p as PartialClose).lots === "number" && (p as PartialClose).lots > 0;
+}
+
 export function getRealPartialCloses(trade: Pick<Trade, "partial_closes">): PartialClose[] {
-  const list = trade.partial_closes || [];
-  return list.filter((p): p is PartialClose => {
-    return p && typeof (p as PartialClose).lots === "number" && (p as PartialClose).lots > 0;
-  });
+  return (trade.partial_closes || []).filter(isRealFill);
 }
 
 export function getAllCloseFills(trade: Trade): CloseFill[] {
@@ -27,19 +29,25 @@ export function getAllCloseFills(trade: Trade): CloseFill[] {
   }));
 
   if (!trade.is_open && trade.exit_price != null && trade.exit_time) {
-    const partialPnl = partials.reduce((s, f) => s + (f.pnl || 0), 0);
-    // Final-fill lots are unknowable from the Trade type alone (original_lots lives in DB only).
-    // Use 1 as a placeholder weight if zero — weighted-avg uses lots so we approximate via remaining PnL.
-    const finalPnl = (trade.gross_pnl ?? 0) - partialPnl;
-    partials.push({
-      time: trade.exit_time,
-      lots: Math.max(0.0001, (trade as { original_lots?: number }).original_lots
-        ? ((trade as { original_lots?: number }).original_lots! - partials.reduce((s, f) => s + f.lots, 0))
-        : 1),
-      price: trade.exit_price,
-      pnl: finalPnl,
-      isFinal: true,
-    });
+    const partialLots = partials.reduce((s, f) => s + f.lots, 0);
+    // Final fill lots = original_lots - sum(partials). On closed trades total_lots is 0,
+    // so original_lots is the correct total. If original_lots is unknown (legacy rows),
+    // assume the final fill carried whatever lots remained beyond partials, defaulting to
+    // the partial total (so a single-fill trade still gets a sensible weight of 1×lots).
+    const finalLots = trade.original_lots != null
+      ? Math.max(0, trade.original_lots - partialLots)
+      : Math.max(partialLots, 0.01);
+
+    if (finalLots > 0) {
+      const partialPnl = partials.reduce((s, f) => s + (f.pnl || 0), 0);
+      partials.push({
+        time: trade.exit_time,
+        lots: finalLots,
+        price: trade.exit_price,
+        pnl: (trade.gross_pnl ?? 0) - partialPnl,
+        isFinal: true,
+      });
+    }
   }
 
   return partials.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
