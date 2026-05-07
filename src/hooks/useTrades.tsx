@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Trade, TradeReview, SessionType, ActionableStep, PartialClose } from '@/types/trading';
 import { useToast } from '@/hooks/use-toast';
 import { Json } from '@/integrations/supabase/types';
-import { isRealFill } from '@/lib/tradeMath';
+
 
 // Helper to normalize embedded trade_reviews (handles object or array from Supabase)
 function normalizeReviews(raw: any): any[] {
