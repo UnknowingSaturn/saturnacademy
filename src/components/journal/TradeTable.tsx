@@ -16,6 +16,7 @@ import { DEFAULT_COLUMNS, ColumnDefinition, buildColumnRegistry } from "@/types/
 import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { CustomFieldCell } from "./CustomFieldCell";
+import { getRealPartialCloses } from "@/lib/tradeMath";
 
 interface TradeTableProps {
   trades: Trade[];
