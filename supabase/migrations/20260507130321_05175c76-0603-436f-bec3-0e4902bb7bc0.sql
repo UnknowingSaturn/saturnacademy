@@ -1,0 +1,1 @@
+DELETE FROM public.property_options WHERE property_name = 'session';
