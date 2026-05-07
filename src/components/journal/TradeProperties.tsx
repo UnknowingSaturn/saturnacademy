@@ -125,6 +125,14 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   const isWin = pnl > 0;
   const isLoss = pnl < 0;
 
+  // Memoize partial-close fills: every consumer (Closes block, Lots row, Avg Exit) reads from this.
+  const fills = useMemo(() => getAllCloseFills(trade), [
+    trade.partial_closes, trade.exit_price, trade.exit_time,
+    trade.original_lots, trade.gross_pnl, trade.is_open, trade.total_lots,
+  ]);
+  const hasMultiple = fills.length > 1;
+  const avgExit = useMemo(() => (hasMultiple ? getWeightedAvgExitPrice(trade) : null), [hasMultiple, trade]);
+
   // Renderers per kind. Returns a JSX node OR null to skip.
   const renderField = (key: string) => {
     if (!visibleSet.has(key)) return null;
@@ -422,18 +430,15 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         {trade.exit_price && (
           <>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Exit Price{hasMultipleCloses(trade) ? " (final)" : ""}</span>
+              <span className="text-muted-foreground">Exit Price{hasMultiple ? " (final)" : ""}</span>
               <span className="font-mono-numbers">{trade.exit_price}</span>
             </div>
-            {hasMultipleCloses(trade) && (() => {
-              const avg = getWeightedAvgExitPrice(trade);
-              return avg != null ? (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Avg Exit ({getAllCloseFills(trade).length} fills)</span>
-                  <span className="font-mono-numbers">{avg.toFixed(5)}</span>
-                </div>
-              ) : null;
-            })()}
+            {hasMultiple && avgExit != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Avg Exit ({fills.length} fills)</span>
+                <span className="font-mono-numbers">{avgExit.toFixed(5)}</span>
+              </div>
+            )}
           </>
         )}
         {trade.sl_initial && (
@@ -451,9 +456,13 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
         <div className="flex justify-between">
           <span className="text-muted-foreground">Lots</span>
           <span className="font-mono-numbers">
-            {trade.original_lots && trade.original_lots !== trade.total_lots
-              ? `${trade.original_lots} opened`
-              : trade.total_lots}
+            {(() => {
+              const orig = trade.original_lots;
+              const partials = fills.filter(f => !f.isFinal).length;
+              if (!trade.is_open && orig && partials > 0) return `${orig} (${fills.length} fills)`;
+              if (trade.is_open && orig && orig !== trade.total_lots) return `${trade.total_lots} / ${orig}`;
+              return orig ?? trade.total_lots;
+            })()}
           </span>
         </div>
       </div>
