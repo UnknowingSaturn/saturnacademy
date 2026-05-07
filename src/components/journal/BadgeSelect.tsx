@@ -28,10 +28,6 @@ const colorClasses: Record<string, string> = {
   breakeven: "bg-breakeven/15 text-breakeven border-breakeven/30",
   primary: "bg-primary/15 text-primary border-primary/30",
   muted: "bg-muted text-muted-foreground border-border",
-  tokyo: "bg-[hsl(var(--session-tokyo)/0.15)] text-[hsl(var(--session-tokyo))] border-[hsl(var(--session-tokyo)/0.3)]",
-  london: "bg-[hsl(var(--session-london)/0.15)] text-[hsl(var(--session-london))] border-[hsl(var(--session-london)/0.3)]",
-  newyork: "bg-[hsl(var(--session-newyork)/0.15)] text-[hsl(var(--session-newyork))] border-[hsl(var(--session-newyork)/0.3)]",
-  overlap: "bg-[hsl(var(--session-overlap)/0.15)] text-[hsl(var(--session-overlap))] border-[hsl(var(--session-overlap)/0.3)]",
 };
 
 export const BadgeSelect = React.forwardRef<HTMLButtonElement, BadgeSelectProps>(
