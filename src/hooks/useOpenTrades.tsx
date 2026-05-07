@@ -31,6 +31,7 @@ function transformTrade(row: any): Trade {
     symbol: row.symbol,
     direction: row.direction,
     total_lots: Number(row.total_lots),
+    original_lots: row.original_lots != null ? Number(row.original_lots) : null,
     entry_price: Number(row.entry_price),
     entry_time: row.entry_time,
     exit_price: row.exit_price ? Number(row.exit_price) : null,
