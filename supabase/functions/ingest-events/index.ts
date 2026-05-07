@@ -873,6 +873,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         symbol: existingTrade.symbol,
         equityAtEntry: existingTrade.equity_at_entry || existingTrade.balance_at_entry,
         direction: existingTrade.direction,
+        fills: !isRepair ? existingTrade.partial_closes : null,
       });
 
       // Update account equity (skip on repair to avoid drift; equity has already been updated by broker since)
