@@ -368,6 +368,36 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             />
           </PropertyRow>
         );
+      case 'closes': {
+        const fills = getAllCloseFills(trade);
+        if (fills.length < 2) return null;
+        return (
+          <div key="closes" className="space-y-1.5">
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5" />
+              {labelFor('closes', 'Closes')} <span className="text-[10px]">({fills.length} fills)</span>
+            </div>
+            <div className="rounded-md border border-border/50 divide-y divide-border/50 overflow-hidden">
+              {fills.map((f, i) => (
+                <div key={i} className="flex items-center justify-between px-2 py-1.5 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono-numbers font-medium">{f.lots.toFixed(2)}</span>
+                    <span className="text-muted-foreground">@</span>
+                    <span className="font-mono-numbers">{f.price}</span>
+                    {f.isFinal && <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">final</Badge>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={cn("font-mono-numbers font-semibold", f.pnl > 0 && "text-profit", f.pnl < 0 && "text-loss")}>
+                      {f.pnl >= 0 ? "+" : ""}${f.pnl.toFixed(2)}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">{formatFullDateTimeET(f.time)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      }
       default:
         return null;
     }
