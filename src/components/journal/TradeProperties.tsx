@@ -2,7 +2,7 @@ import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, R
 import { useUpdateTrade, useUpsertTradeReview } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useAccounts } from "@/hooks/useAccounts";
-import { usePropertyOptions, useUserSettings } from "@/hooks/useUserSettings";
+import { usePropertyOptions, useUserSettings, useSessionLookup } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import {
   DETAIL_FIELD_CATALOG,
@@ -44,9 +44,9 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   // User-editable property dropdowns (from Settings → Fields). Only active options surface here.
   const { data: profileOpts } = usePropertyOptions("profile", true);
   const { data: regimeOpts } = usePropertyOptions("regime", true);
-  const { data: sessionOpts } = usePropertyOptions("session", true);
   const { data: timeframeOpts } = usePropertyOptions("timeframe", true);
   const { data: emotionOpts } = usePropertyOptions("emotion", true);
+  const { options: sessionLookupOptions } = useSessionLookup();
 
   const isManualTrade = !trade.ticket;
 
@@ -58,10 +58,10 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   const optionsByProperty = useMemo(() => ({
     profile: toBadgeOptions(profileOpts),
     regime: toBadgeOptions(regimeOpts),
-    session: toBadgeOptions(sessionOpts),
+    session: sessionLookupOptions,
     timeframe: toBadgeOptions(timeframeOpts),
     emotion: toBadgeOptions(emotionOpts),
-  }), [profileOpts, regimeOpts, sessionOpts, timeframeOpts, emotionOpts]);
+  }), [profileOpts, regimeOpts, sessionLookupOptions, timeframeOpts, emotionOpts]);
 
   const modelOptions = useMemo(() => {
     if (!playbooks) return [];

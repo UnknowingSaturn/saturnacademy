@@ -44,10 +44,7 @@
     --breakeven: 45 93% 47%;
     --breakeven-foreground: 0 0% 10%;
 
-    /* Session colors */
-    --session-tokyo: 330 80% 60%;
-    --session-london: 210 80% 55%;
-    --session-newyork: 35 95% 50%;
+    /* Session colors are user-defined in session_definitions */
 
     /* Chart colors */
     --chart-1: 217 91% 60%;
@@ -110,10 +107,7 @@
     --breakeven: 45 95% 55%;
     --breakeven-foreground: 0 0% 0%;
 
-    /* Session colors - luminous */
-    --session-tokyo: 330 80% 60%;
-    --session-london: 210 90% 60%;
-    --session-newyork: 35 95% 50%;
+    /* Session colors are user-defined in session_definitions */
 
     /* Chart colors - OLED optimized */
     --chart-1: 217 100% 60%;
@@ -254,26 +248,7 @@
     @apply border-l-2 border-l-breakeven;
   }
 
-  /* Session badges - glassmorphism */
-  .session-badge {
-    @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold backdrop-blur-sm;
-  }
-
-  .session-tokyo {
-    @apply bg-[hsl(var(--session-tokyo)/0.15)] text-[hsl(var(--session-tokyo))] border border-[hsl(var(--session-tokyo)/0.3)];
-  }
-
-  .session-london {
-    @apply bg-[hsl(var(--session-london)/0.15)] text-[hsl(var(--session-london))] border border-[hsl(var(--session-london)/0.3)];
-  }
-
-  .session-newyork {
-    @apply bg-[hsl(var(--session-newyork)/0.15)] text-[hsl(var(--session-newyork))] border border-[hsl(var(--session-newyork)/0.3)];
-  }
-
-  .session-overlap {
-    @apply bg-[hsl(var(--session-overlap)/0.15)] text-[hsl(var(--session-overlap))] border border-[hsl(var(--session-overlap)/0.3)];
-  }
+  /* Session badges now read color directly from session_definitions */
 
   /* Premium stat display */
   .stat-value {

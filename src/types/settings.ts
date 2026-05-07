@@ -398,12 +398,7 @@ export const DEFAULT_PROPERTY_OPTIONS: Omit<PropertyOption, 'id' | 'user_id' | '
   // Regimes (market state — overlaps with Profile, kept user-editable so you can rename/remove)
   { property_name: 'regime', value: 'rotational', label: 'Rotational', color: '#3B82F6', sort_order: 0, is_active: true },
   { property_name: 'regime', value: 'transitional', label: 'Transitional', color: '#22C55E', sort_order: 1, is_active: true },
-  // Sessions (display labels only — actual time windows live in session_definitions)
-  { property_name: 'session', value: 'tokyo', label: 'Tokyo', color: '#A855F7', sort_order: 0, is_active: true },
-  { property_name: 'session', value: 'london', label: 'London', color: '#F59E0B', sort_order: 1, is_active: true },
-  { property_name: 'session', value: 'new_york_am', label: 'New York AM', color: '#3B82F6', sort_order: 2, is_active: true },
-  { property_name: 'session', value: 'new_york_pm', label: 'New York PM', color: '#0EA5E9', sort_order: 3, is_active: true },
-  { property_name: 'session', value: 'off_hours', label: 'Off Hours', color: '#6B7280', sort_order: 4, is_active: true },
+  // Sessions are managed in Settings → Sessions (session_definitions table). Do not seed here.
   // Timeframes
   { property_name: 'timeframe', value: '1min', label: '1min', color: '#6B7280', sort_order: 0, is_active: true },
   { property_name: 'timeframe', value: '5min', label: '5min', color: '#6B7280', sort_order: 1, is_active: true },

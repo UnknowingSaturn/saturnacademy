@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, Account } from "@/types/trading";
 import { useUpdateTrade, useUpsertTradeReview, useBulkArchiveTrades } from "@/hooks/useTrades";
-import { usePropertyOptions } from "@/hooks/useUserSettings";
+import { usePropertyOptions, useSessionLookup } from "@/hooks/useUserSettings";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { cn } from "@/lib/utils";
 import { formatDateET, formatTimeET, getDayNameET } from "@/lib/time";
@@ -38,7 +38,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Fetch property options (active only — soft-deleted ones don't appear in dropdowns)
-  const { data: sessionOptions = [] } = usePropertyOptions('session', true);
+  const { options: sessionOptions } = useSessionLookup();
   const { data: timeframeOptions = [] } = usePropertyOptions('timeframe', true);
   const { data: profileOptions = [] } = usePropertyOptions('profile', true);
   const { data: emotionOptions = [] } = usePropertyOptions('emotion', true);
@@ -420,14 +420,8 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                         <BadgeSelect
                           value={trade.session || ""}
                           onChange={(v) => handleSessionChange(trade, v as string)}
-                          options={formatOptions(sessionOptions).length > 0 ? formatOptions(sessionOptions) : [
-                            { value: "new_york_am", label: "NY AM", color: "newyork" },
-                            { value: "london", label: "London", color: "london" },
-                            { value: "tokyo", label: "Tokyo", color: "tokyo" },
-                            { value: "new_york_pm", label: "NY PM", color: "newyork" },
-                            { value: "off_hours", label: "Off Hours", color: "muted" },
-                          ]}
-                          placeholder="Session"
+                          options={sessionOptions}
+                          placeholder={sessionOptions.length === 0 ? "Add sessions in Settings" : "Session"}
                         />
                       </div>
                     );

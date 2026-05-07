@@ -7,7 +7,7 @@ import {
   DEFAULT_LIVE_TRADE_QUESTIONS, LiveTradeQuestion, migrateDetailKeys,
 } from "@/types/settings";
 import { toast } from "sonner";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { setDisplayTimezone } from "@/lib/time";
 
 // Transform database row to typed object
@@ -218,19 +218,42 @@ export function useSessionDefinitions() {
   return query;
 }
 
+// Unified session lookup — single source of truth for session label + color.
+// Built on session_definitions, with a built-in "Off Hours" fallback so
+// trades whose session = 'off_hours' still render with a sensible badge.
+export function useSessionLookup() {
+  const { data: sessions = [], isLoading } = useSessionDefinitions();
+
+  return useMemo(() => {
+    const byKey: Record<string, { name: string; color: string; sort_order: number }> = {
+      off_hours: { name: 'Off Hours', color: '#6B7280', sort_order: 9999 },
+      unknown: { name: 'Unknown', color: '#6B7280', sort_order: 10000 },
+    };
+    for (const s of sessions) {
+      byKey[s.key] = { name: s.name, color: s.color, sort_order: s.sort_order };
+    }
+    const options = sessions
+      .filter((s) => s.is_active)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((s) => ({ value: s.key, label: s.name, customColor: s.color, color: 'primary' as const }));
+    return { byKey, options, isLoading };
+  }, [sessions, isLoading]);
+}
+
+// Create a new session
 export function useCreateSession() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-
   return useMutation({
     mutationFn: async (session: Omit<SessionDefinition, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
       if (!user?.id) throw new Error('Not authenticated');
-
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('session_definitions')
-        .insert({ user_id: user.id, ...session });
-
+        .insert({ ...session, user_id: user.id })
+        .select()
+        .single();
       if (error) throw error;
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session_definitions'] });
@@ -245,15 +268,16 @@ export function useCreateSession() {
 
 export function useUpdateSession() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<SessionDefinition> & { id: string }) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('session_definitions')
         .update(updates)
-        .eq('id', id);
-
+        .eq('id', id)
+        .select()
+        .single();
       if (error) throw error;
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session_definitions'] });
@@ -267,14 +291,12 @@ export function useUpdateSession() {
 
 export function useDeleteSession() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
         .from('session_definitions')
         .delete()
         .eq('id', id);
-
       if (error) throw error;
     },
     onSuccess: () => {
@@ -288,10 +310,8 @@ export function useDeleteSession() {
   });
 }
 
-// Bulk update sort orders for sessions
 export function useReorderSessions() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async (sessions: { id: string; sort_order: number }[]) => {
       for (const session of sessions) {
