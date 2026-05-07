@@ -99,6 +99,7 @@ export interface Trade {
   symbol: string;
   direction: TradeDirection;
   total_lots: number;
+  original_lots: number | null;
   entry_price: number;
   entry_time: string;
   exit_price: number | null;
