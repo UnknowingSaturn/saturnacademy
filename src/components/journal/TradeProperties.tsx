@@ -421,10 +421,21 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           <span className="font-mono-numbers">{trade.entry_price}</span>
         </div>
         {trade.exit_price && (
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Exit Price</span>
-            <span className="font-mono-numbers">{trade.exit_price}</span>
-          </div>
+          <>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Exit Price{hasMultipleCloses(trade) ? " (final)" : ""}</span>
+              <span className="font-mono-numbers">{trade.exit_price}</span>
+            </div>
+            {hasMultipleCloses(trade) && (() => {
+              const avg = getWeightedAvgExitPrice(trade);
+              return avg != null ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Avg Exit ({getAllCloseFills(trade).length} fills)</span>
+                  <span className="font-mono-numbers">{avg.toFixed(5)}</span>
+                </div>
+              ) : null;
+            })()}
+          </>
         )}
         {trade.sl_initial && (
           <div className="flex justify-between">
