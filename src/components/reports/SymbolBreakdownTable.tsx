@@ -89,7 +89,7 @@ export const SymbolBreakdownTable = React.forwardRef<HTMLDivElement, SymbolBreak
                 {sessionData.map(([session, data]) => (
                   <TableRow key={session} className="border-white/5">
                     <TableCell className="text-muted-foreground">
-                      {sessionLabels[session] || session}
+                      {sessionByKey[session]?.name || humanizeSession(session)}
                     </TableCell>
                     <TableCell className="text-center text-muted-foreground">
                       {data.count}
