@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Trade, TradeReview, SessionType, ActionableStep, PartialClose } from '@/types/trading';
 import { useToast } from '@/hooks/use-toast';
 import { Json } from '@/integrations/supabase/types';
+import { isRealFill } from '@/lib/tradeMath';
 
 // Helper to normalize embedded trade_reviews (handles object or array from Supabase)
 function normalizeReviews(raw: any): any[] {
@@ -10,19 +11,44 @@ function normalizeReviews(raw: any): any[] {
   return Array.isArray(raw) ? raw : [raw];
 }
 
+const num = (v: unknown): number | null => (v == null ? null : Number(v));
+
 // Helper to transform database rows to typed Trade objects
 function transformTrade(row: any): Trade {
   // Normalize embedded trade_reviews (could be object or array after UNIQUE constraint)
   const reviews = normalizeReviews(row.trade_reviews);
-  const sortedReviews = [...reviews].sort((a: any, b: any) => 
+  const sortedReviews = [...reviews].sort((a: any, b: any) =>
     new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime()
   );
   const latestReview = sortedReviews[0];
 
+  // Postgres `numeric` columns come back as strings via PostgREST in some cases.
+  // Coerce explicitly so downstream arithmetic (R-multiple, weighted avg, etc.) is safe.
+  const rawPartials = (row.partial_closes as PartialClose[]) || [];
+
   return {
     ...row,
+    total_lots: num(row.total_lots) ?? 0,
+    original_lots: num(row.original_lots),
+    entry_price: num(row.entry_price) ?? 0,
+    exit_price: num(row.exit_price),
+    sl_initial: num(row.sl_initial),
+    tp_initial: num(row.tp_initial),
+    sl_final: num(row.sl_final),
+    tp_final: num(row.tp_final),
+    gross_pnl: num(row.gross_pnl),
+    net_pnl: num(row.net_pnl),
+    commission: num(row.commission) ?? 0,
+    swap: num(row.swap) ?? 0,
+    r_multiple_planned: num(row.r_multiple_planned),
+    r_multiple_actual: num(row.r_multiple_actual),
+    balance_at_entry: num(row.balance_at_entry),
+    equity_at_entry: num(row.equity_at_entry),
+    risk_percent: num(row.risk_percent),
     trade_type: row.trade_type || 'executed',
-    partial_closes: (row.partial_closes as PartialClose[]) || [],
+    // Keep the full array (repair markers included) so write-paths stay consistent;
+    // consumers should use isRealFill / getRealPartialCloses to skip non-fill markers.
+    partial_closes: Array.isArray(rawPartials) ? rawPartials : [],
     review: latestReview ? transformReview(latestReview) : undefined,
     playbook: row.playbook || undefined,
     ai_review: row.ai_reviews?.[0] || undefined,
