@@ -362,26 +362,38 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
             />
           </div>
 
-          {activeColumns.map(key => {
-            const column = getColumn(key);
-            if (!column) return null;
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleColumnDragEnd}
+          >
+            <SortableContext items={activeColumns} strategy={horizontalListSortingStrategy}>
+              {activeColumns.map(key => {
+                const column = getColumn(key);
+                if (!column) return null;
 
-            return (
-              <div key={key} className={cn(key === 'r_multiple_actual' && 'text-right', key === 'result' && 'text-center')}>
-                <ColumnHeaderMenu
-                  column={column}
-                  sortColumn={sortColumn}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  onFilter={() => {}}
-                  onHide={() => handleHideColumn(key)}
-                  onEditProperty={onEditProperty}
-                >
-                  {column.label}
-                </ColumnHeaderMenu>
-              </div>
-            );
-          })}
+                return (
+                  <SortableHeader
+                    key={key}
+                    columnKey={key}
+                    className={cn(key === 'r_multiple_actual' && 'justify-end text-right', key === 'result' && 'justify-center text-center')}
+                  >
+                    <ColumnHeaderMenu
+                      column={column}
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                      onFilter={() => {}}
+                      onHide={() => handleHideColumn(key)}
+                      onEditProperty={onEditProperty}
+                    >
+                      {column.label}
+                    </ColumnHeaderMenu>
+                  </SortableHeader>
+                );
+              })}
+            </SortableContext>
+          </DndContext>
           <div></div>
         </div>
 
