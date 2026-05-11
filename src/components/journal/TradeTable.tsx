@@ -41,6 +41,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   // Fetch property options (active only — soft-deleted ones don't appear in dropdowns)
   const { options: sessionOptions } = useSessionLookup();
   const { data: timeframeOptions = [] } = usePropertyOptions('timeframe', true);
+  const { data: entryTimeframeOptions = [] } = usePropertyOptions('entry_timeframe', true);
   const { data: profileOptions = [] } = usePropertyOptions('profile', true);
   const { data: emotionOptions = [] } = usePropertyOptions('emotion', true);
   
