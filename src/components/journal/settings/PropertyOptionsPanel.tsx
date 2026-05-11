@@ -30,7 +30,8 @@ const PROPERTY_TYPES = [
   { value: 'profile', label: 'Profile (planned & actual)' },
   { value: 'regime', label: 'Regime (planned & actual)' },
   { value: 'session', label: 'Session' },
-  { value: 'timeframe', label: 'Timeframe' },
+  { value: 'timeframe', label: 'Alignment Timeframes' },
+  { value: 'entry_timeframe', label: 'Entry Timeframe' },
   { value: 'emotion', label: 'Emotion' },
 ];
 
