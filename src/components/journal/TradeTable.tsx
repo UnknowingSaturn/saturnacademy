@@ -75,26 +75,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     }));
   }, [playbooks]);
 
-  // Convert property options to BadgeSelect format
+  // Convert property options to BadgeSelect format — pass the user's hex through as
+  // customColor so the table matches the color picker exactly (same as the detail panel).
   const formatOptions = (options: any[]) => options.map(o => ({
     value: o.value,
     label: o.label,
-    color: getColorKey(o.color),
+    customColor: o.color || undefined,
+    color: 'primary',
   }));
-
-  // Map hex colors to theme color keys
-  const getColorKey = (hexColor: string): string => {
-    const colorMap: Record<string, string> = {
-      '#22C55E': 'profit',
-      '#EF4444': 'loss',
-      '#EAB308': 'breakeven',
-      '#3B82F6': 'primary',
-      '#6B7280': 'muted',
-      '#EC4899': 'tokyo',
-      '#F59E0B': 'newyork',
-    };
-    return colorMap[hexColor] || 'muted';
-  };
 
   // Effective per-user column list:
   // 1. Start from the user's column_order (or default visible)
