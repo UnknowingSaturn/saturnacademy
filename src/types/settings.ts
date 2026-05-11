@@ -407,6 +407,11 @@ export const DEFAULT_PROPERTY_OPTIONS: Omit<PropertyOption, 'id' | 'user_id' | '
   { property_name: 'timeframe', value: '1hr', label: '1hr', color: '#3B82F6', sort_order: 3, is_active: true },
   { property_name: 'timeframe', value: '4hr', label: '4hr', color: '#22C55E', sort_order: 4, is_active: true },
   { property_name: 'timeframe', value: 'daily', label: 'Daily', color: '#22C55E', sort_order: 5, is_active: true },
+  // Entry Timeframes (separate list — usually lower TFs you pull the trigger on)
+  { property_name: 'entry_timeframe', value: '1min', label: '1min', color: '#6B7280', sort_order: 0, is_active: true },
+  { property_name: 'entry_timeframe', value: '5min', label: '5min', color: '#6B7280', sort_order: 1, is_active: true },
+  { property_name: 'entry_timeframe', value: '15min', label: '15min', color: '#3B82F6', sort_order: 2, is_active: true },
+  { property_name: 'entry_timeframe', value: '1hr', label: '1hr', color: '#3B82F6', sort_order: 3, is_active: true },
   // Emotions
   { property_name: 'emotion', value: 'great', label: 'Great', color: '#22C55E', sort_order: 0, is_active: true },
   { property_name: 'emotion', value: 'good', label: 'Good', color: '#22C55E', sort_order: 1, is_active: true },

@@ -46,6 +46,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
   const { data: profileOpts } = usePropertyOptions("profile", true);
   const { data: regimeOpts } = usePropertyOptions("regime", true);
   const { data: timeframeOpts } = usePropertyOptions("timeframe", true);
+  const { data: entryTimeframeOpts } = usePropertyOptions("entry_timeframe", true);
   const { data: emotionOpts } = usePropertyOptions("emotion", true);
   const { options: sessionLookupOptions } = useSessionLookup();
 
@@ -61,8 +62,9 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
     regime: toBadgeOptions(regimeOpts),
     session: sessionLookupOptions,
     timeframe: toBadgeOptions(timeframeOpts),
+    entry_timeframe: toBadgeOptions(entryTimeframeOpts),
     emotion: toBadgeOptions(emotionOpts),
-  }), [profileOpts, regimeOpts, sessionLookupOptions, timeframeOpts, emotionOpts]);
+  }), [profileOpts, regimeOpts, sessionLookupOptions, timeframeOpts, entryTimeframeOpts, emotionOpts]);
 
   const modelOptions = useMemo(() => {
     if (!playbooks) return [];
@@ -362,7 +364,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             <BadgeSelect
               value={trade.entry_timeframes || []}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, entry_timeframes: v as TimeframeAlignment[] })}
-              options={optionsByProperty.timeframe}
+              options={optionsByProperty.entry_timeframe}
               placeholder="Select..."
               multiple
             />
