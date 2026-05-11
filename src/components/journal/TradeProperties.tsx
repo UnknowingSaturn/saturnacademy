@@ -364,7 +364,7 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             <BadgeSelect
               value={trade.entry_timeframes || []}
               onChange={(v) => updateTrade.mutateAsync({ id: trade.id, entry_timeframes: v as TimeframeAlignment[] })}
-              options={optionsByProperty.timeframe}
+              options={optionsByProperty.entry_timeframe}
               placeholder="Select..."
               multiple
             />
