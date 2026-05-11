@@ -107,8 +107,6 @@ type FieldRow = {
 };
 
 const SYSTEM_OPTION_PROPERTY: Record<string, string> = {
-  emotion: "emotion",
-  emotional_state_before: "emotion",
   session: "session",
   profile: "profile",
   actual_profile: "profile",
@@ -116,6 +114,7 @@ const SYSTEM_OPTION_PROPERTY: Record<string, string> = {
   actual_regime: "regime",
   alignment: "timeframe",
   entry_timeframes: "entry_timeframe",
+  emotional_state_before: "emotion",
 };
 
 const COLOR_PALETTE = [
