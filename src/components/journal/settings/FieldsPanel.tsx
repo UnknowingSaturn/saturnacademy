@@ -451,23 +451,38 @@ export function FieldsPanel() {
   // Compute the currently-rendered label for a row
   const resolveLabel = (row: FieldRow) => resolveFieldLabel(row.key, row.defaultLabel, overrides);
 
-  // Hidden system fields = present in defaults but absent from columnOrder AND not user-deleted
-  const hiddenSystem = useMemo(() => {
-    const orderSet = new Set(columnOrder);
-    return DEFAULT_COLUMNS.filter((c) => !orderSet.has(c.key) && !c.key.startsWith("cf_") && !deletedSet.has(c.key));
-  }, [columnOrder, deletedSet]);
+  // Unified "Hidden fields" list: tombstoned system fields, system fields missing from
+  // column_order, and inactive custom fields — all rendered in one section with one Restore.
+  type HiddenEntry =
+    | { kind: "system"; key: string; label: string; type: string; deleted: boolean }
+    | { kind: "custom"; def: CustomFieldDefinition };
 
-  // Deleted (tombstoned) system fields — only shown in the Deleted area for restore.
-  const deletedSystem = useMemo(() => {
-    const list: { key: string; label: string; type: string }[] = [];
+  const hiddenEntries = useMemo<HiddenEntry[]>(() => {
+    const list: HiddenEntry[] = [];
+    const orderSet = new Set(columnOrder);
+    const seen = new Set<string>();
+    // Tombstoned system fields
     for (const k of settings?.deleted_system_fields || []) {
+      if (seen.has(k)) continue;
       const col = DEFAULT_COLUMNS.find((c) => c.key === k);
       const detail = DETAIL_FIELD_CATALOG.find((d) => d.key === k);
-      if (col) list.push({ key: k, label: col.label, type: col.type });
-      else if (detail) list.push({ key: k, label: detail.label, type: detail.kind });
+      if (col) { list.push({ kind: "system", key: k, label: col.label, type: col.type, deleted: true }); seen.add(k); }
+      else if (detail) { list.push({ kind: "system", key: k, label: detail.label, type: detail.kind, deleted: true }); seen.add(k); }
+    }
+    // System fields not in the active column order
+    for (const c of DEFAULT_COLUMNS) {
+      if (seen.has(c.key)) continue;
+      if (orderSet.has(c.key)) continue;
+      if (c.key.startsWith("cf_")) continue;
+      list.push({ kind: "system", key: c.key, label: c.label, type: c.type, deleted: false });
+      seen.add(c.key);
+    }
+    // Inactive custom fields
+    for (const f of customFields.filter((f) => !f.is_active)) {
+      list.push({ kind: "custom", def: f });
     }
     return list;
-  }, [settings?.deleted_system_fields]);
+  }, [columnOrder, settings?.deleted_system_fields, customFields]);
 
   if (loadingSettings || loadingFields) {
     return <div className="p-4 text-center text-muted-foreground">Loading fields…</div>;
