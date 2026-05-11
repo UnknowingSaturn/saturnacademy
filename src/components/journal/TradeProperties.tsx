@@ -226,9 +226,9 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             </span>
           </PropertyRow>
         );
-      case 'r_pct':
+      case 'r_multiple_actual':
         return (
-          <PropertyRow key="r_pct" icon={<Target className="w-3.5 h-3.5" />} label={labelFor('r_pct', 'R%')}>
+          <PropertyRow key="r_multiple_actual" icon={<Target className="w-3.5 h-3.5" />} label={labelFor('r_multiple_actual', 'R%')}>
             <span
               className={cn(
                 "font-mono-numbers font-bold",
