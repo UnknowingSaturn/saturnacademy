@@ -280,6 +280,11 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'actual_regime', label: 'Actual Regime', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'regime', category: 'editable' },
   { key: 'emotional_state_before', label: 'Emotion', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'emotion', category: 'editable' },
   { key: 'place', label: 'Place', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'editable' },
+  // Optional toggleable system fields (off by default — enable from Fields settings)
+  { key: 'direction', label: 'Direction', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.7fr)', category: 'calculated' },
+  { key: 'net_pnl', label: 'P&L', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'calculated' },
+  { key: 'status', label: 'Status', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 0.9fr)', category: 'calculated' },
+  { key: 'closes', label: 'Closes', type: 'number', sortable: false, filterable: false, hideable: true, width: 'minmax(60px, 0.7fr)', category: 'calculated' },
 ];
 
 // Source map: where each system field's data physically lives.
