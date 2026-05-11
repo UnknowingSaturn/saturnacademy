@@ -265,7 +265,7 @@ export function FieldsPanel() {
     return out;
   }, [columnOrder, detailOrder, customFields, deletedSet]);
 
-  const inactiveCustom = customFields.filter((f) => !f.is_active);
+  
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
