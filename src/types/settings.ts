@@ -141,6 +141,7 @@ const LEGACY_DETAIL_KEY_MIGRATION: Record<string, string[]> = {
   pair: ['symbol'],
   date: ['entry_time'],
   r_pct: ['r_multiple_actual'],
+  pnl: ['net_pnl'],
 };
 
 export function migrateDetailKeys(keys: string[]): string[] {
