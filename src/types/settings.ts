@@ -137,6 +137,7 @@ export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
 // Keeps existing user layouts working after the catalog split.
 const LEGACY_DETAIL_KEY_MIGRATION: Record<string, string[]> = {
   timeframes: ['alignment', 'entry_timeframes'],
+  emotion: ['emotional_state_before'],
 };
 
 export function migrateDetailKeys(keys: string[]): string[] {
