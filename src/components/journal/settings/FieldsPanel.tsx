@@ -115,7 +115,7 @@ const SYSTEM_OPTION_PROPERTY: Record<string, string> = {
   regime: "regime",
   actual_regime: "regime",
   alignment: "timeframe",
-  entry_timeframes: "timeframe",
+  entry_timeframes: "entry_timeframe",
 };
 
 const COLOR_PALETTE = [
