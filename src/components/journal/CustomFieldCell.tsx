@@ -13,22 +13,6 @@ interface CustomFieldCellProps {
   field: CustomFieldDefinition;
 }
 
-// Map a hex color string to one of the BadgeSelect color keys for tinting.
-function hexToColorKey(hex?: string): string {
-  if (!hex) return "muted";
-  const map: Record<string, string> = {
-    "#22C55E": "profit",
-    "#EF4444": "loss",
-    "#EAB308": "breakeven",
-    "#F59E0B": "newyork",
-    "#3B82F6": "primary",
-    "#6B7280": "muted",
-    "#EC4899": "tokyo",
-    "#8B5CF6": "primary",
-  };
-  return map[hex] || "muted";
-}
-
 export function CustomFieldCell({ trade, field }: CustomFieldCellProps) {
   const updateTrade = useUpdateTrade();
   const current = (trade as any).custom_fields?.[field.key];
@@ -46,10 +30,11 @@ export function CustomFieldCell({ trade, field }: CustomFieldCellProps) {
   };
 
   if (field.type === "select" || field.type === "multi_select") {
+    // Pass the picker hex straight through — BadgeSelect uses customColor for an exact match.
     const options = field.options.map((o) => ({
       value: o.value,
       label: o.label,
-      color: hexToColorKey(o.color),
+      customColor: o.color || undefined,
     }));
     return (
       <div onClick={(e) => e.stopPropagation()}>
