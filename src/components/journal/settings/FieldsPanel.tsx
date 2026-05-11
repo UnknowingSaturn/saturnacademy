@@ -532,106 +532,78 @@ export function FieldsPanel() {
         </SortableContext>
       </DndContext>
 
-      {/* Hidden system fields */}
-      {hiddenSystem.length > 0 && (
+      {/* Unified hidden fields (system + custom + tombstoned) */}
+      {hiddenEntries.length > 0 && (
         <div className="pt-4 border-t border-border">
           <div className="text-xs font-medium text-muted-foreground mb-2">
-            Hidden system fields ({hiddenSystem.length})
+            Hidden fields ({hiddenEntries.length})
           </div>
           <div className="space-y-2">
-            {hiddenSystem.map((c) => (
-              <div
-                key={c.key}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-border bg-muted/30"
-              >
-                <div>
-                  <div className="text-sm font-medium">
-                    {resolveFieldLabel(c.key, c.label, overrides)}
+            {hiddenEntries.map((entry) => {
+              if (entry.kind === "custom") {
+                const f = entry.def;
+                return (
+                  <div
+                    key={`custom-${f.id}`}
+                    className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-border bg-muted/30"
+                  >
+                    <div>
+                      <div className="text-sm font-medium">{f.label}</div>
+                      <div className="text-xs text-muted-foreground">Custom · {f.type}</div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => restoreCustom(f)}>
+                        <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                        Restore
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => { setEraseAlongDelete(false); setDeleteTarget({ kind: "custom-erase", field: f }); }}
+                          >
+                            Erase data from all trades
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => { setEraseAlongDelete(false); setDeleteTarget({ kind: "custom-hard", field: f }); }}
+                          >
+                            Permanently delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">{c.type}</div>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => restoreSystem(c.key)}>
-                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                  Restore
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Deleted fields (per-user tombstones) */}
-      {deletedSystem.length > 0 && (
-        <div className="pt-4 border-t border-border">
-          <div className="text-xs font-medium text-muted-foreground mb-2">
-            Deleted fields ({deletedSystem.length})
-          </div>
-          <div className="space-y-2">
-            {deletedSystem.map((c) => (
-              <div
-                key={c.key}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-destructive/40 bg-destructive/5"
-              >
-                <div>
-                  <div className="text-sm font-medium">
-                    {resolveFieldLabel(c.key, c.label, overrides)}
+                );
+              }
+              return (
+                <div
+                  key={`sys-${entry.key}`}
+                  className={cn(
+                    "flex items-center justify-between p-2.5 rounded-lg border border-dashed",
+                    entry.deleted ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/30"
+                  )}
+                >
+                  <div>
+                    <div className="text-sm font-medium">
+                      {resolveFieldLabel(entry.key, entry.label, overrides)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {entry.deleted ? `Deleted · ${entry.type}` : entry.type}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">Deleted · {c.type}</div>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => restoreSystem(c.key)}>
-                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                  Restore
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {inactiveCustom.length > 0 && (
-        <div className="pt-4 border-t border-border">
-          <div className="text-xs font-medium text-muted-foreground mb-2">
-            Hidden custom fields ({inactiveCustom.length})
-          </div>
-          <div className="space-y-2">
-            {inactiveCustom.map((f) => (
-              <div
-                key={f.id}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-border bg-muted/30"
-              >
-                <div>
-                  <div className="text-sm font-medium">{f.label}</div>
-                  <div className="text-xs text-muted-foreground">Custom · {f.type}</div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => restoreCustom(f)}>
+                  <Button variant="ghost" size="sm" onClick={() => restoreSystem(entry.key)}>
                     <RotateCcw className="w-3.5 h-3.5 mr-1" />
                     Restore
                   </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => { setEraseAlongDelete(false); setDeleteTarget({ kind: "custom-erase", field: f }); }}
-                      >
-                        Erase data from all trades
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => { setEraseAlongDelete(false); setDeleteTarget({ kind: "custom-hard", field: f }); }}
-                      >
-                        Permanently delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
