@@ -95,6 +95,27 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   const updateSettings = useUpdateUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
 
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  const handleColumnDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const activeKey = String(active.id);
+    const overKey = String(over.id);
+    // Build base order from persisted settings (fallback to current registry order)
+    const base = (settings?.column_order && settings.column_order.length > 0)
+      ? [...settings.column_order]
+      : columnRegistry.map(c => c.key);
+    // Ensure both keys exist in base (newly added custom fields may be missing)
+    if (!base.includes(activeKey)) base.push(activeKey);
+    if (!base.includes(overKey)) base.push(overKey);
+    const from = base.indexOf(activeKey);
+    const to = base.indexOf(overKey);
+    if (from === -1 || to === -1) return;
+    const newOrder = arrayMove(base, from, to);
+    await updateSettings.mutateAsync({ column_order: newOrder });
+  };
+
   const handleHideColumn = async (key: string) => {
     const current = settings?.visible_columns || [];
     if (!current.includes(key)) return;
