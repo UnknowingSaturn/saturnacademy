@@ -107,8 +107,6 @@ type FieldRow = {
 };
 
 const SYSTEM_OPTION_PROPERTY: Record<string, string> = {
-  emotion: "emotion",
-  emotional_state_before: "emotion",
   session: "session",
   profile: "profile",
   actual_profile: "profile",
@@ -116,6 +114,7 @@ const SYSTEM_OPTION_PROPERTY: Record<string, string> = {
   actual_regime: "regime",
   alignment: "timeframe",
   entry_timeframes: "entry_timeframe",
+  emotional_state_before: "emotion",
 };
 
 const COLOR_PALETTE = [
@@ -198,24 +197,24 @@ export function FieldsPanel() {
     return ordered;
   }, [settings?.detail_field_order, customFields]);
 
-  // Build the unified field list. Order: detail-order first (covers system + active custom),
-  // then table-only system columns not in the detail catalog. Skips per-user deleted fields.
+  // Build the unified field list. Order follows the TABLE column order first (so reordering
+  // here visually matches what users see in the journal), then appends detail-only fields,
+  // then any remaining table-only system columns. Skips per-user deleted fields.
   const rows = useMemo<FieldRow[]>(() => {
     const out: FieldRow[] = [];
     const seen = new Set<string>();
 
     const tableKeys = new Set(DEFAULT_COLUMNS.map((c) => c.key));
-
     const activeCustomMap = new Map(customFields.filter((f) => f.is_active).map((f) => [f.key, f]));
 
-    // Walk detail order (covers system + active custom in user order)
-    for (const key of detailOrder) {
-      if (seen.has(key)) continue;
-      if (deletedSet.has(key)) { seen.add(key); continue; }
-      seen.add(key);
+    const pushSystemKey = (key: string) => {
+      if (seen.has(key)) return;
+      if (deletedSet.has(key)) { seen.add(key); return; }
       const sys = DETAIL_FIELD_CATALOG.find((d) => d.key === key);
+      const col = DEFAULT_COLUMNS.find((c) => c.key === key);
       const custom = activeCustomMap.get(key);
       if (custom) {
+        seen.add(key);
         out.push({
           key,
           defaultLabel: custom.label,
@@ -227,6 +226,7 @@ export function FieldsPanel() {
           optionsPropertyName: undefined,
         });
       } else if (sys) {
+        seen.add(key);
         out.push({
           key,
           defaultLabel: sys.label,
@@ -236,30 +236,36 @@ export function FieldsPanel() {
           isInDetail: true,
           optionsPropertyName: SYSTEM_OPTION_PROPERTY[key] ?? sys.propertyName,
         });
+      } else if (col) {
+        seen.add(key);
+        out.push({
+          key,
+          defaultLabel: col.label,
+          category: isCoreField(key) ? "core" : "system",
+          description: `Table · ${col.type}`,
+          isInTable: true,
+          isInDetail: false,
+          optionsPropertyName: SYSTEM_OPTION_PROPERTY[key] ?? col.propertyName,
+        });
       }
-    }
+    };
 
-    // Table-only system columns (e.g. trade_number, entry_time) not in the detail catalog
+    // 1. Walk the user's table column order (visible OR hidden — covers the live table layout)
+    for (const key of columnOrder) pushSystemKey(key);
+
+    // 2. Walk detail order for fields not in the table (covers detail-only system + active custom)
+    for (const key of detailOrder) pushSystemKey(key);
+
+    // 3. Append any remaining table-only system columns not yet seen
     for (const col of DEFAULT_COLUMNS) {
-      if (seen.has(col.key)) continue;
       if (col.key.startsWith("cf_")) continue;
-      if (deletedSet.has(col.key)) { seen.add(col.key); continue; }
-      seen.add(col.key);
-      out.push({
-        key: col.key,
-        defaultLabel: col.label,
-        category: isCoreField(col.key) ? "core" : "system",
-        description: `Table · ${col.type}`,
-        isInTable: true,
-        isInDetail: false,
-        optionsPropertyName: SYSTEM_OPTION_PROPERTY[col.key] ?? col.propertyName,
-      });
+      pushSystemKey(col.key);
     }
 
     return out;
-  }, [detailOrder, customFields, deletedSet]);
+  }, [columnOrder, detailOrder, customFields, deletedSet]);
 
-  const inactiveCustom = customFields.filter((f) => !f.is_active);
+  
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -445,23 +451,38 @@ export function FieldsPanel() {
   // Compute the currently-rendered label for a row
   const resolveLabel = (row: FieldRow) => resolveFieldLabel(row.key, row.defaultLabel, overrides);
 
-  // Hidden system fields = present in defaults but absent from columnOrder AND not user-deleted
-  const hiddenSystem = useMemo(() => {
-    const orderSet = new Set(columnOrder);
-    return DEFAULT_COLUMNS.filter((c) => !orderSet.has(c.key) && !c.key.startsWith("cf_") && !deletedSet.has(c.key));
-  }, [columnOrder, deletedSet]);
+  // Unified "Hidden fields" list: tombstoned system fields, system fields missing from
+  // column_order, and inactive custom fields — all rendered in one section with one Restore.
+  type HiddenEntry =
+    | { kind: "system"; key: string; label: string; type: string; deleted: boolean }
+    | { kind: "custom"; def: CustomFieldDefinition };
 
-  // Deleted (tombstoned) system fields — only shown in the Deleted area for restore.
-  const deletedSystem = useMemo(() => {
-    const list: { key: string; label: string; type: string }[] = [];
+  const hiddenEntries = useMemo<HiddenEntry[]>(() => {
+    const list: HiddenEntry[] = [];
+    const orderSet = new Set(columnOrder);
+    const seen = new Set<string>();
+    // Tombstoned system fields
     for (const k of settings?.deleted_system_fields || []) {
+      if (seen.has(k)) continue;
       const col = DEFAULT_COLUMNS.find((c) => c.key === k);
       const detail = DETAIL_FIELD_CATALOG.find((d) => d.key === k);
-      if (col) list.push({ key: k, label: col.label, type: col.type });
-      else if (detail) list.push({ key: k, label: detail.label, type: detail.kind });
+      if (col) { list.push({ kind: "system", key: k, label: col.label, type: col.type, deleted: true }); seen.add(k); }
+      else if (detail) { list.push({ kind: "system", key: k, label: detail.label, type: detail.kind, deleted: true }); seen.add(k); }
+    }
+    // System fields not in the active column order
+    for (const c of DEFAULT_COLUMNS) {
+      if (seen.has(c.key)) continue;
+      if (orderSet.has(c.key)) continue;
+      if (c.key.startsWith("cf_")) continue;
+      list.push({ kind: "system", key: c.key, label: c.label, type: c.type, deleted: false });
+      seen.add(c.key);
+    }
+    // Inactive custom fields
+    for (const f of customFields.filter((f) => !f.is_active)) {
+      list.push({ kind: "custom", def: f });
     }
     return list;
-  }, [settings?.deleted_system_fields]);
+  }, [columnOrder, settings?.deleted_system_fields, customFields]);
 
   if (loadingSettings || loadingFields) {
     return <div className="p-4 text-center text-muted-foreground">Loading fields…</div>;
@@ -511,106 +532,78 @@ export function FieldsPanel() {
         </SortableContext>
       </DndContext>
 
-      {/* Hidden system fields */}
-      {hiddenSystem.length > 0 && (
+      {/* Unified hidden fields (system + custom + tombstoned) */}
+      {hiddenEntries.length > 0 && (
         <div className="pt-4 border-t border-border">
           <div className="text-xs font-medium text-muted-foreground mb-2">
-            Hidden system fields ({hiddenSystem.length})
+            Hidden fields ({hiddenEntries.length})
           </div>
           <div className="space-y-2">
-            {hiddenSystem.map((c) => (
-              <div
-                key={c.key}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-border bg-muted/30"
-              >
-                <div>
-                  <div className="text-sm font-medium">
-                    {resolveFieldLabel(c.key, c.label, overrides)}
+            {hiddenEntries.map((entry) => {
+              if (entry.kind === "custom") {
+                const f = entry.def;
+                return (
+                  <div
+                    key={`custom-${f.id}`}
+                    className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-border bg-muted/30"
+                  >
+                    <div>
+                      <div className="text-sm font-medium">{f.label}</div>
+                      <div className="text-xs text-muted-foreground">Custom · {f.type}</div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => restoreCustom(f)}>
+                        <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                        Restore
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => { setEraseAlongDelete(false); setDeleteTarget({ kind: "custom-erase", field: f }); }}
+                          >
+                            Erase data from all trades
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => { setEraseAlongDelete(false); setDeleteTarget({ kind: "custom-hard", field: f }); }}
+                          >
+                            Permanently delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">{c.type}</div>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => restoreSystem(c.key)}>
-                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                  Restore
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Deleted fields (per-user tombstones) */}
-      {deletedSystem.length > 0 && (
-        <div className="pt-4 border-t border-border">
-          <div className="text-xs font-medium text-muted-foreground mb-2">
-            Deleted fields ({deletedSystem.length})
-          </div>
-          <div className="space-y-2">
-            {deletedSystem.map((c) => (
-              <div
-                key={c.key}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-destructive/40 bg-destructive/5"
-              >
-                <div>
-                  <div className="text-sm font-medium">
-                    {resolveFieldLabel(c.key, c.label, overrides)}
+                );
+              }
+              return (
+                <div
+                  key={`sys-${entry.key}`}
+                  className={cn(
+                    "flex items-center justify-between p-2.5 rounded-lg border border-dashed",
+                    entry.deleted ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/30"
+                  )}
+                >
+                  <div>
+                    <div className="text-sm font-medium">
+                      {resolveFieldLabel(entry.key, entry.label, overrides)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {entry.deleted ? `Deleted · ${entry.type}` : entry.type}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">Deleted · {c.type}</div>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => restoreSystem(c.key)}>
-                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                  Restore
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {inactiveCustom.length > 0 && (
-        <div className="pt-4 border-t border-border">
-          <div className="text-xs font-medium text-muted-foreground mb-2">
-            Hidden custom fields ({inactiveCustom.length})
-          </div>
-          <div className="space-y-2">
-            {inactiveCustom.map((f) => (
-              <div
-                key={f.id}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-border bg-muted/30"
-              >
-                <div>
-                  <div className="text-sm font-medium">{f.label}</div>
-                  <div className="text-xs text-muted-foreground">Custom · {f.type}</div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => restoreCustom(f)}>
+                  <Button variant="ghost" size="sm" onClick={() => restoreSystem(entry.key)}>
                     <RotateCcw className="w-3.5 h-3.5 mr-1" />
                     Restore
                   </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => { setEraseAlongDelete(false); setDeleteTarget({ kind: "custom-erase", field: f }); }}
-                      >
-                        Erase data from all trades
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => { setEraseAlongDelete(false); setDeleteTarget({ kind: "custom-hard", field: f }); }}
-                      >
-                        Permanently delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

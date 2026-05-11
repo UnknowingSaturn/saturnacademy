@@ -242,9 +242,9 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             </span>
           </PropertyRow>
         );
-      case 'emotion':
+      case 'emotional_state_before':
         return (
-          <PropertyRow key="emotion" label={labelFor('emotion', 'Emotion')}>
+          <PropertyRow key="emotional_state_before" label={labelFor('emotional_state_before', 'Emotion')}>
             <BadgeSelect
               value={trade.review?.emotional_state_before || ""}
               onChange={(v) => upsertReview.mutateAsync({

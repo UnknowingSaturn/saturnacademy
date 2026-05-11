@@ -119,7 +119,7 @@ export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
   { key: 'direction',        label: 'Direction',       kind: 'readonly', defaultVisible: true },
   { key: 'pnl',              label: 'P&L',             kind: 'readonly', defaultVisible: true },
   { key: 'r_pct',            label: 'R%',              kind: 'readonly', defaultVisible: true },
-  { key: 'emotion',          label: 'Emotion',         kind: 'select',  propertyName: 'emotion', isReviewField: true, field: 'emotional_state_before', defaultVisible: true },
+  { key: 'emotional_state_before', label: 'Emotion',     kind: 'select',  propertyName: 'emotion', isReviewField: true, field: 'emotional_state_before', defaultVisible: true },
   { key: 'session',          label: 'Session',         kind: 'select',  propertyName: 'session', field: 'session', defaultVisible: true },
   { key: 'model',            label: 'Planned Model',   kind: 'playbook-select', field: 'playbook_id', defaultVisible: true },
   { key: 'actual_model',     label: 'Actual Model',    kind: 'playbook-select', field: 'actual_playbook_id', defaultVisible: true },
@@ -137,6 +137,7 @@ export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
 // Keeps existing user layouts working after the catalog split.
 const LEGACY_DETAIL_KEY_MIGRATION: Record<string, string[]> = {
   timeframes: ['alignment', 'entry_timeframes'],
+  emotion: ['emotional_state_before'],
 };
 
 export function migrateDetailKeys(keys: string[]): string[] {

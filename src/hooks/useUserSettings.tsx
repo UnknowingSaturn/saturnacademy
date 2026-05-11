@@ -10,13 +10,33 @@ import { toast } from "sonner";
 import { useEffect, useMemo, useRef } from "react";
 import { setDisplayTimezone } from "@/lib/time";
 
+// Legacy → canonical key map for label/override records (mirrors migrateDetailKeys).
+const LEGACY_KEY_MAP: Record<string, string> = {
+  emotion: 'emotional_state_before',
+};
+
+function migrateKeyedRecord<T>(rec: Record<string, T> | null | undefined): Record<string, T> {
+  const out: Record<string, T> = { ...(rec || {}) };
+  for (const [legacy, canonical] of Object.entries(LEGACY_KEY_MAP)) {
+    if (out[legacy] !== undefined && out[canonical] === undefined) {
+      out[canonical] = out[legacy];
+    }
+    delete out[legacy];
+  }
+  return out;
+}
+
+function migrateKeyList(list: string[] | null | undefined): string[] {
+  return (list || []).map((k) => LEGACY_KEY_MAP[k] ?? k);
+}
+
 // Transform database row to typed object
 const transformSettings = (row: any): UserSettings => ({
   id: row.id,
   user_id: row.user_id,
-  visible_columns: row.visible_columns || DEFAULT_VISIBLE_COLUMNS,
-  column_order: row.column_order || DEFAULT_VISIBLE_COLUMNS,
-  column_overrides: (row.column_overrides as Record<string, any>) || {},
+  visible_columns: migrateKeyList(row.visible_columns) || DEFAULT_VISIBLE_COLUMNS,
+  column_order: migrateKeyList(row.column_order) || DEFAULT_VISIBLE_COLUMNS,
+  column_overrides: migrateKeyedRecord(row.column_overrides as Record<string, any>),
   default_filters: row.default_filters || [],
   live_trade_questions: (row.live_trade_questions as LiveTradeQuestion[]) || DEFAULT_LIVE_TRADE_QUESTIONS,
   display_timezone: row.display_timezone || 'America/New_York',
@@ -24,8 +44,8 @@ const transformSettings = (row: any): UserSettings => ({
   detail_field_order: migrateDetailKeys((row.detail_field_order as string[]) || []),
   detail_visible_sections: (row.detail_visible_sections as string[]) || [],
   detail_section_order: (row.detail_section_order as string[]) || [],
-  field_label_overrides: (row.field_label_overrides as Record<string, string>) || {},
-  deleted_system_fields: (row.deleted_system_fields as string[]) || [],
+  field_label_overrides: migrateKeyedRecord(row.field_label_overrides as Record<string, string>),
+  deleted_system_fields: migrateKeyList(row.deleted_system_fields as string[]),
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
