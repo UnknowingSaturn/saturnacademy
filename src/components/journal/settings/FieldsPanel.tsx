@@ -197,24 +197,24 @@ export function FieldsPanel() {
     return ordered;
   }, [settings?.detail_field_order, customFields]);
 
-  // Build the unified field list. Order: detail-order first (covers system + active custom),
-  // then table-only system columns not in the detail catalog. Skips per-user deleted fields.
+  // Build the unified field list. Order follows the TABLE column order first (so reordering
+  // here visually matches what users see in the journal), then appends detail-only fields,
+  // then any remaining table-only system columns. Skips per-user deleted fields.
   const rows = useMemo<FieldRow[]>(() => {
     const out: FieldRow[] = [];
     const seen = new Set<string>();
 
     const tableKeys = new Set(DEFAULT_COLUMNS.map((c) => c.key));
-
     const activeCustomMap = new Map(customFields.filter((f) => f.is_active).map((f) => [f.key, f]));
 
-    // Walk detail order (covers system + active custom in user order)
-    for (const key of detailOrder) {
-      if (seen.has(key)) continue;
-      if (deletedSet.has(key)) { seen.add(key); continue; }
-      seen.add(key);
+    const pushSystemKey = (key: string) => {
+      if (seen.has(key)) return;
+      if (deletedSet.has(key)) { seen.add(key); return; }
       const sys = DETAIL_FIELD_CATALOG.find((d) => d.key === key);
+      const col = DEFAULT_COLUMNS.find((c) => c.key === key);
       const custom = activeCustomMap.get(key);
       if (custom) {
+        seen.add(key);
         out.push({
           key,
           defaultLabel: custom.label,
@@ -226,6 +226,7 @@ export function FieldsPanel() {
           optionsPropertyName: undefined,
         });
       } else if (sys) {
+        seen.add(key);
         out.push({
           key,
           defaultLabel: sys.label,
@@ -235,28 +236,34 @@ export function FieldsPanel() {
           isInDetail: true,
           optionsPropertyName: SYSTEM_OPTION_PROPERTY[key] ?? sys.propertyName,
         });
+      } else if (col) {
+        seen.add(key);
+        out.push({
+          key,
+          defaultLabel: col.label,
+          category: isCoreField(key) ? "core" : "system",
+          description: `Table · ${col.type}`,
+          isInTable: true,
+          isInDetail: false,
+          optionsPropertyName: SYSTEM_OPTION_PROPERTY[key] ?? col.propertyName,
+        });
       }
-    }
+    };
 
-    // Table-only system columns (e.g. trade_number, entry_time) not in the detail catalog
+    // 1. Walk the user's table column order (visible OR hidden — covers the live table layout)
+    for (const key of columnOrder) pushSystemKey(key);
+
+    // 2. Walk detail order for fields not in the table (covers detail-only system + active custom)
+    for (const key of detailOrder) pushSystemKey(key);
+
+    // 3. Append any remaining table-only system columns not yet seen
     for (const col of DEFAULT_COLUMNS) {
-      if (seen.has(col.key)) continue;
       if (col.key.startsWith("cf_")) continue;
-      if (deletedSet.has(col.key)) { seen.add(col.key); continue; }
-      seen.add(col.key);
-      out.push({
-        key: col.key,
-        defaultLabel: col.label,
-        category: isCoreField(col.key) ? "core" : "system",
-        description: `Table · ${col.type}`,
-        isInTable: true,
-        isInDetail: false,
-        optionsPropertyName: SYSTEM_OPTION_PROPERTY[col.key] ?? col.propertyName,
-      });
+      pushSystemKey(col.key);
     }
 
     return out;
-  }, [detailOrder, customFields, deletedSet]);
+  }, [columnOrder, detailOrder, customFields, deletedSet]);
 
   const inactiveCustom = customFields.filter((f) => !f.is_active);
 
