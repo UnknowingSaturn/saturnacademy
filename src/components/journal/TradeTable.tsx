@@ -505,7 +505,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                         <BadgeSelect
                           value={trade.entry_timeframes || []}
                           onChange={(v) => handleEntryTimeframesChange(trade, v as string[])}
-                          options={formatOptions(timeframeOptions).length > 0 ? formatOptions(timeframeOptions) : [
+                          options={formatOptions(entryTimeframeOptions).length > 0 ? formatOptions(entryTimeframeOptions) : [
                             { value: "1min", label: "1min", color: "muted" },
                             { value: "5min", label: "5min", color: "muted" },
                             { value: "15min", label: "15min", color: "primary" },
