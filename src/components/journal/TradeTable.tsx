@@ -11,8 +11,52 @@ import { BulkActionBar } from "./BulkActionBar";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { ChevronRight, Lightbulb, FileText, Clock } from "lucide-react";
+import { ChevronRight, Lightbulb, FileText, Clock, GripVertical } from "lucide-react";
 import { DEFAULT_COLUMNS, ColumnDefinition, buildColumnRegistry } from "@/types/settings";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+interface SortableHeaderProps {
+  columnKey: string;
+  className?: string;
+  children: React.ReactNode;
+}
+
+function SortableHeader({ columnKey, className, children }: SortableHeaderProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: columnKey });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className={cn("group/header flex items-center gap-1", className)}>
+      <button
+        type="button"
+        className="opacity-0 group-hover/header:opacity-60 hover:!opacity-100 cursor-grab active:cursor-grabbing touch-none transition-opacity -ml-1"
+        aria-label="Drag to reorder column"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="w-3 h-3" />
+      </button>
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
+  );
+}
 import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { CustomFieldCell } from "./CustomFieldCell";
@@ -50,6 +94,27 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   const { data: settings } = useUserSettings();
   const updateSettings = useUpdateUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  const handleColumnDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const activeKey = String(active.id);
+    const overKey = String(over.id);
+    // Build base order from persisted settings (fallback to current registry order)
+    const base = (settings?.column_order && settings.column_order.length > 0)
+      ? [...settings.column_order]
+      : columnRegistry.map(c => c.key);
+    // Ensure both keys exist in base (newly added custom fields may be missing)
+    if (!base.includes(activeKey)) base.push(activeKey);
+    if (!base.includes(overKey)) base.push(overKey);
+    const from = base.indexOf(activeKey);
+    const to = base.indexOf(overKey);
+    if (from === -1 || to === -1) return;
+    const newOrder = arrayMove(base, from, to);
+    await updateSettings.mutateAsync({ column_order: newOrder });
+  };
 
   const handleHideColumn = async (key: string) => {
     const current = settings?.visible_columns || [];
@@ -297,26 +362,38 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
             />
           </div>
 
-          {activeColumns.map(key => {
-            const column = getColumn(key);
-            if (!column) return null;
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleColumnDragEnd}
+          >
+            <SortableContext items={activeColumns} strategy={horizontalListSortingStrategy}>
+              {activeColumns.map(key => {
+                const column = getColumn(key);
+                if (!column) return null;
 
-            return (
-              <div key={key} className={cn(key === 'r_multiple_actual' && 'text-right', key === 'result' && 'text-center')}>
-                <ColumnHeaderMenu
-                  column={column}
-                  sortColumn={sortColumn}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  onFilter={() => {}}
-                  onHide={() => handleHideColumn(key)}
-                  onEditProperty={onEditProperty}
-                >
-                  {column.label}
-                </ColumnHeaderMenu>
-              </div>
-            );
-          })}
+                return (
+                  <SortableHeader
+                    key={key}
+                    columnKey={key}
+                    className={cn(key === 'r_multiple_actual' && 'justify-end text-right', key === 'result' && 'justify-center text-center')}
+                  >
+                    <ColumnHeaderMenu
+                      column={column}
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                      onFilter={() => {}}
+                      onHide={() => handleHideColumn(key)}
+                      onEditProperty={onEditProperty}
+                    >
+                      {column.label}
+                    </ColumnHeaderMenu>
+                  </SortableHeader>
+                );
+              })}
+            </SortableContext>
+          </DndContext>
           <div></div>
         </div>
 
