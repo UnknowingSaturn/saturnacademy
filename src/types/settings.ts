@@ -113,12 +113,12 @@ export interface DetailSectionDef {
 export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
   { key: 'status',           label: 'Status',          kind: 'readonly', defaultVisible: true },
   { key: 'account',          label: 'Account',         kind: 'account-select', defaultVisible: true },
-  { key: 'pair',             label: 'Pair',            kind: 'readonly', defaultVisible: true },
+  { key: 'symbol',           label: 'Pair',            kind: 'readonly', defaultVisible: true },
   { key: 'day',              label: 'Day',             kind: 'readonly', defaultVisible: true },
-  { key: 'date',             label: 'Date (ET)',       kind: 'readonly', defaultVisible: true },
+  { key: 'entry_time',       label: 'Date (ET)',       kind: 'readonly', defaultVisible: true },
   { key: 'direction',        label: 'Direction',       kind: 'readonly', defaultVisible: true },
   { key: 'pnl',              label: 'P&L',             kind: 'readonly', defaultVisible: true },
-  { key: 'r_pct',            label: 'R%',              kind: 'readonly', defaultVisible: true },
+  { key: 'r_multiple_actual', label: 'R%',             kind: 'readonly', defaultVisible: true },
   { key: 'emotional_state_before', label: 'Emotion',     kind: 'select',  propertyName: 'emotion', isReviewField: true, field: 'emotional_state_before', defaultVisible: true },
   { key: 'session',          label: 'Session',         kind: 'select',  propertyName: 'session', field: 'session', defaultVisible: true },
   { key: 'model',            label: 'Planned Model',   kind: 'playbook-select', field: 'playbook_id', defaultVisible: true },
@@ -138,6 +138,9 @@ export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
 const LEGACY_DETAIL_KEY_MIGRATION: Record<string, string[]> = {
   timeframes: ['alignment', 'entry_timeframes'],
   emotion: ['emotional_state_before'],
+  pair: ['symbol'],
+  date: ['entry_time'],
+  r_pct: ['r_multiple_actual'],
 };
 
 export function migrateDetailKeys(keys: string[]): string[] {

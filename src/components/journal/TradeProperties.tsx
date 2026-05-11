@@ -188,9 +188,9 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             />
           </PropertyRow>
         );
-      case 'pair':
+      case 'symbol':
         return (
-          <PropertyRow key="pair" icon={<Hash className="w-3.5 h-3.5" />} label={labelFor('pair', 'Pair')}>
+          <PropertyRow key="symbol" icon={<Hash className="w-3.5 h-3.5" />} label={labelFor('symbol', 'Pair')}>
             <span className="font-semibold">{trade.symbol}</span>
           </PropertyRow>
         );
@@ -200,9 +200,9 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             <span>{getDayNameET(trade.entry_time)}</span>
           </PropertyRow>
         );
-      case 'date':
+      case 'entry_time':
         return (
-          <PropertyRow key="date" icon={<Clock className="w-3.5 h-3.5" />} label={labelFor('date', 'Date (ET)')}>
+          <PropertyRow key="entry_time" icon={<Clock className="w-3.5 h-3.5" />} label={labelFor('entry_time', 'Date (ET)')}>
             <span>{formatFullDateTimeET(trade.entry_time)}</span>
           </PropertyRow>
         );
@@ -226,9 +226,9 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             </span>
           </PropertyRow>
         );
-      case 'r_pct':
+      case 'r_multiple_actual':
         return (
-          <PropertyRow key="r_pct" icon={<Target className="w-3.5 h-3.5" />} label={labelFor('r_pct', 'R%')}>
+          <PropertyRow key="r_multiple_actual" icon={<Target className="w-3.5 h-3.5" />} label={labelFor('r_multiple_actual', 'R%')}>
             <span
               className={cn(
                 "font-mono-numbers font-bold",

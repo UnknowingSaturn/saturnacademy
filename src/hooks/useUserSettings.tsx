@@ -13,6 +13,9 @@ import { setDisplayTimezone } from "@/lib/time";
 // Legacy → canonical key map for label/override records (mirrors migrateDetailKeys).
 const LEGACY_KEY_MAP: Record<string, string> = {
   emotion: 'emotional_state_before',
+  pair: 'symbol',
+  date: 'entry_time',
+  r_pct: 'r_multiple_actual',
 };
 
 function migrateKeyedRecord<T>(rec: Record<string, T> | null | undefined): Record<string, T> {
