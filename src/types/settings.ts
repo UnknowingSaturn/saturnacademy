@@ -334,6 +334,10 @@ export const COMPUTED_DISPLAY_COLUMNS: Record<string, true> = {
   read_quality: true,
   entry_time: true,
   symbol: true,
+  direction: true,
+  net_pnl: true,
+  status: true,
+  closes: true,
 };
 
 export function canEraseSystemField(key: string): boolean {
