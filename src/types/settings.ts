@@ -138,6 +138,9 @@ export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
 const LEGACY_DETAIL_KEY_MIGRATION: Record<string, string[]> = {
   timeframes: ['alignment', 'entry_timeframes'],
   emotion: ['emotional_state_before'],
+  pair: ['symbol'],
+  date: ['entry_time'],
+  r_pct: ['r_multiple_actual'],
 };
 
 export function migrateDetailKeys(keys: string[]): string[] {
