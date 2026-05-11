@@ -1,38 +1,31 @@
-# Fix: duplicate Pair / Date / RR rows in Settings → Fields
+## Goal
+Allow reordering table columns by dragging their headers directly in the trade table — no need to open Layout settings.
 
-## Cause
-Three system fields are registered under two different keys — one in `DETAIL_FIELD_CATALOG`, one in `DEFAULT_COLUMNS` — so the unified Fields list renders them twice:
+## Approach
+Reuse `@dnd-kit` (already in the project) to add horizontal drag-and-drop to the `TradeTable` header row. Persist the new order to `settings.column_order` via the existing `useUpdateUserSettings` hook, so it stays in sync with the Layout panel.
 
-| Concept | Detail key   | Table key            |
-|---------|--------------|----------------------|
-| Pair    | `pair`       | `symbol`             |
-| Date    | `date`       | `entry_time`         |
-| RR / R% | `r_pct`      | `r_multiple_actual`  |
+## Changes (single file: `src/components/journal/TradeTable.tsx`)
 
-This is the same bug class fixed previously for `emotion` → `emotional_state_before`. (Direction, P&L, Status, Closes only exist in the detail catalog, so they're not duplicated.)
+1. **Imports** — add `DndContext`, `PointerSensor`, `useSensor`, `useSensors`, `closestCenter`, `DragEndEvent` from `@dnd-kit/core`; `SortableContext`, `horizontalListSortingStrategy`, `useSortable`, `arrayMove` from `@dnd-kit/sortable`; `CSS` from `@dnd-kit/utilities`.
 
-## Change
+2. **Sortable header cell** — extract the existing header `<div>` (lines 300–319) into a small `SortableHeader` subcomponent that:
+   - calls `useSortable({ id: key })`
+   - applies `transform`/`transition` styles
+   - uses `attributes` + `listeners` on a drag handle wrapper around `column.label` (keep `ColumnHeaderMenu` click/sort/hide behavior intact — listeners only on the label area, not the menu trigger, so the dropdown still works)
+   - shows a subtle `cursor-grab` / `cursor-grabbing` affordance and a small opacity drop while dragging
 
-### 1. Make the table column key the canonical key
-In `src/types/settings.ts`, rename the detail catalog entries:
-- `pair` → `symbol`
-- `date` → `entry_time`
-- `r_pct` → `r_multiple_actual`
+3. **DnD wiring in `TradeTable`**:
+   - Sensor: `PointerSensor` with `activationConstraint: { distance: 6 }` so normal clicks on the header menu still work.
+   - Wrap the header row in `<DndContext onDragEnd={...} collisionDetection={closestCenter} sensors={sensors}>` and `<SortableContext items={activeColumns} strategy={horizontalListSortingStrategy}>`.
+   - `onDragEnd`: compute `arrayMove` on the *full* `settings.column_order` (not just visible) — find the moved key's index in the persisted order, find the target's index, move it. This preserves hidden-column positions.
+   - Persist with `updateSettings.mutateAsync({ column_order: newOrder })`. Optimistic UI comes for free because the next render uses the new order.
 
-The catalog entries stay readonly with the same labels ("Pair", "Date (ET)", "R%"). Only the `key` changes.
-
-### 2. Rename matching switch cases
-In `src/components/journal/TradeProperties.tsx`, update the three `case` labels and the `labelFor(...)` first arg + `<PropertyRow key=...>` so the renderer still matches.
-
-### 3. Migrate saved user settings transparently
-- Extend `LEGACY_DETAIL_KEY_MIGRATION` in `src/types/settings.ts` with `pair → [symbol]`, `date → [entry_time]`, `r_pct → [r_multiple_actual]`.
-- Extend `LEGACY_KEY_MAP` in `src/hooks/useUserSettings.tsx` with the same three pairs so `field_label_overrides`, `column_overrides`, `visible_columns`, `column_order`, `deleted_system_fields` all rewrite the legacy keys to the canonical ones on load.
-
-### 4. Audit
-Quick search for any other place that hard-codes the legacy keys (`'pair'`, `'date'`, `'r_pct'`) outside of these catalog entries — if any UI/sort/handler still references them, swap to the canonical key.
+4. **Edge cases**
+   - Checkbox column and trailing expand-arrow column stay outside `SortableContext` (not draggable).
+   - If `settings.column_order` is missing, fall back to current `activeColumns` as the base before applying the move (mirrors existing logic at lines 97–111).
+   - Custom field columns are reordered the same way (their keys are already in `column_order`).
 
 ## Out of scope
-No DB schema changes, no data writes, no changes to copier/EA, no changes to detail-panel rendering apart from the case-label rename. Behavior is identical, just one row per field.
-
-## Risk
-Visual + state only. Existing users with the legacy keys saved in their settings JSON have them transparently migrated on load (mirrors the Emotion fix). No data loss.
+- No changes to Layout settings panel, schema, or column visibility logic.
+- No row drag/drop, no resize handles.
+- No business logic / data changes.
