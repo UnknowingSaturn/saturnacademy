@@ -218,9 +218,9 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             </span>
           </PropertyRow>
         );
-      case 'pnl':
+      case 'net_pnl':
         return (
-          <PropertyRow key="pnl" icon={<DollarSign className="w-3.5 h-3.5" />} label={labelFor('pnl', 'P&L')}>
+          <PropertyRow key="net_pnl" icon={<DollarSign className="w-3.5 h-3.5" />} label={labelFor('net_pnl', 'P&L')}>
             <span className={cn("font-mono-numbers font-bold", isWin && "text-profit", isLoss && "text-loss")}>
               {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
             </span>

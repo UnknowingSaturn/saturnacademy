@@ -117,7 +117,7 @@ export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
   { key: 'day',              label: 'Day',             kind: 'readonly', defaultVisible: true },
   { key: 'entry_time',       label: 'Date (ET)',       kind: 'readonly', defaultVisible: true },
   { key: 'direction',        label: 'Direction',       kind: 'readonly', defaultVisible: true },
-  { key: 'pnl',              label: 'P&L',             kind: 'readonly', defaultVisible: true },
+  { key: 'net_pnl',          label: 'P&L',             kind: 'readonly', defaultVisible: true },
   { key: 'r_multiple_actual', label: 'R%',             kind: 'readonly', defaultVisible: true },
   { key: 'emotional_state_before', label: 'Emotion',     kind: 'select',  propertyName: 'emotion', isReviewField: true, field: 'emotional_state_before', defaultVisible: true },
   { key: 'session',          label: 'Session',         kind: 'select',  propertyName: 'session', field: 'session', defaultVisible: true },
@@ -141,6 +141,7 @@ const LEGACY_DETAIL_KEY_MIGRATION: Record<string, string[]> = {
   pair: ['symbol'],
   date: ['entry_time'],
   r_pct: ['r_multiple_actual'],
+  pnl: ['net_pnl'],
 };
 
 export function migrateDetailKeys(keys: string[]): string[] {
@@ -279,6 +280,11 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'actual_regime', label: 'Actual Regime', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'regime', category: 'editable' },
   { key: 'emotional_state_before', label: 'Emotion', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'emotion', category: 'editable' },
   { key: 'place', label: 'Place', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'editable' },
+  // Optional toggleable system fields (off by default — enable from Fields settings)
+  { key: 'direction', label: 'Direction', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.7fr)', category: 'calculated' },
+  { key: 'net_pnl', label: 'P&L', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'calculated' },
+  { key: 'status', label: 'Status', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 0.9fr)', category: 'calculated' },
+  { key: 'closes', label: 'Closes', type: 'number', sortable: false, filterable: false, hideable: true, width: 'minmax(60px, 0.7fr)', category: 'calculated' },
 ];
 
 // Source map: where each system field's data physically lives.
@@ -328,6 +334,10 @@ export const COMPUTED_DISPLAY_COLUMNS: Record<string, true> = {
   read_quality: true,
   entry_time: true,
   symbol: true,
+  direction: true,
+  net_pnl: true,
+  status: true,
+  closes: true,
 };
 
 export function canEraseSystemField(key: string): boolean {

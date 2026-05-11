@@ -16,6 +16,7 @@ const LEGACY_KEY_MAP: Record<string, string> = {
   pair: 'symbol',
   date: 'entry_time',
   r_pct: 'r_multiple_actual',
+  pnl: 'net_pnl',
 };
 
 function migrateKeyedRecord<T>(rec: Record<string, T> | null | undefined): Record<string, T> {

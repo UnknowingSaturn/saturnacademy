@@ -1,31 +1,41 @@
 ## Goal
-Allow reordering table columns by dragging their headers directly in the trade table — no need to open Layout settings.
+Make the Fields settings symmetric and robust: every system field that has a meaningful single-cell representation should be toggleable for **both** the table view and the detail panel. Today, fields like Direction, P&L, Status, and Closes only exist in the detail catalog — there's no way to enable them as table columns.
 
-## Approach
-Reuse `@dnd-kit` (already in the project) to add horizontal drag-and-drop to the `TradeTable` header row. Persist the new order to `settings.column_order` via the existing `useUpdateUserSettings` hook, so it stays in sync with the Layout panel.
+## Root cause
+`FieldsPanel` derives the "Show in table" toggle from `DEFAULT_COLUMNS`. Several detail-catalog keys (`direction`, `pnl`, `status`, `closes`) are missing there, so the toggle is permanently unavailable. `TradeTable` already renders `direction` and `net_pnl` if asked, but `status` and `closes` have no table renderer, and `pnl` (detail key) and `net_pnl` (table key) are split — same canonical-key bug pattern fixed last round for `symbol`/`entry_time`/`r_multiple_actual`.
 
-## Changes (single file: `src/components/journal/TradeTable.tsx`)
+## Changes
 
-1. **Imports** — add `DndContext`, `PointerSensor`, `useSensor`, `useSensors`, `closestCenter`, `DragEndEvent` from `@dnd-kit/core`; `SortableContext`, `horizontalListSortingStrategy`, `useSortable`, `arrayMove` from `@dnd-kit/sortable`; `CSS` from `@dnd-kit/utilities`.
+### 1. `src/types/settings.ts` — add the missing table columns
 
-2. **Sortable header cell** — extract the existing header `<div>` (lines 300–319) into a small `SortableHeader` subcomponent that:
-   - calls `useSortable({ id: key })`
-   - applies `transform`/`transition` styles
-   - uses `attributes` + `listeners` on a drag handle wrapper around `column.label` (keep `ColumnHeaderMenu` click/sort/hide behavior intact — listeners only on the label area, not the menu trigger, so the dropdown still works)
-   - shows a subtle `cursor-grab` / `cursor-grabbing` affordance and a small opacity drop while dragging
+Add these entries to `DEFAULT_COLUMNS` (all `hideable: true`, **not** in `DEFAULT_VISIBLE_COLUMNS` so behavior is unchanged for existing users):
 
-3. **DnD wiring in `TradeTable`**:
-   - Sensor: `PointerSensor` with `activationConstraint: { distance: 6 }` so normal clicks on the header menu still work.
-   - Wrap the header row in `<DndContext onDragEnd={...} collisionDetection={closestCenter} sensors={sensors}>` and `<SortableContext items={activeColumns} strategy={horizontalListSortingStrategy}>`.
-   - `onDragEnd`: compute `arrayMove` on the *full* `settings.column_order` (not just visible) — find the moved key's index in the persisted order, find the target's index, move it. This preserves hidden-column positions.
-   - Persist with `updateSettings.mutateAsync({ column_order: newOrder })`. Optimistic UI comes for free because the next render uses the new order.
+- `direction` — `type: 'badge'`, sortable, `width: minmax(70px, 0.7fr)`, category `calculated`
+- `net_pnl` — `type: 'number'`, sortable, `width: minmax(80px, 1fr)`, category `calculated`
+- `status` — `type: 'badge'`, sortable, `width: minmax(80px, 0.9fr)`, category `calculated`
+- `closes` — `type: 'number'`, not sortable, `width: minmax(60px, 0.7fr)`, category `calculated` (shows fill count)
 
-4. **Edge cases**
-   - Checkbox column and trailing expand-arrow column stay outside `SortableContext` (not draggable).
-   - If `settings.column_order` is missing, fall back to current `activeColumns` as the base before applying the move (mirrors existing logic at lines 97–111).
-   - Custom field columns are reordered the same way (their keys are already in `column_order`).
+Update `COMPUTED_DISPLAY_COLUMNS` to include `direction`, `net_pnl`, `status`, `closes` so they're treated as display-only (no erase action).
+
+### 2. Canonical-key alignment for P&L (mirror previous `symbol`/`entry_time` fix)
+
+- In `DETAIL_FIELD_CATALOG`, rename `pnl` → `net_pnl` (label stays `"P&L"`).
+- In `LEGACY_DETAIL_KEY_MIGRATION`, add `pnl: ['net_pnl']`.
+- In `useUserSettings.tsx` `LEGACY_KEY_MAP`, add `pnl → net_pnl` so saved `column_order`/`visible_columns`/label-overrides keep working.
+- In `TradeProperties.tsx`, rename the switch case `'pnl'` → `'net_pnl'`.
+
+### 3. `src/components/journal/TradeTable.tsx` — add missing renderers
+
+- Add `case 'status'` rendering the same OPEN / WIN / LOSS / BE badge used in the detail panel (small, centered).
+- Add `case 'closes'` rendering `getRealPartialCloses(trade).length + 1` (or `—` when no fills) — matches what the detail panel shows.
+- Existing `direction` and `net_pnl` cases stay as-is.
+
+### 4. Verify FieldsPanel auto-picks them up
+
+No code change needed — once a key is in `DEFAULT_COLUMNS`, `pushSystemKey` will set `isInTable: true` and the "Show in table" switch becomes available. Confirm by re-reading the `tableKeys` derivation.
 
 ## Out of scope
-- No changes to Layout settings panel, schema, or column visibility logic.
-- No row drag/drop, no resize handles.
-- No business logic / data changes.
+- No new detail-catalog entries for table-only fields (`trade_number`, `account_pct`, `result`, `trade_type`, `read_quality`) — user only flagged the table-side gap. Can be added in a follow-up if desired.
+- No DB / schema changes.
+- No changes to filtering, sorting beyond plugging the new columns into the existing pipeline.
+- No visibility defaults change — new columns are opt-in.

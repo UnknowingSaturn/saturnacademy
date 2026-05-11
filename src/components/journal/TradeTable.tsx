@@ -721,6 +721,37 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                     );
                   }
 
+                  if (key === 'status') {
+                    const isOpen = trade.is_open;
+                    const pnl = trade.net_pnl ?? 0;
+                    const win = !isOpen && pnl > 0;
+                    const loss = !isOpen && pnl < 0;
+                    const label = isOpen ? 'OPEN' : win ? 'WIN' : loss ? 'LOSS' : 'BE';
+                    return (
+                      <div key={key} className="flex justify-center">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-xs font-medium",
+                          isOpen && "bg-muted text-muted-foreground border border-border",
+                          win && "bg-profit/20 text-profit",
+                          loss && "bg-loss/20 text-loss",
+                          !isOpen && !win && !loss && "bg-breakeven/20 text-breakeven",
+                        )}>
+                          {label}
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  if (key === 'closes') {
+                    const partials = getRealPartialCloses(trade).length;
+                    const total = trade.is_open ? partials : partials + 1;
+                    return (
+                      <div key={key} className="text-sm text-muted-foreground text-center font-mono-numbers">
+                        {total > 0 ? `${total}×` : '—'}
+                      </div>
+                    );
+                  }
+
                   if (key === 'duration_seconds') {
                     const duration = trade.duration_seconds;
                     if (!duration) return <div key={key} className="text-sm text-muted-foreground">—</div>;
