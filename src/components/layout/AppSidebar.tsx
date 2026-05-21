@@ -242,6 +242,8 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+
+          {onStrategyLab && <StrategyLabConversationsGroup />}
         </SidebarContent>
 
         <SidebarFooter className="border-t border-sidebar-border p-4">
