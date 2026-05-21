@@ -31,6 +31,16 @@ const TOOL_LABELS: Record<string, string> = {
 export function AppliedChangeCard({ result, onUndo, isUndoing, isReverted }: AppliedChangeCardProps) {
   const label = TOOL_LABELS[result.tool] || result.tool;
 
+  // Rich rendering for scalp tools
+  if (result.success && result.tool === "scalp_edge_report" && result.change) {
+    return <ScalpEdgeReport report={result.change as unknown as ScalpReport} />;
+  }
+  if (result.success && result.tool === "scalp_context_lookup" && result.change) {
+    const c = result.change as { match: ScalpCell | null; matched_keys: number; query: Record<string, string> };
+    return <ScalpLookupResult match={c.match} matched_keys={c.matched_keys} query={c.query} />;
+  }
+
+
   return (
     <div
       className={cn(
