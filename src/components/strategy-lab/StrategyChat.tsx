@@ -203,7 +203,9 @@ export function StrategyChat({ messages, isStreaming, onSend, onAbort, onBacktes
                         <Layers className="h-4 w-4 text-foreground" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <MessageContent content={msg.content} />
+                        <div className="rounded-xl border border-border/60 bg-card/40 backdrop-blur px-5 py-4 shadow-sm">
+                          <MessageContent content={msg.content} />
+                        </div>
                       </div>
                     </div>
                   )}
