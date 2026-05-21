@@ -24,6 +24,7 @@ export interface ScalpReport {
   cells: ScalpCell[];
   coverage_pct: number;
   suggested_next_tag: string | null;
+  suggested_next_tag_coverage?: number | null;
   message?: string;
 }
 
