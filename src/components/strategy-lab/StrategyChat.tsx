@@ -8,6 +8,7 @@ import { CodeViewer } from "./CodeViewer";
 import { AppliedChangeCard, parseToolResults } from "./AppliedChangeCard";
 import { ReportUpload } from "./ReportUpload";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 
 export interface ChatMessage {
