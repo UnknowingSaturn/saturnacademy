@@ -74,17 +74,29 @@ export function ScalpEdgeReport({ report }: { report: ScalpReport }) {
         </label>
       </div>
 
-      {report.suggested_next_tag && (
-        <div className="flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
-          <Lightbulb className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
-          <div>
-            Next tag to start filling for sharper edges:{" "}
-            <span className="font-medium text-foreground">
-              {report.suggested_next_tag.replace(/^cf_/, "")}
-            </span>
+      {report.suggested_next_tag && (() => {
+        const cov = report.suggested_next_tag_coverage ?? null;
+        const label = report.suggested_next_tag.replace(/^cf_/, "");
+        const wellPopulated = cov != null && cov >= 0.1;
+        const pct = cov != null ? Math.round(cov * 100) : null;
+        return (
+          <div className="flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+            <Lightbulb className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+            <div>
+              {wellPopulated ? (
+                <>
+                  Most informative tag to populate more consistently
+                  {pct != null && <> (currently <span className="tabular-nums">{pct}%</span> of trades)</>}
+                  :{" "}
+                </>
+              ) : (
+                <>Most informative tag to start collecting: </>
+              )}
+              <span className="font-medium text-foreground">{label}</span>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-xs">
