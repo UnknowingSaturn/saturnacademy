@@ -782,7 +782,7 @@ serve(async (req) => {
 
       case "gap_analysis":
         systemPrompt = buildGapAnalysisPrompt(playbookContext, journalContext, reviewContext);
-        useTools = !!playbook_id;
+        useTools = true;
         break;
 
       case "chat":
