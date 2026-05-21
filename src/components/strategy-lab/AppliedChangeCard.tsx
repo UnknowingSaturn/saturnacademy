@@ -98,15 +98,72 @@ export function AppliedChangeCard({ result, onUndo, isUndoing, isReverted }: App
 
 export function parseToolResults(content: string): { text: string; toolResults: ToolResult[] } {
   const toolResults: ToolResult[] = [];
-  const cleanedText = content.replace(/\[TOOL_RESULT:(.*?)\]/g, (_, json) => {
-    try {
-      const parsed = JSON.parse(json);
-      toolResults.push(parsed);
-    } catch {
-      // ignore
-    }
-    return "";
-  }).replace(/\[PLAYBOOK_UPDATED\]/g, "").trim();
+  const MARKER = "[TOOL_RESULT:";
+  const SENTINEL = ":END_TOOL_RESULT]";
+  let out = "";
+  let i = 0;
 
+  while (i < content.length) {
+    const start = content.indexOf(MARKER, i);
+    if (start === -1) {
+      out += content.slice(i);
+      break;
+    }
+    out += content.slice(i, start);
+    const jsonStart = start + MARKER.length;
+
+    // Prefer sentinel-terminated form
+    const sentinelEnd = content.indexOf(SENTINEL, jsonStart);
+    let jsonStr: string | null = null;
+    let consumeEnd = -1;
+
+    if (sentinelEnd !== -1) {
+      jsonStr = content.slice(jsonStart, sentinelEnd);
+      consumeEnd = sentinelEnd + SENTINEL.length;
+    } else {
+      // Legacy form: bracket-balanced walk over the JSON object
+      let depth = 0;
+      let inStr = false;
+      let esc = false;
+      let started = false;
+      let j = jsonStart;
+      for (; j < content.length; j++) {
+        const ch = content[j];
+        if (inStr) {
+          if (esc) esc = false;
+          else if (ch === "\\") esc = true;
+          else if (ch === '"') inStr = false;
+          continue;
+        }
+        if (ch === '"') { inStr = true; continue; }
+        if (ch === "{") { depth++; started = true; continue; }
+        if (ch === "}") {
+          depth--;
+          if (started && depth === 0) {
+            if (content[j + 1] === "]") {
+              jsonStr = content.slice(jsonStart, j + 1);
+              consumeEnd = j + 2;
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    if (jsonStr !== null && consumeEnd !== -1) {
+      try {
+        toolResults.push(JSON.parse(jsonStr));
+      } catch {
+        // drop silently — don't leak raw JSON into the chat
+      }
+      i = consumeEnd;
+    } else {
+      // Unparseable marker — skip the literal "[TOOL_RESULT:" so it doesn't render
+      i = jsonStart;
+    }
+  }
+
+  const cleanedText = out.replace(/\[PLAYBOOK_UPDATED\]/g, "").trim();
   return { text: cleanedText, toolResults };
 }
+

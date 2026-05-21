@@ -1038,10 +1038,10 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
           toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
           appliedChanges.push({ tool: tc.name, result });
 
-          // Emit the legacy [TOOL_RESULT:...] marker as content so the client's
-          // existing AppliedChangeCard renderer picks it up.
+          // Emit the marker with a unique sentinel terminator so the client can
+          // parse it unambiguously even when the JSON contains `]` characters.
           await emitContent(
-            `\n[TOOL_RESULT:${JSON.stringify({ tool: tc.name, ...result })}]\n`
+            `\n[TOOL_RESULT:${JSON.stringify({ tool: tc.name, ...result })}:END_TOOL_RESULT]\n`
           );
         }
 
