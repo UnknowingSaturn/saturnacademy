@@ -198,15 +198,77 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "scalp_edge_report",
+      description: "Run scalp-edge analysis on the user's journaled trades. Returns per-context cells with sample size, win rate, expected R, Wilson lower bound, and a GO/SKIP/REVIEW verdict. Use this when the user asks which setups/sessions/tags are working, when to size up/down, or for an edge audit. Auto-detects context dimensions from custom_fields + system fields.",
+      parameters: {
+        type: "object",
+        properties: {
+          playbook_id: { type: "string", description: "Optional playbook UUID to scope analysis" },
+          symbol: { type: "string", description: "Optional symbol to scope analysis" },
+          lookback_days: { type: "integer", description: "How many days back to include (default 365)" },
+          min_samples: { type: "integer", description: "Minimum n for a cell to be considered confident" },
+          mode: { type: "string", enum: ["conservative", "aggressive"], description: "Verdict policy. Default conservative." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "scalp_context_lookup",
+      description: "Look up the GO/SKIP/REVIEW verdict for a specific scalp setup context (e.g. session=london, time_bucket=09:15, cf_pattern=123). Returns the closest matching cell with stats.",
+      parameters: {
+        type: "object",
+        properties: {
+          context: {
+            type: "object",
+            description: "Key/value pairs describing the current setup. Use dimensions returned by scalp_edge_report.dimensions_detected.",
+            additionalProperties: { type: "string" },
+          },
+          playbook_id: { type: "string" },
+          symbol: { type: "string" },
+          mode: { type: "string", enum: ["conservative", "aggressive"] },
+        },
+        required: ["context"],
+      },
+    },
+  },
 ];
 
 async function executeToolCall(
   toolName: string,
   args: Record<string, unknown>,
   playbookId: string,
-  serviceClient: ReturnType<typeof createClient>
+  serviceClient: ReturnType<typeof createClient>,
+  authHeader?: string
 ): Promise<{ success: boolean; message: string; change?: Record<string, unknown> }> {
   try {
+    // Scalp-edge tools don't require a playbook context — handle first.
+    if (toolName === "scalp_edge_report" || toolName === "scalp_context_lookup") {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const body = { ...args, ...(toolName === "scalp_context_lookup" ? { op: "lookup" } : {}) };
+      const res = await fetch(`${supabaseUrl}/functions/v1/scalp-edge-analysis`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader ?? "",
+        },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, message: json?.error ?? `scalp-edge-analysis ${res.status}` };
+      }
+      const summary =
+        toolName === "scalp_edge_report"
+          ? `Scalp edge report: ${json.cells?.length ?? 0} cells across ${json.sample_size ?? 0} trades (${json.mode} mode, ${json.coverage_pct ?? 0}% confident coverage)`
+          : `Lookup: ${json.match?.verdict ?? "no match"} (n=${json.match?.n ?? 0}, expR=${json.match?.expected_R?.toFixed?.(2) ?? "-"})`;
+      return { success: true, message: summary, change: json };
+    }
+
     const { data: playbook, error: fetchErr } = await serviceClient
       .from("playbooks")
       .select("*")
@@ -216,6 +278,7 @@ async function executeToolCall(
     if (fetchErr || !playbook) {
       return { success: false, message: "Could not find playbook" };
     }
+
 
     switch (toolName) {
       case "update_playbook_rules": {
@@ -719,7 +782,7 @@ serve(async (req) => {
 
       case "gap_analysis":
         systemPrompt = buildGapAnalysisPrompt(playbookContext, journalContext, reviewContext);
-        useTools = !!playbook_id;
+        useTools = true;
         break;
 
       case "chat":
@@ -741,8 +804,8 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
 `
           : `\n## Note\nNo playbook is currently selected, so you cannot use playbook modification tools. You can still discuss AMT theory, analyze general performance, and help design new strategies.\n`;
 
-        systemPrompt = `${AMT_KNOWLEDGE}\n\n${playbookContext}\n\n${journalContext}\n\n${reviewContext}\n\n${backtestContext}\n\n${toolInstructions}\n\n## Your Behavior\n\n1. When the user asks to generate an EA, produce complete, compilable MQL5 code in a single code block with language tag \`\`\`mql5.\n2. When analyzing performance, reference the journal data above and identify patterns using AMT concepts.\n3. When refining strategies, suggest specific rule changes with AMT reasoning. If the user agrees, use the tools to apply them.\n4. Always be specific — reference actual numbers from the journal data, actual rules from the playbook.\n5. If no playbook is selected, you can still discuss AMT theory and help design new strategies.\n6. Format responses with clear headers and bullet points for readability.\n7. When asked to analyze gaps, systematically check: entry rules have confirmations, confirmations have invalidations, failure modes cover journal mistakes, risk limits are set, checklist covers all categories.\n`;
-        useTools = !!playbook_id;
+        systemPrompt = `${AMT_KNOWLEDGE}\n\n${playbookContext}\n\n${journalContext}\n\n${reviewContext}\n\n${backtestContext}\n\n${toolInstructions}\n\n## Scalp-Edge Tools\n\nYou ALSO have two read-only analysis tools that work without a playbook:\n- scalp_edge_report — runs Markov-style edge analysis on the user's journaled trades, returning per-context cells (n, win rate, expected R, Wilson lower bound, GO/SKIP/REVIEW). Auto-detects dimensions from custom_fields + system fields.\n- scalp_context_lookup — verdict for one specific setup context.\n\nCall scalp_edge_report whenever the user asks which setups/sessions/times/tags are working, where their edge is, when to size up or skip, or for an "edge audit". Then summarise the top GO cells, the most concerning SKIP cells, and the suggested_next_tag.\n\n## Your Behavior\n\n1. When the user asks to generate an EA, produce complete, compilable MQL5 code in a single code block with language tag \`\`\`mql5.\n2. When analyzing performance, reference the journal data above and identify patterns using AMT concepts.\n3. When refining strategies, suggest specific rule changes with AMT reasoning. If the user agrees, use the tools to apply them.\n4. Always be specific — reference actual numbers from the journal data, actual rules from the playbook.\n5. If no playbook is selected, you can still discuss AMT theory, run scalp_edge_report, and help design new strategies.\n6. Format responses with clear headers and bullet points for readability.\n7. When asked to analyze gaps, systematically check: entry rules have confirmations, confirmations have invalidations, failure modes cover journal mistakes, risk limits are set, checklist covers all categories.\n`;
+        useTools = true;
         break;
       }
     }
@@ -875,7 +938,7 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
       }
     }
 
-    if (hasToolCalls && playbook_id) {
+    if (hasToolCalls) {
       const toolCalls = Object.values(toolCallBuffers).map((tc) => ({
         id: tc.id,
         function: { name: tc.name, arguments: tc.args },
@@ -887,10 +950,18 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
       for (const tc of toolCalls) {
         let args: Record<string, unknown> = {};
         try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
-        const result = await executeToolCall(tc.function.name, args, playbook_id, serviceClient);
+        const isScalpTool = tc.function.name === "scalp_edge_report" || tc.function.name === "scalp_context_lookup";
+        if (!playbook_id && !isScalpTool) {
+          const result = { success: false, message: "No playbook selected — cannot apply playbook edits." };
+          toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
+          appliedChanges.push({ tool: tc.function.name, result });
+          continue;
+        }
+        const result = await executeToolCall(tc.function.name, args, playbook_id ?? "", serviceClient, authHeader);
         toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
         appliedChanges.push({ tool: tc.function.name, result });
       }
+
 
       const followUpMessages = [
         { role: "system", content: systemPrompt },

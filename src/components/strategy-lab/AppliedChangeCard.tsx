@@ -2,6 +2,7 @@ import * as React from "react";
 import { CheckCircle2, Undo2, XCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ScalpEdgeReport, ScalpLookupResult, type ScalpReport, type ScalpCell } from "./ScalpEdgeReport";
 
 interface ToolResult {
   tool: string;
@@ -23,10 +24,22 @@ const TOOL_LABELS: Record<string, string> = {
   update_filters: "Filters",
   add_checklist_question: "Checklist",
   update_playbook_description: "Description",
+  scalp_edge_report: "Scalp Edge Report",
+  scalp_context_lookup: "Scalp Context Lookup",
 };
 
 export function AppliedChangeCard({ result, onUndo, isUndoing, isReverted }: AppliedChangeCardProps) {
   const label = TOOL_LABELS[result.tool] || result.tool;
+
+  // Rich rendering for scalp tools
+  if (result.success && result.tool === "scalp_edge_report" && result.change) {
+    return <ScalpEdgeReport report={result.change as unknown as ScalpReport} />;
+  }
+  if (result.success && result.tool === "scalp_context_lookup" && result.change) {
+    const c = result.change as { match: ScalpCell | null; matched_keys: number; query: Record<string, string> };
+    return <ScalpLookupResult match={c.match} matched_keys={c.matched_keys} query={c.query} />;
+  }
+
 
   return (
     <div
