@@ -938,7 +938,7 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
       }
     }
 
-    if (hasToolCalls && playbook_id) {
+    if (hasToolCalls) {
       const toolCalls = Object.values(toolCallBuffers).map((tc) => ({
         id: tc.id,
         function: { name: tc.name, arguments: tc.args },
@@ -950,10 +950,18 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
       for (const tc of toolCalls) {
         let args: Record<string, unknown> = {};
         try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
-        const result = await executeToolCall(tc.function.name, args, playbook_id, serviceClient);
+        const isScalpTool = tc.function.name === "scalp_edge_report" || tc.function.name === "scalp_context_lookup";
+        if (!playbook_id && !isScalpTool) {
+          const result = { success: false, message: "No playbook selected — cannot apply playbook edits." };
+          toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
+          appliedChanges.push({ tool: tc.function.name, result });
+          continue;
+        }
+        const result = await executeToolCall(tc.function.name, args, playbook_id ?? "", serviceClient, authHeader);
         toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
         appliedChanges.push({ tool: tc.function.name, result });
       }
+
 
       const followUpMessages = [
         { role: "system", content: systemPrompt },
