@@ -38,7 +38,7 @@ function getQuickActions(hasPlaybook: boolean, hasTradeData: boolean): QuickActi
     return [
       { category: "Theory", label: "Teach me AMT and how to apply volume profile to entries", message: "Explain how I can use volume profile and auction market theory to find high-probability trade entries. Include practical examples with value areas, POC, and day types." },
       { category: "Design", label: "Help me design a new AMT-based strategy", message: "Help me design a new trading strategy based on auction market theory. Walk me through choosing day types, entry zones, confirmation rules, and management approach." },
-      { category: "Edge Audit", label: "Run a scalp edge report on my trades", message: "Run a scalp edge report on my last 6 months of trades. Highlight the top GO setups, the worst SKIP cells, and the suggested next tag to start collecting." },
+      { category: "Edge Audit", label: "Run a scalp edge report on my trades", message: "Run a scalp edge report on my last 6 months of trades. Highlight the top GO setups, the worst SKIP cells, and the suggested next tag to focus on." },
       { category: "Performance", label: "Analyze my recent trading performance", message: "Analyze my recent trading performance across all playbooks. What patterns do you see? Where am I losing edge?" },
     ];
   }
