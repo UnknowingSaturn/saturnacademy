@@ -1,71 +1,53 @@
-# Make the chat assistant output read like a Weekly Report
+# Fix empty scalp-report output + stale tag suggestion
 
-## Problem
+## What's wrong
 
-The screenshot shows the AI's scalp-edge narrative rendered as a wall of cramped text. Headings ("Suggested Next Tag for Data Collection", "AMT-Based Action Plan") render as plain bold lines, paragraphs collide, bullets disappear, and inline code (`cf_cf_ideal_entry_window_jdl1`) has no visual weight. By contrast, the Weekly Report (`src/components/reports/ReportView.tsx`) renders the same kind of AI prose with generous spacing, serif section heads, accent rails, and proper markdown structure.
+Screenshot shows the assistant rendered only the `ScalpEdgeReport` card with "No cells meet n ≥ 20" and "Next tag to start filling for sharper edges: cf_ideal_entry_window_jdl1". Two problems:
 
-## Cause
+1. **No prose narrative.** Edge logs show `turn_started` and `tool_executed scalp_edge_report success=true`, but no `turn_completed`, no `follow_up_failed`, no `follow_up_empty`. The follow-up call either streamed back nothing meaningful (model saw the `message` summary already inside the tool result and emitted whitespace), or it bailed mid-stream. The current safety net only synthesizes when `second.sawContent` is false — a single whitespace token defeats it. Result: the user gets the card and nothing else.
+2. **Stale tag suggestion.** `suggestNextTag` in `supabase/functions/scalp-edge-analysis/index.ts` recommends the dimension with the largest variance reduction among *all* `cf_*` keys present on trades, regardless of how widely the field is already populated. The user already has `cf_ideal_entry_window_jdl1` populated, so suggesting it "to start filling" is wrong and condescending. The function has no notion of "coverage".
 
-`MessageContent` in `src/components/strategy-lab/StrategyChat.tsx` uses:
+## Fix
 
-```
-prose prose-sm dark:prose-invert max-w-none
-prose-p:my-1 prose-li:my-0.5 prose-headings:mt-3 prose-headings:mb-1
-```
+### A. `supabase/functions/strategy-lab/index.ts` — guarantee a written summary
 
-- `prose-p:my-1` and `prose-li:my-0.5` collapse vertical rhythm.
-- No `remark-gfm`, so tables, task lists, strikethrough, and autolinks degrade.
-- No styling for `h2`/`h3`, `blockquote`, `code`, `hr`, or `strong`, so the model's structural cues all flatten to body text.
-- No section framing, so a long answer reads as one block.
+Make the deterministic summary the floor, not a fallback:
 
-The Report view solves the same problem with `prose prose-sm max-w-none prose-p:my-3 prose-p:leading-[1.7]` + `remarkGfm` + a left accent rail per section.
+1. After tool execution and **before** the follow-up call, emit `summarizeToolResult(...)` for every scalp tool result. This guarantees the user always sees a prose block under the card, even if the model's follow-up is empty, partial, or aborted.
+2. Tell the follow-up turn (system addendum) that a deterministic summary has already been shown, so it should add *commentary and next actions* on top — not repeat the cell stats.
+3. Drop the now-redundant "safety net" synthesis at line 1088 to avoid double-printing.
+4. Keep the existing `follow_up_failed` path printing the summary (still useful if the follow-up errors *before* anything streams).
 
-## Fix (UI only — `src/components/strategy-lab/StrategyChat.tsx`)
+### B. `supabase/functions/scalp-edge-analysis/index.ts` — coverage-aware suggestion
 
-### 1. Upgrade the markdown surface in `MessageContent`
+In `runAnalysis` (around line 244):
 
-Replace the prose classes with a richer set modeled on `ReportView`:
+1. Compute `coverageByDim: Record<string, number>` = fraction of `labelled` rows where `ctx[dim]` is defined, for every dim seen.
+2. In `suggestNextTag`, accept `coverageByDim` and **exclude** candidates with `coverage >= 0.6` from the "start filling" pool — a 60%+ populated field is not a "next tag to start", it's already in use. If all candidates are above the threshold, return `null` and let the response say "no obvious gap".
+3. Return `suggested_next_tag_coverage: number | null` (coverage of the chosen tag, in [0,1]) alongside `suggested_next_tag` so the UI can give honest context.
 
-- `prose prose-sm dark:prose-invert max-w-none text-foreground/90 leading-relaxed`
-- Paragraphs: `prose-p:my-3 prose-p:leading-[1.7]`
-- Headings: `prose-h1:font-serif prose-h1:text-2xl prose-h1:mt-6 prose-h1:mb-2`, `prose-h2:font-serif prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-2 prose-h2:tracking-tight`, `prose-h3:text-base prose-h3:font-semibold prose-h3:uppercase prose-h3:tracking-widest prose-h3:text-primary prose-h3:mt-5 prose-h3:mb-1`
-- Strong / em: `prose-strong:text-foreground prose-strong:font-semibold prose-em:text-foreground/80`
-- Lists: `prose-ul:my-3 prose-ol:my-3 prose-li:my-1.5 prose-li:leading-[1.65] marker:text-primary/60`
-- Inline code: `prose-code:rounded prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-mono prose-code:before:content-[''] prose-code:after:content-['']`
-- Blockquote: `prose-blockquote:border-l-2 prose-blockquote:border-primary/40 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-foreground/80`
-- Tables (via `remark-gfm`): `prose-table:text-xs prose-th:font-semibold prose-th:bg-muted/30 prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2 prose-tr:border-b prose-tr:border-border/50`
-- `<hr/>`: `prose-hr:my-6 prose-hr:border-border/60`
-- Wire in `import remarkGfm from "remark-gfm"` and pass `remarkPlugins={[remarkGfm]}` to `<ReactMarkdown>`.
+### C. `src/components/strategy-lab/ScalpEdgeReport.tsx` — honest wording
 
-### 2. Frame each assistant message like a report section
+1. Extend the `ScalpReport` type with `suggested_next_tag_coverage: number | null`.
+2. Rewrite the suggestion line (≈ line 76-82):
+   - If `coverage == null` or `coverage < 0.1`: "Most informative tag to **start collecting**: `…`".
+   - If `0.1 <= coverage < 0.6`: "Most informative tag to **populate more consistently** (currently `${pct}%` of trades): `…`".
+   - If `coverage >= 0.6` (shouldn't happen after the filter, defensive only): suppress the suggestion entirely.
+3. Use the same `replace(/^cf_/, "")` display formatting.
 
-Wrap the assistant message body in a thin card that mirrors the report aesthetic without competing with the existing `Layers` avatar:
+### D. `src/components/strategy-lab/StrategyChat.tsx` — quick-action copy
 
-- Outer container: `rounded-xl border border-border/60 bg-card/40 backdrop-blur px-5 py-4 shadow-sm`.
-- First child stays as the existing tool-result cards (already styled) followed by the prose block.
-- Keep user messages unchanged.
-
-### 3. Promote the first H1/H2 into a serif section heading rail
-
-Inside the prose, the existing heading styles above already do this. No extra component needed — relying on prose customization keeps the change small.
-
-### 4. Tighten the code block contrast
-
-The existing `prose-pre:bg-black/40 prose-pre:border prose-pre:border-border` is fine but the new prose-code rules will conflict with `<pre><code>` blocks; scope the inline-code background reset by only customizing `:not(pre) > code` via `prose-code` (the `before/after content`) override above already handles backtick rendering; verify against an MQL5 code block to make sure fenced blocks still route through `CodeViewer` (they do — the split happens before markdown).
+Update the two scalp-edge quick actions (lines 40 and 54) so the wording matches: "the suggested next tag to focus on" instead of "to start collecting" / "to start filling next".
 
 ## Out of scope
 
-- Changing what the model says (no prompt edits).
-- Restyling `AppliedChangeCard` / `ScalpEdgeReport` cards (already rich).
-- Streaming, sidebar, or edge-function changes.
-- Adding new dependencies (`remark-gfm` is already in `package.json`).
+- Changing the verdict threshold (n ≥ 20 conservative) or the cell ranking math.
+- The recently-shipped prose styling, sidebar, streaming, or tool-result parser.
+- Adding new tools or new model prompts beyond the one-sentence addendum in §A.
 
 ## Verification
 
-1. Re-open the existing conversation `?c=5b09cc33…` and confirm the long scalp narrative now shows:
-   - clear section headings,
-   - breathing-room paragraphs,
-   - styled inline code for `cf_cf_ideal_entry_window_jdl1`,
-   - bullet markers and (if the model produces one) a GFM table.
-2. Send a fresh prompt to confirm new replies look the same.
-3. Ask for an MQL5 EA and confirm the fenced code block still renders through `CodeViewer` (not as prose).
+1. Re-run "Run a scalp edge report on my last 6 months of trades." A `ScalpEdgeReport` card appears followed by a Scalp Edge Summary prose block (top GO / worst SKIP / commentary) without needing the model's follow-up.
+2. Confirm the suggested tag line no longer recommends `cf_ideal_entry_window_jdl1` for this user (whose coverage is high). If everything is well-tagged, the line is omitted.
+3. Confirm `_No statistically significant contexts yet — keep journaling._` still renders when zero cells meet `n ≥ 20`.
+4. Check `[strategy-lab] turn_completed` shows up in edge logs after the run.

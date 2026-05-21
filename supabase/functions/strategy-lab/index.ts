@@ -915,6 +915,7 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
         const gos = cells.filter((c) => c.verdict === "GO").slice(0, 3);
         const skips = cells.filter((c) => c.verdict === "SKIP").slice(0, 3);
         const nextTag = change.suggested_next_tag as string | undefined;
+        const nextTagCoverage = change.suggested_next_tag_coverage as number | null | undefined;
         const lines: string[] = [];
         lines.push("\n## Scalp Edge Summary");
         if (gos.length) {
@@ -926,7 +927,15 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
           for (const s of skips) lines.push(`- \`${s.key}\` — n=${s.n}, WR=${s.win_rate}%, eR=${s.expected_r}`);
         }
         if (!gos.length && !skips.length) lines.push("\n_No statistically significant contexts yet — keep journaling._");
-        if (nextTag) lines.push(`\n**Suggested next tag to collect:** \`${nextTag}\``);
+        if (nextTag) {
+          const cleanTag = nextTag.replace(/^cf_/, "");
+          if (typeof nextTagCoverage === "number" && nextTagCoverage >= 0.1) {
+            const pct = Math.round(nextTagCoverage * 100);
+            lines.push(`\n**Most informative tag to populate more consistently** (currently ${pct}% of trades): \`${cleanTag}\``);
+          } else {
+            lines.push(`\n**Most informative tag to start collecting:** \`${cleanTag}\``);
+          }
+        }
         return lines.join("\n") + "\n";
       }
       if (tool === "scalp_context_lookup") {
@@ -1045,9 +1054,14 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
           );
         }
 
-        // Follow-up turn so the model can narrate the results
+        // Floor: always emit a deterministic summary block under the tool card(s)
+        // so the user gets readable prose even if the follow-up call streams nothing.
+        for (const c of appliedChanges) await emitContent(summarizeToolResult(c.tool, c.result));
+
+        // Follow-up turn so the model can add commentary on top of the summary
+        const followUpSystem = `${systemPrompt}\n\n## Follow-up turn\nA deterministic "Scalp Edge Summary" (or equivalent tool summary) has already been rendered to the user under the tool result card. Do NOT repeat the cell stats or the suggested tag line. Instead, add 2-4 short paragraphs of commentary: what the pattern means, what to do next, and any caveats. Skip if there is nothing useful to add.`;
         const followUpMessages = [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: followUpSystem },
           ...messages,
           {
             role: "assistant",
@@ -1074,8 +1088,6 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
 
         if (!followUpResponse.ok || !followUpResponse.body) {
           console.warn(`[strategy-lab] follow_up_failed status=${followUpResponse.status}`);
-          // Synthesize summary from tool results
-          for (const c of appliedChanges) await emitContent(summarizeToolResult(c.tool, c.result));
           if (playbookMutated) await emitContent("\n[PLAYBOOK_UPDATED]\n");
           await writer.write(enc.encode("data: [DONE]\n\n"));
           await writer.close();
@@ -1083,12 +1095,6 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
         }
 
         const second = await runTurn(followUpResponse.body);
-
-        // Safety net: if the follow-up produced nothing, synthesize a summary
-        if (!second.sawContent) {
-          console.warn(`[strategy-lab] follow_up_empty — synthesizing summary`);
-          for (const c of appliedChanges) await emitContent(summarizeToolResult(c.tool, c.result));
-        }
 
         if (playbookMutated) await emitContent("\n[PLAYBOOK_UPDATED]\n");
         await writer.write(enc.encode("data: [DONE]\n\n"));

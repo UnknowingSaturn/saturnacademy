@@ -38,7 +38,7 @@ function getQuickActions(hasPlaybook: boolean, hasTradeData: boolean): QuickActi
     return [
       { category: "Theory", label: "Teach me AMT and how to apply volume profile to entries", message: "Explain how I can use volume profile and auction market theory to find high-probability trade entries. Include practical examples with value areas, POC, and day types." },
       { category: "Design", label: "Help me design a new AMT-based strategy", message: "Help me design a new trading strategy based on auction market theory. Walk me through choosing day types, entry zones, confirmation rules, and management approach." },
-      { category: "Edge Audit", label: "Run a scalp edge report on my trades", message: "Run a scalp edge report on my last 6 months of trades. Highlight the top GO setups, the worst SKIP cells, and the suggested next tag to start collecting." },
+      { category: "Edge Audit", label: "Run a scalp edge report on my trades", message: "Run a scalp edge report on my last 6 months of trades. Highlight the top GO setups, the worst SKIP cells, and the suggested next tag to focus on." },
       { category: "Performance", label: "Analyze my recent trading performance", message: "Analyze my recent trading performance across all playbooks. What patterns do you see? Where am I losing edge?" },
     ];
   }
@@ -52,7 +52,7 @@ function getQuickActions(hasPlaybook: boolean, hasTradeData: boolean): QuickActi
   }
   return [
     { category: "Performance", label: "Analyze wins vs losses in this playbook", message: "Analyze my recent trading performance for this playbook. What patterns do you see in my wins vs losses? Where am I losing edge? What AMT concepts explain my results?" },
-    { category: "Edge Audit", label: "Run a scalp edge report on this playbook", message: "Run a scalp edge report scoped to this playbook. Show the top GO context cells, the worst SKIP cells, and which tag I should start filling next." },
+    { category: "Edge Audit", label: "Run a scalp edge report on this playbook", message: "Run a scalp edge report scoped to this playbook. Show the top GO context cells, the worst SKIP cells, and the suggested next tag to focus on." },
     { category: "Execution", label: "Generate a complete MQL5 EA from this playbook", message: "Generate a complete MQL5 Expert Advisor based on my selected playbook. Include session volume profile calculation, entry/exit logic matching my rules, and proper risk management." },
     { category: "Gaps", label: "Cross-check failure modes vs journal mistakes", message: "Analyze my playbook for gaps. Cross-reference my failure modes with actual journal mistakes. Check if my rules are complete and suggest fixes. Apply them if I approve." },
   ];

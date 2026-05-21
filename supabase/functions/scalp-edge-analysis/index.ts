@@ -200,11 +200,15 @@ function applyVerdict(cells: Cell[], mode: Mode) {
 // playbook cells. Very simple info-gain heuristic.
 function suggestNextTag(
   labelled: Array<{ ctx: Record<string, string>; r: number }>,
-  usedDimensions: string[]
-): string | null {
+  usedDimensions: string[],
+  coverageByDim: Record<string, number>,
+  maxCoverage = 0.6
+): { dim: string; coverage: number } | null {
   const allDims = new Set<string>();
   for (const { ctx } of labelled) Object.keys(ctx).forEach((d) => allDims.add(d));
-  const candidates = [...allDims].filter((d) => !usedDimensions.includes(d));
+  const candidates = [...allDims].filter(
+    (d) => !usedDimensions.includes(d) && (coverageByDim[d] ?? 0) < maxCoverage
+  );
   if (candidates.length === 0) return null;
 
   const baselineVar = (() => {
@@ -236,7 +240,8 @@ function suggestNextTag(
     const gain = baselineVar - condVar;
     if (!best || gain > best.gain) best = { dim, gain };
   }
-  return best?.dim ?? null;
+  if (!best) return null;
+  return { dim: best.dim, coverage: coverageByDim[best.dim] ?? 0 };
 }
 
 // ---------------- main analysis ----------------
@@ -274,6 +279,7 @@ async function runAnalysis(
       cells: [],
       coverage_pct: 0,
       suggested_next_tag: null,
+      suggested_next_tag_coverage: null,
       sample_size: 0,
       message: "No closed trades in lookback window.",
     };
@@ -367,7 +373,9 @@ async function runAnalysis(
     .reduce((s, c) => s + c.n, 0);
   const coverage_pct = N ? (confidentN / N) * 100 : 0;
 
-  const suggested_next_tag = suggestNextTag(labelled, ranked);
+  const coverageByDim: Record<string, number> = {};
+  for (const [k, count] of dimCount.entries()) coverageByDim[k] = N ? count / N : 0;
+  const suggestion = suggestNextTag(labelled, ranked, coverageByDim);
 
   // Sort: GO first, then expected_R desc
   cells.sort((a, b) => {
@@ -382,7 +390,8 @@ async function runAnalysis(
     dimensions_detected: ranked,
     cells,
     coverage_pct: Number(coverage_pct.toFixed(1)),
-    suggested_next_tag,
+    suggested_next_tag: suggestion?.dim ?? null,
+    suggested_next_tag_coverage: suggestion ? Number(suggestion.coverage.toFixed(3)) : null,
   };
 }
 
