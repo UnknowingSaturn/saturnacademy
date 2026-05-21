@@ -915,6 +915,7 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
         const gos = cells.filter((c) => c.verdict === "GO").slice(0, 3);
         const skips = cells.filter((c) => c.verdict === "SKIP").slice(0, 3);
         const nextTag = change.suggested_next_tag as string | undefined;
+        const nextTagCoverage = change.suggested_next_tag_coverage as number | null | undefined;
         const lines: string[] = [];
         lines.push("\n## Scalp Edge Summary");
         if (gos.length) {
@@ -926,7 +927,15 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
           for (const s of skips) lines.push(`- \`${s.key}\` — n=${s.n}, WR=${s.win_rate}%, eR=${s.expected_r}`);
         }
         if (!gos.length && !skips.length) lines.push("\n_No statistically significant contexts yet — keep journaling._");
-        if (nextTag) lines.push(`\n**Suggested next tag to collect:** \`${nextTag}\``);
+        if (nextTag) {
+          const cleanTag = nextTag.replace(/^cf_/, "");
+          if (typeof nextTagCoverage === "number" && nextTagCoverage >= 0.1) {
+            const pct = Math.round(nextTagCoverage * 100);
+            lines.push(`\n**Most informative tag to populate more consistently** (currently ${pct}% of trades): \`${cleanTag}\``);
+          } else {
+            lines.push(`\n**Most informative tag to start collecting:** \`${cleanTag}\``);
+          }
+        }
         return lines.join("\n") + "\n";
       }
       if (tool === "scalp_context_lookup") {
