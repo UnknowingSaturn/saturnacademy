@@ -279,6 +279,7 @@ async function runAnalysis(
       cells: [],
       coverage_pct: 0,
       suggested_next_tag: null,
+      suggested_next_tag_coverage: null,
       sample_size: 0,
       message: "No closed trades in lookback window.",
     };
