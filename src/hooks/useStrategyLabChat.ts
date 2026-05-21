@@ -4,7 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { ChatMessage } from "@/components/strategy-lab/StrategyChat";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/strategy-lab`;
-const STREAM_TIMEOUT_MS = 90_000;
+const STREAM_TIMEOUT_MS = 180_000;
 
 interface UseStrategyLabChatOptions {
   mode: string;

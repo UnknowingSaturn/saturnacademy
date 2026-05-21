@@ -890,148 +890,144 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
       });
     }
 
-    // Read stream, detect tool calls, keep raw SSE lines for passthrough
-    const reader = aiResponse.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let collectedContent = "";
-    let hasToolCalls = false;
-    const toolCallBuffers: Record<number, { id: string; name: string; args: string }> = {};
-    const rawSseLines: string[] = [];
+    // True streaming passthrough: pipe upstream SSE to client as it arrives,
+    // while parsing chunks for tool calls. If tool calls were emitted, run
+    // them after the upstream stream ends and append a follow-up stream.
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const enc = new TextEncoder();
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    (async () => {
+      const reader = aiResponse.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let collectedContent = "";
+      let hasToolCalls = false;
+      const toolCallBuffers: Record<number, { id: string; name: string; args: string }> = {};
 
-      let newlineIndex: number;
-      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-        let line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
-        if (line.endsWith("\r")) line = line.slice(0, -1);
-        if (!line.startsWith("data: ")) continue;
-        rawSseLines.push(line + "\n\n");
-        const jsonStr = line.slice(6).trim();
-        if (jsonStr === "[DONE]") continue;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          // Forward raw bytes to client immediately for token-by-token rendering
+          await writer.write(value);
 
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const choice = parsed.choices?.[0];
-          if (choice?.delta?.content) {
-            collectedContent += choice.delta.content;
-          }
-          if (choice?.delta?.tool_calls) {
-            hasToolCalls = true;
-            for (const tc of choice.delta.tool_calls) {
-              const idx = tc.index ?? 0;
-              if (!toolCallBuffers[idx]) {
-                toolCallBuffers[idx] = { id: tc.id || "", name: tc.function?.name || "", args: "" };
+          // Also parse a text copy to detect tool calls / accumulate content
+          buffer += decoder.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buffer.indexOf("\n")) !== -1) {
+            let line = buffer.slice(0, nl);
+            buffer = buffer.slice(nl + 1);
+            if (line.endsWith("\r")) line = line.slice(0, -1);
+            if (!line.startsWith("data: ")) continue;
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const choice = parsed.choices?.[0];
+              if (choice?.delta?.content) collectedContent += choice.delta.content;
+              if (choice?.delta?.tool_calls) {
+                hasToolCalls = true;
+                for (const tc of choice.delta.tool_calls) {
+                  const idx = tc.index ?? 0;
+                  if (!toolCallBuffers[idx]) {
+                    toolCallBuffers[idx] = { id: tc.id || "", name: tc.function?.name || "", args: "" };
+                  }
+                  if (tc.id) toolCallBuffers[idx].id = tc.id;
+                  if (tc.function?.name) toolCallBuffers[idx].name = tc.function.name;
+                  if (tc.function?.arguments) toolCallBuffers[idx].args += tc.function.arguments;
+                }
               }
-              if (tc.id) toolCallBuffers[idx].id = tc.id;
-              if (tc.function?.name) toolCallBuffers[idx].name = tc.function.name;
-              if (tc.function?.arguments) toolCallBuffers[idx].args += tc.function.arguments;
-            }
+            } catch { /* partial JSON — ignore */ }
           }
-        } catch {
-          // ignore partial JSON
         }
-      }
-    }
 
-    if (hasToolCalls) {
-      const toolCalls = Object.values(toolCallBuffers).map((tc) => ({
-        id: tc.id,
-        function: { name: tc.name, arguments: tc.args },
-      }));
+        if (!hasToolCalls) {
+          await writer.close();
+          return;
+        }
 
-      const toolResults: Array<{ tool_call_id: string; role: string; content: string }> = [];
-      const appliedChanges: Array<{ tool: string; result: Record<string, unknown> }> = [];
+        // Tool-call path: run tools, emit TOOL_RESULT markers, then pipe follow-up
+        const toolCalls = Object.values(toolCallBuffers).map((tc) => ({
+          id: tc.id,
+          function: { name: tc.name, arguments: tc.args },
+        }));
 
-      for (const tc of toolCalls) {
-        let args: Record<string, unknown> = {};
-        try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
-        const isScalpTool = tc.function.name === "scalp_edge_report" || tc.function.name === "scalp_context_lookup";
-        if (!playbook_id && !isScalpTool) {
-          const result = { success: false, message: "No playbook selected — cannot apply playbook edits." };
+        const toolResults: Array<{ tool_call_id: string; role: string; content: string }> = [];
+        const appliedChanges: Array<{ tool: string; result: Record<string, unknown> }> = [];
+
+        for (const tc of toolCalls) {
+          let args: Record<string, unknown> = {};
+          try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
+          const isScalpTool = tc.function.name === "scalp_edge_report" || tc.function.name === "scalp_context_lookup";
+          if (!playbook_id && !isScalpTool) {
+            const result = { success: false, message: "No playbook selected — cannot apply playbook edits." };
+            toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
+            appliedChanges.push({ tool: tc.function.name, result });
+            continue;
+          }
+          const result = await executeToolCall(tc.function.name, args, playbook_id ?? "", serviceClient, authHeader);
           toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
           appliedChanges.push({ tool: tc.function.name, result });
-          continue;
         }
-        const result = await executeToolCall(tc.function.name, args, playbook_id ?? "", serviceClient, authHeader);
-        toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
-        appliedChanges.push({ tool: tc.function.name, result });
-      }
 
+        for (const change of appliedChanges) {
+          const marker = `data: ${JSON.stringify({
+            choices: [{ delta: { content: `\n[TOOL_RESULT:${JSON.stringify({ tool: change.tool, ...change.result })}]\n` }, finish_reason: null }],
+          })}\n\n`;
+          await writer.write(enc.encode(marker));
+        }
 
-      const followUpMessages = [
-        { role: "system", content: systemPrompt },
-        ...messages,
-        {
-          role: "assistant",
-          content: collectedContent || null,
-          tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: "function", function: tc.function })),
-        },
-        ...toolResults,
-      ];
+        const followUpMessages = [
+          { role: "system", content: systemPrompt },
+          ...messages,
+          {
+            role: "assistant",
+            content: collectedContent || null,
+            tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: "function", function: tc.function })),
+          },
+          ...toolResults,
+        ];
 
-      const followUpResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: modelId,
-          messages: followUpMessages,
-          stream: true,
-          reasoning: { effort: reasoningEffort },
-        }),
-      });
-
-      if (!followUpResponse.ok) {
-        const changesSummary = appliedChanges
-          .map((c) => `[TOOL_RESULT:${JSON.stringify({ tool: c.tool, ...c.result })}]`)
-          .join("\n");
-        const fallbackContent = `${collectedContent}\n\n${changesSummary}\n\n[PLAYBOOK_UPDATED]`;
-        const encoder = new TextEncoder();
-        const sseData = `data: ${JSON.stringify({ choices: [{ delta: { content: fallbackContent }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
-        return new Response(encoder.encode(sseData), {
-          headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+        const followUpResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: modelId,
+            messages: followUpMessages,
+            stream: true,
+            reasoning: { effort: reasoningEffort },
+          }),
         });
-      }
 
-      const { readable, writable } = new TransformStream();
-      const writer = writable.getWriter();
-      const enc = new TextEncoder();
-
-      for (const change of appliedChanges) {
-        const marker = `data: ${JSON.stringify({
-          choices: [{ delta: { content: `\n[TOOL_RESULT:${JSON.stringify({ tool: change.tool, ...change.result })}]\n` }, finish_reason: null }],
-        })}\n\n`;
-        await writer.write(enc.encode(marker));
-      }
-
-      const followUpReader = followUpResponse.body!.getReader();
-      (async () => {
-        try {
-          while (true) {
-            const { done, value } = await followUpReader.read();
-            if (done) break;
-            await writer.write(value);
-          }
-        } finally {
+        if (!followUpResponse.ok || !followUpResponse.body) {
+          const fallback = `data: ${JSON.stringify({ choices: [{ delta: { content: "\n[PLAYBOOK_UPDATED]" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
+          await writer.write(enc.encode(fallback));
           await writer.close();
+          return;
         }
-      })();
 
-      return new Response(readable, {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
-      });
-    }
+        const fr = followUpResponse.body.getReader();
+        while (true) {
+          const { done, value } = await fr.read();
+          if (done) break;
+          await writer.write(value);
+        }
+        await writer.close();
+      } catch (e) {
+        console.error("strategy-lab stream error:", e);
+        try {
+          const errSse = `data: ${JSON.stringify({ choices: [{ delta: { content: `\n\n[stream error: ${e instanceof Error ? e.message : "unknown"}]` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
+          await writer.write(enc.encode(errSse));
+          await writer.close();
+        } catch { /* writer already closed */ }
+      }
+    })();
 
-    // No tool calls — replay the original SSE lines directly
-    const encoder = new TextEncoder();
-    return new Response(encoder.encode(rawSseLines.join("")), {
+    return new Response(readable, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {
