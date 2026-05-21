@@ -200,11 +200,15 @@ function applyVerdict(cells: Cell[], mode: Mode) {
 // playbook cells. Very simple info-gain heuristic.
 function suggestNextTag(
   labelled: Array<{ ctx: Record<string, string>; r: number }>,
-  usedDimensions: string[]
-): string | null {
+  usedDimensions: string[],
+  coverageByDim: Record<string, number>,
+  maxCoverage = 0.6
+): { dim: string; coverage: number } | null {
   const allDims = new Set<string>();
   for (const { ctx } of labelled) Object.keys(ctx).forEach((d) => allDims.add(d));
-  const candidates = [...allDims].filter((d) => !usedDimensions.includes(d));
+  const candidates = [...allDims].filter(
+    (d) => !usedDimensions.includes(d) && (coverageByDim[d] ?? 0) < maxCoverage
+  );
   if (candidates.length === 0) return null;
 
   const baselineVar = (() => {
@@ -236,7 +240,8 @@ function suggestNextTag(
     const gain = baselineVar - condVar;
     if (!best || gain > best.gain) best = { dim, gain };
   }
-  return best?.dim ?? null;
+  if (!best) return null;
+  return { dim: best.dim, coverage: coverageByDim[best.dim] ?? 0 };
 }
 
 // ---------------- main analysis ----------------
