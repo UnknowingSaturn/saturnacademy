@@ -805,7 +805,7 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
           : `\n## Note\nNo playbook is currently selected, so you cannot use playbook modification tools. You can still discuss AMT theory, analyze general performance, and help design new strategies.\n`;
 
         systemPrompt = `${AMT_KNOWLEDGE}\n\n${playbookContext}\n\n${journalContext}\n\n${reviewContext}\n\n${backtestContext}\n\n${toolInstructions}\n\n## Your Behavior\n\n1. When the user asks to generate an EA, produce complete, compilable MQL5 code in a single code block with language tag \`\`\`mql5.\n2. When analyzing performance, reference the journal data above and identify patterns using AMT concepts.\n3. When refining strategies, suggest specific rule changes with AMT reasoning. If the user agrees, use the tools to apply them.\n4. Always be specific — reference actual numbers from the journal data, actual rules from the playbook.\n5. If no playbook is selected, you can still discuss AMT theory and help design new strategies.\n6. Format responses with clear headers and bullet points for readability.\n7. When asked to analyze gaps, systematically check: entry rules have confirmations, confirmations have invalidations, failure modes cover journal mistakes, risk limits are set, checklist covers all categories.\n`;
-        useTools = !!playbook_id;
+        useTools = true;
         break;
       }
     }
