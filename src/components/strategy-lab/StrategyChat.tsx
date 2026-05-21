@@ -76,8 +76,27 @@ function MessageContent({ content }: { content: string }) {
         }
         if (!part.trim()) return null;
         return (
-          <div key={i} className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-li:my-0.5 prose-headings:mt-3 prose-headings:mb-1 prose-pre:bg-black/40 prose-pre:border prose-pre:border-border">
-            <ReactMarkdown>{part}</ReactMarkdown>
+          <div
+            key={i}
+            className={cn(
+              "prose prose-sm dark:prose-invert max-w-none text-foreground/90 leading-relaxed",
+              "prose-p:my-3 prose-p:leading-[1.7]",
+              "prose-h1:font-serif prose-h1:text-2xl prose-h1:mt-6 prose-h1:mb-2 prose-h1:tracking-tight",
+              "prose-h2:font-serif prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-2 prose-h2:tracking-tight",
+              "prose-h3:text-[11px] prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-[0.2em] prose-h3:text-primary prose-h3:mt-5 prose-h3:mb-1",
+              "prose-h4:text-sm prose-h4:font-semibold prose-h4:text-foreground prose-h4:mt-4 prose-h4:mb-1",
+              "prose-strong:text-foreground prose-strong:font-semibold",
+              "prose-em:text-foreground/80",
+              "prose-a:text-primary prose-a:no-underline hover:prose-a:underline",
+              "prose-ul:my-3 prose-ol:my-3 prose-li:my-1.5 prose-li:leading-[1.65] marker:text-primary/60",
+              "prose-code:rounded prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-mono prose-code:text-foreground prose-code:before:content-[''] prose-code:after:content-['']",
+              "prose-blockquote:border-l-2 prose-blockquote:border-primary/40 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-foreground/80 prose-blockquote:not-italic",
+              "prose-hr:my-6 prose-hr:border-border/60",
+              "prose-table:text-xs prose-th:font-semibold prose-th:bg-muted/30 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-td:px-3 prose-td:py-2 prose-tr:border-b prose-tr:border-border/50",
+              "prose-pre:bg-black/40 prose-pre:border prose-pre:border-border"
+            )}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{part}</ReactMarkdown>
           </div>
         );
       })}
