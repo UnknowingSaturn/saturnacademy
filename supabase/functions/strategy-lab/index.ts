@@ -198,6 +198,44 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "scalp_edge_report",
+      description: "Run scalp-edge analysis on the user's journaled trades. Returns per-context cells with sample size, win rate, expected R, Wilson lower bound, and a GO/SKIP/REVIEW verdict. Use this when the user asks which setups/sessions/tags are working, when to size up/down, or for an edge audit. Auto-detects context dimensions from custom_fields + system fields.",
+      parameters: {
+        type: "object",
+        properties: {
+          playbook_id: { type: "string", description: "Optional playbook UUID to scope analysis" },
+          symbol: { type: "string", description: "Optional symbol to scope analysis" },
+          lookback_days: { type: "integer", description: "How many days back to include (default 365)" },
+          min_samples: { type: "integer", description: "Minimum n for a cell to be considered confident" },
+          mode: { type: "string", enum: ["conservative", "aggressive"], description: "Verdict policy. Default conservative." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "scalp_context_lookup",
+      description: "Look up the GO/SKIP/REVIEW verdict for a specific scalp setup context (e.g. session=london, time_bucket=09:15, cf_pattern=123). Returns the closest matching cell with stats.",
+      parameters: {
+        type: "object",
+        properties: {
+          context: {
+            type: "object",
+            description: "Key/value pairs describing the current setup. Use dimensions returned by scalp_edge_report.dimensions_detected.",
+            additionalProperties: { type: "string" },
+          },
+          playbook_id: { type: "string" },
+          symbol: { type: "string" },
+          mode: { type: "string", enum: ["conservative", "aggressive"] },
+        },
+        required: ["context"],
+      },
+    },
+  },
 ];
 
 async function executeToolCall(
