@@ -242,9 +242,33 @@ async function executeToolCall(
   toolName: string,
   args: Record<string, unknown>,
   playbookId: string,
-  serviceClient: ReturnType<typeof createClient>
+  serviceClient: ReturnType<typeof createClient>,
+  authHeader?: string
 ): Promise<{ success: boolean; message: string; change?: Record<string, unknown> }> {
   try {
+    // Scalp-edge tools don't require a playbook context — handle first.
+    if (toolName === "scalp_edge_report" || toolName === "scalp_context_lookup") {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const body = { ...args, ...(toolName === "scalp_context_lookup" ? { op: "lookup" } : {}) };
+      const res = await fetch(`${supabaseUrl}/functions/v1/scalp-edge-analysis`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader ?? "",
+        },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, message: json?.error ?? `scalp-edge-analysis ${res.status}` };
+      }
+      const summary =
+        toolName === "scalp_edge_report"
+          ? `Scalp edge report: ${json.cells?.length ?? 0} cells across ${json.sample_size ?? 0} trades (${json.mode} mode, ${json.coverage_pct ?? 0}% confident coverage)`
+          : `Lookup: ${json.match?.verdict ?? "no match"} (n=${json.match?.n ?? 0}, expR=${json.match?.expected_R?.toFixed?.(2) ?? "-"})`;
+      return { success: true, message: summary, change: json };
+    }
+
     const { data: playbook, error: fetchErr } = await serviceClient
       .from("playbooks")
       .select("*")
@@ -254,6 +278,7 @@ async function executeToolCall(
     if (fetchErr || !playbook) {
       return { success: false, message: "Could not find playbook" };
     }
+
 
     switch (toolName) {
       case "update_playbook_rules": {
