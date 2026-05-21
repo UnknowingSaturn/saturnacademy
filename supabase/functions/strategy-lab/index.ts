@@ -1054,9 +1054,14 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
           );
         }
 
-        // Follow-up turn so the model can narrate the results
+        // Floor: always emit a deterministic summary block under the tool card(s)
+        // so the user gets readable prose even if the follow-up call streams nothing.
+        for (const c of appliedChanges) await emitContent(summarizeToolResult(c.tool, c.result));
+
+        // Follow-up turn so the model can add commentary on top of the summary
+        const followUpSystem = `${systemPrompt}\n\n## Follow-up turn\nA deterministic "Scalp Edge Summary" (or equivalent tool summary) has already been rendered to the user under the tool result card. Do NOT repeat the cell stats or the suggested tag line. Instead, add 2-4 short paragraphs of commentary: what the pattern means, what to do next, and any caveats. Skip if there is nothing useful to add.`;
         const followUpMessages = [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: followUpSystem },
           ...messages,
           {
             role: "assistant",
@@ -1083,8 +1088,6 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
 
         if (!followUpResponse.ok || !followUpResponse.body) {
           console.warn(`[strategy-lab] follow_up_failed status=${followUpResponse.status}`);
-          // Synthesize summary from tool results
-          for (const c of appliedChanges) await emitContent(summarizeToolResult(c.tool, c.result));
           if (playbookMutated) await emitContent("\n[PLAYBOOK_UPDATED]\n");
           await writer.write(enc.encode("data: [DONE]\n\n"));
           await writer.close();
@@ -1092,12 +1095,6 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
         }
 
         const second = await runTurn(followUpResponse.body);
-
-        // Safety net: if the follow-up produced nothing, synthesize a summary
-        if (!second.sawContent) {
-          console.warn(`[strategy-lab] follow_up_empty — synthesizing summary`);
-          for (const c of appliedChanges) await emitContent(summarizeToolResult(c.tool, c.result));
-        }
 
         if (playbookMutated) await emitContent("\n[PLAYBOOK_UPDATED]\n");
         await writer.write(enc.encode("data: [DONE]\n\n"));
