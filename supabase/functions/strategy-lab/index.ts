@@ -890,111 +890,180 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
       });
     }
 
-    // True streaming passthrough: pipe upstream SSE to client as it arrives,
-    // while parsing chunks for tool calls. If tool calls were emitted, run
-    // them after the upstream stream ends and append a follow-up stream.
+    // Normalized SSE: parse upstream, re-emit ONLY content deltas + tool markers,
+    // swallow upstream [DONE]s (one logical assistant turn = one client stream
+    // = exactly one final [DONE]). Run tools between turns when needed.
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const enc = new TextEncoder();
 
-    (async () => {
-      const reader = aiResponse.body!.getReader();
+    const emitContent = async (text: string) => {
+      if (!text) return;
+      const payload = `data: ${JSON.stringify({
+        choices: [{ delta: { content: text }, finish_reason: null }],
+      })}\n\n`;
+      await writer.write(enc.encode(payload));
+    };
+
+    const summarizeToolResult = (tool: string, result: Record<string, unknown>): string => {
+      if (!result || (result as { success?: boolean }).success === false) {
+        return `\n_Tool **${tool}** failed: ${(result as { message?: string })?.message || "unknown error"}._\n`;
+      }
+      if (tool === "scalp_edge_report") {
+        const change = (result as { change?: Record<string, unknown> }).change || {};
+        const cells = (change.cells as Array<Record<string, unknown>>) || [];
+        const gos = cells.filter((c) => c.verdict === "GO").slice(0, 3);
+        const skips = cells.filter((c) => c.verdict === "SKIP").slice(0, 3);
+        const nextTag = change.suggested_next_tag as string | undefined;
+        const lines: string[] = [];
+        lines.push("\n## Scalp Edge Summary");
+        if (gos.length) {
+          lines.push("\n**Top GO contexts**");
+          for (const g of gos) lines.push(`- \`${g.key}\` — n=${g.n}, WR=${g.win_rate}%, eR=${g.expected_r}`);
+        }
+        if (skips.length) {
+          lines.push("\n**Worst SKIP contexts**");
+          for (const s of skips) lines.push(`- \`${s.key}\` — n=${s.n}, WR=${s.win_rate}%, eR=${s.expected_r}`);
+        }
+        if (!gos.length && !skips.length) lines.push("\n_No statistically significant contexts yet — keep journaling._");
+        if (nextTag) lines.push(`\n**Suggested next tag to collect:** \`${nextTag}\``);
+        return lines.join("\n") + "\n";
+      }
+      if (tool === "scalp_context_lookup") {
+        const change = (result as { change?: Record<string, unknown> }).change || {};
+        const match = change.match as Record<string, unknown> | null;
+        if (!match) return "\n_No matching context found for that setup._\n";
+        return `\n**Verdict:** ${match.verdict} (n=${match.n}, WR=${match.win_rate}%, eR=${match.expected_r})\n`;
+      }
+      // Generic playbook tool
+      const msg = (result as { message?: string }).message || `Applied ${tool}.`;
+      return `\n_${msg}_\n`;
+    };
+
+    const runTurn = async (
+      stream: ReadableStream<Uint8Array>
+    ): Promise<{
+      collectedContent: string;
+      sawContent: boolean;
+      toolCalls: Array<{ id: string; name: string; args: string }>;
+    }> => {
+      const reader = stream.getReader();
       const decoder = new TextDecoder();
-      let buffer = "";
-      let collectedContent = "";
-      let hasToolCalls = false;
-      const toolCallBuffers: Record<number, { id: string; name: string; args: string }> = {};
+      let buf = "";
+      let collected = "";
+      let sawContent = false;
+      const toolBufs: Record<number, { id: string; name: string; args: string }> = {};
 
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          // Forward raw bytes to client immediately for token-by-token rendering
-          await writer.write(value);
-
-          // Also parse a text copy to detect tool calls / accumulate content
-          buffer += decoder.decode(value, { stream: true });
-          let nl: number;
-          while ((nl = buffer.indexOf("\n")) !== -1) {
-            let line = buffer.slice(0, nl);
-            buffer = buffer.slice(nl + 1);
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            if (!line.startsWith("data: ")) continue;
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const choice = parsed.choices?.[0];
-              if (choice?.delta?.content) collectedContent += choice.delta.content;
-              if (choice?.delta?.tool_calls) {
-                hasToolCalls = true;
-                for (const tc of choice.delta.tool_calls) {
-                  const idx = tc.index ?? 0;
-                  if (!toolCallBuffers[idx]) {
-                    toolCallBuffers[idx] = { id: tc.id || "", name: tc.function?.name || "", args: "" };
-                  }
-                  if (tc.id) toolCallBuffers[idx].id = tc.id;
-                  if (tc.function?.name) toolCallBuffers[idx].name = tc.function.name;
-                  if (tc.function?.arguments) toolCallBuffers[idx].args += tc.function.arguments;
-                }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          let line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") continue; // swallow upstream DONE
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const choice = parsed.choices?.[0];
+            const deltaContent = choice?.delta?.content;
+            if (deltaContent) {
+              collected += deltaContent;
+              sawContent = true;
+              await emitContent(deltaContent);
+            }
+            const tcDelta = choice?.delta?.tool_calls;
+            if (tcDelta) {
+              for (const tc of tcDelta) {
+                const idx = tc.index ?? 0;
+                if (!toolBufs[idx]) toolBufs[idx] = { id: tc.id || "", name: tc.function?.name || "", args: "" };
+                if (tc.id) toolBufs[idx].id = tc.id;
+                if (tc.function?.name) toolBufs[idx].name = tc.function.name;
+                if (tc.function?.arguments) toolBufs[idx].args += tc.function.arguments;
               }
-            } catch { /* partial JSON — ignore */ }
+            }
+          } catch {
+            // Re-buffer partial JSON
+            buf = line + "\n" + buf;
+            break;
           }
         }
+      }
+      return { collectedContent: collected, sawContent, toolCalls: Object.values(toolBufs) };
+    };
 
-        if (!hasToolCalls) {
+    (async () => {
+      try {
+        // Immediate ack so the client's stream-idle watchdog gets bytes <100ms
+        await writer.write(enc.encode(": ack\n\n"));
+        console.log(`[strategy-lab] turn_started mode=${mode} playbook_id=${playbook_id ?? "none"} msgs=${messages.length}`);
+
+        const first = await runTurn(aiResponse.body!);
+
+        if (first.toolCalls.length === 0) {
+          if (!first.sawContent) {
+            await emitContent("_The model returned no content. Try simplifying your request or selecting a different mode._");
+          }
+          await writer.write(enc.encode("data: [DONE]\n\n"));
           await writer.close();
+          console.log(`[strategy-lab] turn_completed no_tools content_len=${first.collectedContent.length}`);
           return;
         }
 
-        // Tool-call path: run tools, emit TOOL_RESULT markers, then pipe follow-up
-        const toolCalls = Object.values(toolCallBuffers).map((tc) => ({
-          id: tc.id,
-          function: { name: tc.name, arguments: tc.args },
-        }));
-
+        // Tool-call path
         const toolResults: Array<{ tool_call_id: string; role: string; content: string }> = [];
         const appliedChanges: Array<{ tool: string; result: Record<string, unknown> }> = [];
+        let playbookMutated = false;
 
-        for (const tc of toolCalls) {
+        for (const tc of first.toolCalls) {
           let args: Record<string, unknown> = {};
-          try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
-          const isScalpTool = tc.function.name === "scalp_edge_report" || tc.function.name === "scalp_context_lookup";
-          if (!playbook_id && !isScalpTool) {
-            const result = { success: false, message: "No playbook selected — cannot apply playbook edits." };
-            toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
-            appliedChanges.push({ tool: tc.function.name, result });
-            continue;
+          try { args = JSON.parse(tc.args); } catch { args = {}; }
+          const isScalpTool = tc.name === "scalp_edge_report" || tc.name === "scalp_context_lookup";
+          let result: Record<string, unknown>;
+          try {
+            if (!playbook_id && !isScalpTool) {
+              result = { success: false, message: "No playbook selected — cannot apply playbook edits." };
+            } else {
+              result = await executeToolCall(tc.name, args, playbook_id ?? "", serviceClient, authHeader);
+              if (!isScalpTool && (result as { success?: boolean }).success) playbookMutated = true;
+            }
+          } catch (toolErr) {
+            console.error(`[strategy-lab] tool_error ${tc.name}:`, toolErr);
+            result = { success: false, message: toolErr instanceof Error ? toolErr.message : "Tool execution failed" };
           }
-          const result = await executeToolCall(tc.function.name, args, playbook_id ?? "", serviceClient, authHeader);
+          console.log(`[strategy-lab] tool_executed ${tc.name} success=${(result as { success?: boolean }).success}`);
           toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) });
-          appliedChanges.push({ tool: tc.function.name, result });
+          appliedChanges.push({ tool: tc.name, result });
+
+          // Emit the legacy [TOOL_RESULT:...] marker as content so the client's
+          // existing AppliedChangeCard renderer picks it up.
+          await emitContent(
+            `\n[TOOL_RESULT:${JSON.stringify({ tool: tc.name, ...result })}]\n`
+          );
         }
 
-        for (const change of appliedChanges) {
-          const marker = `data: ${JSON.stringify({
-            choices: [{ delta: { content: `\n[TOOL_RESULT:${JSON.stringify({ tool: change.tool, ...change.result })}]\n` }, finish_reason: null }],
-          })}\n\n`;
-          await writer.write(enc.encode(marker));
-        }
-
+        // Follow-up turn so the model can narrate the results
         const followUpMessages = [
           { role: "system", content: systemPrompt },
           ...messages,
           {
             role: "assistant",
-            content: collectedContent || null,
-            tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: "function", function: tc.function })),
+            content: first.collectedContent || "",
+            tool_calls: first.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: "function",
+              function: { name: tc.name, arguments: tc.args },
+            })),
           },
           ...toolResults,
         ];
 
         const followUpResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             model: modelId,
             messages: followUpMessages,
@@ -1004,24 +1073,32 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
         });
 
         if (!followUpResponse.ok || !followUpResponse.body) {
-          const fallback = `data: ${JSON.stringify({ choices: [{ delta: { content: "\n[PLAYBOOK_UPDATED]" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
-          await writer.write(enc.encode(fallback));
+          console.warn(`[strategy-lab] follow_up_failed status=${followUpResponse.status}`);
+          // Synthesize summary from tool results
+          for (const c of appliedChanges) await emitContent(summarizeToolResult(c.tool, c.result));
+          if (playbookMutated) await emitContent("\n[PLAYBOOK_UPDATED]\n");
+          await writer.write(enc.encode("data: [DONE]\n\n"));
           await writer.close();
           return;
         }
 
-        const fr = followUpResponse.body.getReader();
-        while (true) {
-          const { done, value } = await fr.read();
-          if (done) break;
-          await writer.write(value);
+        const second = await runTurn(followUpResponse.body);
+
+        // Safety net: if the follow-up produced nothing, synthesize a summary
+        if (!second.sawContent) {
+          console.warn(`[strategy-lab] follow_up_empty — synthesizing summary`);
+          for (const c of appliedChanges) await emitContent(summarizeToolResult(c.tool, c.result));
         }
+
+        if (playbookMutated) await emitContent("\n[PLAYBOOK_UPDATED]\n");
+        await writer.write(enc.encode("data: [DONE]\n\n"));
         await writer.close();
+        console.log(`[strategy-lab] turn_completed tools=${first.toolCalls.length} follow_up_content=${second.collectedContent.length}`);
       } catch (e) {
-        console.error("strategy-lab stream error:", e);
+        console.error("[strategy-lab] stream_error:", e);
         try {
-          const errSse = `data: ${JSON.stringify({ choices: [{ delta: { content: `\n\n[stream error: ${e instanceof Error ? e.message : "unknown"}]` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
-          await writer.write(enc.encode(errSse));
+          await emitContent(`\n\n_Stream error: ${e instanceof Error ? e.message : "unknown"}_`);
+          await writer.write(enc.encode("data: [DONE]\n\n"));
           await writer.close();
         } catch { /* writer already closed */ }
       }

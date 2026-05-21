@@ -163,8 +163,16 @@ export function useStrategyLabChat({
           }
         }
 
-        // Check for empty response
-        if (!assistantContent.trim()) {
+        // Check for truly empty response (no prose AND no tool markers)
+        const hasToolMarker =
+          assistantContent.includes("[TOOL_RESULT:") ||
+          assistantContent.includes("[PLAYBOOK_UPDATED]");
+        if (!assistantContent.trim() && !hasToolMarker) {
+          // Remove the empty placeholder assistant bubble
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            return last?.role === "assistant" && !last.content ? prev.slice(0, -1) : prev;
+          });
           toast({
             title: "Empty response",
             description: "AI returned an empty response. Try again or simplify your request.",
@@ -173,10 +181,7 @@ export function useStrategyLabChat({
           return;
         }
 
-        if (
-          assistantContent.includes("[PLAYBOOK_UPDATED]") ||
-          assistantContent.includes("[TOOL_RESULT:")
-        ) {
+        if (assistantContent.includes("[PLAYBOOK_UPDATED]")) {
           onPlaybookUpdated?.();
         }
 

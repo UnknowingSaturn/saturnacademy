@@ -18,8 +18,10 @@ import {
   Share2,
   Brain
 } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { AccountSettingsDialog } from "./AccountSettingsDialog";
 import { NavLink } from "@/components/NavLink";
+import { StrategyLabConversationsGroup } from "@/components/strategy-lab/StrategyLabConversationsGroup";
 import {
   Sidebar,
   SidebarContent,
@@ -72,6 +74,8 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
     const openTradesCount = useOpenTradesCount();
     const { selectedAccountId, setSelectedAccountId, selectedAccount, accounts } = useAccountFilter();
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const location = useLocation();
+    const onStrategyLab = location.pathname === "/strategy-lab";
 
     const getCopierRoleBadge = (role: string) => {
       switch (role) {
@@ -238,6 +242,8 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+
+          {onStrategyLab && <StrategyLabConversationsGroup />}
         </SidebarContent>
 
         <SidebarFooter className="border-t border-sidebar-border p-4">
