@@ -373,7 +373,9 @@ async function runAnalysis(
     .reduce((s, c) => s + c.n, 0);
   const coverage_pct = N ? (confidentN / N) * 100 : 0;
 
-  const suggested_next_tag = suggestNextTag(labelled, ranked);
+  const coverageByDim: Record<string, number> = {};
+  for (const [k, count] of dimCount.entries()) coverageByDim[k] = N ? count / N : 0;
+  const suggestion = suggestNextTag(labelled, ranked, coverageByDim);
 
   // Sort: GO first, then expected_R desc
   cells.sort((a, b) => {
@@ -388,7 +390,8 @@ async function runAnalysis(
     dimensions_detected: ranked,
     cells,
     coverage_pct: Number(coverage_pct.toFixed(1)),
-    suggested_next_tag,
+    suggested_next_tag: suggestion?.dim ?? null,
+    suggested_next_tag_coverage: suggestion ? Number(suggestion.coverage.toFixed(3)) : null,
   };
 }
 
