@@ -74,6 +74,8 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
     const openTradesCount = useOpenTradesCount();
     const { selectedAccountId, setSelectedAccountId, selectedAccount, accounts } = useAccountFilter();
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const location = useLocation();
+    const onStrategyLab = location.pathname === "/strategy-lab";
 
     const getCopierRoleBadge = (role: string) => {
       switch (role) {
