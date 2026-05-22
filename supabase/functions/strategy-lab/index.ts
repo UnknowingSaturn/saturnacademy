@@ -264,7 +264,7 @@ async function executeToolCall(
       }
       const summary =
         toolName === "scalp_edge_report"
-          ? `Scalp edge report: ${json.cells?.length ?? 0} cells across ${json.sample_size ?? 0} trades (${json.mode} mode, ${json.coverage_pct ?? 0}% confident coverage)`
+          ? `Scalp edge report: ${json.cells?.length ?? 0} joint cells, ${json.marginals?.length ?? 0} marginal dims across ${json.sample_size ?? 0} trades (${json.mode} mode, ${json.marginal_coverage_pct ?? 0}% single-tag / ${json.joint_coverage_pct ?? json.coverage_pct ?? 0}% joint coverage)`
           : `Lookup: ${json.match?.verdict ?? "no match"} (n=${json.match?.n ?? 0}, expR=${json.match?.expected_R?.toFixed?.(2) ?? "-"})`;
       return { success: true, message: summary, change: json };
     }
