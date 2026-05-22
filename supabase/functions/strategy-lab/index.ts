@@ -264,7 +264,7 @@ async function executeToolCall(
       }
       const summary =
         toolName === "scalp_edge_report"
-          ? `Scalp edge report: ${json.cells?.length ?? 0} cells across ${json.sample_size ?? 0} trades (${json.mode} mode, ${json.coverage_pct ?? 0}% confident coverage)`
+          ? `Scalp edge report: ${json.cells?.length ?? 0} joint cells, ${json.marginals?.length ?? 0} marginal dims across ${json.sample_size ?? 0} trades (${json.mode} mode, ${json.marginal_coverage_pct ?? 0}% single-tag / ${json.joint_coverage_pct ?? json.coverage_pct ?? 0}% joint coverage)`
           : `Lookup: ${json.match?.verdict ?? "no match"} (n=${json.match?.n ?? 0}, expR=${json.match?.expected_R?.toFixed?.(2) ?? "-"})`;
       return { success: true, message: summary, change: json };
     }
@@ -912,29 +912,88 @@ After using a tool, include a marker in your response: [PLAYBOOK_UPDATED] so the
       if (tool === "scalp_edge_report") {
         const change = (result as { change?: Record<string, unknown> }).change || {};
         const cells = (change.cells as Array<Record<string, unknown>>) || [];
-        const gos = cells.filter((c) => c.verdict === "GO").slice(0, 3);
-        const skips = cells.filter((c) => c.verdict === "SKIP").slice(0, 3);
-        const nextTag = change.suggested_next_tag as string | undefined;
-        const nextTagCoverage = change.suggested_next_tag_coverage as number | null | undefined;
+        const marginals = (change.marginals as Array<{
+          dim: string;
+          values: Array<{
+            value: string;
+            n: number;
+            win_rate: number;
+            expected_R: number;
+            verdict: "GO" | "SKIP" | "REVIEW";
+            confidence?: "high" | "moderate" | "low";
+          }>;
+        }>) || [];
+        const sampleSize = change.sample_size as number | undefined;
+        const jointCov = (change.joint_coverage_pct ?? change.coverage_pct) as number | undefined;
+        const marginalCov = change.marginal_coverage_pct as number | undefined;
+        const suggestion = change.suggestion as
+          | { kind: "coarsen" | "complete" | "none"; dim: string | null; reason: string }
+          | undefined;
+        const cleanDim = (d: string) => d.replace(/^cf_/, "");
+        const fmtR = (r: number) => (r >= 0 ? `+${r.toFixed(2)}` : r.toFixed(2));
+        const fmtPct = (p: number) => `${Math.round(p * 100)}%`;
+
         const lines: string[] = [];
         lines.push("\n## Scalp Edge Summary");
+        if (typeof sampleSize === "number") {
+          const cov1 = typeof marginalCov === "number" ? `${marginalCov.toFixed(0)}%` : "—";
+          const cov2 = typeof jointCov === "number" ? `${jointCov.toFixed(0)}%` : "—";
+          lines.push(
+            `\n_Across ${sampleSize} trades · ${cov1} covered by at least one meaningful tag · ${cov2} in fully-confident joint cells._`
+          );
+        }
+
+        // Marginals first — primary view, works even at small N
+        const interestingMarginals = marginals
+          .map((m) => ({
+            ...m,
+            values: m.values
+              .filter((v) => v.confidence !== "low" && v.verdict !== "REVIEW")
+              .slice(0, 4),
+          }))
+          .filter((m) => m.values.length > 0)
+          .slice(0, 4);
+        if (interestingMarginals.length) {
+          lines.push("\n**By single tag** (most reliable at small samples)");
+          for (const m of interestingMarginals) {
+            const parts = m.values.map(
+              (v) =>
+                `${v.verdict} ${v.value} (n=${v.n}, ${fmtPct(v.win_rate)}, ${fmtR(v.expected_R)}R)`
+            );
+            lines.push(`- **${cleanDim(m.dim)}** — ${parts.join(" · ")}`);
+          }
+        }
+
+        // Joint cells — only when they actually exist with meaning
+        const gos = cells.filter((c) => c.verdict === "GO").slice(0, 3);
+        const skips = cells.filter((c) => c.verdict === "SKIP").slice(0, 3);
         if (gos.length) {
-          lines.push("\n**Top GO contexts**");
-          for (const g of gos) lines.push(`- \`${g.key}\` — n=${g.n}, WR=${g.win_rate}%, eR=${g.expected_r}`);
+          lines.push("\n**Top GO joint contexts**");
+          for (const g of gos)
+            lines.push(
+              `- \`${g.key ?? Object.entries((g.context ?? {}) as Record<string, string>).map(([k, v]) => `${cleanDim(k)}=${v}`).join(" · ")}\` — n=${g.n}, WR=${typeof g.win_rate === "number" ? fmtPct(g.win_rate as number) : g.win_rate}, eR=${typeof g.expected_R === "number" ? fmtR(g.expected_R as number) : g.expected_r ?? "—"}`
+            );
         }
         if (skips.length) {
-          lines.push("\n**Worst SKIP contexts**");
-          for (const s of skips) lines.push(`- \`${s.key}\` — n=${s.n}, WR=${s.win_rate}%, eR=${s.expected_r}`);
+          lines.push("\n**Worst SKIP joint contexts**");
+          for (const s of skips)
+            lines.push(
+              `- \`${s.key ?? Object.entries((s.context ?? {}) as Record<string, string>).map(([k, v]) => `${cleanDim(k)}=${v}`).join(" · ")}\` — n=${s.n}, WR=${typeof s.win_rate === "number" ? fmtPct(s.win_rate as number) : s.win_rate}, eR=${typeof s.expected_R === "number" ? fmtR(s.expected_R as number) : s.expected_r ?? "—"}`
+            );
         }
-        if (!gos.length && !skips.length) lines.push("\n_No statistically significant contexts yet — keep journaling._");
-        if (nextTag) {
-          const cleanTag = nextTag.replace(/^cf_/, "");
-          if (typeof nextTagCoverage === "number" && nextTagCoverage >= 0.1) {
-            const pct = Math.round(nextTagCoverage * 100);
-            lines.push(`\n**Most informative tag to populate more consistently** (currently ${pct}% of trades): \`${cleanTag}\``);
-          } else {
-            lines.push(`\n**Most informative tag to start collecting:** \`${cleanTag}\``);
-          }
+        if (!interestingMarginals.length && !gos.length && !skips.length) {
+          lines.push(
+            "\n_No statistically significant contexts yet — keep journaling, or check the suggestion below._"
+          );
+        }
+
+        if (suggestion && suggestion.kind !== "none" && suggestion.dim) {
+          const verb = suggestion.kind === "coarsen" ? "Coarsen" : "Complete";
+          lines.push(
+            `\n**Suggestion — ${verb} \`${cleanDim(suggestion.dim)}\`:** ${suggestion.reason}`
+          );
+        } else if (suggestion) {
+          lines.push(`\n_${suggestion.reason}_`);
         }
         return lines.join("\n") + "\n";
       }

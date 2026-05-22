@@ -1,18 +1,18 @@
 // Scalp Edge Analysis
 // Adapts the markov-hedge-fund-method state-labeller to user-journaled trades.
-// Keeps the original matrix/stationary math conceptually intact: we treat each
-// (context -> outcome) transition as a row in a transition matrix and rank
-// contexts by their stationary expected R.
 //
-// What changes vs the original skill: the STATE LABELLER. Instead of labelling
-// daily bars by return sign, we label each trade by an auto-detected context
-// tuple drawn from:
-//   - system fields: session, playbook_id, htf_bias, volatility_regime, time_bucket
-//   - any user custom_fields keys present on the trade
+// Output shape (v2 — backward compatible):
+//   - cells: joint-context cells with sample size, win rate, expected R, Wilson
+//     lower bound, GO/SKIP/REVIEW verdict, plus shrunk E[R] + confidence chip
+//     for low-sample cells.
+//   - marginals: per-dimension single-tag stats — always emitted so users with
+//     small samples still get actionable signal even when joint cells are empty.
+//   - joint_coverage_pct / marginal_coverage_pct: honest two-number coverage.
+//   - suggestion: smart "coarsen / complete / none" recommendation.
 //
-// Output is per-cell stats with verdicts under two modes:
-//   - "conservative": n >= 20 AND wilson_low > 0 -> GO
-//   - "aggressive":   n >= 8  AND expected_R > 0 -> GO
+// Legacy fields (`coverage_pct`, `suggested_next_tag`, `suggested_next_tag_coverage`)
+// are preserved so existing consumers (strategy-lab summarizer, older UI) keep
+// rendering.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -24,6 +24,7 @@ const corsHeaders = {
 };
 
 type Mode = "conservative" | "aggressive";
+type Confidence = "high" | "moderate" | "low";
 
 interface RequestBody {
   playbook_id?: string;
@@ -71,9 +72,34 @@ interface Cell {
   wins: number;
   win_rate: number;
   expected_R: number;
+  expected_R_shrunk: number;
   std_R: number;
   wilson_low: number;
   verdict: "GO" | "SKIP" | "REVIEW";
+  confidence: Confidence;
+}
+
+interface MarginalValue {
+  value: string;
+  n: number;
+  wins: number;
+  win_rate: number;
+  expected_R: number;
+  expected_R_shrunk: number;
+  wilson_low: number;
+  verdict: "GO" | "SKIP" | "REVIEW";
+  confidence: Confidence;
+}
+
+interface Marginal {
+  dim: string;
+  values: MarginalValue[];
+}
+
+interface Suggestion {
+  kind: "coarsen" | "complete" | "none";
+  dim: string | null;
+  reason: string;
 }
 
 // ---------------- helpers ----------------
@@ -87,12 +113,11 @@ function wilsonLowerBound(wins: number, n: number, z = 1.96): number {
   return Math.max(0, (center - margin) / denom);
 }
 
-function bucketTimeOfDay(iso: string): string {
-  // 15-min bucket using UTC; downstream UI can re-bucket per user TZ.
-  const d = new Date(iso);
-  const h = d.getUTCHours();
-  const m = Math.floor(d.getUTCMinutes() / 15) * 15;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+function sessionPhase(mins: number | null | undefined): string | null {
+  if (mins == null || Number.isNaN(mins)) return null;
+  if (mins < 60) return "open";
+  if (mins < 180) return "mid";
+  return "late";
 }
 
 function normalizeValue(v: unknown): string | null {
@@ -110,7 +135,8 @@ function normalizeValue(v: unknown): string | null {
   return null;
 }
 
-// The state labeller — the only piece swapped from the original skill.
+// State labeller — drops `time_bucket` (cardinality 96 was starving cells);
+// uses `session_phase` (open / mid / late) instead.
 function labelTrade(
   trade: TradeRow,
   feature: FeatureRow | undefined,
@@ -123,9 +149,9 @@ function labelTrade(
   if (feature?.htf_bias) ctx.htf_bias = feature.htf_bias;
   if (feature?.volatility_regime) ctx.volatility_regime = feature.volatility_regime;
   if (review?.regime) ctx.regime = review.regime;
-  ctx.time_bucket = bucketTimeOfDay(trade.entry_time);
+  const phase = sessionPhase(feature?.time_since_session_open_mins ?? null);
+  if (phase) ctx.session_phase = phase;
 
-  // Auto-discover custom_fields dimensions
   if (trade.custom_fields && typeof trade.custom_fields === "object") {
     for (const [k, v] of Object.entries(trade.custom_fields)) {
       const norm = normalizeValue(v);
@@ -142,11 +168,73 @@ function contextKey(ctx: Record<string, string>): string {
     .join("|");
 }
 
+function classifyConfidence(n: number, minN: number): Confidence {
+  if (n >= minN) return "high";
+  if (n >= Math.ceil(minN / 2)) return "moderate";
+  return "low";
+}
+
+function shrunkR(rs: number[], globalMeanR: number, minN: number): number {
+  const n = rs.length;
+  if (n === 0) return globalMeanR;
+  const sum = rs.reduce((s, r) => s + r, 0);
+  return (sum + minN * globalMeanR) / (n + minN);
+}
+
+function verdictFor(
+  n: number,
+  wins: number,
+  expectedR: number,
+  wilsonLow: number,
+  mode: Mode,
+  minN: number
+): "GO" | "SKIP" | "REVIEW" {
+  if (mode === "conservative") {
+    if (n >= minN && wilsonLow > 0 && expectedR > 0) return "GO";
+    if (n >= minN && expectedR < 0) return "SKIP";
+    return "REVIEW";
+  }
+  if (n >= minN && expectedR > 0) return "GO";
+  if (n >= minN && expectedR < 0) return "SKIP";
+  return "REVIEW";
+}
+
+// Coarsen `cf_*` values that appear on <10% of trades into `other`. Keeps the
+// dim usable instead of fragmenting it into singleton buckets.
+function coarsenSparseCustomFields(
+  labelled: Array<{ ctx: Record<string, string>; r: number }>,
+  minShare = 0.1
+): void {
+  const N = labelled.length;
+  if (N === 0) return;
+  const dimValueCounts = new Map<string, Map<string, number>>();
+  for (const { ctx } of labelled) {
+    for (const [k, v] of Object.entries(ctx)) {
+      if (!k.startsWith("cf_")) continue;
+      const inner = dimValueCounts.get(k) ?? new Map<string, number>();
+      inner.set(v, (inner.get(v) ?? 0) + 1);
+      dimValueCounts.set(k, inner);
+    }
+  }
+  const threshold = Math.max(2, Math.ceil(N * minShare));
+  for (const { ctx } of labelled) {
+    for (const k of Object.keys(ctx)) {
+      if (!k.startsWith("cf_")) continue;
+      const counts = dimValueCounts.get(k);
+      if (!counts) continue;
+      const c = counts.get(ctx[k]) ?? 0;
+      if (c < threshold) ctx[k] = "other";
+    }
+  }
+}
+
 function buildCells(
   labelled: Array<{ ctx: Record<string, string>; r: number }>,
-  dimensions: string[]
+  dimensions: string[],
+  globalMeanR: number,
+  minN: number,
+  mode: Mode
 ): Cell[] {
-  // Group by full-context key on detected dimensions
   const groups = new Map<string, { ctx: Record<string, string>; rs: number[] }>();
   for (const { ctx, r } of labelled) {
     const trimmed: Record<string, string> = {};
@@ -164,6 +252,7 @@ function buildCells(
     const wins = rs.filter((r) => r > 0).length;
     const win_rate = n ? wins / n : 0;
     const expected_R = n ? rs.reduce((s, r) => s + r, 0) / n : 0;
+    const expected_R_shrunk = shrunkR(rs, globalMeanR, minN);
     const variance = n > 1 ? rs.reduce((s, r) => s + (r - expected_R) ** 2, 0) / (n - 1) : 0;
     const std_R = Math.sqrt(variance);
     const wilson_low = wilsonLowerBound(wins, n);
@@ -173,75 +262,195 @@ function buildCells(
       wins,
       win_rate,
       expected_R,
+      expected_R_shrunk,
       std_R,
       wilson_low,
-      verdict: "REVIEW",
+      verdict: verdictFor(n, wins, expected_R, wilson_low, mode, minN),
+      confidence: classifyConfidence(n, minN),
     });
   }
   return cells;
 }
 
-function applyVerdict(cells: Cell[], mode: Mode) {
-  const nMin = mode === "conservative" ? 20 : 8;
-  for (const c of cells) {
-    if (mode === "conservative") {
-      if (c.n >= nMin && c.wilson_low > 0 && c.expected_R > 0) c.verdict = "GO";
-      else if (c.n >= nMin && c.expected_R < 0) c.verdict = "SKIP";
-      else c.verdict = "REVIEW";
-    } else {
-      if (c.n >= nMin && c.expected_R > 0) c.verdict = "GO";
-      else if (c.n >= nMin && c.expected_R < 0) c.verdict = "SKIP";
-      else c.verdict = "REVIEW";
+function buildMarginals(
+  labelled: Array<{ ctx: Record<string, string>; r: number }>,
+  dimensions: string[],
+  globalMeanR: number,
+  minN: number,
+  mode: Mode
+): Marginal[] {
+  const result: Marginal[] = [];
+  for (const dim of dimensions) {
+    const buckets = new Map<string, number[]>();
+    let winsByVal = new Map<string, number>();
+    for (const { ctx, r } of labelled) {
+      const v = ctx[dim];
+      if (v === undefined) continue;
+      const arr = buckets.get(v) ?? [];
+      arr.push(r);
+      buckets.set(v, arr);
+      if (r > 0) winsByVal.set(v, (winsByVal.get(v) ?? 0) + 1);
     }
+    const values: MarginalValue[] = [];
+    for (const [value, rs] of buckets.entries()) {
+      const n = rs.length;
+      const wins = winsByVal.get(value) ?? 0;
+      const win_rate = n ? wins / n : 0;
+      const expected_R = n ? rs.reduce((s, r) => s + r, 0) / n : 0;
+      const expected_R_shrunk = shrunkR(rs, globalMeanR, minN);
+      const wilson_low = wilsonLowerBound(wins, n);
+      values.push({
+        value,
+        n,
+        wins,
+        win_rate,
+        expected_R,
+        expected_R_shrunk,
+        wilson_low,
+        verdict: verdictFor(n, wins, expected_R, wilson_low, mode, minN),
+        confidence: classifyConfidence(n, minN),
+      });
+    }
+    // sort: GO > REVIEW > SKIP, then |E[R]| desc
+    values.sort((a, b) => {
+      const order = { GO: 0, REVIEW: 1, SKIP: 2 } as const;
+      if (order[a.verdict] !== order[b.verdict]) return order[a.verdict] - order[b.verdict];
+      return Math.abs(b.expected_R) - Math.abs(a.expected_R);
+    });
+    if (values.length > 0) result.push({ dim, values });
   }
+  // Order dims by "useful spread": max |E[R]| difference between any two high-conf values
+  result.sort((a, b) => {
+    const spread = (m: Marginal) => {
+      const hi = m.values.filter((v) => v.confidence !== "low").map((v) => v.expected_R);
+      if (hi.length < 2) return 0;
+      return Math.max(...hi) - Math.min(...hi);
+    };
+    return spread(b) - spread(a);
+  });
+  return result;
 }
 
-// Suggest which still-unused dimension would most reduce variance of top
-// playbook cells. Very simple info-gain heuristic.
-function suggestNextTag(
+// Rank dims by statistical *power*: how much confident-mass each candidate
+// dim would carve out, weighted by how much its values separate from the
+// global mean. Falls back to entropy×coverage when nothing scores.
+function rankDimensionsByPower(
   labelled: Array<{ ctx: Record<string, string>; r: number }>,
-  usedDimensions: string[],
-  coverageByDim: Record<string, number>,
-  maxCoverage = 0.6
-): { dim: string; coverage: number } | null {
-  const allDims = new Set<string>();
-  for (const { ctx } of labelled) Object.keys(ctx).forEach((d) => allDims.add(d));
-  const candidates = [...allDims].filter(
-    (d) => !usedDimensions.includes(d) && (coverageByDim[d] ?? 0) < maxCoverage
-  );
-  if (candidates.length === 0) return null;
+  candidates: string[],
+  globalMeanR: number,
+  minN: number
+): string[] {
+  type Scored = { dim: string; score: number; cardinality: number; coverage: number };
+  const scored: Scored[] = [];
+  const N = labelled.length;
 
-  const baselineVar = (() => {
-    const rs = labelled.map((x) => x.r);
-    const mu = rs.reduce((s, r) => s + r, 0) / rs.length;
-    return rs.reduce((s, r) => s + (r - mu) ** 2, 0) / Math.max(1, rs.length - 1);
-  })();
-
-  let best: { dim: string; gain: number } | null = null;
   for (const dim of candidates) {
     const buckets = new Map<string, number[]>();
+    let presentCount = 0;
     for (const { ctx, r } of labelled) {
-      const k = ctx[dim] ?? "__missing__";
-      const arr = buckets.get(k) ?? [];
+      const v = ctx[dim];
+      if (v === undefined) continue;
+      presentCount++;
+      const arr = buckets.get(v) ?? [];
       arr.push(r);
-      buckets.set(k, arr);
+      buckets.set(v, arr);
     }
-    let weighted = 0;
-    let total = 0;
+    let power = 0;
     for (const rs of buckets.values()) {
-      if (rs.length < 2) continue;
-      const mu = rs.reduce((s, r) => s + r, 0) / rs.length;
-      const v = rs.reduce((s, r) => s + (r - mu) ** 2, 0) / (rs.length - 1);
-      weighted += v * rs.length;
-      total += rs.length;
+      if (rs.length < minN) continue;
+      const mu = rs.reduce((s, x) => s + x, 0) / rs.length;
+      power += rs.length * Math.abs(mu - globalMeanR);
     }
-    if (total === 0) continue;
-    const condVar = weighted / total;
-    const gain = baselineVar - condVar;
-    if (!best || gain > best.gain) best = { dim, gain };
+    scored.push({
+      dim,
+      score: power,
+      cardinality: buckets.size,
+      coverage: N ? presentCount / N : 0,
+    });
   }
-  if (!best) return null;
-  return { dim: best.dim, coverage: coverageByDim[best.dim] ?? 0 };
+
+  const positivePower = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
+  if (positivePower.length > 0) return positivePower.map((s) => s.dim);
+
+  // Fallback: entropy × coverage (original behaviour)
+  return scored
+    .map((s) => {
+      const entropy = Math.log2(Math.max(1, s.cardinality)); // proxy
+      return { dim: s.dim, key: entropy * s.coverage };
+    })
+    .sort((a, b) => b.key - a.key)
+    .map((s) => s.dim);
+}
+
+function chooseAdaptiveDepth(
+  rankedDims: string[],
+  cardinalityByDim: Map<string, number>,
+  N: number,
+  minN: number
+): string[] {
+  if (rankedDims.length === 0) return [];
+  const targetCells = Math.max(3, Math.floor(N / minN));
+  const cap = targetCells * 2;
+  let product = 1;
+  const chosen: string[] = [];
+  for (const d of rankedDims) {
+    const c = cardinalityByDim.get(d) ?? 2;
+    const next = product * c;
+    if (chosen.length > 0 && next > cap) break;
+    chosen.push(d);
+    product = next;
+    if (chosen.length >= 4) break; // hard cap
+  }
+  return chosen;
+}
+
+function buildSuggestion(
+  labelled: Array<{ ctx: Record<string, string>; r: number }>,
+  allDims: string[],
+  usedDims: string[],
+  coverageByDim: Record<string, number>,
+  cardinalityByDim: Map<string, number>,
+  marginals: Marginal[],
+  minN: number
+): Suggestion {
+  const marginalsByDim = new Map(marginals.map((m) => [m.dim, m]));
+
+  // Coarsen candidate: any well-populated dim that fragments without separating
+  for (const dim of allDims) {
+    const cov = coverageByDim[dim] ?? 0;
+    const card = cardinalityByDim.get(dim) ?? 0;
+    if (cov < 0.6 || card < 6) continue;
+    const m = marginalsByDim.get(dim);
+    if (!m) continue;
+    const hi = m.values.filter((v) => v.confidence !== "low").map((v) => v.expected_R);
+    const spread = hi.length >= 2 ? Math.max(...hi) - Math.min(...hi) : 0;
+    if (spread < 0.3) {
+      return {
+        kind: "coarsen",
+        dim,
+        reason: `${card} distinct values on ${Math.round(cov * 100)}% of trades but expected-R spread is only ${spread.toFixed(2)}R. Collapse into 3 buckets.`,
+      };
+    }
+  }
+
+  // Complete candidate: under-populated dim whose present values already separate
+  for (const dim of allDims) {
+    if (usedDims.includes(dim)) continue;
+    const cov = coverageByDim[dim] ?? 0;
+    if (cov >= 0.6 || cov < 0.05) continue;
+    const m = marginalsByDim.get(dim);
+    if (!m) continue;
+    const maxAbs = Math.max(...m.values.map((v) => Math.abs(v.expected_R)), 0);
+    if (maxAbs >= 0.4) {
+      return {
+        kind: "complete",
+        dim,
+        reason: `Only ${Math.round(cov * 100)}% of trades tagged but separation looks real (|E[R]| up to ${maxAbs.toFixed(2)}R). Tag more trades with this.`,
+      };
+    }
+  }
+
+  return { kind: "none", dim: null, reason: "No obvious gap — keep journaling to grow sample size." };
 }
 
 // ---------------- main analysis ----------------
@@ -277,9 +486,13 @@ async function runAnalysis(
       mode,
       dimensions_detected: [],
       cells: [],
+      marginals: [],
       coverage_pct: 0,
+      joint_coverage_pct: 0,
+      marginal_coverage_pct: 0,
       suggested_next_tag: null,
       suggested_next_tag_coverage: null,
+      suggestion: { kind: "none", dim: null, reason: "No closed trades in lookback window." } satisfies Suggestion,
       sample_size: 0,
       message: "No closed trades in lookback window.",
     };
@@ -310,7 +523,6 @@ async function runAnalysis(
   const labelled: Array<{ ctx: Record<string, string>; r: number }> = [];
   for (const t of tradeRows) {
     const ctx = labelTrade(t, featuresByTrade.get(t.id), reviewsByTrade.get(t.id));
-    // Prefer r_multiple_actual; fall back to sign(net_pnl)
     let r = t.r_multiple_actual != null ? Number(t.r_multiple_actual) : null;
     if (r == null || Number.isNaN(r)) {
       const pnl = t.net_pnl != null ? Number(t.net_pnl) : 0;
@@ -319,7 +531,10 @@ async function runAnalysis(
     labelled.push({ ctx, r });
   }
 
-  // Auto-detect dimensions: keep ones with >= 2 distinct values and present on >= 30% of trades
+  // Coarsen sparse cf_* values BEFORE computing freq / marginals
+  coarsenSparseCustomFields(labelled, 0.1);
+
+  // Dimension stats
   const dimFreq = new Map<string, Set<string>>();
   const dimCount = new Map<string, number>();
   for (const { ctx } of labelled) {
@@ -331,53 +546,84 @@ async function runAnalysis(
     }
   }
   const N = labelled.length;
+  const globalMeanR = labelled.reduce((s, x) => s + x.r, 0) / Math.max(1, N);
+  const cardinalityByDim = new Map<string, number>();
+  for (const [k, vs] of dimFreq.entries()) cardinalityByDim.set(k, vs.size);
+
   const usableDims = [...dimFreq.entries()]
     .filter(([, vs]) => vs.size >= 2)
     .filter(([k]) => (dimCount.get(k) ?? 0) / N >= 0.3)
     .map(([k]) => k);
 
-  // Greedy: build cells using all usable dims, but cap depth to avoid sparsity
-  const MAX_DEPTH = 4;
-  // Rank dims by entropy * coverage to choose top MAX_DEPTH
-  const ranked = usableDims
-    .map((d) => {
-      const counts = new Map<string, number>();
-      for (const { ctx } of labelled) {
-        const v = ctx[d];
-        if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
-      }
-      const total = [...counts.values()].reduce((s, x) => s + x, 0);
-      const entropy = [...counts.values()].reduce((s, c) => {
-        const p = c / total;
-        return s - (p > 0 ? p * Math.log2(p) : 0);
-      }, 0);
-      return { d, entropy, coverage: total / N };
-    })
-    .sort((a, b) => b.entropy * b.coverage - a.entropy * a.coverage)
-    .slice(0, MAX_DEPTH)
-    .map((x) => x.d);
+  // Rank by power, then adaptive depth
+  const ranked = rankDimensionsByPower(labelled, usableDims, globalMeanR, minSamples);
+  const chosenDims = chooseAdaptiveDepth(ranked, cardinalityByDim, N, minSamples);
 
-  const cells = buildCells(labelled, ranked);
-  applyVerdict(cells, mode);
+  // Joint cells
+  const cells = buildCells(labelled, chosenDims, globalMeanR, minSamples, mode);
 
-  // Attach playbook names for nicer rendering
+  // Marginals — always computed over ALL usable dims, not just the chosen joint dims
+  const marginals = buildMarginals(labelled, usableDims, globalMeanR, minSamples, mode);
+
+  // Resolve playbook names for friendlier rendering
   for (const c of cells) {
     if (c.context.playbook_id) {
       const pb = playbooksById.get(c.context.playbook_id);
       if (pb) c.context.playbook = pb.name;
     }
   }
+  for (const m of marginals) {
+    if (m.dim === "playbook_id") {
+      for (const v of m.values) {
+        const pb = playbooksById.get(v.value);
+        if (pb) v.value = pb.name;
+      }
+    }
+  }
 
-  const confidentN = cells
+  // Coverage — two honest numbers
+  const confidentJointN = cells
     .filter((c) => c.n >= minSamples)
     .reduce((s, c) => s + c.n, 0);
-  const coverage_pct = N ? (confidentN / N) * 100 : 0;
+  const joint_coverage_pct = N ? (confidentJointN / N) * 100 : 0;
+
+  const tradesCoveredByAnyHighMarginal = (() => {
+    const highValuesByDim = new Map<string, Set<string>>();
+    for (const m of marginals) {
+      const set = new Set<string>();
+      for (const v of m.values) if (v.confidence === "high") set.add(v.value);
+      if (set.size > 0) highValuesByDim.set(m.dim, set);
+    }
+    let covered = 0;
+    for (const { ctx } of labelled) {
+      let hit = false;
+      for (const [dim, set] of highValuesByDim.entries()) {
+        const cv = ctx[dim];
+        if (cv !== undefined && set.has(dim === "playbook_id" ? (playbooksById.get(cv)?.name ?? cv) : cv)) {
+          hit = true;
+          break;
+        }
+      }
+      if (hit) covered++;
+    }
+    return covered;
+  })();
+  const marginal_coverage_pct = N ? (tradesCoveredByAnyHighMarginal / N) * 100 : 0;
 
   const coverageByDim: Record<string, number> = {};
   for (const [k, count] of dimCount.entries()) coverageByDim[k] = N ? count / N : 0;
-  const suggestion = suggestNextTag(labelled, ranked, coverageByDim);
 
-  // Sort: GO first, then expected_R desc
+  const suggestion = buildSuggestion(
+    labelled,
+    usableDims,
+    chosenDims,
+    coverageByDim,
+    cardinalityByDim,
+    marginals,
+    minSamples
+  );
+
+  // Sort cells: GO first, then expected_R desc
   cells.sort((a, b) => {
     const order = { GO: 0, REVIEW: 1, SKIP: 2 } as const;
     if (order[a.verdict] !== order[b.verdict]) return order[a.verdict] - order[b.verdict];
@@ -387,11 +633,16 @@ async function runAnalysis(
   return {
     mode,
     sample_size: N,
-    dimensions_detected: ranked,
+    dimensions_detected: chosenDims,
     cells,
-    coverage_pct: Number(coverage_pct.toFixed(1)),
-    suggested_next_tag: suggestion?.dim ?? null,
-    suggested_next_tag_coverage: suggestion ? Number(suggestion.coverage.toFixed(3)) : null,
+    marginals,
+    coverage_pct: Number(joint_coverage_pct.toFixed(1)), // legacy alias
+    joint_coverage_pct: Number(joint_coverage_pct.toFixed(1)),
+    marginal_coverage_pct: Number(marginal_coverage_pct.toFixed(1)),
+    suggestion,
+    // Legacy fields for backward compat with strategy-lab summarizer / older UI
+    suggested_next_tag: suggestion.dim,
+    suggested_next_tag_coverage: suggestion.dim ? (coverageByDim[suggestion.dim] ?? null) : null,
   };
 }
 
