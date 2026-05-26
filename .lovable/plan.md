@@ -1,97 +1,125 @@
-## Audit of current tabs
+# Option B — Deal-events as the only writer of trade state
 
-Strategy Lab has **two layers** of tabs.
+## Principle
 
-**Top-level (`StrategyLab.tsx`)**
+`trades.is_open`, `exit_time`, and PnL columns are written **only** by explicit broker deal events (`entry`, `exit`, `close`, `partial_close`). `position_snapshot` becomes read-only — it records what each terminal currently sees, surfaces drift in the UI, and never mutates `trades`.
 
-| Tab | What it does | Data source | Verdict |
-|---|---|---|---|
-| Chat | Free-form chat with the strategy LLM | None / playbook | **Redundant** — every other tab embeds its own `StrategyChat`. Keeps users in a dead-end conversation that has no metrics or report context. |
-| Backtester | Build → Run in MT5 → Analyze pipeline | HTML report / CSV trade log | **Crucial** — the only place backtest data actually lives. Keep and expand. |
-| Performance | Stats on live `trades` table | `public.trades` (live broker data) | **Misplaced** — has nothing to do with backtesting. Belongs in Reports/Journal. In Strategy Lab it's confusing (it ignores the report you just uploaded). |
-| Gap Analysis | Playbook completeness score + chat | `playbooks` row | **Useful but mis-scoped** — it's a playbook-quality check, not a backtest tool. Belongs next to playbook editing. |
+This eliminates the entire bug class where one account's snapshot can close another account's trades on a shared terminal.
 
-**Inside Backtester (analyze phase)**
+---
 
-| Tab | Data | Verdict |
-|---|---|---|
-| AI Analysis | Uses parsed metrics string | Keep — primary interpretation surface |
-| Equity Curve | CSV trades only (idx-based X axis) | Keep but **rebuild** — walk-forward needs a **date axis** and **IS/OOS split marker**, not trade #. |
-| Distribution | Hour/Day/PnL histogram/Streaks from CSV | Keep Hour/Day/Histogram. Streaks is noise. **Add monthly-returns heatmap** — the single most useful walk-forward view. |
-| Monte Carlo | Random shuffle of trades | Keep, but **add block-bootstrap option** (preserves regime ordering, which is what walk-forward cares about) and let user set the ruin threshold (currently hard-coded 20%). |
+## 1. New table — `terminal_snapshots`
 
-## What's missing for walk-forward backtesting
+Stores the latest snapshot per (terminal_id, active_login). Append-only, used for drift detection only.
 
-1. **No IS / OOS split** — user can't mark where in-sample training ends and out-of-sample starts. This is the whole point of walk-forward.
-2. **Equity curve plots on trade index, not date** — can't see regime decay over time.
-3. **No rolling metrics** — no rolling Sharpe / win-rate / profit-factor to spot edge erosion.
-4. **No monthly / period returns table** — standard walk-forward output.
-5. **No IS-vs-OOS comparison card** — net profit, PF, Sharpe, max DD on both halves side-by-side.
-6. **CSV import drops symbol & duration** — so "Avg Duration" and any per-symbol view are permanently blank in `BacktestMetricsGrid`.
-7. **Metrics grid missing** CAGR, Calmar, Sortino, MAR — standard walk-forward acceptance metrics.
+```
+terminal_snapshots
+  id              uuid pk
+  user_id         uuid
+  terminal_id     text
+  active_login    text         -- broker login active on the terminal at snapshot time
+  account_id      uuid null    -- resolved account, null if not yet provisioned
+  open_tickets    bigint[]
+  received_at     timestamptz default now()
+  ea_version      text null
+  raw_payload     jsonb null
+```
 
-## Plan
+Indexes: `(terminal_id, active_login, received_at desc)`, `(user_id, received_at desc)`.
 
-### 1. Prune top-level tabs (`src/pages/StrategyLab.tsx`)
-- **Remove** the standalone `Chat` tab. The Backtester's AI tab and Gap Analysis's chat already cover it.
-- **Move** `Gap Analysis` out of Strategy Lab → render it inside the Backtester's `build` phase as a collapsible "Playbook Health" panel above the chat. The user already needs to see gaps before generating an EA.
-- **Move** `Performance` out of Strategy Lab → it belongs on the Reports/Journal page (live trade analytics). If we want to keep something similar here, replace it with a **"Live vs Backtest"** comparison tab that joins the imported backtest with the user's live `trades` for the same playbook — that *is* walk-forward-relevant.
-- Result: top-level becomes just **Backtester** (with optional **Live vs Backtest** later). The phase stepper (Build / Run / Analyze) becomes the primary navigation.
+RLS: user can SELECT their own; only `service_role` writes.
 
-### 2. Backtester — Build phase
-- Embed the existing `GapAnalysis` score + cards above the chat (collapsible, defaults open when score < 80%).
-- Keep the 3-panel layout (versions / chat / code).
+## 2. New table — `terminal_accounts`
 
-### 3. Backtester — Analyze phase, metrics header
-- Extend `TradeRecord` with `symbol`, `closeDate`, `durationSec`; populate them in `CSVImport.tsx` (look for `symbol`/`instrument`, `close time`/`exit time`, compute duration from open→close).
-- Extend `BacktestMetricsGrid` with **CAGR**, **Calmar**, **Sortino**, **MAR**, **Exposure %**. Compute in `computeMetrics`.
-- Add a **date range picker** + **IS/OOS split slider** (defaults to 70/30). Selection is stored in component state and feeds all sub-tabs.
+Explicitly models the N-accounts-per-terminal relationship. One row per (terminal_id, account_id), so we always know which accounts share a terminal and which one is "currently active".
 
-### 4. Analyze sub-tabs
+```
+terminal_accounts
+  terminal_id     text
+  account_id      uuid
+  user_id         uuid
+  last_active_at  timestamptz  -- updated on every event/heartbeat from that account
+  is_currently_active boolean  -- true on the most-recent active account per terminal
+  primary key (terminal_id, account_id)
+```
 
-**a. AI Analysis** — pass the IS/OOS split summary into the prompt so the LLM critiques OOS, not the whole period.
+Maintained server-side from `ingest-events`: every event/heartbeat upserts the row and flips `is_currently_active` to true for the matching account, false for siblings on the same terminal.
 
-**b. Equity Curve (`EquityCurveChart.tsx`)** — rebuild:
-- X axis = date (fallback to idx only if no dates).
-- Vertical reference line at the IS/OOS split.
-- Drawdown overlay stays.
-- Drop "Trade markers" (visually noisy at >100 trades) — replace with a "Highlight worst 5 drawdowns" toggle.
-- Add a small **rolling Sharpe (60-trade)** line below the equity panel.
+## 3. Migrate the existing `snapshot_closed` rows
 
-**c. Distribution (`TradeDistributionCharts.tsx`)** — keep Hour, Day, Histogram. Replace Streaks with:
-- **Monthly returns heatmap** (year × month grid, green/red intensity by % return).
-- **IS vs OOS bar chart** (Net P&L, PF, Sharpe, MaxDD side-by-side bars).
+One-time backfill in the migration:
 
-**d. Monte Carlo (`MonteCarloPanel.tsx`)** —
-- Add a method toggle: **IID shuffle** (current) vs **Block bootstrap** (block size = user input, default 5) — preserves local serial correlation, more honest for walk-forward.
-- Make ruin threshold (currently 20) a small numeric input.
-- Run only on the **OOS slice** by default with a toggle to run on full set.
+- For every trade with a `snapshot_closed` marker in `partial_closes` AND `net_pnl = 0` AND no `repaired_*` marker present:
+  - Set `net_pnl = NULL`, `gross_pnl = NULL`.
+  - Leave the marker so `repair-snapshot-closed` can still find them.
+- Existing repair button continues to heal them on demand.
 
-### 5. Polish pass
-- Disabled tabs show a tooltip explaining what to import (currently they're just greyed out).
-- Replace ad-hoc `text-green-500` / `text-red-500` with the existing semantic tokens (`text-success`, `text-destructive`) — search audit shows ~25 hits across the four files.
-- The "Refine EA" button currently jumps to Build but loses the report — keep it but also pass `rawMetricsStr` to the chat as context.
-- The phase stepper buttons are clickable even when invalid — disable visually instead of silently no-op'ing.
+## 4. Rewrite `position_snapshot` handler — `supabase/functions/ingest-events/index.ts`
 
-### 6. Out of scope (will not touch)
-- Live `trades` schema, journal pipeline, copier.
-- The scalp-edge analysis already shipped last turn.
-- Backend edge functions (only the existing `strategy-lab` function gets a new `mode: "walk_forward"` payload field added).
+Replace the existing handler (lines 347–405) with:
+
+1. Resolve account from `payload.account_info.login` (no fallback to `anyAccountForKey`).
+2. Insert a row into `terminal_snapshots`.
+3. Upsert `terminal_accounts` and flip `is_currently_active`.
+4. Return 200 with the resolved account + open ticket count.
+5. **No writes to `trades`. No stale-trade detection. No PnL touching.**
+
+That's the whole handler — under 30 lines.
+
+## 5. Drift surfacing — new edge function `trades-drift`
+
+Lightweight read-only function called by the Journal page:
+
+- For each terminal currently active for the user, pick the most recent `terminal_snapshots` row.
+- Find trades that are `is_open = true` on the snapshot's active account but whose ticket is missing from the snapshot's `open_tickets`.
+- Return them as `drift_trades[]` with `last_seen_at` and `terminal_id`.
+
+These are candidates for "broker probably closed this but we missed the deal event" — surfaced as a non-destructive "Needs attention" tray on the Journal, with a "Pull from MT5" button that triggers the existing `repair-snapshot-closed` flow.
+
+Dormant trades (open on accounts whose `is_currently_active = false`) are never flagged — they're explicitly expected to be invisible until that login is reactivated.
+
+## 6. UI changes
+
+### `src/components/journal/TradeTable.tsx`
+- Trades with `snapshot_closed` marker AND `net_pnl IS NULL` show "Awaiting repair" pill instead of "BE".
+- Already-repaired trades unchanged.
+
+### New `src/components/journal/DriftTray.tsx`
+- Banner above the Journal table when `trades-drift` returns rows.
+- Lists drift trades with: symbol, ticket, terminal, last_seen_at, "Repair" button (calls existing `repair-snapshot-closed`).
+- Dismissible per row (writes a `dismissed_drift_at` marker).
+
+### `src/pages/Accounts.tsx`
+- Existing "Repair stuck break-even trades" button stays, scoped to historical rows.
+- Add a small "Active on terminal" badge per AccountCard pulled from `terminal_accounts.is_currently_active`, so the user can see at a glance which account the EA is currently watching.
+
+## 7. Files touched
+
+- `supabase/functions/ingest-events/index.ts` — gut the snapshot handler, add terminal_accounts upsert in event/heartbeat paths.
+- `supabase/functions/trades-drift/index.ts` — new, read-only.
+- `src/components/journal/TradeTable.tsx` — display tweak for null-PnL snapshot rows.
+- `src/components/journal/DriftTray.tsx` — new.
+- `src/pages/Journal.tsx` — mount DriftTray.
+- `src/pages/Accounts.tsx` — "active on terminal" badge.
+- One migration: `terminal_snapshots`, `terminal_accounts`, backfill NULL-ing.
+
+## 8. Out of scope
+
+- MQL5 EA stays as is. No version bump required — old and new EAs both work because we no longer trust snapshots to mutate state.
+- No changes to entry / exit / modify / close handlers (those are already authoritative).
+- No changes to copier, reports, or backtester.
+- Risk metrics already exclude NULL-PnL trades; no analytics work needed.
 
 ## Verification
 
-After implementation, with a sample CSV trade log loaded:
-- Top-level tab bar shows only **Backtester** (and Live-vs-Backtest if we kept it).
-- Build phase shows the playbook gap score inline.
-- Analyze header shows CAGR/Calmar/Sortino/MAR alongside the existing metrics, plus a working IS/OOS slider.
-- Equity curve is date-based with a visible IS/OOS divider and rolling Sharpe.
-- Distribution shows a monthly heatmap and an IS-vs-OOS comparison.
-- Monte Carlo lets the user pick block size and runs on OOS by default.
-- No "neutral / dash" cells where data was silently dropped (symbol, duration now populated).
-
-## Question for you before I implement
-
-A few of these moves are opinionated — confirm direction:
-- OK to **delete** the top-level Chat tab outright?
-- **Move** Performance to Reports page, or **replace** it in-place with a "Live vs Backtest" panel?
-- **Move** Gap Analysis into the Backtester Build phase, or keep it as its own tab but rename it "Playbook Health"?
+1. With accounts A and B on one terminal, open a trade on A, switch MT5 login to B. After next snapshot:
+   - `terminal_snapshots` has a new row for active_login=B.
+   - `terminal_accounts.is_currently_active` is true for B, false for A.
+   - Trade on A is still `is_open = true`, no markers added, no PnL change.
+   - DriftTray shows nothing (A is dormant, not drifting).
+2. Genuinely miss an exit (close in MT5 while EA offline, then reconnect):
+   - Snapshot for the active account omits the ticket.
+   - DriftTray surfaces the trade with a Repair button.
+   - Clicking Repair pulls the close deal from `events` and writes real PnL.
+3. Check edge logs: `position_snapshot` handler never logs "closed N stale trades" anymore.
+4. Historical `snapshot_closed` rows: render as "Awaiting repair" until user clicks the repair flow.

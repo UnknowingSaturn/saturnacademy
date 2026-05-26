@@ -1504,6 +1504,72 @@ export type Database = {
           },
         ]
       }
+      terminal_accounts: {
+        Row: {
+          account_id: string
+          created_at: string
+          is_currently_active: boolean
+          last_active_at: string
+          terminal_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          is_currently_active?: boolean
+          last_active_at?: string
+          terminal_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          is_currently_active?: boolean
+          last_active_at?: string
+          terminal_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      terminal_snapshots: {
+        Row: {
+          account_id: string | null
+          active_login: string | null
+          ea_version: string | null
+          id: string
+          open_tickets: number[]
+          raw_payload: Json | null
+          received_at: string
+          terminal_id: string
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          active_login?: string | null
+          ea_version?: string | null
+          id?: string
+          open_tickets?: number[]
+          raw_payload?: Json | null
+          received_at?: string
+          terminal_id: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          active_login?: string | null
+          ea_version?: string | null
+          id?: string
+          open_tickets?: number[]
+          raw_payload?: Json | null
+          received_at?: string
+          terminal_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       trade_comments: {
         Row: {
           content: string
