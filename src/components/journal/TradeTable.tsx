@@ -570,7 +570,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                             { value: "4hr", label: "4hr", color: "profit" },
                             { value: "daily", label: "Daily", color: "profit" },
                           ]}
-                          placeholder="Align"
+                          placeholder="Entry TF"
                           multiple
                         />
                       </div>
@@ -591,7 +591,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                             { value: "4hr", label: "4hr", color: "profit" },
                             { value: "daily", label: "Daily", color: "profit" },
                           ]}
-                          placeholder="Entry TF"
+                          placeholder="Align"
                           multiple
                         />
                       </div>
