@@ -31,6 +31,7 @@ import {
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
+import { PlaybookHealthCard } from "./PlaybookHealthCard";
 
 interface PlaybookDetailSheetProps {
   playbook: Playbook | null;
@@ -180,6 +181,11 @@ export function PlaybookDetailSheet({
               </div>
             )}
           </section>
+
+          {/* Playbook Health (gap analysis) */}
+          <PlaybookHealthCard playbook={playbook} />
+
+
 
           {/* Mini Equity Curve */}
           {stats && stats.equityCurve.length > 1 && (
