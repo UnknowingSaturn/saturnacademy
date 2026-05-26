@@ -27,7 +27,12 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
-function computeMetrics(trades: TradeRecord[]): ParsedMetrics {
+function fmtShortDate(d: Date): string {
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+
+export function computeMetrics(trades: TradeRecord[]): ParsedMetrics {
   if (trades.length === 0) return { raw: "No trades" };
 
   const wins = trades.filter((t) => t.profit > 0);
@@ -42,7 +47,8 @@ function computeMetrics(trades: TradeRecord[]): ParsedMetrics {
   const expectancy = totalProfit / trades.length;
 
   // Max drawdown from balance curve
-  let peak = trades[0]?.balance ?? 0;
+  const startBalance = trades[0].balance - trades[0].profit;
+  let peak = startBalance;
   let maxDdAbs = 0;
   let maxDdPct = 0;
   for (const t of trades) {
@@ -55,19 +61,79 @@ function computeMetrics(trades: TradeRecord[]): ParsedMetrics {
 
   const recoveryFactor = maxDdAbs > 0 ? totalProfit / maxDdAbs : 0;
 
-  // Sharpe approximation (daily returns)
+  // Per-trade returns
   const returns = trades.map((t, i) => {
-    const prevBal = i > 0 ? trades[i - 1].balance : t.balance - t.profit;
+    const prevBal = i > 0 ? trades[i - 1].balance : startBalance;
     return prevBal > 0 ? t.profit / prevBal : 0;
   });
   const meanReturn = returns.reduce((s, r) => s + r, 0) / returns.length;
-  const stdDev = Math.sqrt(returns.reduce((s, r) => s + (r - meanReturn) ** 2, 0) / returns.length);
+  const variance = returns.reduce((s, r) => s + (r - meanReturn) ** 2, 0) / returns.length;
+  const stdDev = Math.sqrt(variance);
   const sharpeRatio = stdDev > 0 ? (meanReturn / stdDev) * Math.sqrt(252) : 0;
+
+  const downsideReturns = returns.filter((r) => r < 0);
+  const downsideVar = downsideReturns.length > 0
+    ? downsideReturns.reduce((s, r) => s + r ** 2, 0) / returns.length
+    : 0;
+  const downsideStd = Math.sqrt(downsideVar);
+  const sortinoRatio = downsideStd > 0 ? (meanReturn / downsideStd) * Math.sqrt(252) : 0;
 
   const bestTrade = Math.max(...trades.map((t) => t.profit));
   const worstTrade = Math.min(...trades.map((t) => t.profit));
 
-  const raw = `Total Net Profit: ${totalProfit.toFixed(2)}\nProfit Factor: ${profitFactor.toFixed(2)}\nSharpe Ratio: ${sharpeRatio.toFixed(2)}\nMaximal Drawdown: ${maxDdPct.toFixed(1)}% ($${maxDdAbs.toFixed(2)})\nTotal Trades: ${trades.length}\nWin Rate: ${winRate.toFixed(1)}%\nRecovery Factor: ${recoveryFactor.toFixed(2)}\nAvg Win: ${avgWin.toFixed(2)}\nAvg Loss: ${avgLoss.toFixed(2)}\nBest Trade: ${bestTrade.toFixed(2)}\nWorst Trade: ${worstTrade.toFixed(2)}\nExpectancy: ${expectancy.toFixed(2)}`;
+  // Date-range derived metrics
+  const dateTrades = trades.filter((t) => t.date && !isNaN(new Date(t.date).getTime()));
+  const firstDate = dateTrades.length > 0 ? new Date(dateTrades[0].date) : null;
+  const lastDate = dateTrades.length > 0
+    ? new Date(dateTrades[dateTrades.length - 1].closeDate || dateTrades[dateTrades.length - 1].date)
+    : null;
+
+  let cagrPct: number | undefined;
+  let exposurePct: number | undefined;
+  let calmarRatio: number | undefined;
+  if (firstDate && lastDate && !isNaN(firstDate.getTime()) && !isNaN(lastDate.getTime())) {
+    const days = Math.max(1, (lastDate.getTime() - firstDate.getTime()) / 86400000);
+    const endBalance = trades[trades.length - 1].balance;
+    if (startBalance > 0 && endBalance > 0) {
+      cagrPct = (Math.pow(endBalance / startBalance, 365 / days) - 1) * 100;
+    }
+    if (cagrPct !== undefined && maxDdPct > 0) {
+      calmarRatio = cagrPct / maxDdPct;
+    }
+    const totalElapsed = days * 86400;
+    const totalDuration = trades.reduce((s, t) => s + (t.durationSec ?? 0), 0);
+    if (totalDuration > 0 && totalElapsed > 0) {
+      exposurePct = Math.min(100, (totalDuration / totalElapsed) * 100);
+    }
+  }
+
+  // Avg duration
+  const tradesWithDuration = trades.filter((t) => (t.durationSec ?? 0) > 0);
+  let avgDuration: string | undefined;
+  if (tradesWithDuration.length > 0) {
+    const avgSec = tradesWithDuration.reduce((s, t) => s + (t.durationSec ?? 0), 0) / tradesWithDuration.length;
+    const h = Math.floor(avgSec / 3600);
+    const m = Math.floor((avgSec % 3600) / 60);
+    avgDuration = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  const startDate = firstDate ? fmtShortDate(firstDate) : undefined;
+  const endDate = lastDate ? fmtShortDate(lastDate) : undefined;
+
+  const raw = `Total Net Profit: ${totalProfit.toFixed(2)}
+Profit Factor: ${profitFactor.toFixed(2)}
+Sharpe Ratio: ${sharpeRatio.toFixed(2)}
+Sortino Ratio: ${sortinoRatio.toFixed(2)}
+${cagrPct !== undefined ? `CAGR: ${cagrPct.toFixed(2)}%\n` : ""}${calmarRatio !== undefined ? `Calmar: ${calmarRatio.toFixed(2)}\n` : ""}Maximal Drawdown: ${maxDdPct.toFixed(1)}% ($${maxDdAbs.toFixed(2)})
+Total Trades: ${trades.length}
+Win Rate: ${winRate.toFixed(1)}%
+Recovery Factor: ${recoveryFactor.toFixed(2)}
+Avg Win: ${avgWin.toFixed(2)}
+Avg Loss: ${avgLoss.toFixed(2)}
+Best Trade: ${bestTrade.toFixed(2)}
+Worst Trade: ${worstTrade.toFixed(2)}
+Expectancy: ${expectancy.toFixed(2)}
+${exposurePct !== undefined ? `Exposure: ${exposurePct.toFixed(1)}%\n` : ""}${avgDuration ? `Avg Duration: ${avgDuration}\n` : ""}${startDate && endDate ? `Period: ${startDate} → ${endDate}` : ""}`;
 
   return {
     totalNetProfit: totalProfit,
@@ -75,6 +141,10 @@ function computeMetrics(trades: TradeRecord[]): ParsedMetrics {
     grossLoss,
     profitFactor,
     sharpeRatio,
+    sortinoRatio,
+    cagrPct,
+    calmarRatio,
+    exposurePct,
     maxDrawdownPct: maxDdPct,
     maxDrawdownAbs: maxDdAbs,
     totalTrades: trades.length,
@@ -85,6 +155,9 @@ function computeMetrics(trades: TradeRecord[]): ParsedMetrics {
     worstTrade,
     expectancy,
     recoveryFactor,
+    avgDuration,
+    startDate,
+    endDate,
     raw,
   };
 }
@@ -108,11 +181,13 @@ export function CSVImport({ onDataParsed, disabled }: CSVImportProps) {
       const header = parseCSVLine(lines[0]).map((h) => h.toLowerCase());
 
       // Auto-detect columns
-      const dateIdx = header.findIndex((h) => /date|time|open.?time/i.test(h));
-      const typeIdx = header.findIndex((h) => /type|direction|side/i.test(h));
-      const lotsIdx = header.findIndex((h) => /lot|volume|size/i.test(h));
-      const priceIdx = header.findIndex((h) => /price|entry/i.test(h));
-      const profitIdx = header.findIndex((h) => /profit|pnl|p&l|net/i.test(h));
+      const dateIdx = header.findIndex((h) => /^(date|time|open.?time|entry.?time)$/i.test(h));
+      const closeIdx = header.findIndex((h) => /(close.?time|exit.?time|close.?date|exit.?date)/i.test(h));
+      const typeIdx = header.findIndex((h) => /^(type|direction|side)$/i.test(h));
+      const symbolIdx = header.findIndex((h) => /^(symbol|instrument|ticker|market)$/i.test(h));
+      const lotsIdx = header.findIndex((h) => /^(lot|lots|volume|size|qty|quantity)$/i.test(h));
+      const priceIdx = header.findIndex((h) => /^(price|entry|entry.?price|open.?price)$/i.test(h));
+      const profitIdx = header.findIndex((h) => /profit|pnl|p&l|net|gain/i.test(h));
       const balanceIdx = header.findIndex((h) => /balance/i.test(h));
 
       if (profitIdx === -1) {
@@ -126,21 +201,31 @@ export function CSVImport({ onDataParsed, disabled }: CSVImportProps) {
       for (let i = 1; i < lines.length; i++) {
         const cols = parseCSVLine(lines[i]);
         const profit = parseFloat(cols[profitIdx]) || 0;
-        const balance = balanceIdx >= 0 ? parseFloat(cols[balanceIdx]) || runningBalance + profit : runningBalance + profit;
+        const balance =
+          balanceIdx >= 0 ? parseFloat(cols[balanceIdx]) || runningBalance + profit : runningBalance + profit;
         runningBalance = balance;
 
         const dateStr = dateIdx >= 0 ? cols[dateIdx] : "";
+        const closeStr = closeIdx >= 0 ? cols[closeIdx] : "";
         const d = new Date(dateStr);
+        const cd = closeStr ? new Date(closeStr) : null;
+        const durationSec =
+          cd && !isNaN(cd.getTime()) && !isNaN(d.getTime())
+            ? Math.max(0, (cd.getTime() - d.getTime()) / 1000)
+            : undefined;
 
         trades.push({
           date: dateStr,
+          closeDate: closeStr || undefined,
           type: typeIdx >= 0 && /sell|short/i.test(cols[typeIdx]) ? "sell" : "buy",
+          symbol: symbolIdx >= 0 ? cols[symbolIdx] : undefined,
           lots: lotsIdx >= 0 ? parseFloat(cols[lotsIdx]) || 0.01 : 0.01,
           price: priceIdx >= 0 ? parseFloat(cols[priceIdx]) || 0 : 0,
           profit,
           balance,
           hour: isNaN(d.getTime()) ? undefined : d.getHours(),
           dayOfWeek: isNaN(d.getTime()) ? undefined : d.getDay(),
+          durationSec,
         });
       }
 
@@ -170,5 +255,3 @@ export function CSVImport({ onDataParsed, disabled }: CSVImportProps) {
     </>
   );
 }
-
-export { computeMetrics };
