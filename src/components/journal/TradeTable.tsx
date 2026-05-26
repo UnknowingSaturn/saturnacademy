@@ -309,11 +309,23 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     });
   };
 
+  const isAwaitingRepair = (trade: Trade) => {
+    const pc = (trade as any).partial_closes;
+    if (!Array.isArray(pc)) return false;
+    const hasSnapshotClosed = pc.some((e: any) => e?.type === "snapshot_closed");
+    const wasRepaired = pc.some((e: any) =>
+      e?.type === "repaired_from_snapshot" || e?.type === "repaired_reopened"
+    );
+    if (!hasSnapshotClosed || wasRepaired) return false;
+    return trade.net_pnl == null || trade.net_pnl === 0;
+  };
+
   const getResultBadge = (trade: Trade) => {
     const pnl = trade.net_pnl || 0;
     const isNonExecuted = trade.trade_type && trade.trade_type !== 'executed';
-    
+
     if (trade.is_open) return { label: "Open", color: "muted" };
+    if (isAwaitingRepair(trade)) return { label: "Awaiting repair", color: "muted" };
     if (isNonExecuted) {
       // For non-executed trades, show hypothetical result
       if (pnl > 0) return { label: "Would Win", color: "profit" };
@@ -324,6 +336,7 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     if (pnl < 0) return { label: "Loss", color: "loss" };
     return { label: "BE", color: "breakeven" };
   };
+
 
   const getTradeTypeIcon = (tradeType: string | undefined) => {
     switch (tradeType) {
