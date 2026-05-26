@@ -498,6 +498,10 @@ serve(async (req) => {
     // Process event into trades table
     await processEvent(supabase, newEvent, account.user_id, payload);
 
+    // Track terminal multi-tenancy: a real event from this account means
+    // it is currently the active login on this terminal.
+    await markTerminalActiveAccount(supabase, payload.terminal_id, account.id, account.user_id);
+
     console.log("Event processed:", newEvent.id);
     return new Response(
       JSON.stringify({ 
@@ -508,6 +512,7 @@ serve(async (req) => {
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+
 
   } catch (error) {
     console.error("Error processing event:", error);
