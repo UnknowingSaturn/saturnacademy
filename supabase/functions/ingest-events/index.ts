@@ -342,67 +342,47 @@ serve(async (req) => {
     }
 
     // ==========================================
-    // Handle position_snapshot event
+    // Handle position_snapshot event — READ-ONLY drift signal
+    // Records what the EA currently sees on this (terminal_id, active_login).
+    // NEVER mutates trades. Drift is surfaced in the UI via the trades-drift function.
     // ==========================================
     if (payload.event_type === "position_snapshot") {
       const openTickets = payload.open_position_tickets || [];
-      console.log("Position snapshot received:", openTickets.length, "open positions from terminal:", payload.terminal_id);
+      const activeLogin = payload.account_info?.login != null
+        ? String(payload.account_info.login)
+        : null;
 
-      const { data: openTrades, error: openTradesError } = await supabase
-        .from("trades")
-        .select("id, ticket, symbol, is_open")
-        .eq("account_id", account.id)
-        .eq("is_open", true);
+      console.log("Position snapshot received (read-only):", openTickets.length,
+        "open positions from terminal:", payload.terminal_id,
+        "login:", activeLogin);
 
-      if (openTradesError) {
-        console.error("Failed to fetch open trades for snapshot:", openTradesError);
-        return new Response(
-          JSON.stringify({ status: "error", message: "Failed to fetch open trades" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
+      // Record the snapshot for drift detection.
+      await supabase.from("terminal_snapshots").insert({
+        user_id: account.user_id,
+        terminal_id: payload.terminal_id,
+        active_login: activeLogin,
+        account_id: account.id,
+        open_tickets: openTickets,
+        ea_version: payload.ea_version || null,
+        raw_payload: payload.raw_payload || null,
+      });
 
-      const staleTrades = (openTrades || []).filter(
-        (trade: any) => trade.ticket && !openTickets.includes(trade.ticket)
-      );
-
-      let closedCount = 0;
-      for (const staleTrade of staleTrades) {
-        console.log("Closing stale trade:", staleTrade.id, "ticket:", staleTrade.ticket, "symbol:", staleTrade.symbol);
-
-        const { error: updateError } = await supabase
-          .from("trades")
-          .update({
-            is_open: false,
-            exit_time: new Date().toISOString(),
-            net_pnl: 0,
-            gross_pnl: 0,
-            partial_closes: [{
-              type: "snapshot_closed",
-              account_login: brokerLogin,
-              closed_at: new Date().toISOString(),
-              note: "Closed by position snapshot — awaiting reconnect to repair real PnL",
-            }],
-          })
-          .eq("id", staleTrade.id);
-
-        if (!updateError) closedCount++;
-        else console.error("Failed to close stale trade:", staleTrade.id, updateError);
-      }
-
-      console.log("Position snapshot reconciliation: closed", closedCount, "stale trades");
+      // Mark this account as the currently-active login on this terminal,
+      // and demote any sibling accounts on the same terminal.
+      await markTerminalActiveAccount(supabase, payload.terminal_id, account.id, account.user_id);
 
       return new Response(
         JSON.stringify({
           status: "accepted",
-          message: `Snapshot processed: ${closedCount} stale trades closed`,
+          message: "Snapshot recorded (read-only)",
+          terminal_id: payload.terminal_id,
+          account_id: account.id,
           open_in_mt5: openTickets.length,
-          open_in_db: (openTrades || []).length,
-          stale_closed: closedCount,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
 
     // SERVER-SIDE FILTERING: Skip history_sync events older than sync_history_from
     if (payload.event_type === "history_sync") {
