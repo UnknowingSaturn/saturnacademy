@@ -88,6 +88,16 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
   const [backtestMetrics, setBacktestMetrics] = useState<ParsedMetrics | null>(null);
   const [rawMetricsStr, setRawMetricsStr] = useState<string | null>(null);
   const [tradeRecords, setTradeRecords] = useState<TradeRecord[]>([]);
+  const [oosSplitPct, setOosSplitPct] = useState<number>(70);
+
+  const oosStartIdx = useMemo(
+    () => Math.max(1, Math.min(tradeRecords.length - 1, Math.floor((tradeRecords.length * oosSplitPct) / 100))),
+    [tradeRecords.length, oosSplitPct]
+  );
+  const oosSplitDate = useMemo(
+    () => tradeRecords[oosStartIdx]?.date,
+    [tradeRecords, oosStartIdx]
+  );
 
   const extraBody = useMemo(
     () => (rawMetricsStr ? { backtest_metrics: rawMetricsStr } : {}),
