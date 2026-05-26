@@ -332,6 +332,9 @@ serve(async (req) => {
 
       await supabase.from("accounts").update(heartbeatUpdate).eq("id", account.id);
 
+      // Track terminal multi-tenancy: this account is now the active login on this terminal.
+      await markTerminalActiveAccount(supabase, payload.terminal_id, account.id, account.user_id);
+
       return new Response(
         JSON.stringify({
           status: "accepted",
@@ -340,6 +343,7 @@ serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
 
     // ==========================================
     // Handle position_snapshot event — READ-ONLY drift signal
