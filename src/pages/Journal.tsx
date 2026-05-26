@@ -220,12 +220,14 @@ export default function Journal() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      <DriftTray />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Trade Journal</h1>
           <p className="text-muted-foreground">Review and analyze your trades</p>
         </div>
         <div className="flex items-center gap-2">
+
           {/* View Toggle - only show for active tab */}
           {activeTab === "active" && (
             <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "table" | "calendar")}>
