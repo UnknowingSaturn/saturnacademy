@@ -12,11 +12,14 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Slider } from "@/components/ui/slider";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Download,
   RotateCcw,
   FlaskConical,
   ArrowRight,
+  SplitSquareHorizontal,
 } from "lucide-react";
 import { BacktestMetricsGrid, type ParsedMetrics, type TradeRecord } from "./backtest/BacktestMetricsGrid";
 import { CSVImport } from "./backtest/CSVImport";
@@ -85,6 +88,16 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
   const [backtestMetrics, setBacktestMetrics] = useState<ParsedMetrics | null>(null);
   const [rawMetricsStr, setRawMetricsStr] = useState<string | null>(null);
   const [tradeRecords, setTradeRecords] = useState<TradeRecord[]>([]);
+  const [oosSplitPct, setOosSplitPct] = useState<number>(70);
+
+  const oosStartIdx = useMemo(
+    () => Math.max(1, Math.min(tradeRecords.length - 1, Math.floor((tradeRecords.length * oosSplitPct) / 100))),
+    [tradeRecords.length, oosSplitPct]
+  );
+  const oosSplitDate = useMemo(
+    () => tradeRecords[oosStartIdx]?.date,
+    [tradeRecords, oosStartIdx]
+  );
 
   const extraBody = useMemo(
     () => (rawMetricsStr ? { backtest_metrics: rawMetricsStr } : {}),
@@ -198,6 +211,7 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
       setTradeRecords(trades);
       setBacktestMetrics(metrics);
       setRawMetricsStr(metrics.raw);
+      setOosSplitPct(70);
       setPhase("analyze");
     },
     []
@@ -211,6 +225,7 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
     setBacktestMetrics(null);
     setRawMetricsStr(null);
     setTradeRecords([]);
+    setOosSplitPct(70);
   };
 
   const phases: { key: Phase; label: string; num: number }[] = [
@@ -365,6 +380,31 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
                   <RotateCcw className="h-3 w-3 mr-1" />
                   Refine EA
                 </Button>
+
+                {tradeRecords.length >= 10 && (
+                  <div className="flex items-center gap-2 ml-auto min-w-[280px] max-w-[420px] flex-1">
+                    <SplitSquareHorizontal className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                      IS / OOS split
+                    </span>
+                    <Slider
+                      value={[oosSplitPct]}
+                      min={20}
+                      max={90}
+                      step={5}
+                      onValueChange={(v) => setOosSplitPct(v[0])}
+                      className="flex-1"
+                    />
+                    <span className="text-[11px] font-mono tabular-nums text-foreground whitespace-nowrap">
+                      {oosSplitPct}% IS · {100 - oosSplitPct}% OOS
+                    </span>
+                    {oosSplitDate && (
+                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                        @ {new Date(oosSplitDate).toISOString().slice(0, 10)}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -373,15 +413,44 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
               <div className="border-b border-border px-3 bg-card shrink-0">
                 <TabsList className="bg-transparent h-8">
                   <TabsTrigger value="ai" className="text-xs h-7">AI Analysis</TabsTrigger>
-                  <TabsTrigger value="equity" className="text-xs h-7" disabled={tradeRecords.length === 0}>
-                    Equity Curve
-                  </TabsTrigger>
-                  <TabsTrigger value="distribution" className="text-xs h-7" disabled={tradeRecords.length === 0}>
-                    Distribution
-                  </TabsTrigger>
-                  <TabsTrigger value="montecarlo" className="text-xs h-7" disabled={tradeRecords.length === 0}>
-                    Monte Carlo
-                  </TabsTrigger>
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <TabsTrigger value="equity" className="text-xs h-7" disabled={tradeRecords.length === 0}>
+                            Equity Curve
+                          </TabsTrigger>
+                        </span>
+                      </TooltipTrigger>
+                      {tradeRecords.length === 0 && (
+                        <TooltipContent>Import a CSV trade log to enable this view</TooltipContent>
+                      )}
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <TabsTrigger value="distribution" className="text-xs h-7" disabled={tradeRecords.length === 0}>
+                            Distribution
+                          </TabsTrigger>
+                        </span>
+                      </TooltipTrigger>
+                      {tradeRecords.length === 0 && (
+                        <TooltipContent>Import a CSV trade log to enable this view</TooltipContent>
+                      )}
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <TabsTrigger value="montecarlo" className="text-xs h-7" disabled={tradeRecords.length === 0}>
+                            Monte Carlo
+                          </TabsTrigger>
+                        </span>
+                      </TooltipTrigger>
+                      {tradeRecords.length === 0 && (
+                        <TooltipContent>Import a CSV trade log to enable this view</TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
                 </TabsList>
               </div>
 
@@ -399,15 +468,15 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
               </TabsContent>
 
               <TabsContent value="equity" className="flex-1 min-h-0 mt-0 p-4 overflow-auto">
-                <EquityCurveChart trades={tradeRecords} />
+                <EquityCurveChart trades={tradeRecords} oosStartIdx={oosStartIdx} />
               </TabsContent>
 
               <TabsContent value="distribution" className="flex-1 min-h-0 mt-0 p-4 overflow-auto">
-                <TradeDistributionCharts trades={tradeRecords} />
+                <TradeDistributionCharts trades={tradeRecords} oosStartIdx={oosStartIdx} />
               </TabsContent>
 
               <TabsContent value="montecarlo" className="flex-1 min-h-0 mt-0 p-4 overflow-auto">
-                <MonteCarloPanel trades={tradeRecords} />
+                <MonteCarloPanel trades={tradeRecords} oosStartIdx={oosStartIdx} />
               </TabsContent>
             </Tabs>
           </div>
