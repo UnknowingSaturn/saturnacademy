@@ -12,11 +12,14 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Slider } from "@/components/ui/slider";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Download,
   RotateCcw,
   FlaskConical,
   ArrowRight,
+  SplitSquareHorizontal,
 } from "lucide-react";
 import { BacktestMetricsGrid, type ParsedMetrics, type TradeRecord } from "./backtest/BacktestMetricsGrid";
 import { CSVImport } from "./backtest/CSVImport";
