@@ -5,6 +5,8 @@ import { useUserSettings } from "@/hooks/useUserSettings";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
 
 import { TradeTable } from "@/components/journal/TradeTable";
+import { DriftTray } from "@/components/journal/DriftTray";
+
 import { TradeDetailPanel } from "@/components/journal/TradeDetailPanel";
 import { ManualTradeForm } from "@/components/journal/ManualTradeForm";
 import { JournalSettingsDialog } from "@/components/journal/JournalSettingsDialog";
