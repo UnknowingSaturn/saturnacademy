@@ -21,7 +21,7 @@ import {
 import { useLocation } from "react-router-dom";
 import { AccountSettingsDialog } from "./AccountSettingsDialog";
 import { NavLink } from "@/components/NavLink";
-import { StrategyLabConversationsGroup } from "@/components/strategy-lab/StrategyLabConversationsGroup";
+
 import {
   Sidebar,
   SidebarContent,
