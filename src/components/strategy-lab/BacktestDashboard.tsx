@@ -211,6 +211,7 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
       setTradeRecords(trades);
       setBacktestMetrics(metrics);
       setRawMetricsStr(metrics.raw);
+      setOosSplitPct(70);
       setPhase("analyze");
     },
     []
@@ -224,6 +225,7 @@ export function BacktestDashboard({ selectedPlaybookId, playbookName }: Backtest
     setBacktestMetrics(null);
     setRawMetricsStr(null);
     setTradeRecords([]);
+    setOosSplitPct(70);
   };
 
   const phases: { key: Phase; label: string; num: number }[] = [
