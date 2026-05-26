@@ -523,6 +523,42 @@ function isSnapshotClosed(trade: any): boolean {
   return pc.some((entry: any) => entry?.type === "snapshot_closed");
 }
 
+/**
+ * Upsert terminal_accounts: mark this account as the currently-active login
+ * on this terminal, and demote any sibling accounts on the same terminal.
+ * Called from heartbeat / event / snapshot paths.
+ */
+async function markTerminalActiveAccount(
+  supabase: any,
+  terminalId: string | null | undefined,
+  accountId: string,
+  userId: string,
+) {
+  if (!terminalId) return;
+  try {
+    // Demote any other account currently flagged active on this terminal
+    await supabase
+      .from("terminal_accounts")
+      .update({ is_currently_active: false })
+      .eq("terminal_id", terminalId)
+      .neq("account_id", accountId);
+
+    // Upsert this (terminal, account) as active
+    await supabase
+      .from("terminal_accounts")
+      .upsert({
+        terminal_id: terminalId,
+        account_id: accountId,
+        user_id: userId,
+        last_active_at: new Date().toISOString(),
+        is_currently_active: true,
+      }, { onConflict: "terminal_id,account_id" });
+  } catch (err) {
+    console.error("markTerminalActiveAccount failed (non-fatal):", err);
+  }
+}
+
+
 async function processEvent(supabase: any, event: any, userId: string, originalPayload: EventPayload) {
   const { event_type, ticket, account_id, lot_size } = event;
   const effectiveEventType = originalPayload.event_type === "history_sync"
