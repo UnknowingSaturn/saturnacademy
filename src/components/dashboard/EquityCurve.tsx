@@ -224,9 +224,10 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
               </h3>
               <p className="text-sm text-muted-foreground">
                 {isMulti
-                  ? `Average % return across ${multiAccount!.accounts.length} accounts`
+                  ? `Average % return across ${multiData?.includedCount ?? 0} of ${multiAccount!.accounts.length} accounts`
                   : "Period balance change"}
               </p>
+
             </div>
             <div className="text-right space-y-1">
               <div>
