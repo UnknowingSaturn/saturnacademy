@@ -324,6 +324,38 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     return trade.net_pnl == null || trade.net_pnl === 0;
   };
 
+  const getSnapshotInfo = (trade: Trade) => {
+    const pc = (trade as any).partial_closes;
+    if (!Array.isArray(pc)) return null;
+    const marker = pc.find((e: any) => e?.type === "snapshot_closed");
+    return marker || null;
+  };
+
+  const [repairingId, setRepairingId] = useState<string | null>(null);
+  const handleRepair = async (trade: Trade) => {
+    try {
+      setRepairingId(trade.id);
+      const { data, error } = await supabase.functions.invoke("repair-snapshot-closed", {
+        body: { account_id: trade.account_id },
+      });
+      if (error) throw error;
+      const result = data as any;
+      if (result?.repaired > 0) {
+        toast.success(result.message || "Trade repaired");
+      } else if (result?.pending_mt5_reconnect > 0) {
+        toast.info(result.message || "Awaiting MT5 reconnect to repair");
+      } else {
+        toast.info("Nothing to repair right now");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Repair failed — check edge function logs");
+    } finally {
+      setRepairingId(null);
+    }
+  };
+
+
   const getResultBadge = (trade: Trade) => {
     const pnl = trade.net_pnl || 0;
     const isNonExecuted = trade.trade_type && trade.trade_type !== 'executed';
