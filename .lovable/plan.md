@@ -1,68 +1,53 @@
-# Multi-account on one terminal — server-authoritative live state
-
-Make the journal correct even when one MT5 terminal switches between multiple logins. No trade ever gets silently stuck; the worst case is a clearly-labelled "pending broker verification" chip until you log back in.
+# Multi-account on one MT5 — one accounts row per broker login
 
 ## What changes for the user
+- When you log into a new broker login on an MT5 terminal already known to the journal, a **new account row is auto-created** (named `${broker} - ${login}`, inheriting prop-firm / api-key / install-id / copier role from the sibling). It appears in **All Accounts** immediately, badge **Live**.
+- The previously-active login on that terminal flips to **Dormant** within ~10 min; its open trades keep the *"⏸ Pending broker verification"* chip until you log back in.
+- Every login owns its own history, balance, equity curve, prop-firm rules, and live state.
 
-- Each account gets a live state badge: **Live**, **Dormant**, **Verifying**, **Stale**.
-- Open trades on a dormant account stay in the journal with a chip: *"⏸ Pending broker verification — log into [Account Name] in MT5 to confirm"*.
-- When you log back into a dormant login, the EA's first catchup either confirms the position (chip clears) or auto-closes it (synthesised exit at last known price, flagged `auto_close_on_reconnect`).
-- One-time cleanup: HolaPrime `account_number` corrected `70581 → 70561`, the two stuck NAS tickets (`4576110`, `4560989`) closed with `auto_close_on_resync`.
+## The bug being fixed
+The current sibling-fallback in `ingest-events` and `sync-account-state` resolves an unknown login by **overwriting `account_number`** on whichever row matches `mt5_install_id`. Switching logins keeps mutating the same row instead of producing one row per login — which is why the selector only shows one HolaPrime account.
 
-## Architecture
+## Fix
 
-```text
-EA (one terminal, one active login at a time)
-   │  heartbeat + events (login_id, install_id, api_key)
-   ▼
-ingest-events / sync-account-state
-   │  resolves account via:  api_key → (user_id, account_number=login) → (user_id, install_id) → fallback
-   │  updates terminal_accounts (which login is currently active on this install)
-   ▼
-live_state worker (cron, every 2 min)
-   │  flips accounts to dormant when no heartbeat for that login >10 min
-   │  flips back to live on first fresh heartbeat
-   ▼
-trades.live_state derived from accounts.live_state
-   UI shows chip + repair-on-reconnect
+### 1. Schema guardrail
+Partial unique index so concurrent events for a freshly-switched login can't create duplicate rows:
 ```
+UNIQUE (user_id, mt5_install_id, account_number)
+  WHERE mt5_install_id IS NOT NULL AND account_number IS NOT NULL
+```
+Auto-create uses `ON CONFLICT DO NOTHING` then re-selects.
 
-## Implementation
+### 2. `ingest-events` resolution cascade
+1. `(user_id, account_number = login)` → use it.
+2. Else if `(user_id, mt5_install_id = installId)` matches a sibling:
+   - If `brokerLogin` present → treat sibling as a **template** and fall through to auto-create. Never overwrite `account_number` on the sibling.
+   - If `brokerLogin` is null (legacy EA) → adopt sibling as-is.
+3. Else if `accForKey` exists AND no login → use api-key-bound row.
+4. Else if `payload.account_info` present → **auto-create new accounts row** copying `user_id`, `api_key`, `mt5_install_id`, `copier_role`, `master_account_id`, `sync_history_enabled`, `sync_history_from`, `account_type`, `prop_firm`, `broker`, `broker_utc_offset`, `broker_dst_profile`, `ea_type` from the sibling template (or from `account_info` + setup_token when no sibling). Set `account_number = login`, `name = "${broker} - ${login}"`, `live_state = 'live'`, `last_heartbeat_at = now()`.
+5. Else: reject.
 
-### 1. Schema
+`mt5_install_id` is still backfilled on the matched row. `account_number` is **never** overwritten to a different login.
 
-- `accounts.live_state` enum: `live | dormant | verifying | stale` (default `live`).
-- `accounts.last_heartbeat_at timestamptz` (per-account, not per-install).
-- `accounts.force_resync boolean default false` (used by Resync button + on-reconnect repair).
-- No change to `trades`; we derive `pending_verification` in the client from the trade's `account.live_state` + `is_open`.
+### 3. `sync-account-state` resolution cascade
+Same first three steps. When the sibling exists but `brokerLogin` is new, **return `account_id: null` with `last_deal_id: null`** so the EA does a fresh history sync; the first event then hits ingest-events branch 4 and creates the row.
 
-### 2. Edge functions
+### 4. Repair logic (unchanged)
+- `mark-dormant-accounts` cron flips accounts to `dormant` after 10 min without heartbeat.
+- On reconnect (`live_state was dormant` or `force_resync=true`), `sync-account-state` auto-closes any `is_open` trade whose ticket isn't in EA's `expected_open_tickets[]`.
 
-- **`sync-account-state`** — replace strict `(user_id, account_number=login)` lookup with the cascade above. Backfill `account_number` and `mt5_install_id` on the matched row. Update `accounts.last_heartbeat_at = now()` and `live_state = 'live'` for the resolved account. Return `expected_open_tickets[]` so EA can reconcile.
-- **`ingest-events`** — same resolution cascade (already mostly there); also bumps `last_heartbeat_at` + `live_state = 'live'`.
-- **On-reconnect repair** — when `sync-account-state` finds `accounts.live_state` was `dormant` or `force_resync = true`, after receiving the EA's catchup snapshot, any trade still `is_open = true` whose ticket isn't in `expected_open_tickets[]` gets auto-closed: `is_open = false`, `exit_time = now()`, `exit_price = entry_price`, `net_pnl` left as-is, `raw_payload.repair_reason = 'auto_close_on_reconnect'`.
-- **`mark-dormant-accounts`** (new, cron every 2 min via pg_cron + pg_net) — sets `live_state = 'dormant'` for any account where `last_heartbeat_at < now() - interval '10 minutes'` and `live_state = 'live'`.
-
-### 3. UI
-
-- `AccountCard` — show `live_state` badge with tooltip explaining each state.
-- `TradeRow` / `DriftTray` — when `trade.is_open && account.live_state === 'dormant'`, render the "Pending broker verification" chip with the account name and a small "Resync now" button (calls `sync-account-state` with `force=true` for that account's install).
-- Keep the existing manual break-even repair tool as the escape hatch.
-
-### 4. One-time data fix (separate insert/update, not a migration)
-
-- `UPDATE accounts SET account_number = '70561', name = 'Hola Prime Ltd - 70561' WHERE id = '88a046bd-04ae-4d82-b092-f2fdec88cbfb'`.
-- Close tickets `4576110` and `4560989`: `is_open = false`, `exit_time = now()`, `exit_price = entry_price`, `raw_payload` merged with `{repair_reason: 'auto_close_on_resync'}`.
+## Files touched
+- New migration: partial unique index on `accounts (user_id, mt5_install_id, account_number)`.
+- `supabase/functions/ingest-events/index.ts` — replace sibling-backfill branch; auto-create from sibling template.
+- `supabase/functions/sync-account-state/index.ts` — sibling branch returns null when `brokerLogin` is new.
 
 ## Out of scope
-
-- EA changes — current v4 already sends heartbeat + catchup; no MQL5 edit needed.
-- Renaming `terminal_id` to drop stale login suffix.
-- Multi-install discovery / running >1 terminal per machine.
+- No EA changes (it already sends `api_key`, `install_id`, `login`, `account_info`).
+- No new `terminals` table — `mt5_install_id` is enough.
+- `balance_start` on auto-created rows comes from `account_info.balance`; user can edit later.
 
 ## Validation
-
-1. After deploy, `sync-account-state` with login `70561` returns `account_id` for the HolaPrime row and an `expected_open_tickets` array.
-2. HolaPrime `live_state` flips to `live` on first heartbeat; the two stuck NAS trades close automatically.
-3. Log into a different account on the same terminal → previous account flips to `dormant` within ~10 min; any open trades on it show the pending-verification chip but remain in the journal.
-4. Log back into the dormant account → chip clears (or trade auto-closes if MT5 no longer has the position).
+1. Log into login A on terminal → row A appears, badge **Live**.
+2. Switch to login B on the same terminal → row B auto-created on first event; A flips to **Dormant** within ~10 min; both visible in the dropdown; A's open trades show the pending-verification chip.
+3. Switch back to A → A flips to **Live**, no duplicate row, A's `account_number` unchanged, B stays its own row.
+4. Concurrent events for a new login → unique index ensures exactly one row, no Postgres error surfaces to the EA.
