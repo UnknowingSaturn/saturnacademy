@@ -211,7 +211,14 @@ serve(async (req) => {
         autoClosedCount += 1;
       }
 
-      if (account.force_resync) patch.force_resync = false;
+      // NOTE: do NOT auto-clear force_resync here. A single EA poll often
+      // fires before MT5 has finished downloading the broker's history for
+      // the just-switched login, so clearing the flag after one shot can
+      // strand an account with only a partial trade ledger. The flag is
+      // cleared explicitly from the UI ("Stop resync" on the account card)
+      // once the user is satisfied the ledger is complete. While the flag
+      // is on the EA replays from sync_history_from each poll; ingestion
+      // dedupes via idempotency_key so this is safe to repeat.
     }
 
     await supabase.from("accounts").update(patch).eq("id", account.id);
