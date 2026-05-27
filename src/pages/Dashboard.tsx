@@ -52,6 +52,14 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
   const { filteredTrades: previousTrades, metrics: previousMetrics } = useReports(trades, previousPeriod);
   const dashboardMetrics = useDashboardMetrics(filteredTrades);
 
+  // Per-account balance snapshots from EA heartbeats — powers % return curve
+  // when multiple accounts are selected. Fetched only when >1 account is in scope.
+  const { data: balanceHistory } = useBalanceHistory(
+    filteredAccounts.length > 1 ? filteredAccounts.map((a) => a.id) : [],
+    period.start,
+    period.end,
+  );
+
   // Calculate the starting balance for the equity curve
   // Priority: 1. First trade's balance_at_entry in current period
   //           2. Previous period's ending balance (start + pnl)
