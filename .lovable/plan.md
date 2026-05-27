@@ -1,39 +1,26 @@
-## Audit results
+# Phase D Final Audit — All Clean
 
-The Phase D work is mostly consistent. Three real gaps remain — none are user-visible bugs, but they should be closed so nothing rots:
+I re-audited the codebase against the prior fix list. **No new gaps found.**
 
-### 1. `supabase/config.toml` references 3 deleted edge functions
-The function code is gone but the config blocks remain:
-- `[functions.trades-overlay]`
-- `[functions.backfill-trades]`
-- `[functions.mark-dormant-accounts]` (replaced by pg_cron in Phase B.4)
+## Verified Clean
 
-These should be removed from `supabase/config.toml`.
+- **No stale function references**: `rg` for `trades-overlay`, `backfill-trades`, `mark-dormant-accounts` across the entire repo returns zero hits. Both `supabase/config.toml` and `supabase/functions/` are clean.
+- **Deployed edge functions** match the codebase (22 functions, all present in `supabase/functions/`).
+- **Dual-writes wired in `ingest-events`**:
+  - `trade_partial_fills` ← partial-close branch (idempotent upsert on `trade_id, deal_id`)
+  - `trade_modifications` ← MODIFY branch when SL or TP actually changes
+- **Stale `mark-dormant-accounts` comment** in `ingest-events/index.ts` was already updated to reference the pg_cron job.
+- **Legacy `partial_closes` JSONB** is still read by `trades-drift`, `reprocess-orphan-exits`, `reprocess-trades`, `repair-snapshot-closed`, `useTrades`, `tradeTransform` — this is **intentional** for the dual-write window. Cutover to `trade_view` is a later Phase D step once typed tables accumulate data.
+- **`trade_repair_events`** has no writer yet — intentional; only wired once the new advisory-close path lands.
 
-### 2. `trade_modifications` table has no writer
-Phase D added the typed `trade_modifications` table for SL/TP change history, but the MODIFY branch in `ingest-events/index.ts` (lines 805–823) only updates `trades.sl_final` / `trades.tp_final` — it never inserts into the new table. So modification history is being silently dropped.
+## Not in Scope This Pass (deferred Phase D steps)
 
-Fix: in that branch, when SL or TP actually changes vs the existing trade, insert one row per changed field:
-```ts
-// pseudo
-if (event.sl && event.sl !== existingTrade.sl_final) {
-  insert trade_modifications { field: 'sl', old_value: existingTrade.sl_final, new_value: event.sl, occurred_at: event.event_timestamp }
-}
-// same for tp
-```
+1. Switch reads from `trades` → `trade_view`
+2. Retire `partial_closes` JSONB column
+3. Delete legacy repair functions (`repair-snapshot-closed`, `reprocess-orphan-exits`, `restore-trade-times`, `trades-drift`) once the new advisory-close pipeline writes to `trade_repair_events`
 
-### 3. Stale comment in `ingest-events/index.ts` line 320
-Comment says "The cron worker (mark-dormant-accounts) flips it to 'dormant'…" — that worker no longer exists; it's now the `mark_dormant_accounts` pg_cron job. Update the comment to point at pg_cron.
+## Recommendation
 
-## Non-issues (verified, no action needed)
+**No changes to make right now.** The Phase D dual-write foundation is in place and clean. Next concrete step (when you're ready) is to start consuming `trade_view` in one read path (e.g. `useOpenTrades`) behind a feature check, then progressively cut over.
 
-- **Orphan-close trade insert** (line 932): correctly does NOT write to `trade_partial_fills` — the close itself is the only fill, not a partial.
-- **Snapshot repair markers** in `partial_closes` JSONB: correctly NOT mirrored to `trade_partial_fills` — they're metadata, not real fills.
-- **`trade_repair_events` table** has no writer yet — acceptable; it only needs writes once we start advisory-closing in the new architecture (Phase D step 4+).
-- **`useTrades` / `useOpenTrades`** still read from `trades` — intentional. Cutover to `trade_view` waits until dual-write data has accumulated.
-- **types.ts** has all new tables, view, and columns properly typed.
-
-## Out of scope for this pass
-
-- Switching reads to `trade_view`
-- Deleting the legacy repair edge functions (`repair-snapshot-closed`, `reprocess-orphan-exits`, `restore-trade-times`, `trades-drift`) — those come in Phase D step 4–6 after dual-write proves stable.
+Approve to proceed to the read-path cutover, or close this out and resume later.
