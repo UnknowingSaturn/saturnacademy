@@ -265,11 +265,20 @@ int OnInit()
    Print("after your first trade!");
    Print("=================================================");
    
-   if(g_webRequestOk && ShouldSyncHistory())
+   datetime backendReplayFrom = 0;
+   bool backendReplayRequested = false;
+   if(g_webRequestOk)
+      backendReplayRequested = FetchBackendReplayState(backendReplayFrom);
+   
+   if(g_webRequestOk && (backendReplayRequested || ShouldSyncHistory()))
    {
       Print("");
-      Print("Syncing historical trades (90 days)...");
-      SyncHistoricalDeals();
+      if(backendReplayRequested)
+         Print("Backend requested full history replay...");
+      else
+         Print("Syncing historical trades (90 days)...");
+      SyncHistoricalDealsFrom(backendReplayRequested && backendReplayFrom > 0 ? backendReplayFrom : TimeCurrent() - 90 * 86400,
+                              backendReplayRequested ? "backend replay" : "90-day sync");
    }
    
    if(g_webRequestOk)
