@@ -1,46 +1,49 @@
+## Goal
 
-# Auto-create accounts on connect — no trade required
+Make balance and equity-curve display correct and meaningful when a user has multiple MT5 accounts (across one or more terminals).
 
-## Problem
+## Model (what gets recorded)
 
-Today, switching MT5 logins doesn't surface the new account until either a deal is sent or a heartbeat with `account_info` arrives. `sync-account-state` (the function the EA hits on connect and on its polling timer) detects the new login but returns `account_id: null` and waits for `ingest-events` to create the row. Result: you switched accounts and see nothing in the UI.
+**Per-account balance time series — authoritative from EA heartbeat.**
 
-## Fix
+1. New table `account_balance_snapshots`:
+   - `account_id`, `user_id`
+   - `balance`, `equity`, `margin`, `free_margin`
+   - `recorded_at` (timestamptz), indexed `(account_id, recorded_at desc)`
+   - Insert one row per heartbeat (already arriving every 5–10 min via `ingest-events` and `sync-account-state`). Dedup by rounding to nearest minute to avoid bloat.
+2. Keep `accounts.balance_start` (existing) as the per-account anchor for "% return" math, and continue updating `accounts.equity_current` / `last_heartbeat_at` on every heartbeat for fast display.
+3. `terminal_snapshots` stays as-is (it's terminal-level, not per-account financial history).
 
-Make `sync-account-state` itself create the account row the first time it sees a new login, using the install's sibling account as a template — same approach `ingest-events` already uses. The EA's connect payload already includes `login`, `install_id`, and (in current EA builds) basic account context like broker name, so this is enough to materialise a real row immediately.
+This means deposits, withdrawals, prop-firm payouts, and trading P&L are all reflected automatically because we snapshot what MT5 reports.
 
-## Behaviour after the fix
+## Display rules
 
-1. EA connects → calls `sync-account-state` with `login=B`, `install_id=X`.
-2. Cascade resolves:
-   - No row matches `(user_id, account_number=B)`.
-   - A sibling row exists for `(user_id, mt5_install_id=X)` → use it as template.
-3. Insert new row: `account_number=B`, `mt5_install_id=X`, `name="${sibling.broker} - B"`, `live_state='live'`, `last_heartbeat_at=now()`, copying `api_key`, `copier_role`, `master_account_id`, `sync_history_enabled`, `account_type`, `prop_firm`, `broker`, `broker_utc_offset`, `broker_dst_profile`, `ea_type` from the sibling. Handle `23505` race by re-selecting.
-4. Return `account_id` of the new row with `last_deal_id: null`, `last_event_time: null` so the EA does a fresh history sync.
-5. Account appears in the UI immediately — no trade required. First deals/heartbeats then flow into it normally via `ingest-events` (whose existing auto-create branch becomes a safety net).
+**Header cards (Total P&L, Win Rate, Profit Factor, Avg R, Trades, Days):**
+Always aggregate across selected accounts (sum for $ and counts, weighted average for ratios). Current behavior — no change.
 
-Switch back to A → resolves by `account_number=A` (branch 1), no duplicate, no overwrite. A's prior open trades stay tagged for repair until A's next dormant→live cycle or a manual Resync.
+**Performance chart (`EquityCurve`):**
+- **1 account selected →** $ balance curve from `account_balance_snapshots` for the period (real broker balance, includes cash movements). Falls back to computed `starting + Σ net_pnl` if no snapshots yet.
+- **>1 account selected →** switch Y-axis to **% return**. For each account, compute `(balance_t − balance_period_start) / balance_period_start * 100`, then plot the **equal-weighted average** as the main line. Add small per-account contribution chips below the headline P&L number showing each account's $ delta.
+- Headline number stays in $ (sum of P&L deltas) — traders want to see money. Subtitle shows aggregate % return.
+- "Last period" comparison uses the same metric (% vs %, $ vs $).
 
-If there's no sibling (brand-new install with brand-new login) and the API key isn't bound to anything, behaviour is unchanged: return `account_id: null` and wait for `ingest-events` to create from a payload carrying `account_info`. This edge case requires EA-level info we don't have on connect alone.
+## Files to change
 
-## Technical changes
+1. **Migration** — create `account_balance_snapshots` table with RLS (user owns via account_id → accounts.user_id) and dedup index.
+2. **`supabase/functions/ingest-events/index.ts`** — when a heartbeat/snapshot with `account_info.balance` arrives, insert a snapshot row (rounded to minute, ON CONFLICT DO NOTHING).
+3. **`supabase/functions/sync-account-state/index.ts`** — same insert on connect/heartbeat path.
+4. **`src/hooks/useBalanceHistory.tsx`** (new) — fetch snapshots for selected accounts + period, return either single-account series or normalized multi-account series.
+5. **`src/components/dashboard/EquityCurve.tsx`** — accept `mode: 'dollar' | 'percent'`, accounts list, and snapshot data; render accordingly. Add per-account contribution chips.
+6. **`src/pages/Dashboard.tsx`** — wire selected accounts from `AccountFilterContext` into the new hook, pass mode based on selection count.
 
-**`supabase/functions/sync-account-state/index.ts`** — only this file changes.
+## Edge cases
 
-- In cascade step 2, when a sibling exists and `brokerLogin` is new:
-  - Build template insert from sibling row (select the template columns above).
-  - `insert(...).select().single()` with `23505` handler that re-selects on `(user_id, account_number, is_active=true)`.
-  - Set `account` to the newly created row and continue.
-- Remove the current "siblingExists → return null" short-circuit; replace with the create-from-template path.
-- Keep dormant/force_resync repair logic intact (it's a no-op for a brand new row since it has no `is_open=true` trades).
-- Keep all existing response shape and EA contract.
+- New account with no snapshots yet → fall back to computed curve from trades.
+- Account with snapshots but no trades in period → flat line, still contributes 0% to average.
+- Mixed currencies across accounts → out of scope for now; assume USD (add a TODO note; flag in UI if `accounts.broker` currency differs).
 
-No schema changes. No EA changes. No frontend changes. `ingest-events` keeps its existing auto-create branch as a safety net for legacy EA payloads.
+## Out of scope
 
-## Validation
-
-- Log into A → row A appears Live (already works).
-- Switch to B in MT5 → within one EA poll cycle (seconds), row B appears Live in the All Accounts list, before any trade.
-- A flips to Dormant after 10 min idle (cron, unchanged).
-- Switch back to A → A flips Live, B stays its own row, no duplicates, account numbers unchanged.
-- Brand-new install, brand-new login, no API-key-bound account → still waits for first event (documented edge case).
+- Deposit/withdrawal explicit tagging (we infer from balance jumps that don't match trade P&L — can add a "cash movement" overlay later).
+- Per-account small-multiples chart (can add as a toggle later).
+- Currency conversion across accounts.
