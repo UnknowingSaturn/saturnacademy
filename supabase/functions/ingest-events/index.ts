@@ -1022,7 +1022,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
     }
 
     // REPAIR mode: existing trade was zeroed out by snapshot reconciliation
-    const isRepair = isSnapshotClosed(existingTrade);
+    const isRepair = await isSnapshotClosed(supabase, existingTrade.id, existingTrade.is_open);
     if (isRepair) {
       console.log("REPAIR: overwriting snapshot_closed trade with real exit data:", existingTrade.id, "ticket:", ticket);
     }
@@ -1033,25 +1033,13 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
     const isPartialClose = !isRepair && remainingLots > 0.001;
 
     if (isPartialClose) {
-      const partialCloses = existingTrade.partial_closes || [];
-      partialCloses.push({
-        time: event.event_timestamp,
-        lots: lot_size,
-        price: event.price,
-        pnl: event.profit || 0,
-        commission: event.commission || 0,
-        swap: event.swap || 0,
-        deal_id: originalPayload.deal_id,
-      });
-      
       await supabase.from("trades").update({
-        partial_closes: partialCloses,
         total_lots: remainingLots,
         sl_final: event.sl || existingTrade.sl_final,
         tp_final: event.tp || existingTrade.tp_final,
       }).eq("id", existingTrade.id);
 
-      // Phase D dual-write: typed partial fill row (unique on (trade_id, deal_id))
+      // Typed partial fill row (unique on (trade_id, deal_id))
       await supabase.from("trade_partial_fills").upsert({
         user_id: userId,
         trade_id: existingTrade.id,
@@ -1072,19 +1060,23 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       const duration = Math.floor(
         (new Date(event.event_timestamp).getTime() - new Date(existingTrade.entry_time).getTime()) / 1000
       );
-      
+
       let totalGrossPnl = event.profit || 0;
       let totalCommission = event.commission || 0;
       let totalSwap = event.swap || 0;
 
-      // When repairing a snapshot_closed trade, ignore the snapshot marker entries
-      if (existingTrade.partial_closes && !isRepair) {
-        for (const partial of existingTrade.partial_closes) {
-          if (typeof partial?.lots === "number" && partial.lots > 0) {
-            totalGrossPnl += partial.pnl || 0;
-            totalCommission += partial.commission || 0;
-            totalSwap += partial.swap || 0;
-          }
+      // Sum prior partial fills from typed table (skip on repair).
+      let priorFills: Array<{ lots: number; price: number; profit: number | null; commission: number | null; swap: number | null; occurred_at: string }> = [];
+      if (!isRepair) {
+        const { data: fillRows } = await supabase
+          .from("trade_partial_fills")
+          .select("lots, price, profit, commission, swap, occurred_at")
+          .eq("trade_id", existingTrade.id);
+        priorFills = (fillRows || []) as typeof priorFills;
+        for (const f of priorFills) {
+          totalGrossPnl += Number(f.profit) || 0;
+          totalCommission += Number(f.commission) || 0;
+          totalSwap += Number(f.swap) || 0;
         }
       }
       totalCommission += existingTrade.commission || 0;
@@ -1102,7 +1094,14 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         symbol: existingTrade.symbol,
         equityAtEntry: existingTrade.equity_at_entry || existingTrade.balance_at_entry,
         direction: existingTrade.direction,
-        fills: !isRepair ? existingTrade.partial_closes : null,
+        fills: !isRepair
+          ? priorFills.map((f) => ({
+              time: f.occurred_at,
+              lots: Number(f.lots),
+              price: Number(f.price),
+              pnl: (Number(f.profit) || 0) - (Number(f.commission) || 0) - Math.abs(Number(f.swap) || 0),
+            }))
+          : null,
       });
 
       // Update account equity (skip on repair to avoid drift; equity has already been updated by broker since)
@@ -1111,14 +1110,6 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         const newEquity = equityForUpdate + netPnl;
         await supabase.from("accounts").update({ equity_current: newEquity }).eq("id", account_id);
       }
-
-      const finalPartialCloses = isRepair
-        ? [{
-            type: "repaired_from_snapshot",
-            repaired_at: new Date().toISOString(),
-            note: "Real PnL recovered from MT5 deal history after EA reconnect",
-          }]
-        : existingTrade.partial_closes;
 
       await supabase.from("trades").update({
         exit_price: event.price,
@@ -1133,10 +1124,9 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         total_lots: 0,
         sl_final: event.sl || existingTrade.sl_final,
         tp_final: event.tp || existingTrade.tp_final,
-        partial_closes: finalPartialCloses,
       }).eq("id", existingTrade.id);
 
-      // Phase D dual-write: typed repair event when this close was a snapshot repair
+      // Typed repair event when this close was a snapshot repair
       if (isRepair) {
         await supabase.from("trade_repair_events").insert({
           user_id: userId,
@@ -1147,6 +1137,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
           applied_at: new Date().toISOString(),
         });
       }
+
 
       console.log(isRepair ? "REPAIRED full close" : "Processed full close", "for position:", ticket, "PnL:", netPnl, "R:", rMultiple);
     }
