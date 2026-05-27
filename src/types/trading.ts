@@ -124,6 +124,8 @@ export interface Trade {
   session: SessionType | null;
   duration_seconds: number | null;
   partial_closes: PartialClose[];
+  partial_fills?: PartialFill[];
+  repair_events?: RepairEvent[];
   is_open: boolean;
   is_archived?: boolean;
   archived_at?: string;
