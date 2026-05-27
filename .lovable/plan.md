@@ -1,42 +1,47 @@
-Your suspicion is right, but there are two separate things happening.
+## What’s happening
 
-## What I found
+The issue is not just duplicate tickets anymore. The old sync logic stored trades under account `70561`, but many rows still carry a `terminal_id` like `MT5_76036_HolaPrime-`, `MT5_76034_HolaPrime-`, etc. That means the correct account can be recovered for a lot of legacy rows.
 
-- `70561` currently has **100 total trades**, **91 visible trades**.
-- `70561` also shares **28 duplicate ticket IDs** with sibling accounts on the same MT5 install:
-  - `70583` has 17 trades, and all 17 duplicate tickets also exist under `70561`.
-  - `76034` has 11 trades, and all 11 duplicate tickets also exist under `70561`.
-- That strongly indicates the old app logic previously tagged those trades to `70561` before per-login routing was fixed.
-- But archiving/removing only those obvious duplicates would bring `70561` from **91 visible** down to about **64 visible**, not ~20.
-- So there are likely more old `70561` rows that belong to other accounts whose history has not been fully re-synced yet, especially `76036` which currently has 0 trades.
+Current signal:
+- `70561` has 64 visible trades.
+- Of those, only 20 visible trades have `terminal_id = MT5_70561_HolaPrime-`.
+- The other visible rows are assigned to `70561` but their terminal login points to `70581`, `70573`, `76036`, `76034`, `70583`, or `86021`.
+- Existing ingestion now resolves by broker login, so new events should route correctly.
 
-## Minimal safe plan
+## Plan
 
-1. **Do not delete anything.**
-   - Only archive or reassign legacy duplicates after we can prove the target account has the same ticket.
-   - This keeps everything reversible.
+1. **Add a temporary repair action for all accounts on the same MT5 install**
+   - Replace the hardcoded “Archive duplicate legacy 70561 trades” button with a more general maintenance action.
+   - It will scan trades on the selected MT5 install and parse the intended login from `terminal_id` (`MT5_<login>_...`).
 
-2. **First sync every account fully.**
-   - Keep `force_resync=true` for `70583`, `76034`, `76036`, and `70561`.
-   - Broaden `sync_history_from` for the affected accounts to `2020-01-01` so the EA is not limited to one year.
-   - Login to each MT5 account one at a time with History → All History open.
+2. **Reassign provable legacy mis-tagged trades**
+   - If a trade is assigned to account A, but `terminal_id` says it belongs to login B, and account B exists, update that trade’s `account_id` to account B.
+   - Also normalize `broker_login` to B when it was incorrectly stored as A.
+   - This should move the wrongly tagged visible rows out of `70561`, bringing it close to the ~20 actual trades you see in MT5.
 
-3. **Then run a duplicate-ticket cleanup.**
-   - For every trade ticket that exists in both `70561` and another sibling account, archive the `70561` copy and leave the sibling account copy visible.
-   - This immediately fixes the confirmed wrongly-tagged rows without touching uncertain trades.
+3. **Archive only when reassigning is impossible or duplicate-conflicting**
+   - If the target account doesn’t exist yet, leave the row untouched and report it.
+   - If the target account already has the same ticket, archive the wrong source copy instead of creating two visible copies.
+   - No deletion. Everything stays reversible through archived trades or database history.
 
-4. **Add a temporary admin-only cleanup button or one-off backend action.**
-   - “Archive duplicate legacy trades from 70561”
-   - It should only target duplicates proven by matching ticket IDs across sibling accounts.
-   - No permanent production UI needed after this cleanup.
+4. **Add a dry-run/preview result before changing data**
+   - Show a summary like: “70561 → 76036: 7 trades”, “70561 → 76034: 5 trades”, etc.
+   - Then a confirmation button applies the repair.
 
-5. **Permanent production rule stays simple.**
-   - New EA events already route by broker login.
-   - Keep idempotency by `terminal_id + deal_id + event_type`.
-   - Do not add complex ledger reconciliation yet.
+5. **Keep production simple**
+   - Do not add a complex reconciliation system yet.
+   - Keep the permanent rule: every new EA event routes by `account_info.login` / broker login.
+   - Temporary repair tooling can be removed later once the ledger is clean.
 
-## Expected outcome
+## Expected result
 
-- After duplicate cleanup, `70561` drops by at least 28 mis-tagged trades.
-- After `76036` and any remaining accounts properly sync, more duplicate tickets may appear, and we can run the same reversible cleanup again.
-- Once counts match MT5, click **Stop** on each resync banner.
+After repair:
+- `70561` should show around 20 visible trades.
+- `76034`, `76036`, `70583`, and `86021` should receive the trades whose `terminal_id` proves they belong there.
+- Any uncertain rows remain untouched rather than guessed.
+
+## Implementation details
+
+- Frontend: update the Accounts maintenance section to run a general legacy ownership repair instead of the hardcoded `70561` duplicate cleanup.
+- Backend/data: use a controlled data update, not schema changes.
+- Safety: no trade deletion; reassign only when the target account exists and the terminal login is provable.
