@@ -26,6 +26,7 @@ interface DormantAccount {
   account_number: string | null;
   broker: string | null;
   last_sync_at: string | null;
+  pending_repairs?: number;
 }
 
 /**
