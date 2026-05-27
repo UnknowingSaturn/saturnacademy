@@ -11,7 +11,11 @@ import { BulkActionBar } from "./BulkActionBar";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { ChevronRight, Lightbulb, FileText, Clock, GripVertical } from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { ChevronRight, Lightbulb, FileText, Clock, GripVertical, Wrench, RefreshCw } from "lucide-react";
 import { DEFAULT_COLUMNS, ColumnDefinition, buildColumnRegistry } from "@/types/settings";
 import {
   DndContext,
@@ -319,6 +323,38 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     if (!hasSnapshotClosed || wasRepaired) return false;
     return trade.net_pnl == null || trade.net_pnl === 0;
   };
+
+  const getSnapshotInfo = (trade: Trade) => {
+    const pc = (trade as any).partial_closes;
+    if (!Array.isArray(pc)) return null;
+    const marker = pc.find((e: any) => e?.type === "snapshot_closed");
+    return marker || null;
+  };
+
+  const [repairingId, setRepairingId] = useState<string | null>(null);
+  const handleRepair = async (trade: Trade) => {
+    try {
+      setRepairingId(trade.id);
+      const { data, error } = await supabase.functions.invoke("repair-snapshot-closed", {
+        body: { account_id: trade.account_id },
+      });
+      if (error) throw error;
+      const result = data as any;
+      if (result?.repaired > 0) {
+        toast.success(result.message || "Trade repaired");
+      } else if (result?.pending_mt5_reconnect > 0) {
+        toast.info(result.message || "Awaiting MT5 reconnect to repair");
+      } else {
+        toast.info("Nothing to repair right now");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Repair failed — check edge function logs");
+    } finally {
+      setRepairingId(null);
+    }
+  };
+
 
   const getResultBadge = (trade: Trade) => {
     const pnl = trade.net_pnl || 0;
@@ -662,17 +698,53 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
 
                   if (key === 'result') {
                     const partialCount = getRealPartialCloses(trade).length;
+                    const awaiting = isAwaitingRepair(trade);
+                    const snapInfo = awaiting ? getSnapshotInfo(trade) : null;
+                    const badge = (
+                      <span className={cn(
+                        "px-2 py-0.5 rounded text-xs font-medium",
+                        result.color === 'profit' && "bg-profit/20 text-profit",
+                        result.color === 'loss' && "bg-loss/20 text-loss",
+                        result.color === 'breakeven' && "bg-breakeven/20 text-breakeven",
+                        result.color === 'muted' && "bg-muted text-muted-foreground",
+                        awaiting && "cursor-pointer hover:bg-amber-500/20 hover:text-amber-700 dark:hover:text-amber-400"
+                      )}>
+                        {result.label}
+                      </span>
+                    );
                     return (
-                      <div key={key} className="flex justify-center items-center gap-1">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded text-xs font-medium",
-                          result.color === 'profit' && "bg-profit/20 text-profit",
-                          result.color === 'loss' && "bg-loss/20 text-loss",
-                          result.color === 'breakeven' && "bg-breakeven/20 text-breakeven",
-                          result.color === 'muted' && "bg-muted text-muted-foreground"
-                        )}>
-                          {result.label}
-                        </span>
+                      <div key={key} className="flex justify-center items-center gap-1" onClick={(e) => awaiting && e.stopPropagation()}>
+                        {awaiting ? (
+                          <Popover>
+                            <PopoverTrigger asChild>{badge}</PopoverTrigger>
+                            <PopoverContent align="center" className="w-80 text-sm space-y-3">
+                              <div>
+                                <div className="font-medium mb-1">Awaiting repair</div>
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                  This trade was zeroed out by a position snapshot from another MT5 login on the same install
+                                  {snapInfo?.account_login ? <> (login <span className="font-mono">{snapInfo.account_login}</span>)</> : null}
+                                  . The real close hasn't been streamed yet.
+                                </p>
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                Clicking <strong>Try repair now</strong> searches MT5 deal history across sibling logins on the same install. If the close still isn't there, log MT5 back into the original broker account — the EA will heal it automatically on reconnect.
+                              </div>
+                              <Button
+                                size="sm"
+                                className="w-full"
+                                onClick={() => handleRepair(trade)}
+                                disabled={repairingId === trade.id}
+                              >
+                                {repairingId === trade.id ? (
+                                  <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                                ) : (
+                                  <Wrench className="h-3.5 w-3.5 mr-1.5" />
+                                )}
+                                Try repair now
+                              </Button>
+                            </PopoverContent>
+                          </Popover>
+                        ) : badge}
                         {partialCount > 0 && (
                           <span
                             className="text-[9px] px-1 py-0 rounded bg-muted text-muted-foreground border border-border/50"

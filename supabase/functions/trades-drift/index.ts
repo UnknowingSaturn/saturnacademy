@@ -119,14 +119,40 @@ serve(async (req) => {
       }
     }
 
-    // Hydrate dormant_accounts with display data
+    // Hydrate dormant_accounts with display data + pending repair counts
     let dormantAccounts: any[] = [];
     if (dormantAccountIds.size > 0) {
+      const ids = Array.from(dormantAccountIds);
       const { data: accs } = await admin
         .from("accounts")
         .select("id, name, account_number, broker, last_sync_at")
-        .in("id", Array.from(dormantAccountIds));
-      dormantAccounts = accs || [];
+        .in("id", ids);
+
+      // Count snapshot_closed-but-unrepaired trades per dormant account
+      const { data: stuckRows } = await admin
+        .from("trades")
+        .select("account_id, partial_closes")
+        .in("account_id", ids)
+        .eq("is_open", false);
+
+      const stuckByAccount = new Map<string, number>();
+      for (const t of stuckRows || []) {
+        const pc = (t as any).partial_closes;
+        if (!Array.isArray(pc)) continue;
+        const hasSnap = pc.some((m: any) => m?.type === "snapshot_closed");
+        const repaired = pc.some((m: any) =>
+          m?.type === "repaired_from_snapshot" || m?.type === "repaired_reopened"
+        );
+        if (hasSnap && !repaired) {
+          const accId = (t as any).account_id;
+          stuckByAccount.set(accId, (stuckByAccount.get(accId) || 0) + 1);
+        }
+      }
+
+      dormantAccounts = (accs || []).map((a: any) => ({
+        ...a,
+        pending_repairs: stuckByAccount.get(a.id) || 0,
+      }));
     }
 
     return new Response(

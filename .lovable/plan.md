@@ -1,49 +1,48 @@
-## Goal
+## Why some trades still say "Awaiting repair"
 
-Make balance and equity-curve display correct and meaningful when a user has multiple MT5 accounts (across one or more terminals).
+Looking at your DB: 5 trades are stuck. All sit on account `Hola Prime - 70561`, all marked `snapshot_closed`, none `repaired_*`. Two failure modes are mixed in:
 
-## Model (what gets recorded)
+**Mode A — repairable now, but repair looks in the wrong place (1 trade)**
+Ticket `4453439` (EURUSD, 2026-05-26) has a real `close` event in `events`… but it was ingested against account `Hola Prime - 86021` (the login active on that install at the time), not against `70561` (where the trade row lives). `repair-snapshot-closed` filters events with `eq("account_id", account_id)`, so it never sees the close and the trade stays stuck forever.
 
-**Per-account balance time series — authoritative from EA heartbeat.**
+**Mode B — genuinely awaiting MT5 reconnect (4 trades)**
+Tickets `4147852`, `4067842`, `3426371`, `2955219` have **no** exit event anywhere — the EA never streamed history for them after the snapshot zeroed them out. These will only heal when you next log MT5 back into login `70561` (and `70583`/`76034` for any of theirs). That's expected behaviour; the issue is just that it's invisible to you per-trade.
 
-1. New table `account_balance_snapshots`:
-   - `account_id`, `user_id`
-   - `balance`, `equity`, `margin`, `free_margin`
-   - `recorded_at` (timestamptz), indexed `(account_id, recorded_at desc)`
-   - Insert one row per heartbeat (already arriving every 5–10 min via `ingest-events` and `sync-account-state`). Dedup by rounding to nearest minute to avoid bloat.
-2. Keep `accounts.balance_start` (existing) as the per-account anchor for "% return" math, and continue updating `accounts.equity_current` / `last_heartbeat_at` on every heartbeat for fast display.
-3. `terminal_snapshots` stays as-is (it's terminal-level, not per-account financial history).
+There is also no automatic re-attempt: `repair-snapshot-closed` only runs when you click the button in DriftTray, and DriftTray only lists *currently open drifted* trades, not historical `snapshot_closed` ones — so once a trade falls into "Awaiting repair" it has no UI path back to healing.
 
-This means deposits, withdrawals, prop-firm payouts, and trading P&L are all reflected automatically because we snapshot what MT5 reports.
+## Plan
 
-## Display rules
+### 1. Fix `repair-snapshot-closed` to look across siblings on the same install
+When searching `events` for an exit, also include events on **other accounts that share the same `mt5_install_id`** as the trade's account. If we find an exit on a sibling account, reassign the event-derived data and move the trade to the correct account if the deal's recorded account login matches a sibling. Specifically:
 
-**Header cards (Total P&L, Win Rate, Profit Factor, Avg R, Trades, Days):**
-Always aggregate across selected accounts (sum for $ and counts, weighted average for ratios). Current behavior — no change.
+- Load the trade's account → its `mt5_install_id`.
+- Look up sibling accounts (same `user_id`, same `mt5_install_id`).
+- Query `events` with `.in("account_id", [self, ...siblings])` + `.eq("ticket", trade.ticket)` + `.in("event_type", ["close","partial_close"])`.
+- On match: apply the repair fields as today, and if the exit event's `account_id !== trade.account_id`, also update `trade.account_id` to that sibling so the trade ends up filed under the right login. This is the only way to fix Mode A (ticket 4453439).
 
-**Performance chart (`EquityCurve`):**
-- **1 account selected →** $ balance curve from `account_balance_snapshots` for the period (real broker balance, includes cash movements). Falls back to computed `starting + Σ net_pnl` if no snapshots yet.
-- **>1 account selected →** switch Y-axis to **% return**. For each account, compute `(balance_t − balance_period_start) / balance_period_start * 100`, then plot the **equal-weighted average** as the main line. Add small per-account contribution chips below the headline P&L number showing each account's $ delta.
-- Headline number stays in $ (sum of P&L deltas) — traders want to see money. Subtitle shows aggregate % return.
-- "Last period" comparison uses the same metric (% vs %, $ vs $).
+### 2. Auto-repair on ingest
+In `ingest-events`, when a `close` / `partial_close` event arrives, after the normal processing also do a sweep: find any `snapshot_closed` trades on **any sibling account on the same install** with the same ticket and no `repaired_*` marker. If found, immediately apply the same repair logic (and reassign account_id if needed). This kills the race for free — no manual click required next time.
 
-## Files to change
+### 3. Per-trade visibility & manual trigger in Journal
+Right now "Awaiting repair" is a dead-end pill. Add a small popover/tooltip on that badge in `TradeTable` that:
 
-1. **Migration** — create `account_balance_snapshots` table with RLS (user owns via account_id → accounts.user_id) and dedup index.
-2. **`supabase/functions/ingest-events/index.ts`** — when a heartbeat/snapshot with `account_info.balance` arrives, insert a snapshot row (rounded to minute, ON CONFLICT DO NOTHING).
-3. **`supabase/functions/sync-account-state/index.ts`** — same insert on connect/heartbeat path.
-4. **`src/hooks/useBalanceHistory.tsx`** (new) — fetch snapshots for selected accounts + period, return either single-account series or normalized multi-account series.
-5. **`src/components/dashboard/EquityCurve.tsx`** — accept `mode: 'dollar' | 'percent'`, accounts list, and snapshot data; render accordingly. Add per-account contribution chips.
-6. **`src/pages/Dashboard.tsx`** — wire selected accounts from `AccountFilterContext` into the new hook, pass mode based on selection count.
+- explains *why* (snapshot from another login on the same install zeroed it out, exit not yet received),
+- shows which login the snapshot came from (`partial_closes[0].account_login`),
+- offers a **Try repair now** button that invokes `repair-snapshot-closed` for that trade's account (with the cross-sibling fix from step 1 this will resolve Mode A trades instantly).
 
-## Edge cases
+For Mode B trades the same popover should say "Will heal automatically when MT5 next logs into login {X}" — i.e. honest about needing the reconnect.
 
-- New account with no snapshots yet → fall back to computed curve from trades.
-- Account with snapshots but no trades in period → flat line, still contributes 0% to average.
-- Mixed currencies across accounts → out of scope for now; assume USD (add a TODO note; flag in UI if `accounts.broker` currency differs).
+### 4. Surface the stuck list in DriftTray
+Extend `trades-drift` (and the dormant section of DriftTray) so users see a count of `snapshot_closed`-but-not-repaired trades grouped per dormant login, e.g. *"Hola Prime 76034: 1 trade awaiting MT5 reconnect"*. No new card needed — same DriftTray, new line.
+
+## Technical notes
+
+- Files touched: `supabase/functions/repair-snapshot-closed/index.ts`, `supabase/functions/ingest-events/index.ts` (close/partial_close branch only), `supabase/functions/trades-drift/index.ts`, `src/components/journal/TradeTable.tsx` (badge → popover), `src/components/journal/DriftTray.tsx` (extra line in dormant section).
+- No schema change. No migration.
+- Existing `idx_trades_snapshot_closed` index already supports the sweep queries.
+- Backfill: after deploying, one click of "Try repair now" on ticket 4453439 will clear it; the other four require you to log MT5 back into the respective logins, which is the intended design.
 
 ## Out of scope
 
-- Deposit/withdrawal explicit tagging (we infer from balance jumps that don't match trade P&L — can add a "cash movement" overlay later).
-- Per-account small-multiples chart (can add as a toggle later).
-- Currency conversion across accounts.
+- Forcing the EA to re-pull deal history without an MT5 reconnect (would need a new EA RPC).
+- Cross-broker repair (sibling lookup is scoped to same `mt5_install_id` only — safe).

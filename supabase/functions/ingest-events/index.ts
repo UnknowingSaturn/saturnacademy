@@ -682,6 +682,92 @@ async function markTerminalActiveAccount(
   }
 }
 
+/**
+ * If a close/partial_close event arrives for a ticket that has no trade on
+ * `currentAccountId`, check whether a sibling account on the same MT5 install
+ * has a `snapshot_closed` trade for this ticket awaiting repair. If so, apply
+ * the exit data in-place and reassign the trade to `currentAccountId` (the
+ * login that actually streamed the deal). Returns true when a repair happened.
+ */
+async function tryRepairSiblingSnapshotClosed(
+  supabase: any,
+  userId: string,
+  currentAccountId: string,
+  ticket: number | bigint,
+  event: any,
+): Promise<boolean> {
+  try {
+    const { data: currentAcc } = await supabase
+      .from("accounts")
+      .select("id, mt5_install_id")
+      .eq("id", currentAccountId)
+      .maybeSingle();
+    const installId = currentAcc?.mt5_install_id;
+    if (!installId) return false;
+
+    const { data: siblings } = await supabase
+      .from("accounts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("mt5_install_id", installId);
+
+    const siblingIds = (siblings || []).map((s: any) => s.id);
+    if (siblingIds.length === 0) return false;
+
+    const { data: stuck } = await supabase
+      .from("trades")
+      .select("id, ticket, entry_time, entry_price, original_lots, partial_closes, equity_at_entry, balance_at_entry, sl_initial, account_id, symbol, direction")
+      .in("account_id", siblingIds)
+      .eq("ticket", ticket)
+      .eq("is_open", false)
+      .limit(5);
+
+    const candidate = (stuck || []).find((t: any) =>
+      Array.isArray(t.partial_closes) &&
+      t.partial_closes.some((m: any) => m?.type === "snapshot_closed") &&
+      !t.partial_closes.some((m: any) =>
+        m?.type === "repaired_from_snapshot" || m?.type === "repaired_reopened"
+      )
+    );
+    if (!candidate) return false;
+
+    const grossPnl = Number(event.profit) || 0;
+    const commission = Number(event.commission) || 0;
+    const swap = Number(event.swap) || 0;
+    const netPnl = grossPnl - commission - Math.abs(swap);
+    const duration = Math.floor(
+      (new Date(event.event_timestamp).getTime() -
+        new Date(candidate.entry_time).getTime()) / 1000
+    );
+
+    await supabase.from("trades").update({
+      account_id: currentAccountId,
+      terminal_id: event.terminal_id,
+      exit_price: Number(event.price),
+      exit_time: event.event_timestamp,
+      gross_pnl: grossPnl,
+      commission,
+      swap,
+      net_pnl: netPnl,
+      duration_seconds: duration > 0 ? duration : null,
+      total_lots: 0,
+      partial_closes: [{
+        type: "repaired_from_snapshot",
+        repaired_at: new Date().toISOString(),
+        note: "Auto-repaired on ingest from sibling login on same MT5 install",
+      }],
+    }).eq("id", candidate.id);
+
+    console.log("AUTO-REPAIR: healed sibling snapshot_closed trade", candidate.id, "ticket:", ticket, "PnL:", netPnl);
+    return true;
+  } catch (err) {
+    console.error("tryRepairSiblingSnapshotClosed failed (non-fatal):", err);
+    return false;
+  }
+}
+
+
+
 
 
 async function processEvent(supabase: any, event: any, userId: string, originalPayload: EventPayload) {
@@ -793,6 +879,19 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
   // Handle exit event
   else if (effectiveEventType === "exit" || event_type === "close" || event_type === "partial_close") {
     if (!existingTrade) {
+      // Before creating an orphan, check if a sibling account on the SAME MT5
+      // install has a snapshot_closed trade with this ticket awaiting repair.
+      // This happens when the trade originally lived under a different login on
+      // the same MT5 install and the EA is now streaming history under a new
+      // login. Repairing it in-place avoids ghost orphans + duplicate trades.
+      const repairedSibling = await tryRepairSiblingSnapshotClosed(
+        supabase, userId, account_id, ticket, event
+      );
+      if (repairedSibling) {
+        await supabase.from("events").update({ processed: true }).eq("id", event.id);
+        return;
+      }
+
       // ORPHAN EXIT: Create a closed trade from exit event data
       console.log("Orphan exit event - creating closed trade for position:", ticket);
 

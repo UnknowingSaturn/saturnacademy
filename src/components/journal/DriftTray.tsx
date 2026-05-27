@@ -26,6 +26,7 @@ interface DormantAccount {
   account_number: string | null;
   broker: string | null;
   last_sync_at: string | null;
+  pending_repairs?: number;
 }
 
 /**
@@ -67,6 +68,24 @@ export function DriftTray() {
       });
       if (error) throw error;
       toast.success(`Repair requested for ${trade.symbol} #${trade.ticket}`);
+      await load();
+    } catch (err) {
+      console.error(err);
+      toast.error("Repair failed — check edge function logs");
+    } finally {
+      setRepairing(null);
+    }
+  };
+
+  const repairAccount = async (accountId: string) => {
+    try {
+      setRepairing(accountId);
+      const { data, error } = await supabase.functions.invoke("repair-snapshot-closed", {
+        body: { account_id: accountId },
+      });
+      if (error) throw error;
+      const msg = (data as any)?.message || "Repair complete";
+      toast.success(msg);
       await load();
     } catch (err) {
       console.error(err);
@@ -151,12 +170,35 @@ export function DriftTray() {
                     {a.broker && (
                       <span className="text-xs text-muted-foreground hidden md:inline">{a.broker}</span>
                     )}
+                    {a.pending_repairs ? (
+                      <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                        {a.pending_repairs} awaiting repair
+                      </span>
+                    ) : null}
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {a.last_sync_at
-                      ? `last seen ${formatDistanceToNow(new Date(a.last_sync_at), { addSuffix: true })}`
-                      : "never synced"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {a.last_sync_at
+                        ? `last seen ${formatDistanceToNow(new Date(a.last_sync_at), { addSuffix: true })}`
+                        : "never synced"}
+                    </span>
+                    {a.pending_repairs ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        onClick={() => repairAccount(a.id)}
+                        disabled={repairing === a.id}
+                      >
+                        {repairing === a.id ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                        ) : (
+                          <Wrench className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Try repair
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>
