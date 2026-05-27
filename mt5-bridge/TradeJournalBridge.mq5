@@ -284,6 +284,11 @@ int OnInit()
    if(g_webRequestOk)
       SendPositionSnapshot();
    
+   // Server-driven catchup on connect: fills gaps for missed deals
+   // and synthesises exits for trades closed while this login was dormant.
+   if(g_webRequestOk)
+      RunCatchupCycle();
+   
    // Send initial heartbeat
    if(g_webRequestOk)
       SendHeartbeat();
