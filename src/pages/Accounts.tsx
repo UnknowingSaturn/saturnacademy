@@ -100,7 +100,6 @@ export default function Accounts() {
     }
 
     try {
-      const source = accounts?.find((account) => account.account_number === '70561');
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         toast.error('Please sign in');
@@ -278,39 +277,89 @@ export default function Accounts() {
               <div className="mt-5 border-t border-amber-500/20 pt-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Archive className="h-4 w-4 text-amber-500" />
-                  <h4 className="font-medium">Archive duplicate legacy 70561 trades</h4>
+                  <h4 className="font-medium">Repair legacy trade ownership</h4>
                 </div>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Hides only 70561 trade copies whose ticket already exists on another account from the same MT5 install.
+                  Moves old trades to the account proven by their MT5 terminal login. Duplicate copies are archived, not deleted.
                 </p>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
-                      disabled={isArchivingLegacyDuplicates}
-                    >
-                      {isArchivingLegacyDuplicates ? 'Archiving...' : 'Archive duplicates'}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Archive confirmed duplicate 70561 trades?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This will hide only 70561 trades that have the same ticket on another sibling account. Nothing is deleted, and archived trades can be restored later.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={handleArchiveLegacyDuplicates}
-                        className="bg-amber-500 text-white hover:bg-amber-600"
+                <div className="flex flex-wrap items-center gap-3">
+                  <Select
+                    value={legacyRepairAccountId}
+                    onValueChange={(value) => {
+                      setLegacyRepairAccountId(value);
+                      setLegacyRepairPreview(null);
+                    }}
+                  >
+                    <SelectTrigger className="w-[250px]">
+                      <SelectValue placeholder="Select MT5 install..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {accounts?.map((account) => (
+                        <SelectItem key={account.id} value={account.id}>
+                          {account.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Button
+                    variant="outline"
+                    className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                    onClick={handlePreviewLegacyOwnershipRepair}
+                    disabled={!legacyRepairAccountId || isPreviewingLegacyRepair || isApplyingLegacyRepair}
+                  >
+                    {isPreviewingLegacyRepair ? 'Checking...' : 'Preview repair'}
+                  </Button>
+
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                        disabled={!legacyRepairPreview?.planned || isApplyingLegacyRepair}
                       >
-                        Archive Duplicates
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                        {isApplyingLegacyRepair ? 'Applying...' : 'Apply repair'}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Apply legacy trade ownership repair?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will reassign provably mis-tagged trades to the account shown by their MT5 terminal login. Duplicate copies will be archived, not deleted.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={handleApplyLegacyOwnershipRepair}
+                          className="bg-amber-500 text-white hover:bg-amber-600"
+                        >
+                          Apply Repair
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+
+                {legacyRepairPreview && (
+                  <div className="mt-3 rounded-md border border-amber-500/20 bg-amber-500/5 p-3 text-sm">
+                    <p className="font-medium">{legacyRepairPreview.message}</p>
+                    {legacyRepairPreview.summary.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-muted-foreground">
+                        {legacyRepairPreview.summary.map((item) => (
+                          <li key={`${item.action}-${item.from_account_number}-${item.to_account_number}`}>
+                            {item.action === 'reassign' ? 'Move' : 'Archive duplicate'} {item.count} trade{item.count === 1 ? '' : 's'}: {item.from_account_number} → {item.to_account_number}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {legacyRepairPreview.missing_target_logins.length > 0 && (
+                      <p className="mt-2 text-muted-foreground">
+                        Missing target accounts: {legacyRepairPreview.missing_target_logins.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
