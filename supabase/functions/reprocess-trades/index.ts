@@ -140,7 +140,7 @@ serve(async (req) => {
         const entryTime = new Date(trade.entry_time);
 
         // Calculate session from entry time using custom or default sessions
-        const session = getSessionFromTime(entryTime, sessions);
+        const session = classifySession(entryTime, sessions);
 
         // Calculate R-multiple, preferring derivation from realized PnL
         const rMultiple = computeRMultiple({
@@ -184,7 +184,7 @@ serve(async (req) => {
     for (const trade of openTrades) {
       try {
         const entryTime = new Date(trade.entry_time);
-        const session = getSessionFromTime(entryTime, sessions);
+        const session = classifySession(entryTime, sessions);
 
         const { error: updateError } = await supabase
           .from("trades")
@@ -223,41 +223,5 @@ serve(async (req) => {
   }
 });
 
-// Helper function to determine session from timestamp using custom or default definitions
-function getSessionFromTime(date: Date, sessions: SessionDefinition[]): string {
-  // Use Intl.DateTimeFormat to get the hour in America/New_York timezone (handles DST)
-  const etFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour: 'numeric',
-    minute: 'numeric',
-    hour12: false,
-  });
-  
-  const parts = etFormatter.formatToParts(date);
-  const etHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-  const etMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
-  const etTimeInMinutes = etHour * 60 + etMinute;
-
-  // Check each session definition
-  for (const session of sessions) {
-    if (!session.is_active) continue;
-
-    const startMinutes = session.start_hour * 60 + session.start_minute;
-    const endMinutes = session.end_hour * 60 + session.end_minute;
-
-    // Handle overnight sessions (e.g., Tokyo: 19:00 - 04:00)
-    if (startMinutes > endMinutes) {
-      // Session spans midnight
-      if (etTimeInMinutes >= startMinutes || etTimeInMinutes < endMinutes) {
-        return session.key;
-      }
-    } else {
-      // Normal session within same day
-      if (etTimeInMinutes >= startMinutes && etTimeInMinutes < endMinutes) {
-        return session.key;
-      }
-    }
-  }
-  
-  return "off_hours";
-}
+// Session classifier moved to ../_shared/session.ts (classifySession honors each
+// session's own .timezone field — does NOT hardcode America/New_York).
