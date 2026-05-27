@@ -551,6 +551,9 @@ serve(async (req) => {
         user_id: account.user_id,
         account_id: account.id,
         terminal_id: payload.terminal_id,
+        // Phase D dual-write: stable identity columns for read-time account resolution
+        install_id: payload.install_id ?? null,
+        broker_login: brokerLogin,
         event_type: dbEventType,
         ticket: tradeTicket,
         symbol: payload.symbol,
