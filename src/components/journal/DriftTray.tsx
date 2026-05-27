@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, RefreshCw, Wrench } from "lucide-react";
+import { AlertTriangle, RefreshCw, Wrench, MoonStar } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
@@ -20,6 +20,14 @@ interface DriftTrade {
   active_login: string | null;
 }
 
+interface DormantAccount {
+  id: string;
+  name: string;
+  account_number: string | null;
+  broker: string | null;
+  last_sync_at: string | null;
+}
+
 /**
  * Surfaces trades that the broker probably closed but the EA missed the deal
  * event for. Non-destructive — clicking Repair pulls the real close from
@@ -27,6 +35,7 @@ interface DriftTrade {
  */
 export function DriftTray() {
   const [drift, setDrift] = useState<DriftTrade[]>([]);
+  const [dormant, setDormant] = useState<DormantAccount[]>([]);
   const [loading, setLoading] = useState(false);
   const [repairing, setRepairing] = useState<string | null>(null);
 
@@ -36,6 +45,7 @@ export function DriftTray() {
       const { data, error } = await supabase.functions.invoke("trades-drift");
       if (error) throw error;
       setDrift(data?.drift_trades ?? []);
+      setDormant(data?.dormant_accounts ?? []);
     } catch (err) {
       console.error("DriftTray load failed:", err);
     } finally {
@@ -66,8 +76,8 @@ export function DriftTray() {
     }
   };
 
-  if (loading && drift.length === 0) return null;
-  if (drift.length === 0) return null;
+  if (loading && drift.length === 0 && dormant.length === 0) return null;
+  if (drift.length === 0 && dormant.length === 0) return null;
 
   return (
     <Alert variant="default" className="border-amber-500/40 bg-amber-500/5">
