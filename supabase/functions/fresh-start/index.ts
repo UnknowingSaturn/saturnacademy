@@ -105,6 +105,11 @@ serve(async (req) => {
         .delete({ count: 'exact' })
         .in('trade_id', tradeIds);
       featuresDeleted = featuresCount || 0;
+
+      // Phase D typed companion rows
+      await supabaseAdmin.from('trade_partial_fills').delete().in('trade_id', tradeIds);
+      await supabaseAdmin.from('trade_modifications').delete().in('trade_id', tradeIds);
+      await supabaseAdmin.from('trade_repair_events').delete().in('trade_id', tradeIds);
     }
 
     // Delete trades for this account
