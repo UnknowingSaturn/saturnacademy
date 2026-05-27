@@ -198,3 +198,32 @@ export function useForceResync() {
     },
   });
 }
+
+/**
+ * Clears force_resync on one or more accounts. Used by the "Stop resync"
+ * button on the account card once the user is satisfied the ledger is
+ * complete after a full history replay.
+ */
+export function useStopResync() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (accountIds: string[]) => {
+      if (accountIds.length === 0) return { count: 0 };
+      const { error } = await supabase
+        .from('accounts')
+        .update({ force_resync: false })
+        .in('id', accountIds);
+      if (error) throw error;
+      return { count: accountIds.length };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      toast({ title: 'Resync stopped' });
+    },
+    onError: (error) => {
+      toast({ title: 'Failed to stop resync', description: error.message, variant: 'destructive' });
+    },
+  });
+}
