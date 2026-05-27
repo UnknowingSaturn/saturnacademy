@@ -86,21 +86,67 @@ serve(async (req) => {
     }
 
     // 2. by (user_id, mt5_install_id) — sibling on the same MT5 install.
-    //    Treat as a TEMPLATE only. If the login is new, we deliberately return
-    //    account_id:null so the EA does a fresh history sync; ingest-events
-    //    will then auto-create a new row per login. Never overwrite
-    //    account_number on the sibling.
+    //    Use as a TEMPLATE to materialise a new account row immediately so
+    //    the UI surfaces the switched-to login without waiting for a trade
+    //    or a heartbeat carrying account_info. Never overwrite the sibling.
     let siblingExists = false;
     if (!account && installId) {
-      const { data } = await supabase
+      const { data: sibling } = await supabase
         .from("accounts")
-        .select("id")
+        .select(
+          "id, api_key, copier_role, master_account_id, sync_history_enabled, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile, ea_type",
+        )
         .eq("user_id", userId)
         .eq("mt5_install_id", installId)
         .eq("is_active", true)
         .limit(1)
         .maybeSingle();
-      siblingExists = !!data;
+      siblingExists = !!sibling;
+
+      if (sibling) {
+        const brokerName = (sibling as any).broker ?? "MT5";
+        const insertRow = {
+          user_id: userId,
+          account_number: login,
+          mt5_install_id: installId,
+          name: `${brokerName} - ${login}`,
+          live_state: "live",
+          last_heartbeat_at: new Date().toISOString(),
+          is_active: true,
+          api_key: (sibling as any).api_key,
+          copier_role: (sibling as any).copier_role,
+          master_account_id: (sibling as any).master_account_id,
+          sync_history_enabled: (sibling as any).sync_history_enabled,
+          account_type: (sibling as any).account_type,
+          prop_firm: (sibling as any).prop_firm,
+          broker: (sibling as any).broker,
+          broker_utc_offset: (sibling as any).broker_utc_offset,
+          broker_dst_profile: (sibling as any).broker_dst_profile,
+          ea_type: (sibling as any).ea_type,
+        };
+
+        const { data: created, error: insErr } = await supabase
+          .from("accounts")
+          .insert(insertRow)
+          .select("id, mt5_install_id, account_number, live_state, force_resync")
+          .single();
+
+        if (created) {
+          account = created as any;
+        } else if (insErr && (insErr as any).code === "23505") {
+          // Race: another concurrent connect created the row first.
+          const { data: existing } = await supabase
+            .from("accounts")
+            .select("id, mt5_install_id, account_number, live_state, force_resync")
+            .eq("user_id", userId)
+            .eq("account_number", login)
+            .eq("is_active", true)
+            .maybeSingle();
+          if (existing) account = existing as any;
+        } else if (insErr) {
+          console.error("sync-account-state sibling-template insert failed:", insErr);
+        }
+      }
     }
 
     // 3. API-key-bound account — last resort, only when no install sibling
@@ -114,6 +160,7 @@ serve(async (req) => {
         .maybeSingle();
       if (data) account = data as any;
     }
+
 
     if (!account) {
       // First-ever connect for this login. EA should do a fresh history sync.
