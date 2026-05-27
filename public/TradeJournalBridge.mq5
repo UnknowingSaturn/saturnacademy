@@ -704,6 +704,35 @@ void RunCatchupCycle()
    }
 }
 
+bool FetchBackendReplayState(datetime &replayFrom)
+{
+   replayFrom = 0;
+   string body = "{\"install_id\":\"" + g_installId + "\",\"login\":\"" + g_activeLogin + "\"}";
+   
+   char postData[]; char result[]; string resultHeaders;
+   int payloadLen = StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
+   ArrayResize(postData, payloadLen - 1);
+   
+   string headers = "Content-Type: application/json\r\n";
+   headers += "x-api-key: " + InpApiKey + "\r\n";
+   
+   ResetLastError();
+   int code = WebRequest("POST", SYNC_STATE_URL, headers, 15000, postData, result, resultHeaders);
+   if(code < 200 || code >= 300)
+   {
+      if(InpVerboseMode)
+         Print("Backend replay check returned ", code);
+      return false;
+   }
+   
+   string body_resp = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+   string lastTimeStr = ExtractJsonString(body_resp, "last_event_time");
+   string replayFromStr = ExtractJsonString(body_resp, "replay_from");
+   replayFrom = (StringLen(replayFromStr) > 0) ? ParseIsoUtcToBroker(replayFromStr) : 0;
+   g_backendReplayActive = (StringLen(lastTimeStr) == 0 && replayFrom > 0);
+   return g_backendReplayActive;
+}
+
 //+------------------------------------------------------------------+
 //| Tiny ad-hoc JSON helpers (server response is small + trusted)     |
 //+------------------------------------------------------------------+
