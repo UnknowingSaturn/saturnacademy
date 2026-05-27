@@ -280,14 +280,16 @@ serve(async (req) => {
     }
 
 
-    // Update equity and ea_type if provided
-    if (payload.account_info?.equity || payload.ea_type) {
-      const updateData: Record<string, unknown> = {};
-      if (payload.account_info?.equity) updateData.equity_current = payload.account_info.equity;
-      if (payload.ea_type) updateData.ea_type = payload.ea_type;
-      if (Object.keys(updateData).length > 0) {
-        await supabase.from("accounts").update(updateData).eq("id", account.id);
-      }
+    // Every event bumps the per-account heartbeat and flips state back to 'live'.
+    // The cron worker (mark-dormant-accounts) flips it to 'dormant' if heartbeats stop.
+    {
+      const liveBump: Record<string, unknown> = {
+        last_heartbeat_at: new Date().toISOString(),
+        live_state: "live",
+      };
+      if (payload.account_info?.equity) liveBump.equity_current = payload.account_info.equity;
+      if (payload.ea_type) liveBump.ea_type = payload.ea_type;
+      await supabase.from("accounts").update(liveBump).eq("id", account.id);
     }
 
     // ==========================================
