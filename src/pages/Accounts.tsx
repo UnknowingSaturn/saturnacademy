@@ -103,15 +103,15 @@ export default function Accounts() {
         return;
       }
 
-      const { count, error } = await supabase
+      const { data: archivedRows, error } = await supabase
         .from('trades')
         .update({ is_archived: true, archived_at: new Date().toISOString() })
         .eq('account_id', source.id)
         .in('ticket', duplicateTickets)
-        .select('id', { count: 'exact' });
+        .select('id');
       if (error) throw error;
 
-      toast.success(`Archived ${count || 0} duplicate 70561 trades`, {
+      toast.success(`Archived ${archivedRows?.length || 0} duplicate 70561 trades`, {
         description: 'Only 70561 copies with matching sibling tickets were hidden. Restore them from Archived if needed.',
       });
       refetch();
