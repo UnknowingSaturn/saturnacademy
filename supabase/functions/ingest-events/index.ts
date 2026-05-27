@@ -369,6 +369,7 @@ serve(async (req) => {
       await supabase.from("terminal_snapshots").insert({
         user_id: account.user_id,
         terminal_id: payload.terminal_id,
+        install_id: payload.install_id || null,
         active_login: activeLogin,
         account_id: account.id,
         open_tickets: openTickets,
@@ -376,9 +377,15 @@ serve(async (req) => {
         raw_payload: payload.raw_payload || null,
       });
 
+      // Touch last_sync_at so the UI knows this account is fresh.
+      await supabase.from("accounts")
+        .update({ last_sync_at: new Date().toISOString() })
+        .eq("id", account.id);
+
       // Mark this account as the currently-active login on this terminal,
-      // and demote any sibling accounts on the same terminal.
-      await markTerminalActiveAccount(supabase, payload.terminal_id, account.id, account.user_id);
+      // and demote any sibling accounts on the same install.
+      await markTerminalActiveAccount(supabase, payload.terminal_id, payload.install_id, account.id, account.user_id);
+
 
       return new Response(
         JSON.stringify({
