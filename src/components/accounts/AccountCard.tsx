@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History, Activity, AlertTriangle, Crown, Radio, Minus } from 'lucide-react';
+import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History, Activity, AlertTriangle, Crown, Radio, Minus, RefreshCw, Square } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { useDeleteAccount } from '@/hooks/useAccounts';
+import { useDeleteAccount, useStopResync } from '@/hooks/useAccounts';
 import { useAccountStatus } from '@/hooks/useAccountStatus';
 import { Account } from '@/types/trading';
 import { formatDistanceToNow } from 'date-fns';
@@ -37,6 +37,7 @@ interface AccountCardProps {
 export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
   const { toast } = useToast();
   const deleteAccount = useDeleteAccount();
+  const stopResync = useStopResync();
   const { data: status } = useAccountStatus(account.id);
   const [showApiKey, setShowApiKey] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -159,6 +160,32 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
               </p>
             )}
           </div>
+
+          {/* Resync banner — shown while force_resync is true. EA replays history
+              every poll; user clicks Stop once trade counts look right. */}
+          {account.force_resync && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <RefreshCw className="h-4 w-4 text-amber-600 animate-spin shrink-0" />
+                <div className="text-xs min-w-0">
+                  <p className="font-medium text-amber-700 dark:text-amber-400">Full history resync running</p>
+                  <p className="text-muted-foreground truncate">
+                    EA replays on every poll. Click Stop when trade count matches your account.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-amber-500/50 text-amber-700 hover:bg-amber-500/10 shrink-0"
+                onClick={() => stopResync.mutate([account.id])}
+                disabled={stopResync.isPending}
+              >
+                <Square className="h-3 w-3 mr-1" />
+                Stop
+              </Button>
+            </div>
+          )}
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">

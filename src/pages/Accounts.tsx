@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Link, RefreshCw, AlertTriangle, Archive, Flame, Wrench, History } from 'lucide-react';
+import { Link, RefreshCw, AlertTriangle, Archive, Flame, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAccounts, useForceResync } from '@/hooks/useAccounts';
+import { useAccounts } from '@/hooks/useAccounts';
 import { useArchiveAllTrades } from '@/hooks/useTrades';
 import { AccountCard } from '@/components/accounts/AccountCard';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
@@ -9,7 +9,6 @@ import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
 import { Account } from '@/types/trading';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { subYears } from 'date-fns';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,7 +31,6 @@ import {
 export default function Accounts() {
   const { data: accounts, isLoading, refetch } = useAccounts();
   const archiveAllMutation = useArchiveAllTrades();
-  const forceResync = useForceResync();
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
   const [isFreshStarting, setIsFreshStarting] = useState(false);
@@ -41,13 +39,6 @@ export default function Accounts() {
   const [repairAccountId, setRepairAccountId] = useState<string>('');
   const [isRepairing, setIsRepairing] = useState(false);
 
-  const handleResyncAll = async () => {
-    if (!accounts || accounts.length === 0) return;
-    await forceResync.mutateAsync({
-      accountIds: accounts.map((a) => a.id),
-      syncFrom: subYears(new Date(), 1),
-    });
-  };
 
 
   const handleRepairStuckTrades = async () => {
@@ -128,17 +119,7 @@ export default function Accounts() {
           <p className="text-muted-foreground">Manage your trading accounts and MT5 connections</p>
         </div>
         <div className="flex gap-2">
-          {accounts && accounts.length > 0 && (
-            <Button
-              variant="outline"
-              onClick={handleResyncAll}
-              disabled={forceResync.isPending}
-              title="Queue a 1-year history replay for every account. EAs pick it up on next poll."
-            >
-              <History className={`h-4 w-4 mr-2 ${forceResync.isPending ? 'animate-spin' : ''}`} />
-              {forceResync.isPending ? 'Queuing…' : 'Resync All'}
-            </Button>
-          )}
+
           <Button onClick={() => setQuickConnectOpen(true)}>
             <Link className="h-4 w-4 mr-2" />
             Connect MT5
