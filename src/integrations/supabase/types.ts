@@ -30,7 +30,9 @@ export type Database = {
           equity_current: number | null
           id: string
           is_active: boolean | null
+          last_sync_at: string | null
           master_account_id: string | null
+          mt5_install_id: string | null
           name: string
           prop_firm: Database["public"]["Enums"]["prop_firm"] | null
           sync_history_enabled: boolean | null
@@ -54,7 +56,9 @@ export type Database = {
           equity_current?: number | null
           id?: string
           is_active?: boolean | null
+          last_sync_at?: string | null
           master_account_id?: string | null
+          mt5_install_id?: string | null
           name: string
           prop_firm?: Database["public"]["Enums"]["prop_firm"] | null
           sync_history_enabled?: boolean | null
@@ -78,7 +82,9 @@ export type Database = {
           equity_current?: number | null
           id?: string
           is_active?: boolean | null
+          last_sync_at?: string | null
           master_account_id?: string | null
+          mt5_install_id?: string | null
           name?: string
           prop_firm?: Database["public"]["Enums"]["prop_firm"] | null
           sync_history_enabled?: boolean | null
@@ -1508,6 +1514,7 @@ export type Database = {
         Row: {
           account_id: string
           created_at: string
+          install_id: string | null
           is_currently_active: boolean
           last_active_at: string
           terminal_id: string
@@ -1517,6 +1524,7 @@ export type Database = {
         Insert: {
           account_id: string
           created_at?: string
+          install_id?: string | null
           is_currently_active?: boolean
           last_active_at?: string
           terminal_id: string
@@ -1526,6 +1534,7 @@ export type Database = {
         Update: {
           account_id?: string
           created_at?: string
+          install_id?: string | null
           is_currently_active?: boolean
           last_active_at?: string
           terminal_id?: string
@@ -1540,6 +1549,7 @@ export type Database = {
           active_login: string | null
           ea_version: string | null
           id: string
+          install_id: string | null
           open_tickets: number[]
           raw_payload: Json | null
           received_at: string
@@ -1551,6 +1561,7 @@ export type Database = {
           active_login?: string | null
           ea_version?: string | null
           id?: string
+          install_id?: string | null
           open_tickets?: number[]
           raw_payload?: Json | null
           received_at?: string
@@ -1562,6 +1573,7 @@ export type Database = {
           active_login?: string | null
           ea_version?: string | null
           id?: string
+          install_id?: string | null
           open_tickets?: number[]
           raw_payload?: Json | null
           received_at?: string

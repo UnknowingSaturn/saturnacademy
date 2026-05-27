@@ -20,6 +20,8 @@ interface AccountInfo {
 interface EventPayload {
   idempotency_key: string;
   terminal_id: string;
+  install_id?: string;            // NEW v4: stable hash of MT5 install path
+  active_login?: string;          // NEW v4: currently active broker login on the install
   account_id?: string;
   ea_type?: "journal" | "master" | "receiver";
   event_type: "entry" | "exit" | "history_sync" | "open" | "modify" | "partial_close" | "close" | "position_snapshot" | "heartbeat";
@@ -207,6 +209,8 @@ serve(async (req) => {
           balance_start: payload.account_info.balance,
           equity_current: payload.account_info.equity,
           terminal_id: payload.terminal_id,
+          mt5_install_id: payload.install_id || null,
+          last_sync_at: new Date().toISOString(),
           api_key: apiKey,
           prop_firm: propFirm,
           is_active: true,
@@ -248,13 +252,14 @@ serve(async (req) => {
       );
     }
 
-    // Update terminal_id if not set
-    if (!account.terminal_id && payload.terminal_id) {
-      await supabase
-        .from("accounts")
-        .update({ terminal_id: payload.terminal_id })
-        .eq("id", account.id);
+    // Backfill terminal_id and install_id on the account row when EA provides them
+    const accountBackfill: Record<string, unknown> = {};
+    if (!account.terminal_id && payload.terminal_id) accountBackfill.terminal_id = payload.terminal_id;
+    if (payload.install_id) accountBackfill.mt5_install_id = payload.install_id;
+    if (Object.keys(accountBackfill).length > 0) {
+      await supabase.from("accounts").update(accountBackfill).eq("id", account.id);
     }
+
 
     // Update equity and ea_type if provided
     if (payload.account_info?.equity || payload.ea_type) {
@@ -330,10 +335,12 @@ serve(async (req) => {
         heartbeatUpdate.broker_utc_offset = payload.broker_utc_offset;
       }
 
+      heartbeatUpdate.last_sync_at = new Date().toISOString();
       await supabase.from("accounts").update(heartbeatUpdate).eq("id", account.id);
 
       // Track terminal multi-tenancy: this account is now the active login on this terminal.
-      await markTerminalActiveAccount(supabase, payload.terminal_id, account.id, account.user_id);
+      await markTerminalActiveAccount(supabase, payload.terminal_id, payload.install_id, account.id, account.user_id);
+
 
       return new Response(
         JSON.stringify({
@@ -364,6 +371,7 @@ serve(async (req) => {
       await supabase.from("terminal_snapshots").insert({
         user_id: account.user_id,
         terminal_id: payload.terminal_id,
+        install_id: payload.install_id || null,
         active_login: activeLogin,
         account_id: account.id,
         open_tickets: openTickets,
@@ -371,9 +379,15 @@ serve(async (req) => {
         raw_payload: payload.raw_payload || null,
       });
 
+      // Touch last_sync_at so the UI knows this account is fresh.
+      await supabase.from("accounts")
+        .update({ last_sync_at: new Date().toISOString() })
+        .eq("id", account.id);
+
       // Mark this account as the currently-active login on this terminal,
-      // and demote any sibling accounts on the same terminal.
-      await markTerminalActiveAccount(supabase, payload.terminal_id, account.id, account.user_id);
+      // and demote any sibling accounts on the same install.
+      await markTerminalActiveAccount(supabase, payload.terminal_id, payload.install_id, account.id, account.user_id);
+
 
       return new Response(
         JSON.stringify({
@@ -498,9 +512,15 @@ serve(async (req) => {
     // Process event into trades table
     await processEvent(supabase, newEvent, account.user_id, payload);
 
+    // Bump last_sync_at for this account so the UI freshness badge updates.
+    await supabase.from("accounts")
+      .update({ last_sync_at: new Date().toISOString() })
+      .eq("id", account.id);
+
     // Track terminal multi-tenancy: a real event from this account means
-    // it is currently the active login on this terminal.
-    await markTerminalActiveAccount(supabase, payload.terminal_id, account.id, account.user_id);
+    // it is currently the active login on this install.
+    await markTerminalActiveAccount(supabase, payload.terminal_id, payload.install_id, account.id, account.user_id);
+
 
     console.log("Event processed:", newEvent.id);
     return new Response(
@@ -534,29 +554,44 @@ function isSnapshotClosed(trade: any): boolean {
 
 /**
  * Upsert terminal_accounts: mark this account as the currently-active login
- * on this terminal, and demote any sibling accounts on the same terminal.
- * Called from heartbeat / event / snapshot paths.
+ * on this MT5 install, and demote any sibling accounts on the same install.
+ *
+ * Prefers `install_id` (stable across login switches in the same MT5 install)
+ * but falls back to the legacy login-flavoured `terminal_id` so payloads
+ * from older EA versions still update correctly.
  */
 async function markTerminalActiveAccount(
   supabase: any,
   terminalId: string | null | undefined,
+  installId: string | null | undefined,
   accountId: string,
   userId: string,
 ) {
-  if (!terminalId) return;
+  if (!terminalId && !installId) return;
   try {
-    // Demote any other account currently flagged active on this terminal
-    await supabase
-      .from("terminal_accounts")
-      .update({ is_currently_active: false })
-      .eq("terminal_id", terminalId)
-      .neq("account_id", accountId);
+    // Scope sibling demotion by install_id when available, since terminal_id
+    // is per-login on the new EA. Without install_id we fall back to terminal_id.
+    if (installId) {
+      await supabase
+        .from("terminal_accounts")
+        .update({ is_currently_active: false })
+        .eq("install_id", installId)
+        .neq("account_id", accountId);
+    } else if (terminalId) {
+      await supabase
+        .from("terminal_accounts")
+        .update({ is_currently_active: false })
+        .eq("terminal_id", terminalId)
+        .neq("account_id", accountId);
+    }
 
-    // Upsert this (terminal, account) as active
+    // Upsert this (terminal, account) as active. terminal_id is still the
+    // unique key in terminal_accounts so we keep it as the conflict target.
     await supabase
       .from("terminal_accounts")
       .upsert({
         terminal_id: terminalId,
+        install_id: installId || null,
         account_id: accountId,
         user_id: userId,
         last_active_at: new Date().toISOString(),
@@ -566,6 +601,7 @@ async function markTerminalActiveAccount(
     console.error("markTerminalActiveAccount failed (non-fatal):", err);
   }
 }
+
 
 
 async function processEvent(supabase: any, event: any, userId: string, originalPayload: EventPayload) {
