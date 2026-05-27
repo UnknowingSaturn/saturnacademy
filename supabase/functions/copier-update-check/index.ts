@@ -5,9 +5,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// GitHub repository info
-const GITHUB_OWNER = "UnknowingSaturn";
-const GITHUB_REPO = "saturnacademy";
+// GitHub repository for desktop installer releases.
+// Override via env vars when forking; defaults preserve current behavior.
+const GITHUB_OWNER = Deno.env.get('UPDATER_GITHUB_OWNER') || "UnknowingSaturn";
+const GITHUB_REPO = Deno.env.get('UPDATER_GITHUB_REPO') || "saturnacademy";
 
 interface GitHubRelease {
   tag_name: string;

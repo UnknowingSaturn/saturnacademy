@@ -187,6 +187,7 @@ export function useUpdateUserSettings() {
     onError: (error) => {
       toast.error('Failed to save settings');
       console.error(error);
+      toast.error(error instanceof Error ? error.message : "Save failed");
     },
   });
 }
@@ -286,6 +287,7 @@ export function useCreateSession() {
     onError: (error) => {
       toast.error('Failed to create session');
       console.error(error);
+      toast.error(error instanceof Error ? error.message : "Save failed");
     },
   });
 }
@@ -309,6 +311,7 @@ export function useUpdateSession() {
     onError: (error) => {
       toast.error('Failed to update session');
       console.error(error);
+      toast.error(error instanceof Error ? error.message : "Save failed");
     },
   });
 }
@@ -330,6 +333,7 @@ export function useDeleteSession() {
     onError: (error) => {
       toast.error('Failed to delete session');
       console.error(error);
+      toast.error(error instanceof Error ? error.message : "Save failed");
     },
   });
 }
@@ -352,6 +356,7 @@ export function useReorderSessions() {
     onError: (error) => {
       toast.error('Failed to reorder sessions');
       console.error(error);
+      toast.error(error instanceof Error ? error.message : "Save failed");
     },
   });
 }
@@ -443,6 +448,7 @@ export function useCreatePropertyOption() {
     onError: (error) => {
       toast.error('Failed to create option');
       console.error(error);
+      toast.error(error instanceof Error ? error.message : "Save failed");
     },
   });
 }
@@ -465,6 +471,7 @@ export function useUpdatePropertyOption() {
     onError: (error) => {
       toast.error('Failed to update option');
       console.error(error);
+      toast.error(error instanceof Error ? error.message : "Save failed");
     },
   });
 }
@@ -488,6 +495,7 @@ export function useDeletePropertyOption() {
     onError: (error) => {
       toast.error('Failed to delete option');
       console.error(error);
+      toast.error(error instanceof Error ? error.message : "Save failed");
     },
   });
 }
@@ -512,6 +520,7 @@ export function useReorderPropertyOptions() {
     onError: (error) => {
       toast.error('Failed to reorder options');
       console.error(error);
+      toast.error(error instanceof Error ? error.message : "Save failed");
     },
   });
 }
@@ -557,6 +566,7 @@ export function useInitializeDefaults() {
     onError: (error) => {
       toast.error('Failed to initialize settings');
       console.error(error);
+      toast.error(error instanceof Error ? error.message : "Save failed");
     },
   });
 }
