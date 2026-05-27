@@ -37,6 +37,7 @@ interface AccountCardProps {
 export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
   const { toast } = useToast();
   const deleteAccount = useDeleteAccount();
+  const stopResync = useStopResync();
   const { data: status } = useAccountStatus(account.id);
   const [showApiKey, setShowApiKey] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
