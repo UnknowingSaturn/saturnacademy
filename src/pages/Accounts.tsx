@@ -33,7 +33,6 @@ export default function Accounts() {
   const archiveAllMutation = useArchiveAllTrades();
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
-  const [isRecovering, setIsRecovering] = useState(false);
   const [isFreshStarting, setIsFreshStarting] = useState(false);
   const [freshStartAccountId, setFreshStartAccountId] = useState<string>('');
   const [archiveAllAccountId, setArchiveAllAccountId] = useState<string>('');
