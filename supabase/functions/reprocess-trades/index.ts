@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { computeRMultiple } from "../_shared/rMultiple.ts";
+import { classifySession, DEFAULT_SESSIONS, SessionDefinition } from "../_shared/session.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,28 +14,8 @@ interface ReprocessRequest {
   use_custom_sessions?: boolean;
 }
 
-interface SessionDefinition {
-  name: string;
-  key: string;
-  start_hour: number;
-  start_minute: number;
-  end_hour: number;
-  end_minute: number;
-  timezone: string;
-  is_active: boolean;
-}
-
-// Default sessions if user hasn't defined any
-// Order matters - first match wins. London comes before Tokyo to handle 03:00-04:00 overlap
-const DEFAULT_SESSIONS: SessionDefinition[] = [
-  { name: 'London', key: 'london', start_hour: 3, start_minute: 0, end_hour: 8, end_minute: 0, timezone: 'America/New_York', is_active: true },
-  { name: 'NY AM', key: 'new_york_am', start_hour: 8, start_minute: 0, end_hour: 12, end_minute: 0, timezone: 'America/New_York', is_active: true },
-  { name: 'NY PM', key: 'new_york_pm', start_hour: 12, start_minute: 0, end_hour: 17, end_minute: 0, timezone: 'America/New_York', is_active: true },
-  { name: 'Off Hours', key: 'off_hours', start_hour: 17, start_minute: 0, end_hour: 19, end_minute: 0, timezone: 'America/New_York', is_active: true },
-  { name: 'Tokyo', key: 'tokyo', start_hour: 19, start_minute: 0, end_hour: 3, end_minute: 0, timezone: 'America/New_York', is_active: true },
-];
-
-// computeRMultiple + pip helpers moved to ../_shared/rMultiple.ts
+// computeRMultiple + pip helpers in ../_shared/rMultiple.ts
+// session classifier + DEFAULT_SESSIONS in ../_shared/session.ts
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -159,7 +140,7 @@ serve(async (req) => {
         const entryTime = new Date(trade.entry_time);
 
         // Calculate session from entry time using custom or default sessions
-        const session = getSessionFromTime(entryTime, sessions);
+        const session = classifySession(entryTime, sessions);
 
         // Calculate R-multiple, preferring derivation from realized PnL
         const rMultiple = computeRMultiple({
@@ -203,7 +184,7 @@ serve(async (req) => {
     for (const trade of openTrades) {
       try {
         const entryTime = new Date(trade.entry_time);
-        const session = getSessionFromTime(entryTime, sessions);
+        const session = classifySession(entryTime, sessions);
 
         const { error: updateError } = await supabase
           .from("trades")
@@ -242,41 +223,5 @@ serve(async (req) => {
   }
 });
 
-// Helper function to determine session from timestamp using custom or default definitions
-function getSessionFromTime(date: Date, sessions: SessionDefinition[]): string {
-  // Use Intl.DateTimeFormat to get the hour in America/New_York timezone (handles DST)
-  const etFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour: 'numeric',
-    minute: 'numeric',
-    hour12: false,
-  });
-  
-  const parts = etFormatter.formatToParts(date);
-  const etHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-  const etMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
-  const etTimeInMinutes = etHour * 60 + etMinute;
-
-  // Check each session definition
-  for (const session of sessions) {
-    if (!session.is_active) continue;
-
-    const startMinutes = session.start_hour * 60 + session.start_minute;
-    const endMinutes = session.end_hour * 60 + session.end_minute;
-
-    // Handle overnight sessions (e.g., Tokyo: 19:00 - 04:00)
-    if (startMinutes > endMinutes) {
-      // Session spans midnight
-      if (etTimeInMinutes >= startMinutes || etTimeInMinutes < endMinutes) {
-        return session.key;
-      }
-    } else {
-      // Normal session within same day
-      if (etTimeInMinutes >= startMinutes && etTimeInMinutes < endMinutes) {
-        return session.key;
-      }
-    }
-  }
-  
-  return "off_hours";
-}
+// Session classifier moved to ../_shared/session.ts (classifySession honors each
+// session's own .timezone field — does NOT hardcode America/New_York).

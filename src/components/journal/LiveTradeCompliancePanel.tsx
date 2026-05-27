@@ -50,19 +50,13 @@ interface LiveTradeCompliancePanelProps {
 }
 
 export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeCompliancePanelProps) {
-  const { 
-    getComplianceState, 
-    updateManualAnswers,
-    registerPendingSave,
-    unregisterPendingSave
-  } = useLiveTrades();
-  
+  const { registerPendingSave, unregisterPendingSave } = useLiveTrades();
+
   const existingReview = trade.review;
-  const cachedState = getComplianceState(trade.id);
   const updateTrade = useUpdateTrade();
   const { data: allPlaybooks = [] } = usePlaybooks();
 
-  // Strip the __live_questions.* prefix from cached/db answers — those belong to LiveTradeQuestionsPanel
+  // Strip the __live_questions.* prefix from db answers — those belong to LiveTradeQuestionsPanel
   const stripLiveQuestionKeys = (obj: Record<string, any>): Record<string, boolean> => {
     const out: Record<string, boolean> = {};
     for (const k of Object.keys(obj || {})) {
@@ -72,7 +66,7 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
   };
 
   const [manualAnswers, setManualAnswers] = useState<Record<string, boolean>>(
-    cachedState?.manualAnswers || stripLiveQuestionKeys((existingReview?.checklist_answers as Record<string, any>) || {})
+    stripLiveQuestionKeys((existingReview?.checklist_answers as Record<string, any>) || {})
   );
   const [autoVerifiedOpen, setAutoVerifiedOpen] = useState(false);
 
@@ -82,18 +76,11 @@ export function LiveTradeCompliancePanel({ trade, playbook }: LiveTradeComplianc
   const compliance = useTradeCompliance(trade, playbook, manualAnswers);
 
   // Calculate score
-  const totalRules = compliance.confirmationRules.length + 
-    compliance.invalidationRules.length + 
+  const totalRules = compliance.confirmationRules.length +
+    compliance.invalidationRules.length +
     compliance.checklistQuestions.length;
   const completedRules = [...compliance.confirmationRules, ...compliance.invalidationRules, ...compliance.checklistQuestions]
     .filter(r => r.status === 'passed').length;
-
-  // Sync manual answers to context when they change
-  useEffect(() => {
-    if (Object.keys(manualAnswers).length > 0) {
-      updateManualAnswers(trade.id, manualAnswers);
-    }
-  }, [manualAnswers, trade.id, updateManualAnswers]);
 
   // Auto-collapse auto-verified if all pass
   useEffect(() => {
