@@ -103,7 +103,6 @@ export function useCreateTrade() {
           place: trade.place,
           trade_type: trade.trade_type || 'executed',
           risk_percent: trade.risk_percent,
-          partial_closes: (trade.partial_closes || []) as unknown as Json,
         })
         .select()
         .single();
