@@ -13,6 +13,7 @@ import { SessionBreakdown } from '@/components/dashboard/SessionBreakdown';
 import { PlaybookCompliance } from '@/components/dashboard/PlaybookCompliance';
 
 import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
+import { useBalanceHistory } from '@/hooks/useBalanceHistory';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Loader2 } from 'lucide-react';
