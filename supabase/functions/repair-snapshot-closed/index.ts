@@ -163,6 +163,7 @@ serve(async (req) => {
         swap,
         net_pnl: netPnl,
         duration_seconds: duration > 0 ? duration : null,
+        awaiting_exit: false,
       };
 
       const wasReassigned = exitEvent.account_id && exitEvent.account_id !== trade.account_id;

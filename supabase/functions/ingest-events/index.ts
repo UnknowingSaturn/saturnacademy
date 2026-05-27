@@ -777,6 +777,7 @@ async function tryRepairSiblingSnapshotClosed(
       net_pnl: netPnl,
       duration_seconds: duration > 0 ? duration : null,
       total_lots: 0,
+      awaiting_exit: false,
     }).eq("id", candidate.id);
 
     // Typed repair event (Phase 3 — no more JSONB markers).
@@ -885,6 +886,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         console.log("REPAIR: reopening snapshot_closed trade:", existingTrade.id, "ticket:", ticket);
         await supabase.from("trades").update({
           is_open: true,
+          awaiting_exit: false,
           exit_time: null,
           exit_price: null,
           gross_pnl: null,
@@ -1124,6 +1126,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         total_lots: 0,
         sl_final: event.sl || existingTrade.sl_final,
         tp_final: event.tp || existingTrade.tp_final,
+        awaiting_exit: false,
       }).eq("id", existingTrade.id);
 
       // Typed repair event when this close was a snapshot repair

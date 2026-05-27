@@ -1762,6 +1762,7 @@ export type Database = {
           actual_regime: string | null
           alignment: string[] | null
           archived_at: string | null
+          awaiting_exit: boolean
           balance_at_entry: number | null
           broker_login: string | null
           commission: number | null
@@ -1811,6 +1812,7 @@ export type Database = {
           actual_regime?: string | null
           alignment?: string[] | null
           archived_at?: string | null
+          awaiting_exit?: boolean
           balance_at_entry?: number | null
           broker_login?: string | null
           commission?: number | null
@@ -1860,6 +1862,7 @@ export type Database = {
           actual_regime?: string | null
           alignment?: string[] | null
           archived_at?: string | null
+          awaiting_exit?: boolean
           balance_at_entry?: number | null
           broker_login?: string | null
           commission?: number | null
