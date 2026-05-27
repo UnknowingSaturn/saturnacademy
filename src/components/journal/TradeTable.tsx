@@ -467,9 +467,27 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
 
                   if (key === 'account') {
                     const account = accounts?.find(a => a.id === trade.account_id);
+                    const pending = trade.is_open && account?.live_state === 'dormant';
                     return (
-                      <div key={key} className="text-sm text-muted-foreground truncate">
-                        {account?.name || "—"}
+                      <div key={key} className="text-sm text-muted-foreground truncate flex items-center gap-1.5">
+                        <span className="truncate">{account?.name || "—"}</span>
+                        {pending && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap">
+                                  ⏸ Pending verification
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                <p className="text-xs">
+                                  No EA heartbeat for this account. Log into{' '}
+                                  <strong>{account?.name}</strong> in MT5 to confirm or close this position.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                       </div>
                     );
                   }
