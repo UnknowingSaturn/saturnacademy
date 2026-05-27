@@ -1,34 +1,42 @@
-# Cleanup plan — remove temporary backfill scaffolding
+Your suspicion is right, but there are two separate things happening.
 
-Once all 4 affected accounts (70561, 70583, 76034, 76036, 86021) confirm a successful resync, strip the one-off UI and keep only the changes that are permanent correctness fixes.
+## What I found
 
-## Keep (permanent)
+- `70561` currently has **100 total trades**, **91 visible trades**.
+- `70561` also shares **28 duplicate ticket IDs** with sibling accounts on the same MT5 install:
+  - `70583` has 17 trades, and all 17 duplicate tickets also exist under `70561`.
+  - `76034` has 11 trades, and all 11 duplicate tickets also exist under `70561`.
+- That strongly indicates the old app logic previously tagged those trades to `70561` before per-login routing was fixed.
+- But archiving/removing only those obvious duplicates would bring `70561` from **91 visible** down to about **64 visible**, not ~20.
+- So there are likely more old `70561` rows that belong to other accounts whose history has not been fully re-synced yet, especially `76036` which currently has 0 trades.
 
-These are not "backfill scaffolding" — they fix latent bugs that affect normal operation:
+## Minimal safe plan
 
-- `EquityCurve.tsx` — `reconstructed` baseline (`equity_current − period_pnl`) and the new fallback cascade.
-- `Dashboard.tsx` — `periodPnlByAccount` derivation and corrected `accountStartingBalance` sum.
-- `AccountCard.tsx`, `MultiAccountPicker.tsx` — `balance_start || equity_current` display fallbacks.
-- `sync-account-state/index.ts` — selecting `sync_history_from` and returning `replay_from`. Harmless on old EAs (they ignore unknown fields); essential for v4.01+ catchup-floor behaviour on any future fresh connect, terminal reinstall, or `sync_history_from` change.
-- `TradeJournalBridge.mq5` v4.01 — `replay_from` parsing and the `fromTime` cascade. This is the correct catchup behaviour going forward.
+1. **Do not delete anything.**
+   - Only archive or reassign legacy duplicates after we can prove the target account has the same ticket.
+   - This keeps everything reversible.
 
-## Remove (one-off)
+2. **First sync every account fully.**
+   - Keep `force_resync=true` for `70583`, `76034`, `76036`, and `70561`.
+   - Broaden `sync_history_from` for the affected accounts to `2020-01-01` so the EA is not limited to one year.
+   - Login to each MT5 account one at a time with History → All History open.
 
-- `EditAccountDialog.tsx` — delete the "Resync history from MT5" section (button + optional date override + toast). Remove any related local state and the `force_resync`/`sync_history_from` write path from the dialog's submit handler.
+3. **Then run a duplicate-ticket cleanup.**
+   - For every trade ticket that exists in both `70561` and another sibling account, archive the `70561` copy and leave the sibling account copy visible.
+   - This immediately fixes the confirmed wrongly-tagged rows without touching uncertain trades.
 
-## Leave intact in the DB / edge layer
+4. **Add a temporary admin-only cleanup button or one-off backend action.**
+   - “Archive duplicate legacy trades from 70561”
+   - It should only target duplicates proven by matching ticket IDs across sibling accounts.
+   - No permanent production UI needed after this cleanup.
 
-- `accounts.force_resync` column stays — `sync-account-state` still reads it as part of the dormant-reconnect repair path (`shouldResync = wasDormant || account.force_resync || force`). With the UI gone, nothing in the app will set it to `true` anymore, but the column and code stay so future debugging can flip it manually via SQL.
-- `accounts.sync_history_from` stays — used by `replay_from`.
+5. **Permanent production rule stays simple.**
+   - New EA events already route by broker login.
+   - Keep idempotency by `terminal_id + deal_id + event_type`.
+   - Do not add complex ledger reconciliation yet.
 
-## Order of operations
+## Expected outcome
 
-1. Confirm 70561 catchup completes (flag flips to `false`, expected history events ingested).
-2. Trigger resyncs for the dormant accounts by reconnecting them in MT5 (no UI button needed — `wasDormant` path handles it).
-3. Once data looks right on the dashboard for all 5 accounts, ship the `EditAccountDialog.tsx` removal.
-
-## Files touched in cleanup PR
-
-- `src/components/accounts/EditAccountDialog.tsx` — only file changed.
-
-No DB migration, no edge function changes, no EA changes.
+- After duplicate cleanup, `70561` drops by at least 28 mis-tagged trades.
+- After `76036` and any remaining accounts properly sync, more duplicate tickets may appear, and we can run the same reversible cleanup again.
+- Once counts match MT5, click **Stop** on each resync banner.

@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Trade Journal Bridge"
 #property link      ""
-#property version   "4.00"
+#property version   "4.02"
 #property description "Captures trade lifecycle events and sends to journal backend"
 #property description "SAFE: Read-only, no trading operations, prop-firm compliant"
 #property description "Connects directly to cloud - no relay server needed!"
@@ -45,7 +45,7 @@ input int      InpCatchupIntervalTicks   = 10;                 // Server-driven 
 //+------------------------------------------------------------------+
 const string   EDGE_FUNCTION_URL = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/ingest-events";
 const string   SYNC_STATE_URL    = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/sync-account-state";
-const string   EA_VERSION        = "4.01";
+const string   EA_VERSION        = "4.02";
 
 //+------------------------------------------------------------------+
 //| Global Variables                                                  |
@@ -71,6 +71,7 @@ int            g_reconcileCounter = 0;
 int            g_snapshotCounter  = 0;
 int            g_heartbeatCounter = 0;
 int            g_catchupCounter   = 0;
+bool           g_backendReplayActive = false;
 
 // SL/TP tracking for modification detection
 double         g_trackedSL[];
@@ -264,11 +265,20 @@ int OnInit()
    Print("after your first trade!");
    Print("=================================================");
    
-   if(g_webRequestOk && ShouldSyncHistory())
+   datetime backendReplayFrom = 0;
+   bool backendReplayRequested = false;
+   if(g_webRequestOk)
+      backendReplayRequested = FetchBackendReplayState(backendReplayFrom);
+   
+   if(g_webRequestOk && (backendReplayRequested || ShouldSyncHistory()))
    {
       Print("");
-      Print("Syncing historical trades (90 days)...");
-      SyncHistoricalDeals();
+      if(backendReplayRequested)
+         Print("Backend requested full history replay...");
+      else
+         Print("Syncing historical trades (90 days)...");
+      SyncHistoricalDealsFrom(backendReplayRequested && backendReplayFrom > 0 ? backendReplayFrom : TimeCurrent() - 90 * 86400,
+                              backendReplayRequested ? "backend replay" : "90-day sync");
    }
    
    if(g_webRequestOk)
@@ -587,7 +597,7 @@ void OnTimer()
    
    // Server-driven gap-fill (catches trades closed while EA/login was dormant)
    g_catchupCounter++;
-   if(g_catchupCounter >= InpCatchupIntervalTicks)
+   if(g_backendReplayActive || g_catchupCounter >= InpCatchupIntervalTicks)
    {
       g_catchupCounter = 0;
       if(g_webRequestOk)
@@ -636,12 +646,15 @@ void RunCatchupCycle()
    datetime lastTime = (StringLen(lastTimeStr) > 0) ? ParseIsoUtcToBroker(lastTimeStr) : 0;
    datetime replayFrom = (StringLen(replayFromStr) > 0) ? ParseIsoUtcToBroker(replayFromStr) : 0;
    ulong lastDeal = (ulong)StringToInteger(lastDealStr);
+   g_backendReplayActive = (lastTime == 0 && replayFrom > 0);
    
    // 1) Send any deals newer than server's watermark.
    //    Floor cascade: known watermark -> account's sync_history_from -> 90-day default.
    datetime fromTime = (lastTime > 0)
                        ? lastTime - 3600
                        : (replayFrom > 0 ? replayFrom : TimeCurrent() - 90 * 86400);
+   if(g_backendReplayActive)
+      Print("Backend replay active: scanning from ", TimeToString(fromTime, TIME_DATE|TIME_SECONDS));
    if(HistorySelect(fromTime, TimeCurrent() + 3600))
    {
       int totalDeals = HistoryDealsTotal();
@@ -689,6 +702,35 @@ void RunCatchupCycle()
          SendExitForClosedPosition(tk);
       }
    }
+}
+
+bool FetchBackendReplayState(datetime &replayFrom)
+{
+   replayFrom = 0;
+   string body = "{\"install_id\":\"" + g_installId + "\",\"login\":\"" + g_activeLogin + "\"}";
+   
+   char postData[]; char result[]; string resultHeaders;
+   int payloadLen = StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
+   ArrayResize(postData, payloadLen - 1);
+   
+   string headers = "Content-Type: application/json\r\n";
+   headers += "x-api-key: " + InpApiKey + "\r\n";
+   
+   ResetLastError();
+   int code = WebRequest("POST", SYNC_STATE_URL, headers, 15000, postData, result, resultHeaders);
+   if(code < 200 || code >= 300)
+   {
+      if(InpVerboseMode)
+         Print("Backend replay check returned ", code);
+      return false;
+   }
+   
+   string body_resp = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+   string lastTimeStr = ExtractJsonString(body_resp, "last_event_time");
+   string replayFromStr = ExtractJsonString(body_resp, "replay_from");
+   replayFrom = (StringLen(replayFromStr) > 0) ? ParseIsoUtcToBroker(replayFromStr) : 0;
+   g_backendReplayActive = (StringLen(lastTimeStr) == 0 && replayFrom > 0);
+   return g_backendReplayActive;
 }
 
 //+------------------------------------------------------------------+
@@ -1822,8 +1864,11 @@ void MarkHistorySynced(int dealCount)
 //+------------------------------------------------------------------+
 void SyncHistoricalDeals()
 {
-   const int SYNC_DAYS = 90;
-   datetime fromTime = TimeCurrent() - (SYNC_DAYS * 86400);
+   SyncHistoricalDealsFrom(TimeCurrent() - (90 * 86400), "90-day sync");
+}
+
+void SyncHistoricalDealsFrom(datetime fromTime, string syncLabel)
+{
    datetime toTime = TimeCurrent();
    
    if(!HistorySelect(fromTime, toTime))
@@ -1833,7 +1878,7 @@ void SyncHistoricalDeals()
    }
    
    int totalDeals = HistoryDealsTotal();
-   Print("Scanning ", totalDeals, " deals from the last ", SYNC_DAYS, " days...");
+   Print("Scanning ", totalDeals, " deals for ", syncLabel, " from ", TimeToString(fromTime, TIME_DATE|TIME_SECONDS), "...");
    
    int sentCount = 0;
    int skippedCount = 0;
@@ -1879,7 +1924,8 @@ void SyncHistoricalDeals()
       Sleep(50);
    }
    
-   MarkHistorySynced(sentCount);
+   if(!g_backendReplayActive)
+      MarkHistorySynced(sentCount);
    
    Print("=================================================");
    Print("History sync complete!");
