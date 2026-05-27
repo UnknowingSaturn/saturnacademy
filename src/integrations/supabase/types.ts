@@ -51,7 +51,15 @@ export type Database = {
           recorded_minute?: number
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "abs_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       accounts: {
         Row: {
@@ -147,13 +155,6 @@ export type Database = {
             columns: ["master_account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "accounts_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -655,6 +656,7 @@ export type Database = {
           terminal_id: string | null
           ticket: number
           tp: number | null
+          user_id: string
         }
         Insert: {
           account_id?: string | null
@@ -676,6 +678,7 @@ export type Database = {
           terminal_id?: string | null
           ticket: number
           tp?: number | null
+          user_id: string
         }
         Update: {
           account_id?: string | null
@@ -697,6 +700,7 @@ export type Database = {
           terminal_id?: string | null
           ticket?: number
           tp?: number | null
+          user_id?: string
         }
         Relationships: [
           {
@@ -1335,13 +1339,6 @@ export type Database = {
             referencedRelation: "accounts"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "setup_tokens_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
         ]
       }
       shared_report_trades: {
@@ -1402,6 +1399,13 @@ export type Database = {
             columns: ["shared_report_id"]
             isOneToOne: false
             referencedRelation: "shared_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_report_trades_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
             referencedColumns: ["id"]
           },
         ]
@@ -1563,7 +1567,6 @@ export type Database = {
           account_id: string
           created_at: string
           install_id: string | null
-          is_currently_active: boolean
           last_active_at: string
           terminal_id: string
           updated_at: string
@@ -1573,7 +1576,6 @@ export type Database = {
           account_id: string
           created_at?: string
           install_id?: string | null
-          is_currently_active?: boolean
           last_active_at?: string
           terminal_id: string
           updated_at?: string
@@ -1583,13 +1585,20 @@ export type Database = {
           account_id?: string
           created_at?: string
           install_id?: string | null
-          is_currently_active?: boolean
           last_active_at?: string
           terminal_id?: string
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "terminal_accounts_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       terminal_snapshots: {
         Row: {
@@ -1628,7 +1637,15 @@ export type Database = {
           terminal_id?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "terminal_snapshots_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       trade_comments: {
         Row: {
@@ -1988,13 +2005,6 @@ export type Database = {
             referencedRelation: "playbooks"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "trades_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
         ]
       }
       user_settings: {
@@ -2067,7 +2077,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      mark_dormant_accounts: { Args: never; Returns: undefined }
     }
     Enums: {
       account_live_state: "live" | "dormant" | "verifying" | "stale"
