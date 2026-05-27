@@ -997,6 +997,20 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         tp_final: event.tp || existingTrade.tp_final,
       }).eq("id", existingTrade.id);
 
+      // Phase D dual-write: typed partial fill row (unique on (trade_id, deal_id))
+      await supabase.from("trade_partial_fills").upsert({
+        user_id: userId,
+        trade_id: existingTrade.id,
+        ticket: ticket,
+        deal_id: originalPayload.deal_id ?? null,
+        lots: lot_size,
+        price: event.price,
+        profit: event.profit ?? null,
+        commission: event.commission ?? 0,
+        swap: event.swap ?? 0,
+        occurred_at: event.event_timestamp,
+      }, { onConflict: "trade_id,deal_id", ignoreDuplicates: true });
+
       await supabase.from("events").update({ event_type: "partial_close" }).eq("id", event.id);
       console.log("Processed partial close for position:", ticket, "remaining lots:", remainingLots);
     } else {
