@@ -139,22 +139,30 @@ serve(async (req) => {
       account = byLogin ?? null;
     }
 
-    // Sibling fallback: same MT5 install — backfill account_number to the live login
+    // Sibling lookup on the same MT5 install — used as a TEMPLATE for auto-create
+    // when the broker login is new. NEVER overwrite account_number on the sibling;
+    // each broker login owns its own accounts row.
+    let installSibling: any = null;
     if (!account && payload.install_id) {
       const { data: byInstall } = await supabase
         .from("accounts")
-        .select("id, user_id, terminal_id")
+        .select("id, user_id, terminal_id, api_key, copier_role, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile, ea_type")
         .eq("user_id", userIdForKey)
         .eq("mt5_install_id", payload.install_id)
         .eq("is_active", true)
         .order("last_heartbeat_at", { ascending: false, nullsFirst: false })
         .limit(1)
         .maybeSingle();
-      if (byInstall) {
-        account = byInstall;
-        if (brokerLogin) {
-          await supabase.from("accounts").update({ account_number: brokerLogin }).eq("id", byInstall.id);
-        }
+      installSibling = byInstall ?? null;
+      // Only adopt sibling as-is when this event carries NO broker login
+      // (legacy EA without account_info). Otherwise fall through to auto-create
+      // so the new login gets its own row.
+      if (installSibling && !brokerLogin) {
+        account = {
+          id: installSibling.id,
+          user_id: installSibling.user_id,
+          terminal_id: installSibling.terminal_id,
+        };
       }
     }
 
