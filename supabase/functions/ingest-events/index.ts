@@ -551,6 +551,9 @@ serve(async (req) => {
         user_id: account.user_id,
         account_id: account.id,
         terminal_id: payload.terminal_id,
+        // Phase D dual-write: stable identity columns for read-time account resolution
+        install_id: payload.install_id ?? null,
+        broker_login: brokerLogin,
         event_type: dbEventType,
         ticket: tradeTicket,
         symbol: payload.symbol,
@@ -858,6 +861,10 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         user_id: userId,
         account_id: account_id,
         terminal_id: event.terminal_id,
+        // Phase D dual-write: stable identity for read-time resolver
+        install_id: originalPayload.install_id ?? event.install_id ?? null,
+        broker_login: event.broker_login
+          ?? (originalPayload.account_info?.login != null ? String(originalPayload.account_info.login) : null),
         ticket: ticket,
         symbol: event.symbol,
         direction: event.direction,
@@ -926,6 +933,10 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         user_id: userId,
         account_id: account_id,
         terminal_id: event.terminal_id,
+        // Phase D dual-write: stable identity for read-time resolver
+        install_id: originalPayload.install_id ?? event.install_id ?? null,
+        broker_login: event.broker_login
+          ?? (originalPayload.account_info?.login != null ? String(originalPayload.account_info.login) : null),
         ticket: ticket,
         symbol: event.symbol,
         direction: event.direction,

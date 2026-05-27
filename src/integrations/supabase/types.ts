@@ -328,6 +328,13 @@ export type Database = {
             foreignKeyName: "ai_reviews_trade_id_fkey"
             columns: ["trade_id"]
             isOneToOne: true
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_reviews_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: true
             referencedRelation: "trades"
             referencedColumns: ["id"]
           },
@@ -638,6 +645,7 @@ export type Database = {
       events: {
         Row: {
           account_id: string | null
+          broker_login: string | null
           commission: number | null
           direction: Database["public"]["Enums"]["trade_direction"]
           event_timestamp: string
@@ -645,6 +653,7 @@ export type Database = {
           id: string
           idempotency_key: string
           ingested_at: string
+          install_id: string | null
           lot_size: number
           price: number
           processed: boolean | null
@@ -660,6 +669,7 @@ export type Database = {
         }
         Insert: {
           account_id?: string | null
+          broker_login?: string | null
           commission?: number | null
           direction: Database["public"]["Enums"]["trade_direction"]
           event_timestamp: string
@@ -667,6 +677,7 @@ export type Database = {
           id?: string
           idempotency_key: string
           ingested_at?: string
+          install_id?: string | null
           lot_size: number
           price: number
           processed?: boolean | null
@@ -682,6 +693,7 @@ export type Database = {
         }
         Update: {
           account_id?: string | null
+          broker_login?: string | null
           commission?: number | null
           direction?: Database["public"]["Enums"]["trade_direction"]
           event_timestamp?: string
@@ -689,6 +701,7 @@ export type Database = {
           id?: string
           idempotency_key?: string
           ingested_at?: string
+          install_id?: string | null
           lot_size?: number
           price?: number
           processed?: boolean | null
@@ -1405,6 +1418,13 @@ export type Database = {
             foreignKeyName: "shared_report_trades_trade_id_fkey"
             columns: ["trade_id"]
             isOneToOne: false
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_report_trades_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
             referencedRelation: "trades"
             referencedColumns: ["id"]
           },
@@ -1677,6 +1697,13 @@ export type Database = {
             foreignKeyName: "trade_comments_trade_id_fkey"
             columns: ["trade_id"]
             isOneToOne: false
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trade_comments_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
             referencedRelation: "trades"
             referencedColumns: ["id"]
           },
@@ -1740,6 +1767,166 @@ export type Database = {
             foreignKeyName: "trade_features_trade_id_fkey"
             columns: ["trade_id"]
             isOneToOne: true
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trade_features_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: true
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trade_modifications: {
+        Row: {
+          created_at: string
+          field: string
+          id: string
+          new_value: number | null
+          occurred_at: string
+          old_value: number | null
+          trade_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          field: string
+          id?: string
+          new_value?: number | null
+          occurred_at: string
+          old_value?: number | null
+          trade_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          field?: string
+          id?: string
+          new_value?: number | null
+          occurred_at?: string
+          old_value?: number | null
+          trade_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_modifications_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trade_modifications_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trade_partial_fills: {
+        Row: {
+          commission: number | null
+          created_at: string
+          deal_id: number | null
+          id: string
+          lots: number
+          occurred_at: string
+          price: number
+          profit: number | null
+          swap: number | null
+          ticket: number | null
+          trade_id: string
+          user_id: string
+        }
+        Insert: {
+          commission?: number | null
+          created_at?: string
+          deal_id?: number | null
+          id?: string
+          lots: number
+          occurred_at: string
+          price: number
+          profit?: number | null
+          swap?: number | null
+          ticket?: number | null
+          trade_id: string
+          user_id: string
+        }
+        Update: {
+          commission?: number | null
+          created_at?: string
+          deal_id?: number | null
+          id?: string
+          lots?: number
+          occurred_at?: string
+          price?: number
+          profit?: number | null
+          swap?: number | null
+          ticket?: number | null
+          trade_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_partial_fills_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trade_partial_fills_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trade_repair_events: {
+        Row: {
+          action: string
+          applied_at: string
+          id: string
+          metadata: Json | null
+          source: string | null
+          trade_id: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          applied_at?: string
+          id?: string
+          metadata?: Json | null
+          source?: string | null
+          trade_id: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          applied_at?: string
+          id?: string
+          metadata?: Json | null
+          source?: string | null
+          trade_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_repair_events_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trade_repair_events_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
             referencedRelation: "trades"
             referencedColumns: ["id"]
           },
@@ -1836,6 +2023,13 @@ export type Database = {
             foreignKeyName: "trade_reviews_trade_id_fkey"
             columns: ["trade_id"]
             isOneToOne: true
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trade_reviews_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: true
             referencedRelation: "trades"
             referencedColumns: ["id"]
           },
@@ -1850,6 +2044,7 @@ export type Database = {
           alignment: string[] | null
           archived_at: string | null
           balance_at_entry: number | null
+          broker_login: string | null
           commission: number | null
           created_at: string
           custom_fields: Json
@@ -1863,6 +2058,7 @@ export type Database = {
           exit_time: string | null
           gross_pnl: number | null
           id: string
+          install_id: string | null
           is_archived: boolean | null
           is_open: boolean | null
           net_pnl: number | null
@@ -1873,6 +2069,7 @@ export type Database = {
           profile: string | null
           r_multiple_actual: number | null
           r_multiple_planned: number | null
+          repair_state: string
           risk_percent: number | null
           session: Database["public"]["Enums"]["session_type"] | null
           sl_final: number | null
@@ -1897,6 +2094,7 @@ export type Database = {
           alignment?: string[] | null
           archived_at?: string | null
           balance_at_entry?: number | null
+          broker_login?: string | null
           commission?: number | null
           created_at?: string
           custom_fields?: Json
@@ -1910,6 +2108,7 @@ export type Database = {
           exit_time?: string | null
           gross_pnl?: number | null
           id?: string
+          install_id?: string | null
           is_archived?: boolean | null
           is_open?: boolean | null
           net_pnl?: number | null
@@ -1920,6 +2119,7 @@ export type Database = {
           profile?: string | null
           r_multiple_actual?: number | null
           r_multiple_planned?: number | null
+          repair_state?: string
           risk_percent?: number | null
           session?: Database["public"]["Enums"]["session_type"] | null
           sl_final?: number | null
@@ -1944,6 +2144,7 @@ export type Database = {
           alignment?: string[] | null
           archived_at?: string | null
           balance_at_entry?: number | null
+          broker_login?: string | null
           commission?: number | null
           created_at?: string
           custom_fields?: Json
@@ -1957,6 +2158,7 @@ export type Database = {
           exit_time?: string | null
           gross_pnl?: number | null
           id?: string
+          install_id?: string | null
           is_archived?: boolean | null
           is_open?: boolean | null
           net_pnl?: number | null
@@ -1967,6 +2169,7 @@ export type Database = {
           profile?: string | null
           r_multiple_actual?: number | null
           r_multiple_planned?: number | null
+          repair_state?: string
           risk_percent?: number | null
           session?: Database["public"]["Enums"]["session_type"] | null
           sl_final?: number | null
@@ -2074,7 +2277,184 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      trade_view: {
+        Row: {
+          account_id: string | null
+          actual_playbook_id: string | null
+          actual_profile: string | null
+          actual_regime: string | null
+          alignment: string[] | null
+          archived_at: string | null
+          balance_at_entry: number | null
+          broker_login: string | null
+          commission: number | null
+          created_at: string | null
+          custom_fields: Json | null
+          direction: Database["public"]["Enums"]["trade_direction"] | null
+          duration_seconds: number | null
+          entry_price: number | null
+          entry_time: string | null
+          entry_timeframes: string[] | null
+          equity_at_entry: number | null
+          exit_price: number | null
+          exit_time: string | null
+          gross_pnl: number | null
+          id: string | null
+          install_id: string | null
+          is_archived: boolean | null
+          is_open: boolean | null
+          net_pnl: number | null
+          original_lots: number | null
+          partial_closes: Json | null
+          place: string | null
+          playbook_id: string | null
+          profile: string | null
+          r_multiple_actual: number | null
+          r_multiple_planned: number | null
+          repair_state: string | null
+          resolved_account_id: string | null
+          risk_percent: number | null
+          session: Database["public"]["Enums"]["session_type"] | null
+          sl_final: number | null
+          sl_initial: number | null
+          swap: number | null
+          symbol: string | null
+          terminal_id: string | null
+          ticket: number | null
+          total_lots: number | null
+          tp_final: number | null
+          tp_initial: number | null
+          trade_number: number | null
+          trade_type: Database["public"]["Enums"]["trade_type"] | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          actual_playbook_id?: string | null
+          actual_profile?: string | null
+          actual_regime?: string | null
+          alignment?: string[] | null
+          archived_at?: string | null
+          balance_at_entry?: number | null
+          broker_login?: string | null
+          commission?: number | null
+          created_at?: string | null
+          custom_fields?: Json | null
+          direction?: Database["public"]["Enums"]["trade_direction"] | null
+          duration_seconds?: number | null
+          entry_price?: number | null
+          entry_time?: string | null
+          entry_timeframes?: string[] | null
+          equity_at_entry?: number | null
+          exit_price?: number | null
+          exit_time?: string | null
+          gross_pnl?: number | null
+          id?: string | null
+          install_id?: string | null
+          is_archived?: boolean | null
+          is_open?: boolean | null
+          net_pnl?: number | null
+          original_lots?: number | null
+          partial_closes?: Json | null
+          place?: string | null
+          playbook_id?: string | null
+          profile?: string | null
+          r_multiple_actual?: number | null
+          r_multiple_planned?: number | null
+          repair_state?: string | null
+          resolved_account_id?: never
+          risk_percent?: number | null
+          session?: Database["public"]["Enums"]["session_type"] | null
+          sl_final?: number | null
+          sl_initial?: number | null
+          swap?: number | null
+          symbol?: string | null
+          terminal_id?: string | null
+          ticket?: number | null
+          total_lots?: number | null
+          tp_final?: number | null
+          tp_initial?: number | null
+          trade_number?: number | null
+          trade_type?: Database["public"]["Enums"]["trade_type"] | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          actual_playbook_id?: string | null
+          actual_profile?: string | null
+          actual_regime?: string | null
+          alignment?: string[] | null
+          archived_at?: string | null
+          balance_at_entry?: number | null
+          broker_login?: string | null
+          commission?: number | null
+          created_at?: string | null
+          custom_fields?: Json | null
+          direction?: Database["public"]["Enums"]["trade_direction"] | null
+          duration_seconds?: number | null
+          entry_price?: number | null
+          entry_time?: string | null
+          entry_timeframes?: string[] | null
+          equity_at_entry?: number | null
+          exit_price?: number | null
+          exit_time?: string | null
+          gross_pnl?: number | null
+          id?: string | null
+          install_id?: string | null
+          is_archived?: boolean | null
+          is_open?: boolean | null
+          net_pnl?: number | null
+          original_lots?: number | null
+          partial_closes?: Json | null
+          place?: string | null
+          playbook_id?: string | null
+          profile?: string | null
+          r_multiple_actual?: number | null
+          r_multiple_planned?: number | null
+          repair_state?: string | null
+          resolved_account_id?: never
+          risk_percent?: number | null
+          session?: Database["public"]["Enums"]["session_type"] | null
+          sl_final?: number | null
+          sl_initial?: number | null
+          swap?: number | null
+          symbol?: string | null
+          terminal_id?: string | null
+          ticket?: number | null
+          total_lots?: number | null
+          tp_final?: number | null
+          tp_initial?: number | null
+          trade_number?: number | null
+          trade_type?: Database["public"]["Enums"]["trade_type"] | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trades_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trades_actual_playbook_id_fkey"
+            columns: ["actual_playbook_id"]
+            isOneToOne: false
+            referencedRelation: "playbooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trades_playbook_id_fkey"
+            columns: ["playbook_id"]
+            isOneToOne: false
+            referencedRelation: "playbooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       mark_dormant_accounts: { Args: never; Returns: undefined }
