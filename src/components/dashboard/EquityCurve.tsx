@@ -13,7 +13,12 @@ interface AccountSlim {
   current_balance: number;
 }
 
-type BaselineSource = "snapshot" | "balance_start" | "current_equity" | "first_in_period" | "none";
+type BaselineSource =
+  | "snapshot"
+  | "balance_start"
+  | "reconstructed"
+  | "first_in_period"
+  | "none";
 
 
 interface EquityCurveProps {
@@ -26,6 +31,8 @@ interface EquityCurveProps {
     accounts: AccountSlim[];
     snapshots: BalanceSnapshot[];
     baselines: Record<string, BalanceSnapshot | null>;
+    /** Net P&L per account_id within the current period (closed trades only). */
+    periodPnlByAccount?: Record<string, number>;
   };
 }
 
@@ -39,7 +46,7 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
     // ---------------- Multi-account % return curve ----------------
     const multiData = useMemo(() => {
       if (!isMulti || !multiAccount) return null;
-      const { accounts, snapshots, baselines } = multiAccount;
+      const { accounts, snapshots, baselines, periodPnlByAccount } = multiAccount;
 
       // Sort once — both for the baseline-fallback lookup and the walk below.
       const sorted = [...snapshots].sort(
@@ -58,6 +65,7 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
       const baseSource: Record<string, BaselineSource> = {};
       accounts.forEach((a) => {
         const snap = baselines[a.id]?.balance;
+        const periodPnl = periodPnlByAccount?.[a.id] ?? 0;
         if (snap && snap > 0) {
           base[a.id] = snap;
           baseSource[a.id] = "snapshot";
@@ -65,8 +73,10 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
           base[a.id] = a.starting_balance;
           baseSource[a.id] = "balance_start";
         } else if (a.current_balance && a.current_balance > 0) {
-          base[a.id] = a.current_balance;
-          baseSource[a.id] = "current_equity";
+          // Reconstruct: current_equity already contains the period's P&L,
+          // so subtracting it yields the period-start balance.
+          base[a.id] = a.current_balance - periodPnl;
+          baseSource[a.id] = "reconstructed";
         } else if (firstInPeriodByAccount[a.id]) {
           base[a.id] = firstInPeriodByAccount[a.id]!;
           baseSource[a.id] = "first_in_period";
@@ -313,8 +323,8 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
                 const sourceLabel =
                   a.source === "first_in_period"
                     ? " (vs first reading)"
-                    : a.source === "current_equity"
-                    ? " (vs current equity)"
+                    : a.source === "reconstructed"
+                    ? " (reconstructed from current equity − period P&L)"
                     : "";
                 return (
                   <span
