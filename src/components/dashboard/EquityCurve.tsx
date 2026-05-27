@@ -297,7 +297,25 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
           {isMulti && multiData && multiData.perAccount.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-border/50">
               {multiData.perAccount.map((a) => {
+                if (!a.resolved) {
+                  return (
+                    <span
+                      key={a.id}
+                      className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border border-border/40 bg-muted/30 text-muted-foreground"
+                      title={`${a.name} — no starting balance set, excluded from average`}
+                    >
+                      <span className="max-w-[140px] truncate">{a.name}</span>
+                      <span className="font-mono">—</span>
+                    </span>
+                  );
+                }
                 const positive = a.delta >= 0;
+                const sourceLabel =
+                  a.source === "first_in_period"
+                    ? " (vs first reading)"
+                    : a.source === "current_equity"
+                    ? " (vs current equity)"
+                    : "";
                 return (
                   <span
                     key={a.id}
@@ -306,7 +324,7 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
                         ? "border-profit/30 bg-profit/10 text-profit"
                         : "border-loss/30 bg-loss/10 text-loss"
                     }`}
-                    title={a.name}
+                    title={`${a.name}${sourceLabel}`}
                   >
                     <span className="text-muted-foreground/80 max-w-[140px] truncate">
                       {a.name}
@@ -318,6 +336,7 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
                   </span>
                 );
               })}
+
             </div>
           )}
         </div>
