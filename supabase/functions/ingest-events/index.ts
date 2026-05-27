@@ -886,6 +886,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         console.log("REPAIR: reopening snapshot_closed trade:", existingTrade.id, "ticket:", ticket);
         await supabase.from("trades").update({
           is_open: true,
+          awaiting_exit: false,
           exit_time: null,
           exit_price: null,
           gross_pnl: null,
