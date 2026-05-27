@@ -14,7 +14,7 @@ import {
   Check,
   Building2,
   Settings,
-  Sparkles,
+  
   Share2,
   Brain
 } from "lucide-react";
