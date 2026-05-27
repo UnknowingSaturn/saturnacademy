@@ -145,6 +145,11 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
                 Last activity: {formatDistanceToNow(status.lastEventAt, { addSuffix: true })}
               </p>
             )}
+            {account.last_sync_at && (
+              <p className="text-xs text-muted-foreground">
+                Last sync: {formatDistanceToNow(new Date(account.last_sync_at), { addSuffix: true })}
+              </p>
+            )}
             {neverConnected && (
               <p className="text-xs text-muted-foreground">
                 Set up MT5 to start syncing trades

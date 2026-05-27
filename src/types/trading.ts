@@ -49,6 +49,9 @@ export interface Account {
   // Historical sync settings
   sync_history_enabled: boolean;
   sync_history_from: string | null;
+  // Multi-account sync tracking
+  mt5_install_id?: string | null;
+  last_sync_at?: string | null;
   created_at: string;
   updated_at: string;
 }

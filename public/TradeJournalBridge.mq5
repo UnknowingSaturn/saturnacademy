@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "Trade Journal Bridge"
 #property link      ""
-#property version   "3.10"
+#property version   "4.00"
 #property description "Captures trade lifecycle events and sends to journal backend"
 #property description "SAFE: Read-only, no trading operations, prop-firm compliant"
 #property description "Connects directly to cloud - no relay server needed!"
-#property description "v3.10: Multi-account safe — same API key can serve multiple broker logins"
+#property description "v4.00: Server-driven gap-fill, stable install_id, multi-account-per-terminal aware"
 
 //+------------------------------------------------------------------+
 //| Input Parameters                                                  |
@@ -38,12 +38,14 @@ input group "=== Reconciliation ==="
 input int      InpReconcileIntervalTicks = 10;                 // Reconcile every N timer ticks (~5 min at 30s)
 input int      InpSnapshotIntervalTicks  = 20;                 // Position snapshot every N ticks (~10 min)
 input int      InpHeartbeatIntervalTicks = 10;                 // Heartbeat every N ticks (~5 min)
+input int      InpCatchupIntervalTicks   = 10;                 // Server-driven gap-fill every N ticks (~5 min)
 
 //+------------------------------------------------------------------+
 //| Constants                                                         |
 //+------------------------------------------------------------------+
 const string   EDGE_FUNCTION_URL = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/ingest-events";
-const string   EA_VERSION        = "3.10";
+const string   SYNC_STATE_URL    = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/sync-account-state";
+const string   EA_VERSION        = "4.00";
 
 //+------------------------------------------------------------------+
 //| Global Variables                                                  |
@@ -56,6 +58,8 @@ string         g_lastActiveFile  = "";
 int            g_logHandle       = INVALID_HANDLE;
 bool           g_webRequestOk    = false;
 string         g_terminalId      = "";
+string         g_installId       = "";    // NEW v4: stable hash of MT5 install path
+string         g_activeLogin     = "";    // NEW v4: current broker login string
 
 // Processed deals dedup (sorted for binary search)
 ulong          g_processedDeals[];
@@ -66,6 +70,7 @@ ulong          g_knownOpenPositions[];
 int            g_reconcileCounter = 0;
 int            g_snapshotCounter  = 0;
 int            g_heartbeatCounter = 0;
+int            g_catchupCounter   = 0;
 
 // SL/TP tracking for modification detection
 double         g_trackedSL[];
@@ -85,6 +90,46 @@ int GetBrokerUTCOffset()
    int offsetHours = (int)MathRound((double)offset / 3600.0);
    return offsetHours;
 }
+
+//+------------------------------------------------------------------+
+//| HELPER: Compute stable MT5 install id from data path              |
+//| Stable across login switches inside the same install; unique per  |
+//| MT5 install on the machine. SHA256(data_path) -> first 16 hex.    |
+//+------------------------------------------------------------------+
+string ComputeInstallId()
+{
+   string dataPath = TerminalInfoString(TERMINAL_DATA_PATH);
+   if(StringLen(dataPath) == 0)
+      dataPath = TerminalInfoString(TERMINAL_PATH);
+   if(StringLen(dataPath) == 0)
+      return "unknown";
+   
+   uchar src[]; uchar dst[]; uchar key[];
+   StringToCharArray(dataPath, src, 0, WHOLE_ARRAY, CP_UTF8);
+   int srcLen = ArraySize(src);
+   if(srcLen > 0 && src[srcLen - 1] == 0)
+      ArrayResize(src, srcLen - 1);
+   
+   int hashed = CryptEncode(CRYPT_HASH_SHA256, src, key, dst);
+   if(hashed <= 0)
+   {
+      // Fallback: simple FNV1a-ish digest
+      ulong h = 1469598103934665603ULL;
+      for(int i = 0; i < ArraySize(src); i++)
+      {
+         h ^= (ulong)src[i];
+         h *= 1099511628211ULL;
+      }
+      return StringFormat("%016I64x", h);
+   }
+   
+   string hex = "";
+   int take = MathMin(8, ArraySize(dst));
+   for(int i = 0; i < take; i++)
+      hex += StringFormat("%02x", dst[i]);
+   return hex; // 16 hex chars
+}
+
 
 //+------------------------------------------------------------------+
 //| HELPER: Check if symbol/magic passes configured filters           |
@@ -166,15 +211,20 @@ int OnInit()
    }
    
    long currentLogin = AccountInfoInteger(ACCOUNT_LOGIN);
+   g_activeLogin = IntegerToString(currentLogin);
+   g_installId = ComputeInstallId();
+   // Note: terminal_id still encodes the login for backwards-compatible idempotency keys,
+   // but install_id (stable across login switches) is what the server uses to track
+   // multi-account-per-install state.
    g_terminalId = "MT5_" + IntegerToString(currentLogin) + "_" +
                   StringSubstr(AccountInfoString(ACCOUNT_SERVER), 0, 10);
 
-   // Login-scoped state files — critical when one MT5 terminal is shared
-   // across multiple broker accounts (e.g. multiple Hola Prime logins).
-   // Each login keeps its own queue and dedup cache so events never cross over.
-   g_queueFileName  = "TradeJournalQueue_" + IntegerToString(currentLogin) + ".txt";
-   g_syncFlagFile   = "TradeJournalSynced_" + IntegerToString(currentLogin) + ".flag";
-   g_lastActiveFile = "TradeJournalLastActive_" + IntegerToString(currentLogin) + ".dat";
+   // State files keyed by install_id + login so each login on each install keeps
+   // independent queue/dedup state, recoverable across login switches.
+   string stateKey = g_installId + "_" + IntegerToString(currentLogin);
+   g_queueFileName  = "TradeJournalQueue_" + stateKey + ".txt";
+   g_syncFlagFile   = "TradeJournalSynced_" + stateKey + ".flag";
+   g_lastActiveFile = "TradeJournalLastActive_" + stateKey + ".dat";
    
    // Initialize logging (with rotation check)
    if(InpEnableLogging)
@@ -185,6 +235,7 @@ int OnInit()
       {
          FileSeek(g_logHandle, 0, SEEK_END);
          LogMessage("=== Trade Journal Bridge v" + EA_VERSION + " Started ===");
+         LogMessage("Install ID: " + g_installId);
          LogMessage("Terminal ID: " + g_terminalId);
          LogMessage("Account: " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
          LogMessage("Broker: " + AccountInfoString(ACCOUNT_COMPANY));
@@ -232,6 +283,11 @@ int OnInit()
    
    if(g_webRequestOk)
       SendPositionSnapshot();
+   
+   // Server-driven catchup on connect: fills gaps for missed deals
+   // and synthesises exits for trades closed while this login was dormant.
+   if(g_webRequestOk)
+      RunCatchupCycle();
    
    // Send initial heartbeat
    if(g_webRequestOk)
@@ -418,6 +474,8 @@ void HandlePositionModification(const MqlTradeTransaction& trans)
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"install_id\":\"" + g_installId + "\",";
+   json += "\"active_login\":\"" + g_activeLogin + "\",";
    json += "\"ea_type\":\"journal\",";
    json += "\"event_type\":\"modify\",";
    json += "\"position_id\":" + IntegerToString(posTicket) + ",";
@@ -527,11 +585,158 @@ void OnTimer()
          SendHeartbeat();
    }
    
+   // Server-driven gap-fill (catches trades closed while EA/login was dormant)
+   g_catchupCounter++;
+   if(g_catchupCounter >= InpCatchupIntervalTicks)
+   {
+      g_catchupCounter = 0;
+      if(g_webRequestOk)
+         RunCatchupCycle();
+   }
+   
    // Log rotation check
    if(InpEnableLogging && InpMaxLogSizeKB > 0)
    {
       RotateLogIfNeeded();
    }
+}
+
+//+------------------------------------------------------------------+
+//| Server-driven gap-fill: ask backend what's the latest event +     |
+//| open ticket set it has, then send anything newer from MT5 history |
+//| and synthesise exits for tickets the server thinks are still open |
+//| but MT5 no longer has.                                            |
+//+------------------------------------------------------------------+
+void RunCatchupCycle()
+{
+   string body = "{\"install_id\":\"" + g_installId + "\",\"login\":\"" + g_activeLogin + "\"}";
+   
+   char postData[]; char result[]; string resultHeaders;
+   int payloadLen = StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
+   ArrayResize(postData, payloadLen - 1);
+   
+   string headers = "Content-Type: application/json\r\n";
+   headers += "x-api-key: " + InpApiKey + "\r\n";
+   
+   ResetLastError();
+   int code = WebRequest("POST", SYNC_STATE_URL, headers, 15000, postData, result, resultHeaders);
+   if(code < 200 || code >= 300)
+   {
+      if(InpVerboseMode)
+         Print("Catchup: sync-account-state returned ", code);
+      return;
+   }
+   
+   string body_resp = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+   
+   // Tiny JSON extraction — sufficient for our small known fields
+   string lastTimeStr = ExtractJsonString(body_resp, "last_event_time");
+   string lastDealStr = ExtractJsonNumber(body_resp, "last_deal_id");
+   datetime lastTime = (StringLen(lastTimeStr) > 0) ? ParseIsoUtcToBroker(lastTimeStr) : 0;
+   ulong lastDeal = (ulong)StringToInteger(lastDealStr);
+   
+   // 1) Send any deals newer than server's watermark
+   datetime fromTime = (lastTime > 0) ? lastTime - 3600 : TimeCurrent() - 90 * 86400;
+   if(HistorySelect(fromTime, TimeCurrent() + 3600))
+   {
+      int totalDeals = HistoryDealsTotal();
+      for(int i = 0; i < totalDeals; i++)
+      {
+         ulong dealTicket = HistoryDealGetTicket(i);
+         if(dealTicket == 0 || dealTicket <= lastDeal) continue;
+         if(IsDealProcessed(dealTicket)) continue;
+         
+         ENUM_DEAL_TYPE dt = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
+         if(IsNonTradingDeal(dt)) continue;
+         string direction = GetDirectionFromDealType(dt);
+         if(direction == "") continue;
+         
+         string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+         long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+         if(!PassesFilter(symbol, magic)) continue;
+         
+         ENUM_DEAL_ENTRY de = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+         string evt = DetermineEventType(de);
+         if(evt == "") continue;
+         
+         string payload = BuildPayload(dealTicket, evt, direction, "history_sync");
+         if(SendEvent(payload, dealTicket))
+            MarkDealProcessed(dealTicket);
+         else
+            AddToQueue(payload, dealTicket);
+         Sleep(50);
+      }
+   }
+   
+   // 2) For each ticket the server thinks is open but MT5 no longer has,
+   //    look up the exit deal and send it.
+   string openArr = ExtractJsonArray(body_resp, "open_tickets");
+   if(StringLen(openArr) > 0)
+   {
+      string parts[];
+      StringReplace(openArr, " ", "");
+      int n = StringSplit(openArr, ',', parts);
+      for(int i = 0; i < n; i++)
+      {
+         ulong tk = (ulong)StringToInteger(parts[i]);
+         if(tk == 0) continue;
+         if(PositionSelectByTicket(tk)) continue; // still open in MT5 — nothing to do
+         SendExitForClosedPosition(tk);
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Tiny ad-hoc JSON helpers (server response is small + trusted)     |
+//+------------------------------------------------------------------+
+string ExtractJsonString(string src, string key)
+{
+   string needle = "\"" + key + "\":\"";
+   int p = StringFind(src, needle);
+   if(p < 0) return "";
+   p += StringLen(needle);
+   int q = StringFind(src, "\"", p);
+   if(q < 0) return "";
+   return StringSubstr(src, p, q - p);
+}
+
+string ExtractJsonNumber(string src, string key)
+{
+   string needle = "\"" + key + "\":";
+   int p = StringFind(src, needle);
+   if(p < 0) return "0";
+   p += StringLen(needle);
+   int end = p;
+   while(end < StringLen(src))
+   {
+      ushort c = StringGetCharacter(src, end);
+      if((c >= '0' && c <= '9') || c == '-') end++;
+      else break;
+   }
+   if(end == p) return "0";
+   return StringSubstr(src, p, end - p);
+}
+
+string ExtractJsonArray(string src, string key)
+{
+   string needle = "\"" + key + "\":[";
+   int p = StringFind(src, needle);
+   if(p < 0) return "";
+   p += StringLen(needle);
+   int q = StringFind(src, "]", p);
+   if(q < 0) return "";
+   return StringSubstr(src, p, q - p);
+}
+
+datetime ParseIsoUtcToBroker(string iso)
+{
+   // iso like 2026-05-27T10:23:45Z or with .000Z
+   if(StringLen(iso) < 19) return 0;
+   string sub = StringSubstr(iso, 0, 19);
+   StringReplace(sub, "T", " ");
+   datetime utc = StringToTime(sub);
+   if(utc == 0) return 0;
+   return utc + (datetime)(GetBrokerUTCOffset() * 3600);
 }
 
 // NOTE: OnTick() removed — timer is sufficient for queue processing
@@ -763,6 +968,8 @@ void SendPositionSnapshot()
    string json = "{";
    json += "\"idempotency_key\":\"" + g_terminalId + "_snapshot_" + IntegerToString(TimeCurrent()) + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"install_id\":\"" + g_installId + "\",";
+   json += "\"active_login\":\"" + g_activeLogin + "\",";
    json += "\"ea_type\":\"journal\",";
    json += "\"event_type\":\"position_snapshot\",";
    json += "\"position_id\":0,";
@@ -798,6 +1005,8 @@ void SendHeartbeat()
    string json = "{";
    json += "\"idempotency_key\":\"" + g_terminalId + "_heartbeat_" + IntegerToString(TimeCurrent()) + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"install_id\":\"" + g_installId + "\",";
+   json += "\"active_login\":\"" + g_activeLogin + "\",";
    json += "\"ea_type\":\"journal\",";
    json += "\"event_type\":\"heartbeat\",";
    json += "\"position_id\":0,";
@@ -943,6 +1152,8 @@ string BuildPayload(ulong dealTicket, string eventType, string direction, string
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"install_id\":\"" + g_installId + "\",";
+   json += "\"active_login\":\"" + g_activeLogin + "\",";
    json += "\"ea_type\":\"journal\",";
    json += "\"event_type\":\"" + wireEventType + "\",";
    
@@ -1047,6 +1258,8 @@ string BuildOpenPositionPayload(ulong ticket, string symbol, string direction,
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"install_id\":\"" + g_installId + "\",";
+   json += "\"active_login\":\"" + g_activeLogin + "\",";
    json += "\"ea_type\":\"journal\",";
    json += "\"event_type\":\"history_sync\",";
    json += "\"original_event_type\":\"entry\",";
