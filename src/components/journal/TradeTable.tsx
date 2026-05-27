@@ -11,7 +11,11 @@ import { BulkActionBar } from "./BulkActionBar";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { ChevronRight, Lightbulb, FileText, Clock, GripVertical } from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { ChevronRight, Lightbulb, FileText, Clock, GripVertical, Wrench, RefreshCw } from "lucide-react";
 import { DEFAULT_COLUMNS, ColumnDefinition, buildColumnRegistry } from "@/types/settings";
 import {
   DndContext,
