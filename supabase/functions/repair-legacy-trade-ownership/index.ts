@@ -121,8 +121,20 @@ serve(async (req) => {
       tradeByAccountTicket.set(key, rows);
     }
 
-    const actions: PlannedAction[] = [];
     const missingTargetLogins = new Set<string>();
+    if (mode === "apply") {
+      const createdAccounts = await createMissingAccounts(admin, user.id, installAccounts, trades, accountByLogin);
+      if (createdAccounts.length > 0) {
+        installAccounts = [...installAccounts, ...createdAccounts];
+        for (const account of createdAccounts) {
+          accountIds.push(account.id);
+          accountById.set(account.id, account);
+          if (account.account_number) accountByLogin.set(account.account_number, account);
+        }
+      }
+    }
+
+    const actions: PlannedAction[] = [];
     let skippedNoTerminalLogin = 0;
     let alreadyCorrect = 0;
 
@@ -151,6 +163,8 @@ serve(async (req) => {
         ? []
         : (tradeByAccountTicket.get(`${target.id}:${Number(trade.ticket)}`) || [])
           .filter((candidate) => candidate.id !== trade.id);
+
+      if (trade.is_archived && duplicateRows.length > 0) continue;
 
       actions.push({
         trade,
