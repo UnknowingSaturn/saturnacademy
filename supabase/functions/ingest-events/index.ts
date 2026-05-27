@@ -633,12 +633,22 @@ serve(async (req) => {
   }
 });
 
-// Detect if a trade was zeroed out by snapshot reconciliation and is awaiting repair
-function isSnapshotClosed(trade: any): boolean {
-  if (!trade || trade.is_open) return false;
-  const pc = trade.partial_closes;
-  if (!Array.isArray(pc)) return false;
-  return pc.some((entry: any) => entry?.type === "snapshot_closed");
+// Detect if a trade was zeroed out by snapshot reconciliation and is awaiting repair.
+// Phase 3: sourced exclusively from `trade_repair_events`.
+async function isSnapshotClosed(supabase: any, tradeId: string, isOpen: boolean): Promise<boolean> {
+  if (isOpen) return false;
+  const { data } = await supabase
+    .from("trade_repair_events")
+    .select("action")
+    .eq("trade_id", tradeId);
+  const events = (data || []) as Array<{ action: string }>;
+  const hasSnap = events.some((e) => e.action === "snapshot_closed");
+  const repaired = events.some((e) =>
+    e.action === "repaired_from_snapshot" ||
+    e.action === "repaired_reopened" ||
+    e.action === "phase_a_one_shot"
+  );
+  return hasSnap && !repaired;
 }
 
 /**
