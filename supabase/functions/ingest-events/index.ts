@@ -769,11 +769,11 @@ async function tryRepairSiblingSnapshotClosed(
 
     // Phase D dual-write: typed repair event
     await supabase.from("trade_repair_events").insert({
-      user_id: candidate.user_id ?? null,
+      user_id: userId,
       trade_id: candidate.id,
       action: "repaired_from_snapshot",
       source: "ingest_sibling_repair",
-      metadata: { net_pnl: netPnl, ticket, note: "Auto-repaired on ingest from sibling login on same MT5 install" },
+      metadata: { net_pnl: netPnl, ticket: Number(ticket), note: "Auto-repaired on ingest from sibling login on same MT5 install" },
       applied_at: new Date().toISOString(),
     });
 
