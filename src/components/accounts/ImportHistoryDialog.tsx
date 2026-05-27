@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { format, subDays, subMonths } from 'date-fns';
-import { CalendarIcon, History, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { format, subDays, subMonths, subYears } from 'date-fns';
+import { CalendarIcon, History, AlertCircle, CheckCircle2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useUpdateSyncSettings } from '@/hooks/useAccounts';
+import { useForceResync } from '@/hooks/useAccounts';
 import { Account } from '@/types/trading';
 import { cn } from '@/lib/utils';
 
@@ -23,55 +23,49 @@ interface ImportHistoryDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type SyncPreset = '1week' | '2weeks' | '1month' | '3months' | 'custom';
+type SyncPreset = '1week' | '1month' | '3months' | '6months' | '1year' | 'all' | 'custom';
+
+// "All History" — far enough back to cover any realistic account age.
+const ALL_HISTORY_FROM = new Date('2020-01-01T00:00:00Z');
 
 export function ImportHistoryDialog({ account, open, onOpenChange }: ImportHistoryDialogProps) {
-  const [syncPreset, setSyncPreset] = useState<SyncPreset>('1month');
+  const [syncPreset, setSyncPreset] = useState<SyncPreset>('all');
   const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
   const [showInstructions, setShowInstructions] = useState(false);
-  const updateSyncSettings = useUpdateSyncSettings();
+  const forceResync = useForceResync();
 
   const getSyncFromDate = (): Date => {
     const now = new Date();
     switch (syncPreset) {
-      case '1week':
-        return subDays(now, 7);
-      case '2weeks':
-        return subDays(now, 14);
-      case '1month':
-        return subMonths(now, 1);
-      case '3months':
-        return subMonths(now, 3);
-      case 'custom':
-        return customDate || subMonths(now, 1);
-      default:
-        return subMonths(now, 1);
+      case '1week':    return subDays(now, 7);
+      case '1month':   return subMonths(now, 1);
+      case '3months':  return subMonths(now, 3);
+      case '6months':  return subMonths(now, 6);
+      case '1year':    return subYears(now, 1);
+      case 'all':      return ALL_HISTORY_FROM;
+      case 'custom':   return customDate || subMonths(now, 1);
+      default:         return ALL_HISTORY_FROM;
     }
   };
 
-  const handleSaveAndShowInstructions = async () => {
-    const syncFrom = getSyncFromDate();
-    
-    await updateSyncSettings.mutateAsync({
-      accountId: account.id,
-      syncEnabled: true,
-      syncFrom,
+  const handleResync = async () => {
+    await forceResync.mutateAsync({
+      accountIds: [account.id],
+      syncFrom: getSyncFromDate(),
     });
-    
     setShowInstructions(true);
   };
 
   const handleClose = () => {
     onOpenChange(false);
     setShowInstructions(false);
-    setSyncPreset('1month');
+    setSyncPreset('all');
     setCustomDate(undefined);
   };
 
-  // Max 3 months back
-  const minDate = subMonths(new Date(), 3);
+  // Allow custom range up to 5 years back.
+  const minDate = subYears(new Date(), 5);
 
-  // Check if account already has sync settings
   const hasSyncSettings = account.sync_history_enabled && account.sync_history_from;
 
   return (
@@ -80,32 +74,30 @@ export function ImportHistoryDialog({ account, open, onOpenChange }: ImportHisto
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <History className="h-5 w-5" />
-            Import Historical Trades
+            Resync Historical Trades
           </DialogTitle>
           <DialogDescription>
-            Import closed trades from your MT5 history into your journal.
+            Pull closed trades from MT5 history into your journal. Pick how far back to look, then the EA replays on its next poll.
           </DialogDescription>
         </DialogHeader>
 
         {!showInstructions ? (
           <div className="space-y-6 py-4">
-            {/* Current settings info */}
             {hasSyncSettings && (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  History import is already configured from{' '}
+                  Currently set from{' '}
                   <strong>{format(new Date(account.sync_history_from!), 'MMM d, yyyy')}</strong>.
-                  Updating will allow you to re-import with new settings.
+                  Choose a new range below to widen or shorten the import window.
                 </AlertDescription>
               </Alert>
             )}
 
-            {/* Date range selection */}
             <div className="space-y-3">
               <label className="text-sm font-medium">Import trades from:</label>
               <div className="flex flex-wrap gap-2">
-                {(['1week', '2weeks', '1month', '3months'] as const).map((preset) => (
+                {(['1week', '1month', '3months', '6months', '1year', 'all'] as const).map((preset) => (
                   <Button
                     key={preset}
                     variant={syncPreset === preset ? 'default' : 'outline'}
@@ -113,9 +105,11 @@ export function ImportHistoryDialog({ account, open, onOpenChange }: ImportHisto
                     onClick={() => setSyncPreset(preset)}
                   >
                     {preset === '1week' && '1 Week'}
-                    {preset === '2weeks' && '2 Weeks'}
                     {preset === '1month' && '1 Month'}
                     {preset === '3months' && '3 Months'}
+                    {preset === '6months' && '6 Months'}
+                    {preset === '1year' && '1 Year'}
+                    {preset === 'all' && 'All History'}
                   </Button>
                 ))}
                 <Popover>
@@ -128,7 +122,7 @@ export function ImportHistoryDialog({ account, open, onOpenChange }: ImportHisto
                     >
                       <CalendarIcon className="h-3.5 w-3.5" />
                       {syncPreset === 'custom' && customDate
-                        ? format(customDate, 'MMM d')
+                        ? format(customDate, 'MMM d, yyyy')
                         : 'Custom'}
                     </Button>
                   </PopoverTrigger>
@@ -147,64 +141,48 @@ export function ImportHistoryDialog({ account, open, onOpenChange }: ImportHisto
                 </Popover>
               </div>
               <p className="text-xs text-muted-foreground">
-                Maximum: 3 months. For older trades, use CSV import.
+                "All History" goes back to Jan 1, 2020. The EA can only replay deals that MT5 has cached locally — see note below.
               </p>
             </div>
 
-            {/* Preview */}
             <div className="rounded-lg border bg-muted/50 p-3">
               <p className="text-sm">
-                <strong>Will import trades from:</strong>{' '}
-                {format(getSyncFromDate(), 'MMMM d, yyyy')} to today
+                <strong>Will request trades from:</strong>{' '}
+                {syncPreset === 'all'
+                  ? 'all available MT5 history'
+                  : `${format(getSyncFromDate(), 'MMMM d, yyyy')} → today`}
               </p>
             </div>
+
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                <strong>Important:</strong> In MT5, open the <em>History</em> tab → right-click → <em>All History</em> (or
+                custom range covering the period you want). The EA can only see deals that MT5 has loaded into memory.
+              </AlertDescription>
+            </Alert>
           </div>
         ) : (
-          <div className="space-y-6 py-4">
-            {/* Success message */}
+          <div className="space-y-4 py-4">
             <Alert className="border-green-500/50 bg-green-500/10">
               <CheckCircle2 className="h-4 w-4 text-green-500" />
               <AlertDescription className="text-green-700 dark:text-green-400">
-                Import settings saved! Follow the steps below to import trades.
+                Resync queued. The EA will replay history on its next poll (within ~30s while the terminal is open).
               </AlertDescription>
             </Alert>
 
-            {/* Instructions */}
-            <div className="space-y-4">
-              <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-4">
-                <RefreshCw className="h-5 w-5 text-primary mt-0.5" />
-                <div className="space-y-2">
-                  <p className="font-medium">Force history re-sync now</p>
-                  <p className="text-sm text-muted-foreground">
-                    The EA only syncs history once every 24 hours. To force an immediate re-sync:
-                  </p>
-                  <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
-                    <li>In MT5, go to <strong>File → Open Data Folder</strong></li>
-                    <li>Navigate to <strong>MQL5 → Files</strong></li>
-                    <li>
-                      Delete the file: <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">
-                        TradeJournalSynced_{account.account_number || '[LOGIN]'}.flag
-                      </code>
-                    </li>
-                    <li>Restart MT5 or re-attach the EA</li>
-                  </ol>
-                </div>
-              </div>
-
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <strong>Why this happens:</strong> The EA creates a local flag file after syncing history 
-                  to prevent duplicate imports. Deleting this file forces an immediate re-sync.
-                </AlertDescription>
-              </Alert>
-
-              <div className="text-sm text-muted-foreground">
-                <p>
-                  After restarting, check MT5's <strong>Experts</strong> tab for "Syncing historical trades..." messages.
-                  Trades should appear in your Journal within 1-2 minutes.
-                </p>
-              </div>
+            <div className="rounded-lg border bg-muted/30 p-4 text-sm space-y-2">
+              <p className="font-medium">Make sure of:</p>
+              <ol className="text-muted-foreground list-decimal list-inside space-y-1">
+                <li>The MT5 terminal for this account is <strong>open and logged in</strong>.</li>
+                <li>
+                  History tab is set to <strong>All History</strong> (or a range that covers the chosen window).
+                </li>
+                <li>EA is attached to a chart and "AutoTrading" is enabled.</li>
+              </ol>
+              <p className="text-muted-foreground pt-1">
+                Existing trades are deduped — only missing ones are inserted. Check the Journal in 1–2 minutes.
+              </p>
             </div>
           </div>
         )}
@@ -212,14 +190,9 @@ export function ImportHistoryDialog({ account, open, onOpenChange }: ImportHisto
         <DialogFooter>
           {!showInstructions ? (
             <>
-              <Button variant="outline" onClick={handleClose}>
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleSaveAndShowInstructions}
-                disabled={updateSyncSettings.isPending}
-              >
-                {updateSyncSettings.isPending ? 'Saving...' : 'Enable Import'}
+              <Button variant="outline" onClick={handleClose}>Cancel</Button>
+              <Button onClick={handleResync} disabled={forceResync.isPending}>
+                {forceResync.isPending ? 'Queuing…' : 'Resync Now'}
               </Button>
             </>
           ) : (
