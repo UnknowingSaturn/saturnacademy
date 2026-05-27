@@ -92,6 +92,46 @@ int GetBrokerUTCOffset()
 }
 
 //+------------------------------------------------------------------+
+//| HELPER: Compute stable MT5 install id from data path              |
+//| Stable across login switches inside the same install; unique per  |
+//| MT5 install on the machine. SHA256(data_path) -> first 16 hex.    |
+//+------------------------------------------------------------------+
+string ComputeInstallId()
+{
+   string dataPath = TerminalInfoString(TERMINAL_DATA_PATH);
+   if(StringLen(dataPath) == 0)
+      dataPath = TerminalInfoString(TERMINAL_PATH);
+   if(StringLen(dataPath) == 0)
+      return "unknown";
+   
+   uchar src[]; uchar dst[]; uchar key[];
+   StringToCharArray(dataPath, src, 0, WHOLE_ARRAY, CP_UTF8);
+   int srcLen = ArraySize(src);
+   if(srcLen > 0 && src[srcLen - 1] == 0)
+      ArrayResize(src, srcLen - 1);
+   
+   int hashed = CryptEncode(CRYPT_HASH_SHA256, src, key, dst);
+   if(hashed <= 0)
+   {
+      // Fallback: simple FNV1a-ish digest
+      ulong h = 1469598103934665603ULL;
+      for(int i = 0; i < ArraySize(src); i++)
+      {
+         h ^= (ulong)src[i];
+         h *= 1099511628211ULL;
+      }
+      return StringFormat("%016I64x", h);
+   }
+   
+   string hex = "";
+   int take = MathMin(8, ArraySize(dst));
+   for(int i = 0; i < take; i++)
+      hex += StringFormat("%02x", dst[i]);
+   return hex; // 16 hex chars
+}
+
+
+//+------------------------------------------------------------------+
 //| HELPER: Check if symbol/magic passes configured filters           |
 //+------------------------------------------------------------------+
 bool PassesFilter(string symbol, long magic)
