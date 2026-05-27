@@ -832,8 +832,9 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                     const win = !isOpen && pnl > 0;
                     const loss = !isOpen && pnl < 0;
                     const label = isOpen ? 'OPEN' : win ? 'WIN' : loss ? 'LOSS' : 'BE';
+                    const advisory = trade.repair_state === 'advisory_closed';
                     return (
-                      <div key={key} className="flex justify-center">
+                      <div key={key} className="flex justify-center items-center gap-1">
                         <span className={cn(
                           "px-2 py-0.5 rounded text-xs font-medium",
                           isOpen && "bg-muted text-muted-foreground border border-border",
@@ -843,6 +844,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                         )}>
                           {label}
                         </span>
+                        {advisory && (
+                          <span
+                            title="Advisory close — inferred from snapshot, not from a real close event"
+                            className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-600 border border-amber-500/30"
+                          >
+                            ADV
+                          </span>
+                        )}
                       </div>
                     );
                   }
