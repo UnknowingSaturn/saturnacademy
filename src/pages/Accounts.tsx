@@ -28,6 +28,23 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+type LegacyOwnershipSummary = {
+  action: 'reassign' | 'archive_duplicate';
+  from_account_number: string | null;
+  to_account_number: string | null;
+  count: number;
+};
+
+type LegacyOwnershipPreview = {
+  planned: number;
+  reassignable?: number;
+  archive_duplicates?: number;
+  scanned_trades: number;
+  missing_target_logins: string[];
+  summary: LegacyOwnershipSummary[];
+  message: string;
+};
+
 export default function Accounts() {
   const { data: accounts, isLoading, refetch } = useAccounts();
   const archiveAllMutation = useArchiveAllTrades();
@@ -38,7 +55,10 @@ export default function Accounts() {
   const [archiveAllAccountId, setArchiveAllAccountId] = useState<string>('');
   const [repairAccountId, setRepairAccountId] = useState<string>('');
   const [isRepairing, setIsRepairing] = useState(false);
-  const [isArchivingLegacyDuplicates, setIsArchivingLegacyDuplicates] = useState(false);
+  const [legacyRepairAccountId, setLegacyRepairAccountId] = useState<string>('');
+  const [legacyRepairPreview, setLegacyRepairPreview] = useState<LegacyOwnershipPreview | null>(null);
+  const [isPreviewingLegacyRepair, setIsPreviewingLegacyRepair] = useState(false);
+  const [isApplyingLegacyRepair, setIsApplyingLegacyRepair] = useState(false);
 
 
 
