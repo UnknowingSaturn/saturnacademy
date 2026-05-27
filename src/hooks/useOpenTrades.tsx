@@ -115,7 +115,10 @@ export function useOpenTrades() {
         };
       });
     },
-    refetchInterval: 15000, // 15s for faster stale-trade detection
+    // Realtime subscription above invalidates the query on writes; the 30s
+    // refetch is a safety net for stale-trade detection when the EA goes
+    // briefly offline (no realtime event arrives in that case).
+    refetchInterval: 30000,
   });
 }
 
