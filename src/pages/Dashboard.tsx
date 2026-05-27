@@ -208,8 +208,9 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
                   accounts: filteredAccounts.map((a) => ({
                     id: a.id,
                     name: a.name,
-                    starting_balance: Number(a.balance_start || 0),
+                    starting_balance: Number(a.balance_start || a.equity_current || 0),
                     current_balance: Number(a.equity_current || 0),
+
                   })),
                   snapshots: balanceHistory?.inPeriod ?? [],
                   baselines: balanceHistory?.baselines ?? {},
