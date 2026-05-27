@@ -100,10 +100,10 @@ serve(async (req) => {
       }
     }
 
-    // Fetch all trades for this account
+    // Fetch all trades for this account with their typed partial fills.
     const { data: trades, error: tradesError } = await supabase
       .from("trades")
-      .select("*")
+      .select("*, trade_partial_fills(occurred_at, lots, price, profit, commission, swap)")
       .eq("account_id", account_id)
       .order("entry_time", { ascending: true });
 
