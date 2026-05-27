@@ -164,6 +164,29 @@ export interface PartialClose {
   pnl: number;
 }
 
+export interface PartialFill {
+  id: string;
+  trade_id: string;
+  ticket: number | null;
+  deal_id: number | null;
+  lots: number;
+  price: number;
+  profit: number | null;
+  commission: number | null;
+  swap: number | null;
+  occurred_at: string;
+  created_at: string;
+}
+
+export interface RepairEvent {
+  id: string;
+  trade_id: string;
+  action: string;
+  source: string | null;
+  metadata: Record<string, unknown>;
+  applied_at: string;
+}
+
 export interface Playbook {
   id: string;
   user_id: string;
