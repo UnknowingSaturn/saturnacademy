@@ -63,7 +63,7 @@ export function useTrade(tradeId: string | undefined) {
       if (!tradeId) return null;
       const { data, error } = await supabase
         .from('trades')
-        .select(`*, playbook:playbooks!trades_playbook_id_fkey (*), actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color), trade_reviews (*, playbook:playbooks (*)), ai_reviews (*), account:accounts (*)`)
+        .select(`*, playbook:playbooks!trades_playbook_id_fkey (*), actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color), trade_reviews (*, playbook:playbooks (*)), ai_reviews (*), account:accounts (*), trade_partial_fills (*), trade_repair_events (*)`)
         .eq('id', tradeId)
         .maybeSingle();
       if (error) throw error;
