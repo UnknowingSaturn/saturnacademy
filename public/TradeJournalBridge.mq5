@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Trade Journal Bridge"
 #property link      ""
-#property version   "4.00"
+#property version   "4.02"
 #property description "Captures trade lifecycle events and sends to journal backend"
 #property description "SAFE: Read-only, no trading operations, prop-firm compliant"
 #property description "Connects directly to cloud - no relay server needed!"
@@ -45,7 +45,7 @@ input int      InpCatchupIntervalTicks   = 10;                 // Server-driven 
 //+------------------------------------------------------------------+
 const string   EDGE_FUNCTION_URL = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/ingest-events";
 const string   SYNC_STATE_URL    = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/sync-account-state";
-const string   EA_VERSION        = "4.01";
+const string   EA_VERSION        = "4.02";
 
 //+------------------------------------------------------------------+
 //| Global Variables                                                  |
@@ -71,6 +71,7 @@ int            g_reconcileCounter = 0;
 int            g_snapshotCounter  = 0;
 int            g_heartbeatCounter = 0;
 int            g_catchupCounter   = 0;
+bool           g_backendReplayActive = false;
 
 // SL/TP tracking for modification detection
 double         g_trackedSL[];
