@@ -38,12 +38,14 @@ input group "=== Reconciliation ==="
 input int      InpReconcileIntervalTicks = 10;                 // Reconcile every N timer ticks (~5 min at 30s)
 input int      InpSnapshotIntervalTicks  = 20;                 // Position snapshot every N ticks (~10 min)
 input int      InpHeartbeatIntervalTicks = 10;                 // Heartbeat every N ticks (~5 min)
+input int      InpCatchupIntervalTicks   = 10;                 // Server-driven gap-fill every N ticks (~5 min)
 
 //+------------------------------------------------------------------+
 //| Constants                                                         |
 //+------------------------------------------------------------------+
 const string   EDGE_FUNCTION_URL = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/ingest-events";
-const string   EA_VERSION        = "3.10";
+const string   SYNC_STATE_URL    = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/sync-account-state";
+const string   EA_VERSION        = "4.00";
 
 //+------------------------------------------------------------------+
 //| Global Variables                                                  |
@@ -56,6 +58,8 @@ string         g_lastActiveFile  = "";
 int            g_logHandle       = INVALID_HANDLE;
 bool           g_webRequestOk    = false;
 string         g_terminalId      = "";
+string         g_installId       = "";    // NEW v4: stable hash of MT5 install path
+string         g_activeLogin     = "";    // NEW v4: current broker login string
 
 // Processed deals dedup (sorted for binary search)
 ulong          g_processedDeals[];
@@ -66,6 +70,7 @@ ulong          g_knownOpenPositions[];
 int            g_reconcileCounter = 0;
 int            g_snapshotCounter  = 0;
 int            g_heartbeatCounter = 0;
+int            g_catchupCounter   = 0;
 
 // SL/TP tracking for modification detection
 double         g_trackedSL[];
