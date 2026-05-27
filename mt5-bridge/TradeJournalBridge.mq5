@@ -580,11 +580,158 @@ void OnTimer()
          SendHeartbeat();
    }
    
+   // Server-driven gap-fill (catches trades closed while EA/login was dormant)
+   g_catchupCounter++;
+   if(g_catchupCounter >= InpCatchupIntervalTicks)
+   {
+      g_catchupCounter = 0;
+      if(g_webRequestOk)
+         RunCatchupCycle();
+   }
+   
    // Log rotation check
    if(InpEnableLogging && InpMaxLogSizeKB > 0)
    {
       RotateLogIfNeeded();
    }
+}
+
+//+------------------------------------------------------------------+
+//| Server-driven gap-fill: ask backend what's the latest event +     |
+//| open ticket set it has, then send anything newer from MT5 history |
+//| and synthesise exits for tickets the server thinks are still open |
+//| but MT5 no longer has.                                            |
+//+------------------------------------------------------------------+
+void RunCatchupCycle()
+{
+   string body = "{\"install_id\":\"" + g_installId + "\",\"login\":\"" + g_activeLogin + "\"}";
+   
+   char postData[]; char result[]; string resultHeaders;
+   int payloadLen = StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
+   ArrayResize(postData, payloadLen - 1);
+   
+   string headers = "Content-Type: application/json\r\n";
+   headers += "x-api-key: " + InpApiKey + "\r\n";
+   
+   ResetLastError();
+   int code = WebRequest("POST", SYNC_STATE_URL, headers, 15000, postData, result, resultHeaders);
+   if(code < 200 || code >= 300)
+   {
+      if(InpVerboseMode)
+         Print("Catchup: sync-account-state returned ", code);
+      return;
+   }
+   
+   string body_resp = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+   
+   // Tiny JSON extraction — sufficient for our small known fields
+   string lastTimeStr = ExtractJsonString(body_resp, "last_event_time");
+   string lastDealStr = ExtractJsonNumber(body_resp, "last_deal_id");
+   datetime lastTime = (StringLen(lastTimeStr) > 0) ? ParseIsoUtcToBroker(lastTimeStr) : 0;
+   ulong lastDeal = (ulong)StringToInteger(lastDealStr);
+   
+   // 1) Send any deals newer than server's watermark
+   datetime fromTime = (lastTime > 0) ? lastTime - 3600 : TimeCurrent() - 90 * 86400;
+   if(HistorySelect(fromTime, TimeCurrent() + 3600))
+   {
+      int totalDeals = HistoryDealsTotal();
+      for(int i = 0; i < totalDeals; i++)
+      {
+         ulong dealTicket = HistoryDealGetTicket(i);
+         if(dealTicket == 0 || dealTicket <= lastDeal) continue;
+         if(IsDealProcessed(dealTicket)) continue;
+         
+         ENUM_DEAL_TYPE dt = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
+         if(IsNonTradingDeal(dt)) continue;
+         string direction = GetDirectionFromDealType(dt);
+         if(direction == "") continue;
+         
+         string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+         long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+         if(!PassesFilter(symbol, magic)) continue;
+         
+         ENUM_DEAL_ENTRY de = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+         string evt = DetermineEventType(de);
+         if(evt == "") continue;
+         
+         string payload = BuildPayload(dealTicket, evt, direction, "history_sync");
+         if(SendEvent(payload, dealTicket))
+            MarkDealProcessed(dealTicket);
+         else
+            AddToQueue(payload, dealTicket);
+         Sleep(50);
+      }
+   }
+   
+   // 2) For each ticket the server thinks is open but MT5 no longer has,
+   //    look up the exit deal and send it.
+   string openArr = ExtractJsonArray(body_resp, "open_tickets");
+   if(StringLen(openArr) > 0)
+   {
+      string parts[];
+      StringReplace(openArr, " ", "");
+      int n = StringSplit(openArr, ',', parts);
+      for(int i = 0; i < n; i++)
+      {
+         ulong tk = (ulong)StringToInteger(parts[i]);
+         if(tk == 0) continue;
+         if(PositionSelectByTicket(tk)) continue; // still open in MT5 — nothing to do
+         SendExitForClosedPosition(tk);
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Tiny ad-hoc JSON helpers (server response is small + trusted)     |
+//+------------------------------------------------------------------+
+string ExtractJsonString(string src, string key)
+{
+   string needle = "\"" + key + "\":\"";
+   int p = StringFind(src, needle);
+   if(p < 0) return "";
+   p += StringLen(needle);
+   int q = StringFind(src, "\"", p);
+   if(q < 0) return "";
+   return StringSubstr(src, p, q - p);
+}
+
+string ExtractJsonNumber(string src, string key)
+{
+   string needle = "\"" + key + "\":";
+   int p = StringFind(src, needle);
+   if(p < 0) return "0";
+   p += StringLen(needle);
+   int end = p;
+   while(end < StringLen(src))
+   {
+      ushort c = StringGetCharacter(src, end);
+      if((c >= '0' && c <= '9') || c == '-') end++;
+      else break;
+   }
+   if(end == p) return "0";
+   return StringSubstr(src, p, end - p);
+}
+
+string ExtractJsonArray(string src, string key)
+{
+   string needle = "\"" + key + "\":[";
+   int p = StringFind(src, needle);
+   if(p < 0) return "";
+   p += StringLen(needle);
+   int q = StringFind(src, "]", p);
+   if(q < 0) return "";
+   return StringSubstr(src, p, q - p);
+}
+
+datetime ParseIsoUtcToBroker(string iso)
+{
+   // iso like 2026-05-27T10:23:45Z or with .000Z
+   if(StringLen(iso) < 19) return 0;
+   string sub = StringSubstr(iso, 0, 19);
+   StringReplace(sub, "T", " ");
+   datetime utc = StringToTime(sub);
+   if(utc == 0) return 0;
+   return utc + (datetime)(GetBrokerUTCOffset() * 3600);
 }
 
 // NOTE: OnTick() removed — timer is sufficient for queue processing
