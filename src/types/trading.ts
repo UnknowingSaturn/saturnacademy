@@ -145,6 +145,12 @@ export interface Trade {
   trade_number: number | null;
   trade_type: TradeType; // Type of trade: executed, idea, paper, or missed
   risk_percent: number | null; // Percentage of balance/equity risked (for idea/paper/missed trades)
+  // Repair state — populated by ingest's gap-sync; 'advisory_closed' means we inferred the close
+  // from a snapshot rather than seeing the actual DEAL_ENTRY_OUT event.
+  repair_state?: 'none' | 'advisory_closed' | 'reconciled' | null;
+  // Additive Phase D fields — resolved by trade_view at read time
+  install_id?: string | null;
+  broker_login?: string | null;
   // Joined data
   review?: TradeReview;
   account?: Account;
