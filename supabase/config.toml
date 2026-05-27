@@ -12,8 +12,6 @@ verify_jwt = false
 [functions.playbook-assistant]
 verify_jwt = false
 
-[functions.fresh-start]
-verify_jwt = false
 
 [functions.copier-config]
 verify_jwt = false
