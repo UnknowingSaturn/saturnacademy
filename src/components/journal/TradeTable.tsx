@@ -314,7 +314,11 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   };
 
   const isAwaitingRepair = (trade: Trade) => {
-    // Prefer typed repair_events. Fall back to legacy partial_closes markers.
+    // Fast path: new one-writer model sets this column directly. PnL stays null
+    // until ingest-events or repair-snapshot-closed fills in the real values.
+    if ((trade as any).awaiting_exit === true) return true;
+
+    // Fallback: typed repair_events, then legacy partial_closes markers.
     const events = (trade as any).repair_events as Array<{ action: string }> | undefined;
     if (events && events.length > 0) {
       const hasSnapshotClosed = events.some((e) => e.action === "snapshot_closed");

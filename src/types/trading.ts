@@ -127,6 +127,7 @@ export interface Trade {
   partial_fills?: PartialFill[];
   repair_events?: RepairEvent[];
   is_open: boolean;
+  awaiting_exit?: boolean;
   is_archived?: boolean;
   archived_at?: string;
   created_at: string;
