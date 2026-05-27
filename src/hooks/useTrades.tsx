@@ -29,7 +29,9 @@ export function useTrades(filters?: {
             playbook:playbooks (*)
           ),
           ai_reviews (*),
-          account:accounts (*)
+          account:accounts (*),
+          trade_partial_fills (*),
+          trade_repair_events (*)
         `)
         .order('entry_time', { ascending: false });
 
