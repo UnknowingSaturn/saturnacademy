@@ -103,8 +103,10 @@ serve(async (req) => {
       siblingExists = !!data;
     }
 
-    // 3. API-key-bound account
-    if (!account && accForKey) {
+    // 3. API-key-bound account — last resort, only when no install sibling
+    //    exists (otherwise we'd misroute a new login to an unrelated account
+    //    that happens to share the api key).
+    if (!account && !siblingExists && accForKey) {
       const { data } = await supabase
         .from("accounts")
         .select("id, mt5_install_id, account_number, live_state, force_resync")
