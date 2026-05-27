@@ -28,9 +28,12 @@ export type Database = {
           created_at: string
           ea_type: Database["public"]["Enums"]["ea_type"] | null
           equity_current: number | null
+          force_resync: boolean
           id: string
           is_active: boolean | null
+          last_heartbeat_at: string | null
           last_sync_at: string | null
+          live_state: Database["public"]["Enums"]["account_live_state"]
           master_account_id: string | null
           mt5_install_id: string | null
           name: string
@@ -54,9 +57,12 @@ export type Database = {
           created_at?: string
           ea_type?: Database["public"]["Enums"]["ea_type"] | null
           equity_current?: number | null
+          force_resync?: boolean
           id?: string
           is_active?: boolean | null
+          last_heartbeat_at?: string | null
           last_sync_at?: string | null
+          live_state?: Database["public"]["Enums"]["account_live_state"]
           master_account_id?: string | null
           mt5_install_id?: string | null
           name: string
@@ -80,9 +86,12 @@ export type Database = {
           created_at?: string
           ea_type?: Database["public"]["Enums"]["ea_type"] | null
           equity_current?: number | null
+          force_resync?: boolean
           id?: string
           is_active?: boolean | null
+          last_heartbeat_at?: string | null
           last_sync_at?: string | null
+          live_state?: Database["public"]["Enums"]["account_live_state"]
           master_account_id?: string | null
           mt5_install_id?: string | null
           name?: string
@@ -2022,6 +2031,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
+      account_live_state: "live" | "dormant" | "verifying" | "stale"
       account_type: "demo" | "live" | "prop"
       ai_provider: "openai" | "gemini" | "lovable"
       broker_dst_profile:
@@ -2189,6 +2199,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      account_live_state: ["live", "dormant", "verifying", "stale"],
       account_type: ["demo", "live", "prop"],
       ai_provider: ["openai", "gemini", "lovable"],
       broker_dst_profile: [
