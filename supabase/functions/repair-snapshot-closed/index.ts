@@ -177,6 +177,20 @@ serve(async (req) => {
 
       await admin.from("trades").update(update).eq("id", trade.id);
 
+      // Phase D dual-write: typed repair event
+      await admin.from("trade_repair_events").insert({
+        user_id: user.id,
+        trade_id: trade.id,
+        action: "repaired_from_snapshot",
+        source: "manual_repair_snapshot_closed",
+        metadata: {
+          net_pnl: netPnl,
+          ticket: trade.ticket ?? null,
+          reassigned: exitEvent.account_id !== trade.account_id,
+        },
+        applied_at: new Date().toISOString(),
+      });
+
       repaired++;
       if (trade.ticket) repairedTickets.push(Number(trade.ticket));
     }

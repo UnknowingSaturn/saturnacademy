@@ -767,6 +767,16 @@ async function tryRepairSiblingSnapshotClosed(
       }],
     }).eq("id", candidate.id);
 
+    // Phase D dual-write: typed repair event
+    await supabase.from("trade_repair_events").insert({
+      user_id: userId,
+      trade_id: candidate.id,
+      action: "repaired_from_snapshot",
+      source: "ingest_sibling_repair",
+      metadata: { net_pnl: netPnl, ticket: Number(ticket), note: "Auto-repaired on ingest from sibling login on same MT5 install" },
+      applied_at: new Date().toISOString(),
+    });
+
     console.log("AUTO-REPAIR: healed sibling snapshot_closed trade", candidate.id, "ticket:", ticket, "PnL:", netPnl);
     return true;
   } catch (err) {
@@ -882,6 +892,16 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
           tp_final: event.tp || existingTrade.tp_final,
           partial_closes: repairedMarker,
         }).eq("id", existingTrade.id);
+
+        // Phase D dual-write: typed repair event for reopen
+        await supabase.from("trade_repair_events").insert({
+          user_id: userId,
+          trade_id: existingTrade.id,
+          action: "repaired_reopened",
+          source: "ingest_entry_reopen",
+          metadata: { ticket, note: "Reopened after EA reconnect — trade is still live in MT5" },
+          applied_at: new Date().toISOString(),
+        });
       } else {
         console.log("Trade already exists for position:", ticket);
       }
@@ -1113,6 +1133,18 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         tp_final: event.tp || existingTrade.tp_final,
         partial_closes: finalPartialCloses,
       }).eq("id", existingTrade.id);
+
+      // Phase D dual-write: typed repair event when this close was a snapshot repair
+      if (isRepair) {
+        await supabase.from("trade_repair_events").insert({
+          user_id: userId,
+          trade_id: existingTrade.id,
+          action: "repaired_from_snapshot",
+          source: "ingest_full_close_repair",
+          metadata: { net_pnl: netPnl, ticket, note: "Real PnL recovered from MT5 deal history after EA reconnect" },
+          applied_at: new Date().toISOString(),
+        });
+      }
 
       console.log(isRepair ? "REPAIRED full close" : "Processed full close", "for position:", ticket, "PnL:", netPnl, "R:", rMultiple);
     }
