@@ -265,6 +265,71 @@ async function fetchAllTrades(admin: ReturnType<typeof createClient>, accountIds
   return rows;
 }
 
+async function createMissingAccounts(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  installAccounts: AccountRow[],
+  trades: TradeRow[],
+  accountByLogin: Map<string, AccountRow>,
+) {
+  const template = installAccounts[0];
+  if (!template) return [];
+
+  const missingLogins = Array.from(new Set(
+    trades
+      .map((trade) => parseTerminalLogin(trade.terminal_id))
+      .filter((login): login is string => !!login && !accountByLogin.has(login)),
+  )).sort();
+
+  const createdAccounts: AccountRow[] = [];
+  for (const login of missingLogins) {
+    const terminalId = trades.find((trade) => parseTerminalLogin(trade.terminal_id) === login)?.terminal_id ?? null;
+    const { data, error } = await admin
+      .from("accounts")
+      .insert({
+        user_id: userId,
+        name: `${template.broker || "MT5"} - ${login}`,
+        broker: template.broker,
+        account_number: login,
+        mt5_install_id: template.mt5_install_id,
+        terminal_id: terminalId,
+        api_key: template.api_key,
+        copier_role: template.copier_role,
+        copier_enabled: template.copier_enabled,
+        master_account_id: template.master_account_id,
+        sync_history_enabled: template.sync_history_enabled,
+        sync_history_from: template.sync_history_from,
+        account_type: template.account_type,
+        prop_firm: template.prop_firm,
+        broker_utc_offset: template.broker_utc_offset,
+        broker_dst_profile: template.broker_dst_profile,
+        ea_type: template.ea_type,
+        is_active: true,
+        live_state: "dormant",
+      })
+      .select("id, user_id, name, broker, account_number, mt5_install_id, terminal_id, api_key, copier_role, copier_enabled, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker_utc_offset, broker_dst_profile, ea_type")
+      .single();
+
+    if (error && (error.code === "23505" || /duplicate key/i.test(error.message || ""))) {
+      const { data: existing, error: existingError } = await admin
+        .from("accounts")
+        .select("id, user_id, name, broker, account_number, mt5_install_id, terminal_id, api_key, copier_role, copier_enabled, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker_utc_offset, broker_dst_profile, ea_type")
+        .eq("user_id", userId)
+        .eq("mt5_install_id", template.mt5_install_id)
+        .eq("account_number", login)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existing) createdAccounts.push(existing as AccountRow);
+      continue;
+    }
+
+    if (error) throw error;
+    if (data) createdAccounts.push(data as AccountRow);
+  }
+
+  return createdAccounts;
+}
+
 function parseTerminalLogin(terminalId: string | null) {
   if (!terminalId) return null;
   return terminalId.match(/^MT5_(\d+)_/)?.[1] ?? null;
