@@ -209,6 +209,8 @@ serve(async (req) => {
           balance_start: payload.account_info.balance,
           equity_current: payload.account_info.equity,
           terminal_id: payload.terminal_id,
+          mt5_install_id: payload.install_id || null,
+          last_sync_at: new Date().toISOString(),
           api_key: apiKey,
           prop_firm: propFirm,
           is_active: true,
