@@ -57,3 +57,6 @@ verify_jwt = false
 
 [functions.sync-account-state]
 verify_jwt = false
+
+[functions.mark-dormant-accounts]
+verify_jwt = false

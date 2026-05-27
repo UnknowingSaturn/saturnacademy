@@ -139,6 +139,25 @@ serve(async (req) => {
       account = byLogin ?? null;
     }
 
+    // Sibling fallback: same MT5 install — backfill account_number to the live login
+    if (!account && payload.install_id) {
+      const { data: byInstall } = await supabase
+        .from("accounts")
+        .select("id, user_id, terminal_id")
+        .eq("user_id", userIdForKey)
+        .eq("mt5_install_id", payload.install_id)
+        .eq("is_active", true)
+        .order("last_heartbeat_at", { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      if (byInstall) {
+        account = byInstall;
+        if (brokerLogin) {
+          await supabase.from("accounts").update({ account_number: brokerLogin }).eq("id", byInstall.id);
+        }
+      }
+    }
+
     // Fallback: if no broker login (e.g. older EA), use the API-key account
     if (!account && anyAccountForKey) {
       account = {
@@ -261,14 +280,16 @@ serve(async (req) => {
     }
 
 
-    // Update equity and ea_type if provided
-    if (payload.account_info?.equity || payload.ea_type) {
-      const updateData: Record<string, unknown> = {};
-      if (payload.account_info?.equity) updateData.equity_current = payload.account_info.equity;
-      if (payload.ea_type) updateData.ea_type = payload.ea_type;
-      if (Object.keys(updateData).length > 0) {
-        await supabase.from("accounts").update(updateData).eq("id", account.id);
-      }
+    // Every event bumps the per-account heartbeat and flips state back to 'live'.
+    // The cron worker (mark-dormant-accounts) flips it to 'dormant' if heartbeats stop.
+    {
+      const liveBump: Record<string, unknown> = {
+        last_heartbeat_at: new Date().toISOString(),
+        live_state: "live",
+      };
+      if (payload.account_info?.equity) liveBump.equity_current = payload.account_info.equity;
+      if (payload.ea_type) liveBump.ea_type = payload.ea_type;
+      await supabase.from("accounts").update(liveBump).eq("id", account.id);
     }
 
     // ==========================================

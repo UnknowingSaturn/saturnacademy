@@ -52,6 +52,10 @@ export interface Account {
   // Multi-account sync tracking
   mt5_install_id?: string | null;
   last_sync_at?: string | null;
+  // Live state — managed by EA heartbeats + mark-dormant-accounts cron
+  live_state?: 'live' | 'dormant' | 'verifying' | 'stale';
+  last_heartbeat_at?: string | null;
+  force_resync?: boolean;
   created_at: string;
   updated_at: string;
 }
