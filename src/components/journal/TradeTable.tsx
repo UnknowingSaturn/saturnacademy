@@ -314,6 +314,18 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   };
 
   const isAwaitingRepair = (trade: Trade) => {
+    // Prefer typed repair_events. Fall back to legacy partial_closes markers.
+    const events = (trade as any).repair_events as Array<{ action: string }> | undefined;
+    if (events && events.length > 0) {
+      const hasSnapshotClosed = events.some((e) => e.action === "snapshot_closed");
+      const wasRepaired = events.some((e) =>
+        e.action === "repaired_from_snapshot" ||
+        e.action === "repaired_reopened" ||
+        e.action === "phase_a_one_shot"
+      );
+      if (!hasSnapshotClosed || wasRepaired) return false;
+      return trade.net_pnl == null || trade.net_pnl === 0;
+    }
     const pc = (trade as any).partial_closes;
     if (!Array.isArray(pc)) return false;
     const hasSnapshotClosed = pc.some((e: any) => e?.type === "snapshot_closed");
@@ -327,6 +339,11 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   };
 
   const getSnapshotInfo = (trade: Trade) => {
+    const events = (trade as any).repair_events as Array<{ action: string; metadata: any; applied_at: string }> | undefined;
+    if (events && events.length > 0) {
+      const marker = events.find((e) => e.action === "snapshot_closed");
+      if (marker) return { type: "snapshot_closed", ...(marker.metadata || {}), at: marker.applied_at };
+    }
     const pc = (trade as any).partial_closes;
     if (!Array.isArray(pc)) return null;
     const marker = pc.find((e: any) => e?.type === "snapshot_closed");
