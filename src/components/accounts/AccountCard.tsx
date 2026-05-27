@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/tooltip';
 import { EditAccountDialog } from './EditAccountDialog';
 import { ImportHistoryDialog } from './ImportHistoryDialog';
+import { LiveStateBadge } from './LiveStateBadge';
 
 interface AccountCardProps {
   account: Account;
