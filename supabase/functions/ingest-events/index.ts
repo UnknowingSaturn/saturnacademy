@@ -548,6 +548,7 @@ serve(async (req) => {
       .from("events")
       .insert({
         idempotency_key: payload.idempotency_key,
+        user_id: account.user_id,
         account_id: account.id,
         terminal_id: payload.terminal_id,
         event_type: dbEventType,
