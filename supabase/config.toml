@@ -3,12 +3,6 @@ project_id = "soosdjmnpcyuqppdjsse"
 [functions.ingest-events]
 verify_jwt = false
 
-[functions.trades-overlay]
-verify_jwt = false
-
-[functions.backfill-trades]
-verify_jwt = false
-
 [functions.reprocess-trades]
 verify_jwt = false
 
@@ -58,5 +52,3 @@ verify_jwt = false
 [functions.sync-account-state]
 verify_jwt = false
 
-[functions.mark-dormant-accounts]
-verify_jwt = false
