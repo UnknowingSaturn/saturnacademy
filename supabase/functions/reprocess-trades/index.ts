@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { computeRMultiple } from "../_shared/rMultiple.ts";
+import { classifySession, DEFAULT_SESSIONS, SessionDefinition } from "../_shared/session.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,28 +14,8 @@ interface ReprocessRequest {
   use_custom_sessions?: boolean;
 }
 
-interface SessionDefinition {
-  name: string;
-  key: string;
-  start_hour: number;
-  start_minute: number;
-  end_hour: number;
-  end_minute: number;
-  timezone: string;
-  is_active: boolean;
-}
-
-// Default sessions if user hasn't defined any
-// Order matters - first match wins. London comes before Tokyo to handle 03:00-04:00 overlap
-const DEFAULT_SESSIONS: SessionDefinition[] = [
-  { name: 'London', key: 'london', start_hour: 3, start_minute: 0, end_hour: 8, end_minute: 0, timezone: 'America/New_York', is_active: true },
-  { name: 'NY AM', key: 'new_york_am', start_hour: 8, start_minute: 0, end_hour: 12, end_minute: 0, timezone: 'America/New_York', is_active: true },
-  { name: 'NY PM', key: 'new_york_pm', start_hour: 12, start_minute: 0, end_hour: 17, end_minute: 0, timezone: 'America/New_York', is_active: true },
-  { name: 'Off Hours', key: 'off_hours', start_hour: 17, start_minute: 0, end_hour: 19, end_minute: 0, timezone: 'America/New_York', is_active: true },
-  { name: 'Tokyo', key: 'tokyo', start_hour: 19, start_minute: 0, end_hour: 3, end_minute: 0, timezone: 'America/New_York', is_active: true },
-];
-
-// computeRMultiple + pip helpers moved to ../_shared/rMultiple.ts
+// computeRMultiple + pip helpers in ../_shared/rMultiple.ts
+// session classifier + DEFAULT_SESSIONS in ../_shared/session.ts
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
