@@ -45,7 +45,7 @@ input int      InpCatchupIntervalTicks   = 10;                 // Server-driven 
 //+------------------------------------------------------------------+
 const string   EDGE_FUNCTION_URL = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/ingest-events";
 const string   SYNC_STATE_URL    = "https://soosdjmnpcyuqppdjsse.supabase.co/functions/v1/sync-account-state";
-const string   EA_VERSION        = "4.00";
+const string   EA_VERSION        = "4.01";
 
 //+------------------------------------------------------------------+
 //| Global Variables                                                  |
@@ -632,11 +632,16 @@ void RunCatchupCycle()
    // Tiny JSON extraction — sufficient for our small known fields
    string lastTimeStr = ExtractJsonString(body_resp, "last_event_time");
    string lastDealStr = ExtractJsonNumber(body_resp, "last_deal_id");
+   string replayFromStr = ExtractJsonString(body_resp, "replay_from");
    datetime lastTime = (StringLen(lastTimeStr) > 0) ? ParseIsoUtcToBroker(lastTimeStr) : 0;
+   datetime replayFrom = (StringLen(replayFromStr) > 0) ? ParseIsoUtcToBroker(replayFromStr) : 0;
    ulong lastDeal = (ulong)StringToInteger(lastDealStr);
    
-   // 1) Send any deals newer than server's watermark
-   datetime fromTime = (lastTime > 0) ? lastTime - 3600 : TimeCurrent() - 90 * 86400;
+   // 1) Send any deals newer than server's watermark.
+   //    Floor cascade: known watermark -> account's sync_history_from -> 90-day default.
+   datetime fromTime = (lastTime > 0)
+                       ? lastTime - 3600
+                       : (replayFrom > 0 ? replayFrom : TimeCurrent() - 90 * 86400);
    if(HistorySelect(fromTime, TimeCurrent() + 3600))
    {
       int totalDeals = HistoryDealsTotal();

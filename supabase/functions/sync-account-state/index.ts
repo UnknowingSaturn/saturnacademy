@@ -71,13 +71,13 @@ serve(async (req) => {
     if (!userId) return jsonError("Invalid API key", 401);
 
     // ---- Resolution cascade ----
-    let account: { id: string; mt5_install_id: string | null; account_number: string | null; live_state: string | null; force_resync: boolean } | null = null;
+    let account: { id: string; mt5_install_id: string | null; account_number: string | null; live_state: string | null; force_resync: boolean; sync_history_from: string | null } | null = null;
 
     // 1. by (user_id, account_number = login)
     {
       const { data } = await supabase
         .from("accounts")
-        .select("id, mt5_install_id, account_number, live_state, force_resync")
+        .select("id, mt5_install_id, account_number, live_state, force_resync, sync_history_from")
         .eq("user_id", userId)
         .eq("account_number", login)
         .eq("is_active", true)
@@ -128,7 +128,7 @@ serve(async (req) => {
         const { data: created, error: insErr } = await supabase
           .from("accounts")
           .insert(insertRow)
-          .select("id, mt5_install_id, account_number, live_state, force_resync")
+          .select("id, mt5_install_id, account_number, live_state, force_resync, sync_history_from")
           .single();
 
         if (created) {
@@ -137,7 +137,7 @@ serve(async (req) => {
           // Race: another concurrent connect created the row first.
           const { data: existing } = await supabase
             .from("accounts")
-            .select("id, mt5_install_id, account_number, live_state, force_resync")
+            .select("id, mt5_install_id, account_number, live_state, force_resync, sync_history_from")
             .eq("user_id", userId)
             .eq("account_number", login)
             .eq("is_active", true)
@@ -155,7 +155,7 @@ serve(async (req) => {
     if (!account && !siblingExists && accForKey) {
       const { data } = await supabase
         .from("accounts")
-        .select("id, mt5_install_id, account_number, live_state, force_resync")
+        .select("id, mt5_install_id, account_number, live_state, force_resync, sync_history_from")
         .eq("id", accForKey.id)
         .maybeSingle();
       if (data) account = data as any;
@@ -241,6 +241,10 @@ serve(async (req) => {
       account_id: account.id,
       last_deal_id: shouldResync ? null : lastDealId,
       last_event_time: shouldResync ? null : (latest?.event_timestamp ?? null),
+      // Floor for EA history replay when there's no event watermark (fresh account,
+      // dormant reconnect, or force_resync). EA falls back to its own 90-day window
+      // when this is null.
+      replay_from: account.sync_history_from ?? null,
       open_tickets: openTickets,
       auto_closed: autoClosedCount,
       was_dormant: wasDormant,

@@ -208,12 +208,16 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
                   accounts: filteredAccounts.map((a) => ({
                     id: a.id,
                     name: a.name,
-                    starting_balance: Number(a.balance_start || a.equity_current || 0),
+                    starting_balance: Number(a.balance_start || 0),
                     current_balance: Number(a.equity_current || 0),
-
                   })),
                   snapshots: balanceHistory?.inPeriod ?? [],
                   baselines: balanceHistory?.baselines ?? {},
+                  periodPnlByAccount: filteredTrades.reduce<Record<string, number>>((acc, t) => {
+                    if (t.is_open || !t.account_id) return acc;
+                    acc[t.account_id] = (acc[t.account_id] ?? 0) + (t.net_pnl || 0);
+                    return acc;
+                  }, {}),
                 }
               : undefined
           }
