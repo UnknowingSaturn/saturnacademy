@@ -60,7 +60,6 @@ const mainItems = [
 ];
 
 const toolItems = [
-  { title: "Strategy Lab", url: "/strategy-lab", icon: Sparkles },
   { title: "Trade Copier", url: "/copier", icon: Copy },
   { title: "Import Trades", url: "/import", icon: Upload },
   { title: "Accounts", url: "/accounts", icon: Wallet },
