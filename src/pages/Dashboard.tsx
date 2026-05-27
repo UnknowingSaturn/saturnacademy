@@ -38,8 +38,12 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
     ? accounts 
     : accounts.filter(a => a.id === selectedAccountId);
   
-  const accountStartingBalance = filteredAccounts.reduce((sum, acc) => sum + Number(acc.balance_start || 0), 0);
+  const accountStartingBalance = filteredAccounts.reduce(
+    (sum, acc) => sum + Number(acc.balance_start || acc.equity_current || 0),
+    0,
+  );
   const currentEquity = filteredAccounts.reduce((sum, acc) => sum + Number(acc.equity_current || 0), 0);
+
 
   const period: ReportPeriod = periodType === 'week' 
     ? getWeekPeriod(currentDate) 
