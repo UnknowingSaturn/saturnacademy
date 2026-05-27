@@ -156,6 +156,19 @@ serve(async (req) => {
       const target = accountByLogin.get(terminalLogin);
       if (!target) {
         missingTargetLogins.add(terminalLogin);
+        if (mode === "preview") {
+          actions.push({
+            trade,
+            source,
+            target: {
+              id: `preview-${terminalLogin}`,
+              account_number: terminalLogin,
+              mt5_install_id: selectedAccount.mt5_install_id,
+            },
+            terminalLogin,
+            action: "reassign",
+          });
+        }
         continue;
       }
 
