@@ -85,18 +85,22 @@ serve(async (req) => {
       if (data) account = data as any;
     }
 
-    // 2. by (user_id, mt5_install_id) — sibling on the same MT5 install
+    // 2. by (user_id, mt5_install_id) — sibling on the same MT5 install.
+    //    Treat as a TEMPLATE only. If the login is new, we deliberately return
+    //    account_id:null so the EA does a fresh history sync; ingest-events
+    //    will then auto-create a new row per login. Never overwrite
+    //    account_number on the sibling.
+    let siblingExists = false;
     if (!account && installId) {
       const { data } = await supabase
         .from("accounts")
-        .select("id, mt5_install_id, account_number, live_state, force_resync")
+        .select("id")
         .eq("user_id", userId)
         .eq("mt5_install_id", installId)
         .eq("is_active", true)
-        .order("last_heartbeat_at", { ascending: false, nullsFirst: false })
         .limit(1)
         .maybeSingle();
-      if (data) account = data as any;
+      siblingExists = !!data;
     }
 
     // 3. API-key-bound account
