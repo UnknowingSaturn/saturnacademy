@@ -189,7 +189,7 @@ serve(async (req) => {
     if (shouldResync) {
       const { data: openTrades } = await supabase
         .from("trades")
-        .select("id, ticket, entry_price, entry_time, raw_payload")
+        .select("id, ticket, entry_price, entry_time")
         .eq("account_id", account.id)
         .eq("is_open", true);
 
@@ -197,17 +197,32 @@ serve(async (req) => {
         (t: any) => !eaOpenTickets.includes(Number(t.ticket)),
       );
 
+      // ONE-WRITER MODEL: this function never writes PnL. It tombstones
+      // stale trades (is_open=false + awaiting_exit=true) and inserts a
+      // `snapshot_closed` repair marker. The actual PnL is filled in later
+      // by:
+      //   • ingest-events when the real DEAL_ENTRY_OUT arrives, OR
+      //   • repair-snapshot-closed when the user triggers a repair sweep
+      //     (which searches sibling accounts on the same MT5 install).
       for (const t of stale as any[]) {
-        const merged = { ...(t.raw_payload || {}), repair_reason: "auto_close_on_reconnect", repaired_at: new Date().toISOString() };
         await supabase
           .from("trades")
           .update({
             is_open: false,
-            exit_time: new Date().toISOString(),
-            exit_price: t.entry_price,
-            raw_payload: merged,
+            awaiting_exit: true,
           })
           .eq("id", t.id);
+
+        // Idempotent marker — repair sweep filters on this exact action.
+        await supabase.from("trade_repair_events").insert({
+          user_id: account.user_id,
+          trade_id: t.id,
+          action: "snapshot_closed",
+          source: "sync_account_state_reaper",
+          metadata: { ticket: t.ticket, reason: "ticket_not_in_open_list" },
+          applied_at: new Date().toISOString(),
+        });
+
         autoClosedCount += 1;
       }
 
