@@ -106,6 +106,7 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
                   Receiver
                 </Badge>
               )}
+              <LiveStateBadge state={account.live_state} lastHeartbeatAt={account.last_heartbeat_at} accountName={account.name} />
             </div>
           </div>
         </CardHeader>
