@@ -333,10 +333,12 @@ serve(async (req) => {
         heartbeatUpdate.broker_utc_offset = payload.broker_utc_offset;
       }
 
+      heartbeatUpdate.last_sync_at = new Date().toISOString();
       await supabase.from("accounts").update(heartbeatUpdate).eq("id", account.id);
 
       // Track terminal multi-tenancy: this account is now the active login on this terminal.
-      await markTerminalActiveAccount(supabase, payload.terminal_id, account.id, account.user_id);
+      await markTerminalActiveAccount(supabase, payload.terminal_id, payload.install_id, account.id, account.user_id);
+
 
       return new Response(
         JSON.stringify({
