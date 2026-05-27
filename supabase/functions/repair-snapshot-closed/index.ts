@@ -9,18 +9,17 @@ const corsHeaders = {
 
 /**
  * Repair "snapshot_closed" trades for a given account by re-matching them
- * against MT5 deal history that the EA has already streamed into the events table.
+ * against MT5 deal history streamed into the events table — INCLUDING events
+ * that were attributed to sibling accounts on the same MT5 install (i.e.
+ * other logins on the same install). This is necessary because when a user
+ * switches MT5 logins, the close event for an older trade may arrive tagged
+ * with the new login's account_id, so we have to search across all siblings
+ * sharing the same `mt5_install_id`.
  *
- * Flow:
- *  1. Find all trades on this account where partial_closes contains a
- *     snapshot_closed marker (these are the "BE" rows the user sees).
- *  2. For each one, look in the events table for an exit/close event that
- *     references the same ticket.
- *  3. If we find one, re-apply it: real PnL, real exit price/time, and replace
- *     the snapshot marker with a "repaired_from_snapshot" marker.
- *  4. If no exit event exists, mark the trade as "needs_mt5_reconnect" so the
- *     user knows to log back into that broker account in MT5 — the EA's
- *     next OnInit will then replay the gap and the trade will heal.
+ * If a matching exit event is found on a sibling account we both:
+ *   1) apply the real PnL/exit data, and
+ *   2) move the trade's account_id to the sibling so it ends up filed under
+ *      the broker login that actually owned the deal.
  */
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -36,7 +35,6 @@ serve(async (req) => {
     });
     const admin = createClient(supabaseUrl, supabaseKey);
 
-    // Authn
     const { data: { user }, error: authErr } = await userClient.auth.getUser();
     if (authErr || !user) {
       return new Response(JSON.stringify({ error: "Not authenticated" }), {
@@ -45,34 +43,61 @@ serve(async (req) => {
       });
     }
 
-    const { account_id } = await req.json().catch(() => ({}));
-    if (!account_id) {
-      return new Response(JSON.stringify({ error: "account_id required" }), {
+    const body = await req.json().catch(() => ({}));
+    const accountId: string | undefined = body.account_id;
+    const allUserAccounts: boolean = !!body.all;
+
+    // Resolve target accounts to scan for stuck trades
+    let targetAccountIds: string[] = [];
+    if (allUserAccounts) {
+      const { data: accs } = await admin
+        .from("accounts")
+        .select("id")
+        .eq("user_id", user.id);
+      targetAccountIds = (accs || []).map((a: any) => a.id);
+    } else if (accountId) {
+      const { data: account } = await admin
+        .from("accounts")
+        .select("id, user_id")
+        .eq("id", accountId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!account) {
+        return new Response(JSON.stringify({ error: "Account not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      targetAccountIds = [accountId];
+    } else {
+      return new Response(JSON.stringify({ error: "account_id or all required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Verify the account belongs to the caller
-    const { data: account, error: accErr } = await admin
+    // Pre-fetch ALL of the user's accounts so we can build install_id -> [sibling ids]
+    const { data: userAccounts } = await admin
       .from("accounts")
-      .select("id, user_id")
-      .eq("id", account_id)
-      .eq("user_id", user.id)
-      .maybeSingle();
+      .select("id, mt5_install_id, account_number")
+      .eq("user_id", user.id);
 
-    if (accErr || !account) {
-      return new Response(JSON.stringify({ error: "Account not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const siblingsByInstall = new Map<string, string[]>();
+    const accountById = new Map<string, any>();
+    for (const a of userAccounts || []) {
+      accountById.set(a.id, a);
+      if (a.mt5_install_id) {
+        const arr = siblingsByInstall.get(a.mt5_install_id) || [];
+        arr.push(a.id);
+        siblingsByInstall.set(a.mt5_install_id, arr);
+      }
     }
 
-    // 1. Find snapshot_closed trades on this account
+    // Pull stuck trades across all target accounts
     const { data: stuckTrades, error: tradesErr } = await admin
       .from("trades")
-      .select("id, ticket, symbol, entry_price, entry_time, original_lots, partial_closes, equity_at_entry, balance_at_entry, sl_initial")
-      .eq("account_id", account_id)
+      .select("id, ticket, symbol, entry_price, entry_time, original_lots, partial_closes, equity_at_entry, balance_at_entry, sl_initial, account_id")
+      .in("account_id", targetAccountIds)
       .eq("is_open", false);
 
     if (tradesErr) {
@@ -84,20 +109,27 @@ serve(async (req) => {
 
     const candidates = (stuckTrades || []).filter((t: any) =>
       Array.isArray(t.partial_closes) &&
-      t.partial_closes.some((m: any) => m?.type === "snapshot_closed")
+      t.partial_closes.some((m: any) => m?.type === "snapshot_closed") &&
+      !t.partial_closes.some((m: any) => m?.type === "repaired_from_snapshot" || m?.type === "repaired_reopened")
     );
 
     let repaired = 0;
     let pending = 0;
+    let reassigned = 0;
     const repairedTickets: number[] = [];
     const pendingTickets: number[] = [];
 
     for (const trade of candidates) {
-      // Look for any exit event referencing this ticket on this account
+      const acct = accountById.get(trade.account_id);
+      const installId = acct?.mt5_install_id;
+      const searchAccountIds = installId
+        ? (siblingsByInstall.get(installId) || [trade.account_id])
+        : [trade.account_id];
+
       const { data: exitEvents } = await admin
         .from("events")
-        .select("price, profit, commission, swap, sl, tp, event_timestamp")
-        .eq("account_id", account_id)
+        .select("account_id, price, profit, commission, swap, sl, tp, event_timestamp")
+        .in("account_id", searchAccountIds)
         .eq("ticket", trade.ticket)
         .in("event_type", ["close", "partial_close"])
         .order("event_timestamp", { ascending: false })
@@ -120,20 +152,30 @@ serve(async (req) => {
           new Date(trade.entry_time).getTime()) / 1000
       );
 
-      await admin.from("trades").update({
+      const update: Record<string, unknown> = {
         exit_price: Number(exitEvent.price),
         exit_time: exitEvent.event_timestamp,
         gross_pnl: grossPnl,
-        commission: commission,
-        swap: swap,
+        commission,
+        swap,
         net_pnl: netPnl,
         duration_seconds: duration > 0 ? duration : null,
         partial_closes: [{
           type: "repaired_from_snapshot",
           repaired_at: new Date().toISOString(),
-          note: "Recovered from MT5 deal history during one-shot backfill",
+          note: exitEvent.account_id !== trade.account_id
+            ? "Recovered from MT5 deal history on sibling login (reassigned account)"
+            : "Recovered from MT5 deal history",
         }],
-      }).eq("id", trade.id);
+      };
+
+      // Reassign account if the deal was found on a sibling
+      if (exitEvent.account_id && exitEvent.account_id !== trade.account_id) {
+        update.account_id = exitEvent.account_id;
+        reassigned++;
+      }
+
+      await admin.from("trades").update(update).eq("id", trade.id);
 
       repaired++;
       if (trade.ticket) repairedTickets.push(Number(trade.ticket));
@@ -143,12 +185,13 @@ serve(async (req) => {
       status: "ok",
       total_stuck: candidates.length,
       repaired,
+      reassigned,
       pending_mt5_reconnect: pending,
       repaired_tickets: repairedTickets,
       pending_tickets: pendingTickets,
       message: pending > 0
-        ? `Repaired ${repaired} trades. ${pending} more need you to log back into this broker account in MT5 — the EA will heal them automatically on reconnect.`
-        : `Repaired ${repaired} trades.`,
+        ? `Repaired ${repaired} trade${repaired === 1 ? "" : "s"}. ${pending} still need you to log MT5 back into the original broker login — they'll heal automatically on reconnect.`
+        : `Repaired ${repaired} trade${repaired === 1 ? "" : "s"}.`,
     }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
