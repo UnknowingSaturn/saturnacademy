@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { RefreshCw, Copy, Eye, EyeOff, Key, Info, History } from 'lucide-react';
+import { RefreshCw, Copy, Eye, EyeOff, Key, Info } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -399,10 +399,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
 
             <Separator />
 
-            {/* Resync History Section */}
-            <ResyncHistorySection account={account} />
 
-            <Separator />
 
             <div className="space-y-4">
               <div className="flex items-center gap-2">
@@ -526,73 +523,3 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
   );
 }
 
-function ResyncHistorySection({ account }: { account: Account }) {
-  const updateAccount = useUpdateAccount();
-  const { toast } = useToast();
-  const defaultSyncFrom = account.sync_history_from
-    ? new Date(account.sync_history_from).toISOString().slice(0, 10)
-    : '';
-  const [syncFrom, setSyncFrom] = useState(defaultSyncFrom);
-  const [submitting, setSubmitting] = useState(false);
-
-  const onResync = async () => {
-    setSubmitting(true);
-    try {
-      const updates: Partial<Account> & { id: string } = {
-        id: account.id,
-        force_resync: true,
-      };
-      if (syncFrom) {
-        // Treat input as start of that day UTC.
-        updates.sync_history_from = new Date(`${syncFrom}T00:00:00Z`).toISOString();
-      }
-      await updateAccount.mutateAsync(updates);
-      toast({
-        title: 'Resync scheduled',
-        description: 'The EA will replay history from MT5 on its next check-in (~5 min).',
-      });
-    } catch (e) {
-      // useUpdateAccount already toasts on error
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <History className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">Resync history from MT5</span>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Forces the EA to replay closed deals from MT5's history. Use this after upgrading the EA
-        or if trades are missing. Existing events are deduplicated automatically.
-      </p>
-      <div className="flex items-end gap-2">
-        <div className="flex-1 space-y-1">
-          <label className="text-xs text-muted-foreground">Replay from</label>
-          <Input
-            type="date"
-            value={syncFrom}
-            onChange={(e) => setSyncFrom(e.target.value)}
-            placeholder="(account default)"
-          />
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onResync}
-          disabled={submitting}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${submitting ? 'animate-spin' : ''}`} />
-          {submitting ? 'Scheduling...' : 'Resync now'}
-        </Button>
-      </div>
-      {account.force_resync && (
-        <p className="text-xs text-amber-500">
-          A resync is already pending — EA will pick it up on next check-in.
-        </p>
-      )}
-    </div>
-  );
-}
