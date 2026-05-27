@@ -41,10 +41,39 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
       if (!isMulti || !multiAccount) return null;
       const { accounts, snapshots, baselines } = multiAccount;
 
-      // Baseline balance per account (snapshot before period, else starting_balance)
+      // Sort once — both for the baseline-fallback lookup and the walk below.
+      const sorted = [...snapshots].sort(
+        (a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime(),
+      );
+      const firstInPeriodByAccount: Record<string, number | undefined> = {};
+      for (const s of sorted) {
+        if (firstInPeriodByAccount[s.account_id] === undefined) {
+          firstInPeriodByAccount[s.account_id] = s.balance;
+        }
+      }
+
+      // Baseline per account, with explicit provenance so we can render an
+      // honest chip (and exclude unresolved accounts from the average).
       const base: Record<string, number> = {};
+      const baseSource: Record<string, BaselineSource> = {};
       accounts.forEach((a) => {
-        base[a.id] = baselines[a.id]?.balance ?? a.starting_balance ?? 0;
+        const snap = baselines[a.id]?.balance;
+        if (snap && snap > 0) {
+          base[a.id] = snap;
+          baseSource[a.id] = "snapshot";
+        } else if (a.starting_balance && a.starting_balance > 0) {
+          base[a.id] = a.starting_balance;
+          baseSource[a.id] = "balance_start";
+        } else if (a.current_balance && a.current_balance > 0) {
+          base[a.id] = a.current_balance;
+          baseSource[a.id] = "current_equity";
+        } else if (firstInPeriodByAccount[a.id]) {
+          base[a.id] = firstInPeriodByAccount[a.id]!;
+          baseSource[a.id] = "first_in_period";
+        } else {
+          base[a.id] = 0;
+          baseSource[a.id] = "none";
+        }
       });
 
       // Walk snapshots in time order, maintain latest known balance per account
@@ -54,18 +83,16 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
       // Period-start anchor
       points.push({ date: "Start", pct: 0, ts: 0 });
 
-      const sorted = [...snapshots].sort(
-        (a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime(),
-      );
-
       sorted.forEach((s) => {
         latest[s.account_id] = s.balance;
-        const pcts = accounts.map((a) => {
-          const b0 = base[a.id];
-          if (!b0) return 0;
-          return ((latest[a.id] - b0) / b0) * 100;
-        });
-        const avg = pcts.reduce((sum, p) => sum + p, 0) / pcts.length;
+        const pcts = accounts
+          .map((a) => {
+            const b0 = base[a.id];
+            if (!b0 || baseSource[a.id] === "none") return null;
+            return ((latest[a.id] - b0) / b0) * 100;
+          })
+          .filter((v): v is number => v !== null);
+        const avg = pcts.length > 0 ? pcts.reduce((sum, p) => sum + p, 0) / pcts.length : 0;
         points.push({
           date: format(new Date(s.recorded_at), "MMM d HH:mm"),
           pct: Math.round(avg * 100) / 100,
@@ -74,15 +101,25 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
       });
 
       // Per-account $ delta vs baseline (latest known balance)
-      const perAccount = accounts.map((a) => ({
-        id: a.id,
-        name: a.name,
-        delta: (latest[a.id] ?? base[a.id]) - base[a.id],
-        pct: base[a.id] ? (((latest[a.id] ?? base[a.id]) - base[a.id]) / base[a.id]) * 100 : 0,
-      }));
+      const perAccount = accounts.map((a) => {
+        const resolved = baseSource[a.id] !== "none";
+        const b0 = base[a.id];
+        const last = latest[a.id] ?? b0;
+        return {
+          id: a.id,
+          name: a.name,
+          resolved,
+          source: baseSource[a.id],
+          delta: resolved ? last - b0 : 0,
+          pct: resolved && b0 ? ((last - b0) / b0) * 100 : 0,
+        };
+      });
 
-      return { points, perAccount };
+      const includedCount = perAccount.filter((a) => a.resolved).length;
+
+      return { points, perAccount, includedCount };
     }, [isMulti, multiAccount]);
+
 
     // ---------------- Single-account / fallback curve ----------------
     const data = useMemo(() => {
