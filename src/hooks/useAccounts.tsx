@@ -155,3 +155,46 @@ export function useUpdateSyncSettings() {
     },
   });
 }
+
+/**
+ * Flags one or more accounts for a full EA replay on the next poll.
+ * Optionally extends the history window via sync_history_from.
+ * The EA clears force_resync after its next sync-account-state call.
+ */
+export function useForceResync() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({
+      accountIds,
+      syncFrom,
+    }: {
+      accountIds: string[];
+      syncFrom?: Date | null;
+    }) => {
+      if (accountIds.length === 0) return { count: 0 };
+      const patch: Record<string, unknown> = { force_resync: true };
+      if (syncFrom !== undefined) {
+        patch.sync_history_enabled = true;
+        patch.sync_history_from = syncFrom?.toISOString() ?? null;
+      }
+      const { error } = await supabase
+        .from('accounts')
+        .update(patch)
+        .in('id', accountIds);
+      if (error) throw error;
+      return { count: accountIds.length };
+    },
+    onSuccess: ({ count }) => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      toast({
+        title: count === 1 ? 'Resync queued' : `Resync queued for ${count} accounts`,
+        description: 'EA will replay history on its next poll (within ~30s of the terminal being open).',
+      });
+    },
+    onError: (error) => {
+      toast({ title: 'Failed to queue resync', description: error.message, variant: 'destructive' });
+    },
+  });
+}
