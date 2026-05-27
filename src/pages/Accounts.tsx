@@ -119,17 +119,7 @@ export default function Accounts() {
           <p className="text-muted-foreground">Manage your trading accounts and MT5 connections</p>
         </div>
         <div className="flex gap-2">
-          {accounts && accounts.length > 0 && (
-            <Button
-              variant="outline"
-              onClick={handleResyncAll}
-              disabled={forceResync.isPending}
-              title="Queue a 1-year history replay for every account. EAs pick it up on next poll."
-            >
-              <History className={`h-4 w-4 mr-2 ${forceResync.isPending ? 'animate-spin' : ''}`} />
-              {forceResync.isPending ? 'Queuing…' : 'Resync All'}
-            </Button>
-          )}
+
           <Button onClick={() => setQuickConnectOpen(true)}>
             <Link className="h-4 w-4 mr-2" />
             Connect MT5
