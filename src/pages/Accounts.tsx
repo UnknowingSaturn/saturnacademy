@@ -93,53 +93,63 @@ export default function Accounts() {
     }
   };
 
-  const handleArchiveLegacyDuplicates = async () => {
-    setIsArchivingLegacyDuplicates(true);
+  const invokeLegacyOwnershipRepair = async (mode: 'preview' | 'apply') => {
+    if (!legacyRepairAccountId) {
+      toast.error('Please select an account');
+      return null;
+    }
+
     try {
       const source = accounts?.find((account) => account.account_number === '70561');
-      if (!source?.mt5_install_id) {
-        toast.error('70561 account not found');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error('Please sign in');
         return;
       }
 
-      const siblingIds = (accounts || [])
-        .filter((account) => account.mt5_install_id === source.mt5_install_id && account.id !== source.id)
-        .map((account) => account.id);
-
-      if (siblingIds.length === 0) {
-        toast.info('No sibling accounts found for this MT5 install');
-        return;
-      }
-
-      const { data: siblingTrades, error: siblingError } = await supabase
-        .from('trades')
-        .select('ticket')
-        .in('account_id', siblingIds);
-      if (siblingError) throw siblingError;
-
-      const duplicateTickets = Array.from(new Set((siblingTrades || []).map((trade) => trade.ticket).filter(Boolean)));
-      if (duplicateTickets.length === 0) {
-        toast.info('No duplicate tickets found');
-        return;
-      }
-
-      const { data: archivedRows, error } = await supabase
-        .from('trades')
-        .update({ is_archived: true, archived_at: new Date().toISOString() })
-        .eq('account_id', source.id)
-        .in('ticket', duplicateTickets)
-        .select('id');
+      const { data, error } = await supabase.functions.invoke('repair-legacy-trade-ownership', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { account_id: legacyRepairAccountId, mode },
+      });
       if (error) throw error;
 
-      toast.success(`Archived ${archivedRows?.length || 0} duplicate 70561 trades`, {
-        description: 'Only 70561 copies with matching sibling tickets were hidden. Restore them from Archived if needed.',
-      });
-      refetch();
+      return data as LegacyOwnershipPreview & {
+        reassigned?: number;
+        archived_duplicates?: number;
+      };
     } catch (err) {
-      console.error('Legacy duplicate cleanup error:', err);
-      toast.error('Failed to archive legacy duplicates');
+      console.error('Legacy ownership repair error:', err);
+      toast.error('Failed to repair legacy trade ownership');
+      return null;
+    }
+  };
+
+  const handlePreviewLegacyOwnershipRepair = async () => {
+    setIsPreviewingLegacyRepair(true);
+    try {
+      const data = await invokeLegacyOwnershipRepair('preview');
+      if (!data) return;
+      setLegacyRepairPreview(data);
+      if (data.planned > 0) {
+        toast.success(data.message);
+      } else {
+        toast.info(data.message);
+      }
     } finally {
-      setIsArchivingLegacyDuplicates(false);
+      setIsPreviewingLegacyRepair(false);
+    }
+  };
+
+  const handleApplyLegacyOwnershipRepair = async () => {
+    setIsApplyingLegacyRepair(true);
+    try {
+      const data = await invokeLegacyOwnershipRepair('apply');
+      if (!data) return;
+      setLegacyRepairPreview(null);
+      toast.success(data.message || 'Legacy trade ownership repaired');
+      refetch();
+    } finally {
+      setIsApplyingLegacyRepair(false);
     }
   };
 
