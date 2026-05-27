@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.mark_dormant_accounts() FROM PUBLIC, anon, authenticated;
