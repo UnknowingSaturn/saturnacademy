@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
       const netPnl = grossPnl - commission - Math.abs(swap);
       
       // Get session
-      const session = detectSession(entryTime, sessions);
+      const session = classifySession(entryTime, sessions);
       
       // R-multiple calculation using actual risk
       const currentEquity = accountEquityMap.get(event.account_id) || 0;
