@@ -77,7 +77,7 @@ serve(async (req) => {
     {
       const { data } = await supabase
         .from("accounts")
-        .select("id, mt5_install_id, account_number, live_state, force_resync")
+        .select("id, mt5_install_id, account_number, live_state, force_resync, sync_history_from")
         .eq("user_id", userId)
         .eq("account_number", login)
         .eq("is_active", true)
@@ -128,7 +128,7 @@ serve(async (req) => {
         const { data: created, error: insErr } = await supabase
           .from("accounts")
           .insert(insertRow)
-          .select("id, mt5_install_id, account_number, live_state, force_resync")
+          .select("id, mt5_install_id, account_number, live_state, force_resync, sync_history_from")
           .single();
 
         if (created) {
@@ -137,7 +137,7 @@ serve(async (req) => {
           // Race: another concurrent connect created the row first.
           const { data: existing } = await supabase
             .from("accounts")
-            .select("id, mt5_install_id, account_number, live_state, force_resync")
+            .select("id, mt5_install_id, account_number, live_state, force_resync, sync_history_from")
             .eq("user_id", userId)
             .eq("account_number", login)
             .eq("is_active", true)
@@ -155,7 +155,7 @@ serve(async (req) => {
     if (!account && !siblingExists && accForKey) {
       const { data } = await supabase
         .from("accounts")
-        .select("id, mt5_install_id, account_number, live_state, force_resync")
+        .select("id, mt5_install_id, account_number, live_state, force_resync, sync_history_from")
         .eq("id", accForKey.id)
         .maybeSingle();
       if (data) account = data as any;
