@@ -93,10 +93,10 @@ serve(async (req) => {
       }
     }
 
-    // Pull stuck trades across all target accounts
+    // Pull stuck trades across all target accounts, joined to their repair events.
     const { data: stuckTrades, error: tradesErr } = await admin
       .from("trades")
-      .select("id, ticket, symbol, entry_price, entry_time, original_lots, partial_closes, equity_at_entry, balance_at_entry, sl_initial, account_id")
+      .select("id, ticket, symbol, entry_price, entry_time, original_lots, equity_at_entry, balance_at_entry, sl_initial, account_id, trade_repair_events(action)")
       .in("account_id", targetAccountIds)
       .eq("is_open", false);
 
@@ -107,11 +107,14 @@ serve(async (req) => {
       });
     }
 
-    const candidates = (stuckTrades || []).filter((t: any) =>
-      Array.isArray(t.partial_closes) &&
-      t.partial_closes.some((m: any) => m?.type === "snapshot_closed") &&
-      !t.partial_closes.some((m: any) => m?.type === "repaired_from_snapshot" || m?.type === "repaired_reopened")
-    );
+    const candidates = (stuckTrades || []).filter((t: any) => {
+      const events = (t.trade_repair_events || []) as Array<{ action: string }>;
+      const hasSnap = events.some((e) => e.action === "snapshot_closed");
+      const repaired = events.some((e) =>
+        e.action === "repaired_from_snapshot" || e.action === "repaired_reopened"
+      );
+      return hasSnap && !repaired;
+    });
 
     let repaired = 0;
     let pending = 0;
@@ -160,24 +163,17 @@ serve(async (req) => {
         swap,
         net_pnl: netPnl,
         duration_seconds: duration > 0 ? duration : null,
-        partial_closes: [{
-          type: "repaired_from_snapshot",
-          repaired_at: new Date().toISOString(),
-          note: exitEvent.account_id !== trade.account_id
-            ? "Recovered from MT5 deal history on sibling login (reassigned account)"
-            : "Recovered from MT5 deal history",
-        }],
       };
 
-      // Reassign account if the deal was found on a sibling
-      if (exitEvent.account_id && exitEvent.account_id !== trade.account_id) {
+      const wasReassigned = exitEvent.account_id && exitEvent.account_id !== trade.account_id;
+      if (wasReassigned) {
         update.account_id = exitEvent.account_id;
         reassigned++;
       }
 
       await admin.from("trades").update(update).eq("id", trade.id);
 
-      // Phase D dual-write: typed repair event
+      // Typed repair event
       await admin.from("trade_repair_events").insert({
         user_id: user.id,
         trade_id: trade.id,
