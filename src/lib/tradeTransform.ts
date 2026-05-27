@@ -1,4 +1,4 @@
-import { Trade, TradeReview, PartialClose, ActionableStep } from "@/types/trading";
+import { Trade, TradeReview, PartialClose, PartialFill, RepairEvent, ActionableStep } from "@/types/trading";
 
 // Helper to normalize embedded trade_reviews (could be object or array from Supabase)
 export function normalizeReviews(raw: any): any[] {
@@ -37,6 +37,51 @@ export function transformTrade(row: any): Trade {
 
   const rawPartials = (row.partial_closes as PartialClose[]) || [];
 
+  // Phase 2 cutover: prefer typed `trade_partial_fills` join. Synthesize the
+  // PartialClose[] shape so existing consumers (tradeMath, UI) keep working
+  // without changes. Falls back to legacy JSONB during transition.
+  const partialFillsRaw = (row.trade_partial_fills as any[]) || [];
+  const partialFills: PartialFill[] = partialFillsRaw.map((f) => ({
+    id: f.id,
+    trade_id: f.trade_id,
+    ticket: f.ticket != null ? Number(f.ticket) : null,
+    deal_id: f.deal_id != null ? Number(f.deal_id) : null,
+    lots: Number(f.lots),
+    price: Number(f.price),
+    profit: f.profit != null ? Number(f.profit) : null,
+    commission: f.commission != null ? Number(f.commission) : null,
+    swap: f.swap != null ? Number(f.swap) : null,
+    occurred_at: f.occurred_at,
+    created_at: f.created_at,
+  }));
+
+  const synthesizedPartials: PartialClose[] = partialFills.map((f) => ({
+    time: f.occurred_at,
+    lots: f.lots,
+    price: f.price,
+    pnl: (f.profit ?? 0) - (f.commission ?? 0) - Math.abs(f.swap ?? 0),
+  }));
+
+  // Keep any legacy *repair markers* (objects without a `lots` field) so the
+  // snapshot-closed UI keeps detecting them until the JSONB column is dropped.
+  const legacyMarkers = Array.isArray(rawPartials)
+    ? rawPartials.filter((p: any) => p && typeof p === "object" && !("lots" in p))
+    : [];
+
+  const partialClosesMerged = partialFills.length > 0
+    ? [...synthesizedPartials, ...legacyMarkers]
+    : (Array.isArray(rawPartials) ? rawPartials : []);
+
+  const repairEventsRaw = (row.trade_repair_events as any[]) || [];
+  const repairEvents: RepairEvent[] = repairEventsRaw.map((e) => ({
+    id: e.id,
+    trade_id: e.trade_id,
+    action: e.action,
+    source: e.source ?? null,
+    metadata: (e.metadata as Record<string, unknown>) || {},
+    applied_at: e.applied_at,
+  }));
+
   return {
     ...row,
     total_lots: num(row.total_lots) ?? 0,
@@ -58,7 +103,9 @@ export function transformTrade(row: any): Trade {
     risk_percent: num(row.risk_percent),
     trade_type: row.trade_type || "executed",
     is_open: row.is_open ?? true,
-    partial_closes: Array.isArray(rawPartials) ? rawPartials : [],
+    partial_closes: partialClosesMerged,
+    partial_fills: partialFills,
+    repair_events: repairEvents,
     review: latestReview ? transformReview(latestReview) : undefined,
     playbook: row.playbook || undefined,
     ai_review: row.ai_reviews?.[0] || undefined,

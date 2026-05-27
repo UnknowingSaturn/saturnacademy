@@ -128,20 +128,20 @@ serve(async (req) => {
         .select("id, name, account_number, broker, last_sync_at")
         .in("id", ids);
 
-      // Count snapshot_closed-but-unrepaired trades per dormant account
-      const { data: stuckRows } = await admin
+      // Count trades on dormant accounts with snapshot_closed but no repair, using
+      // the typed `trade_repair_events` table.
+      const { data: stuckTrades } = await admin
         .from("trades")
-        .select("account_id, partial_closes")
+        .select("id, account_id, trade_repair_events(action)")
         .in("account_id", ids)
         .eq("is_open", false);
 
       const stuckByAccount = new Map<string, number>();
-      for (const t of stuckRows || []) {
-        const pc = (t as any).partial_closes;
-        if (!Array.isArray(pc)) continue;
-        const hasSnap = pc.some((m: any) => m?.type === "snapshot_closed");
-        const repaired = pc.some((m: any) =>
-          m?.type === "repaired_from_snapshot" || m?.type === "repaired_reopened"
+      for (const t of stuckTrades || []) {
+        const events = ((t as any).trade_repair_events || []) as Array<{ action: string }>;
+        const hasSnap = events.some((e) => e.action === "snapshot_closed");
+        const repaired = events.some((e) =>
+          e.action === "repaired_from_snapshot" || e.action === "repaired_reopened"
         );
         if (hasSnap && !repaired) {
           const accId = (t as any).account_id;

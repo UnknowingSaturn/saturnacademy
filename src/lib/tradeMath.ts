@@ -15,7 +15,17 @@ export function isRealFill(p: unknown): p is PartialClose {
   return !!p && typeof (p as PartialClose).lots === "number" && (p as PartialClose).lots > 0;
 }
 
-export function getRealPartialCloses(trade: Pick<Trade, "partial_closes">): PartialClose[] {
+export function getRealPartialCloses(trade: Pick<Trade, "partial_closes" | "partial_fills">): PartialClose[] {
+  // Prefer typed fills (Phase 2 cutover). Fall back to legacy JSONB partial_closes.
+  const fills = (trade as any).partial_fills as Array<{ occurred_at: string; lots: number; price: number; profit: number | null; commission: number | null; swap: number | null }> | undefined;
+  if (fills && fills.length > 0) {
+    return fills.map((f) => ({
+      time: f.occurred_at,
+      lots: Number(f.lots),
+      price: Number(f.price),
+      pnl: (Number(f.profit) || 0) - (Number(f.commission) || 0) - Math.abs(Number(f.swap) || 0),
+    }));
+  }
   return (trade.partial_closes || []).filter(isRealFill);
 }
 

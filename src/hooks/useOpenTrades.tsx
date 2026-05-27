@@ -55,7 +55,9 @@ export function useOpenTrades() {
           playbook:playbooks!trades_playbook_id_fkey (*),
           actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color),
           trade_reviews(*),
-          accounts(*)
+          accounts(*),
+          trade_partial_fills(*),
+          trade_repair_events(*)
         `)
         .eq("is_open", true)
         .eq("is_archived", false)
