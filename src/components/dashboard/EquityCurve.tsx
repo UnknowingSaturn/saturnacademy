@@ -18,7 +18,9 @@ type BaselineSource =
   | "balance_start"
   | "reconstructed"
   | "first_in_period"
+  | "ledger"
   | "none";
+
 
 
 interface EquityCurveProps {
@@ -110,25 +112,36 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
         });
       });
 
-      // Per-account $ delta vs baseline (latest known balance)
+      // Per-account $ delta & % from the closed-trade ledger — single source
+      // of truth that matches the headline and ReportMetricsGrid. Baseline is
+      // reconstructed as (current_equity − period_pnl), so accounts with no
+      // closed trades this period correctly show 0.0% instead of lifetime
+      // drawdown from balance_start.
       const perAccount = accounts.map((a) => {
-        const resolved = baseSource[a.id] !== "none";
-        const b0 = base[a.id];
-        const last = latest[a.id] ?? b0;
+        const periodPnl = periodPnlByAccount?.[a.id] ?? 0;
+        const currentEquity = a.current_balance || 0;
+        const baseline = currentEquity - periodPnl;
+        const resolved = baseline > 0;
         return {
           id: a.id,
           name: a.name,
           resolved,
-          source: baseSource[a.id],
-          delta: resolved ? last - b0 : 0,
-          pct: resolved && b0 ? ((last - b0) / b0) * 100 : 0,
+          source: "ledger" as BaselineSource,
+          delta: periodPnl,
+          pct: resolved ? (periodPnl / baseline) * 100 : 0,
         };
       });
 
       const includedCount = perAccount.filter((a) => a.resolved).length;
+      const avgPct =
+        includedCount > 0
+          ? perAccount.filter((a) => a.resolved).reduce((s, a) => s + a.pct, 0) /
+            includedCount
+          : 0;
 
-      return { points, perAccount, includedCount };
+      return { points, perAccount, includedCount, avgPct };
     }, [isMulti, multiAccount]);
+
 
 
     // ---------------- Single-account / fallback curve ----------------
@@ -162,10 +175,11 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
     const isProfit = periodPnl >= 0;
     const periodPnlPercent =
       isMulti && multiData
-        ? (multiData.points[multiData.points.length - 1]?.pct ?? 0).toFixed(2)
+        ? multiData.avgPct.toFixed(2)
         : startingBalance > 0
         ? ((periodPnl / startingBalance) * 100).toFixed(2)
         : "0.00";
+
 
     const prevIsProfit = previousPeriodPnl >= 0;
     const delta = periodPnl - previousPeriodPnl;
