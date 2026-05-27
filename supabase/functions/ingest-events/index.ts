@@ -793,6 +793,19 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
   // Handle exit event
   else if (effectiveEventType === "exit" || event_type === "close" || event_type === "partial_close") {
     if (!existingTrade) {
+      // Before creating an orphan, check if a sibling account on the SAME MT5
+      // install has a snapshot_closed trade with this ticket awaiting repair.
+      // This happens when the trade originally lived under a different login on
+      // the same MT5 install and the EA is now streaming history under a new
+      // login. Repairing it in-place avoids ghost orphans + duplicate trades.
+      const repairedSibling = await tryRepairSiblingSnapshotClosed(
+        supabase, userId, account_id, ticket, event
+      );
+      if (repairedSibling) {
+        await supabase.from("events").update({ processed: true }).eq("id", event.id);
+        return;
+      }
+
       // ORPHAN EXIT: Create a closed trade from exit event data
       console.log("Orphan exit event - creating closed trade for position:", ticket);
 
