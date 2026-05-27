@@ -892,6 +892,16 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
           tp_final: event.tp || existingTrade.tp_final,
           partial_closes: repairedMarker,
         }).eq("id", existingTrade.id);
+
+        // Phase D dual-write: typed repair event for reopen
+        await supabase.from("trade_repair_events").insert({
+          user_id: userId,
+          trade_id: existingTrade.id,
+          action: "repaired_reopened",
+          source: "ingest_entry_reopen",
+          metadata: { ticket, note: "Reopened after EA reconnect — trade is still live in MT5" },
+          applied_at: new Date().toISOString(),
+        });
       } else {
         console.log("Trade already exists for position:", ticket);
       }
