@@ -169,7 +169,7 @@ serve(async (req) => {
             .from("trades")
             .update({
               is_archived: true,
-              archived_at: action.trade.is_archived ? action.trade.is_archived : now,
+              archived_at: now,
             })
             .eq("id", action.trade.id);
           if (error) throw error;
