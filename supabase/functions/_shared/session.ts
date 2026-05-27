@@ -1,5 +1,5 @@
-// Shared session classifier used by ingest-events, reprocess-trades, reprocess-orphan-exits,
-// and reclassify-sessions. Honors each session's own .timezone field — do NOT hardcode ET.
+// Shared session classifier used by ingest-events, reprocess-trades, and reclassify-sessions.
+// Honors each session's own .timezone field — do NOT hardcode ET.
 
 export interface SessionDefinition {
   key: string;
