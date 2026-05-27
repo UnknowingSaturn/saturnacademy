@@ -11,8 +11,23 @@ type Mode = "preview" | "apply";
 
 type AccountRow = {
   id: string;
+  user_id?: string;
+  name?: string | null;
+  broker?: string | null;
   account_number: string | null;
   mt5_install_id: string | null;
+  terminal_id?: string | null;
+  api_key?: string | null;
+  copier_role?: string | null;
+  copier_enabled?: boolean | null;
+  master_account_id?: string | null;
+  sync_history_enabled?: boolean | null;
+  sync_history_from?: string | null;
+  account_type?: string | null;
+  prop_firm?: string | null;
+  broker_utc_offset?: number | null;
+  broker_dst_profile?: string | null;
+  ea_type?: string | null;
 };
 
 type TradeRow = {
@@ -75,14 +90,14 @@ serve(async (req) => {
 
     const { data: accounts, error: accountsError } = await admin
       .from("accounts")
-      .select("id, account_number, mt5_install_id")
+      .select("id, user_id, name, broker, account_number, mt5_install_id, terminal_id, api_key, copier_role, copier_enabled, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker_utc_offset, broker_dst_profile, ea_type")
       .eq("user_id", user.id)
       .eq("mt5_install_id", selectedAccount.mt5_install_id)
       .eq("is_active", true);
 
     if (accountsError) throw accountsError;
 
-    const installAccounts = (accounts || []) as AccountRow[];
+    let installAccounts = (accounts || []) as AccountRow[];
     const accountIds = installAccounts.map((account) => account.id);
     const accountById = new Map(installAccounts.map((account) => [account.id, account]));
     const accountByLogin = new Map(
