@@ -735,19 +735,26 @@ async function tryRepairSiblingSnapshotClosed(
 
     const { data: stuck } = await supabase
       .from("trades")
-      .select("id, ticket, entry_time, entry_price, original_lots, partial_closes, equity_at_entry, balance_at_entry, sl_initial, account_id, symbol, direction")
+      .select("id, ticket, entry_time, entry_price, original_lots, equity_at_entry, balance_at_entry, sl_initial, account_id, symbol, direction")
       .in("account_id", siblingIds)
       .eq("ticket", ticket)
       .eq("is_open", false)
       .limit(5);
 
-    const candidate = (stuck || []).find((t: any) =>
-      Array.isArray(t.partial_closes) &&
-      t.partial_closes.some((m: any) => m?.type === "snapshot_closed") &&
-      !t.partial_closes.some((m: any) =>
-        m?.type === "repaired_from_snapshot" || m?.type === "repaired_reopened"
-      )
-    );
+    // Find the first candidate that has a snapshot_closed event without a repair.
+    let candidate: any = null;
+    for (const t of stuck || []) {
+      const { data: evs } = await supabase
+        .from("trade_repair_events")
+        .select("action")
+        .eq("trade_id", t.id);
+      const events = (evs || []) as Array<{ action: string }>;
+      const hasSnap = events.some((e) => e.action === "snapshot_closed");
+      const repaired = events.some((e) =>
+        e.action === "repaired_from_snapshot" || e.action === "repaired_reopened"
+      );
+      if (hasSnap && !repaired) { candidate = t; break; }
+    }
     if (!candidate) return false;
 
     const grossPnl = Number(event.profit) || 0;
@@ -770,14 +777,9 @@ async function tryRepairSiblingSnapshotClosed(
       net_pnl: netPnl,
       duration_seconds: duration > 0 ? duration : null,
       total_lots: 0,
-      partial_closes: [{
-        type: "repaired_from_snapshot",
-        repaired_at: new Date().toISOString(),
-        note: "Auto-repaired on ingest from sibling login on same MT5 install",
-      }],
     }).eq("id", candidate.id);
 
-    // Phase D dual-write: typed repair event
+    // Typed repair event (Phase 3 — no more JSONB markers).
     await supabase.from("trade_repair_events").insert({
       user_id: userId,
       trade_id: candidate.id,
