@@ -139,6 +139,25 @@ serve(async (req) => {
       account = byLogin ?? null;
     }
 
+    // Sibling fallback: same MT5 install — backfill account_number to the live login
+    if (!account && payload.install_id) {
+      const { data: byInstall } = await supabase
+        .from("accounts")
+        .select("id, user_id, terminal_id")
+        .eq("user_id", userIdForKey)
+        .eq("mt5_install_id", payload.install_id)
+        .eq("is_active", true)
+        .order("last_heartbeat_at", { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      if (byInstall) {
+        account = byInstall;
+        if (brokerLogin) {
+          await supabase.from("accounts").update({ account_number: brokerLogin }).eq("id", byInstall.id);
+        }
+      }
+    }
+
     // Fallback: if no broker login (e.g. older EA), use the API-key account
     if (!account && anyAccountForKey) {
       account = {
