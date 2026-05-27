@@ -7,7 +7,7 @@ import { BrowserRouter as BR, Routes as R, Route, Navigate as Nav, useNavigate }
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AccountFilterProvider } from "@/contexts/AccountFilterContext";
 import { LiveTradesProvider } from "@/contexts/LiveTradesContext";
-import { withForwardRef } from "@/lib/withForwardRef";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppLayout } from "./components/layout/AppLayout";
 import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
@@ -20,7 +20,6 @@ import Playbooks from "./pages/Playbooks";
 import Accounts from "./pages/Accounts";
 import LiveTrades from "./pages/LiveTrades";
 import Copier from "./pages/Copier";
-import CopierPreview from "./pages/CopierPreview";
 import StrategyLab from "./pages/StrategyLab";
 import SharedReports from "./pages/SharedReports";
 import SharedReportEditor from "./pages/SharedReportEditor";
@@ -29,65 +28,63 @@ import Knowledge from "./pages/Knowledge";
 
 const queryClient = new QueryClient();
 
-// Wrap external components to handle refs safely
-const QueryClientProvider = withForwardRef(QCP, "QueryClientProvider");
-const BrowserRouter = withForwardRef(BR, "BrowserRouter");
-const Routes = withForwardRef(R, "Routes");
-const Navigate = withForwardRef(Nav, "Navigate");
+const QueryClientProvider = QCP;
+const BrowserRouter = BR;
+const Routes = R;
+const Navigate = Nav;
 
-const ProtectedRoute = React.forwardRef<HTMLDivElement, { children: React.ReactNode }>(
-  function ProtectedRoute({ children }, _ref) {
-    const { user, loading } = useAuth();
-    
-    if (loading) {
-      return <div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>;
-    }
-    
-    if (!user) {
-      return <Navigate to="/auth" replace />;
-    }
-    
-    return <AppLayout>{children}</AppLayout>;
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>;
   }
-);
 
-const AppRoutes = React.forwardRef<HTMLDivElement, object>(
-  function AppRoutes(_props, _ref) {
-    const { user, loading } = useAuth();
-
-    if (loading) {
-      return <div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>;
-    }
-
-    return (
-      <Routes>
-        <Route path="/auth" element={user ? <Navigate to="/dashboard" replace /> : <Auth />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-        <Route path="/analytics" element={<Navigate to="/reports" replace />} />
-        <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
-        <Route path="/live-trades" element={<ProtectedRoute><LiveTrades /></ProtectedRoute>} />
-        <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
-        <Route path="/copier" element={<ProtectedRoute><Copier /></ProtectedRoute>} />
-        <Route path="/copier-preview" element={<ProtectedRoute><CopierPreview /></ProtectedRoute>} />
-        <Route path="/strategy-lab" element={<ProtectedRoute><StrategyLab /></ProtectedRoute>} />
-        <Route path="/shared-reports" element={<ProtectedRoute><SharedReports /></ProtectedRoute>} />
-        <Route path="/shared-reports/:id" element={<ProtectedRoute><SharedReportEditor /></ProtectedRoute>} />
-        <Route path="/knowledge" element={<ProtectedRoute><Knowledge /></ProtectedRoute>} />
-        <Route path="/r/:slug" element={<PublicReport />} />
-        <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
-        <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    );
+  if (!user) {
+    return <Navigate to="/auth" replace />;
   }
-);
 
-const App = React.forwardRef<HTMLDivElement, object>(
-  function App(_props, _ref) {
-    return (
+  return (
+    <AppLayout>
+      <ErrorBoundary>{children}</ErrorBoundary>
+    </AppLayout>
+  );
+}
+
+function AppRoutes() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>;
+  }
+
+  return (
+    <Routes>
+      <Route path="/auth" element={user ? <Navigate to="/dashboard" replace /> : <Auth />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+      <Route path="/analytics" element={<Navigate to="/reports" replace />} />
+      <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
+      <Route path="/live-trades" element={<ProtectedRoute><LiveTrades /></ProtectedRoute>} />
+      <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
+      <Route path="/copier" element={<ProtectedRoute><Copier /></ProtectedRoute>} />
+      <Route path="/strategy-lab" element={<ProtectedRoute><StrategyLab /></ProtectedRoute>} />
+      <Route path="/shared-reports" element={<ProtectedRoute><SharedReports /></ProtectedRoute>} />
+      <Route path="/shared-reports/:id" element={<ProtectedRoute><SharedReportEditor /></ProtectedRoute>} />
+      <Route path="/knowledge" element={<ProtectedRoute><Knowledge /></ProtectedRoute>} />
+      <Route path="/r/:slug" element={<PublicReport />} />
+      <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
+      <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+}
+
+function App() {
+  return (
+    <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <AccountFilterProvider>
@@ -103,8 +100,8 @@ const App = React.forwardRef<HTMLDivElement, object>(
           </AccountFilterProvider>
         </AuthProvider>
       </QueryClientProvider>
-    );
-  }
-);
+    </ErrorBoundary>
+  );
+}
 
 export default App;

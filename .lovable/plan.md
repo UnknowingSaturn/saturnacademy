@@ -1,48 +1,194 @@
-## Why some trades still say "Awaiting repair"
+# Execution Plan — Phases A → D
 
-Looking at your DB: 5 trades are stuck. All sit on account `Hola Prime - 70561`, all marked `snapshot_closed`, none `repaired_*`. Two failure modes are mixed in:
+You approved Phase D and the CopierPreview deletion. Questions 3 and 4 are folded into the phases below with defaults I'll use unless you say otherwise:
+- **Q3 (LiveTradeCard zero-PnL dismiss):** removed entirely. Replaced in Phase D with `repair_state = 'advisory_closed'` — no fabricated PnL ever written.
+- **Q4 (stuck trades on Hola Prime 70561):** one-time SQL fix in Phase A, then the repair UI is deleted in Phase D once `snapshot_closed` rows are gone.
 
-**Mode A — repairable now, but repair looks in the wrong place (1 trade)**
-Ticket `4453439` (EURUSD, 2026-05-26) has a real `close` event in `events`… but it was ingested against account `Hola Prime - 86021` (the login active on that install at the time), not against `70561` (where the trade row lives). `repair-snapshot-closed` filters events with `eq("account_id", account_id)`, so it never sees the close and the trade stays stuck forever.
+---
 
-**Mode B — genuinely awaiting MT5 reconnect (4 trades)**
-Tickets `4147852`, `4067842`, `3426371`, `2955219` have **no** exit event anywhere — the EA never streamed history for them after the snapshot zeroed them out. These will only heal when you next log MT5 back into login `70561` (and `70583`/`76034` for any of theirs). That's expected behaviour; the issue is just that it's invisible to you per-trade.
+## Phase A — Safe cleanup (no behavior change)
 
-There is also no automatic re-attempt: `repair-snapshot-closed` only runs when you click the button in DriftTray, and DriftTray only lists *currently open drifted* trades, not historical `snapshot_closed` ones — so once a trade falls into "Awaiting repair" it has no UI path back to healing.
+**Deletes**
+- `src/pages/CopierPreview.tsx`
+- `src/components/copier-preview/` (entire folder, 10 files)
+- `src/types/copier-preview.ts`
+- `/copier-preview` route from `src/App.tsx`
+- `supabase/functions/backfill-trades/` (zero callers, duplicate of reprocess-trades)
+- `supabase/functions/trades-overlay/` (zero callers)
+- `src/types/analytics.ts` (zero imports)
+- `src/lib/withForwardRef.tsx` (pointless HOC)
+- `src/components/ui/use-toast.ts` (dead re-export)
+- `src/components/strategy-lab/StrategyLabConversationsGroup.tsx` + `ConversationList.tsx` (never imported)
+- Orphaned interfaces in `src/types/trading.ts` (`OverlayTrade`, `TradingPattern`, `PatternMiningResult`, `CSVImportRow`, etc.)
 
-## Plan
+**Extracts (no logic change)**
+- `supabase/functions/_shared/admin.ts` — service-role client factory (used by all 22 remaining functions)
+- `supabase/functions/_shared/sessions.ts` — `DEFAULT_SESSIONS` + classifier
+- `supabase/functions/_shared/resolveAccount.ts` — account/api-key resolution cascade
+- `src/lib/tradeTransform.ts` — single `transformTrade` (fixes latent ordering divergence between `useTrades`/`useOpenTrades`)
 
-### 1. Fix `repair-snapshot-closed` to look across siblings on the same install
-When searching `events` for an exit, also include events on **other accounts that share the same `mt5_install_id`** as the trade's account. If we find an exit on a sibling account, reassign the event-derived data and move the trade to the correct account if the deal's recorded account login matches a sibling. Specifically:
+**Hardening**
+- Add `<ErrorBoundary>` at App root + per route in `src/App.tsx`
+- Add `user_id` ownership check to `reprocess-trades` body params
+- One-time SQL: heal the Hola Prime 70561 stuck trades using sibling exit events, then mark `repair_reason = 'phase_a_one_shot'`
 
-- Load the trade's account → its `mt5_install_id`.
-- Look up sibling accounts (same `user_id`, same `mt5_install_id`).
-- Query `events` with `.in("account_id", [self, ...siblings])` + `.eq("ticket", trade.ticket)` + `.in("event_type", ["close","partial_close"])`.
-- On match: apply the repair fields as today, and if the exit event's `account_id !== trade.account_id`, also update `trade.account_id` to that sibling so the trade ends up filed under the right login. This is the only way to fix Mode A (ticket 4453439).
+---
 
-### 2. Auto-repair on ingest
-In `ingest-events`, when a `close` / `partial_close` event arrives, after the normal processing also do a sweep: find any `snapshot_closed` trades on **any sibling account on the same install** with the same ticket and no `repaired_*` marker. If found, immediately apply the same repair logic (and reassign account_id if needed). This kills the race for free — no manual click required next time.
+## Phase B — Schema integrity
 
-### 3. Per-trade visibility & manual trigger in Journal
-Right now "Awaiting repair" is a dead-end pill. Add a small popover/tooltip on that badge in `TradeTable` that:
+**Migration: add the missing foreign keys**
 
-- explains *why* (snapshot from another login on the same install zeroed it out, exit not yet received),
-- shows which login the snapshot came from (`partial_closes[0].account_login`),
-- offers a **Try repair now** button that invokes `repair-snapshot-closed` for that trade's account (with the cross-sibling fix from step 1 this will resolve Mode A trades instantly).
+Targets (all currently FK-less):
+```text
+trades.account_id          → accounts(id) ON DELETE CASCADE
+trades.user_id             → auth.users(id) ON DELETE CASCADE
+events.account_id          → accounts(id) ON DELETE CASCADE
+account_balance_snapshots.account_id → accounts(id) ON DELETE CASCADE
+account_balance_snapshots.user_id    → auth.users(id) ON DELETE CASCADE
+terminal_accounts.account_id, user_id
+terminal_snapshots.account_id, user_id
+shared_report_trades.trade_id → trades(id) ON DELETE CASCADE
+shared_report_trades.shared_report_id → shared_reports(id) ON DELETE CASCADE
+copier_executions.master_account_id, receiver_account_id, user_id
+copier_symbol_mappings.master_account_id, receiver_account_id, user_id
+copier_receiver_settings.receiver_account_id, user_id
+setup_tokens.user_id, master_account_id
+ai_reviews.user_id, trade_id
+ai_feedback.user_id, ai_review_id
+```
 
-For Mode B trades the same popover should say "Will heal automatically when MT5 next logs into login {X}" — i.e. honest about needing the reconnect.
+**RLS performance fix**
+- Rewrite `events` RLS from subquery-join to direct `auth.uid() = user_id` (after adding `events.user_id` column populated from `accounts`)
+- Same for `trade_reviews`
 
-### 4. Surface the stuck list in DriftTray
-Extend `trades-drift` (and the dormant section of DriftTray) so users see a count of `snapshot_closed`-but-not-repaired trades grouped per dormant login, e.g. *"Hola Prime 76034: 1 trade awaiting MT5 reconnect"*. No new card needed — same DriftTray, new line.
+**Drop dead tables**
+- `trade_features`, `session_definitions`, `ai_prompts`, `property_options`
+- Drop `events.processed` column (set but never read)
 
-## Technical notes
+**Replace `mark-dormant-accounts` edge function with `pg_cron`**
+```sql
+SELECT cron.schedule('mark-dormant-accounts', '*/5 * * * *',
+  $$UPDATE accounts SET live_state='dormant'
+    WHERE last_heartbeat_at < now() - interval '15 minutes'
+      AND live_state='live'$$);
+```
+Then delete the edge function.
 
-- Files touched: `supabase/functions/repair-snapshot-closed/index.ts`, `supabase/functions/ingest-events/index.ts` (close/partial_close branch only), `supabase/functions/trades-drift/index.ts`, `src/components/journal/TradeTable.tsx` (badge → popover), `src/components/journal/DriftTray.tsx` (extra line in dormant section).
-- No schema change. No migration.
-- Existing `idx_trades_snapshot_closed` index already supports the sweep queries.
-- Backfill: after deploying, one click of "Try repair now" on ticket 4453439 will clear it; the other four require you to log MT5 back into the respective logins, which is the intended design.
+---
 
-## Out of scope
+## Phase C — Component decomposition
 
-- Forcing the EA to re-pull deal history without an MT5 reconnect (would need a new EA RPC).
-- Cross-broker repair (sibling lookup is scoped to same `mt5_install_id` only — safe).
+Split the 12 files > 500 lines. Same behavior, smaller surface:
+
+| File | Lines | Split into |
+|------|-------|-----------|
+| `FieldsPanel.tsx` | 1305 | FieldList / FieldEditor / FieldDefaults / hooks |
+| `TradeTable.tsx` | 907 | TradeRow / TradeTableHeader / TradeTableFilters / repair Popover |
+| `Playbooks.tsx` | 880 | PlaybooksList / PlaybookForm / PlaybookFilters |
+| `ColumnConfigPanel.tsx` | 687 | ColumnList / ColumnEditor |
+| `PlaybookDetailSheet.tsx` | 673 | tabs already exist, extract per-tab |
+| `TradeDetailPanel.tsx` | 593 | TradeDetail{Overview,Reviews,Screenshots,Modifications} |
+| `CopierDashboardView.tsx` | 590 | StatusPanel/ReceiverList/ExecutionsList |
+| `useUserSettings.tsx` | 562 | split into useUserPreferences + useUserDisplaySettings |
+| `LiveTradeCompliancePanel.tsx` | 524 | LiveTradeRules / LiveTradeChecks |
+| `EditAccountDialog.tsx` | 522 | tabs: Identity / Connection / Risk |
+| `BacktestDashboard.tsx` | 514 | metrics, equity, distribution tabs |
+| `ReportView.tsx` | 509 | header / metrics / sections / sidebar |
+
+**Consolidate the 3 MT5 setup flows** (`MT5SetupDialog`, `QuickConnectDialog`, `ImportHistoryDialog`) into one stepper `MT5ConnectWizard` with branches.
+
+**Pick one of each duplicated module**
+- Equity curve: keep `EquityCurve.tsx`, delete `BacktestEquityCurveChart` duplicate + inline `calculateEquityCurve`
+- Symbol normalization: keep `symbolMapping.ts`, fold `symbolAliases.ts` into it
+
+---
+
+## Phase D — The redesign (the actual long-term fix)
+
+### D.1 Schema
+
+```sql
+-- Tag events with stable identity (already in raw_payload, promote to columns)
+ALTER TABLE events  ADD COLUMN install_id text;
+ALTER TABLE events  ADD COLUMN broker_login text;
+ALTER TABLE trades  ADD COLUMN install_id text;
+ALTER TABLE trades  ADD COLUMN broker_login text;
+ALTER TABLE trades  ADD COLUMN repair_state text
+  DEFAULT 'none' CHECK (repair_state IN ('none','pending_exit','advisory_closed','reconciled'));
+
+-- Typed replacements for the partial_closes JSONB blob
+CREATE TABLE trade_partial_fills (
+  id uuid PRIMARY KEY, trade_id uuid REFERENCES trades(id) ON DELETE CASCADE,
+  ticket bigint, lots numeric, price numeric,
+  profit numeric, commission numeric, swap numeric, occurred_at timestamptz);
+CREATE TABLE trade_modifications (
+  id uuid PRIMARY KEY, trade_id uuid REFERENCES trades(id) ON DELETE CASCADE,
+  field text, old_value numeric, new_value numeric, occurred_at timestamptz);
+CREATE TABLE trade_repair_events (
+  id uuid PRIMARY KEY, trade_id uuid REFERENCES trades(id) ON DELETE CASCADE,
+  action text, source text, applied_at timestamptz, metadata jsonb);
+
+-- Identity is resolved at read time, not at write time
+CREATE VIEW trade_view AS
+SELECT t.*,
+  (SELECT a.id FROM accounts a
+    WHERE a.user_id = t.user_id
+      AND a.account_number = t.broker_login
+      AND a.mt5_install_id  = t.install_id
+    LIMIT 1) AS resolved_account_id
+FROM trades t;
+```
+
+### D.2 Ingestion cutover
+
+Collapse the 14 mutation paths into one materializer in `ingest-events`:
+```text
+EA event
+  ├─ INSERT into events (install_id + broker_login tagged)
+  └─ if deal event → upsert trade
+       entry → insert open trade
+       partial → insert trade_partial_fills row
+       exit → close trade (only path that ever flips is_open=false)
+  if snapshot/heartbeat → advisory only, never mutates trades
+```
+
+**Deleted after cutover** (one PR, once production runs 7 days clean):
+- `repair-snapshot-closed` edge function
+- `tryRepairSiblingSnapshotClosed` helper
+- repair-on-reopen and repair-on-close branches
+- `sync-account-state`'s destructive auto-close (path 9 in the audit)
+- `LiveTradeCard.handleCloseTrade` zero-PnL write
+- DriftTray "Try repair" button
+- `idx_trades_snapshot_closed` workaround index
+- `terminal_accounts.is_currently_active` (resolved at read time)
+- All `snapshot_closed` / `repaired_*` JSON markers
+- `partial_closes` JSONB column (after backfill to typed tables)
+
+### D.3 Frontend cutover
+
+- `useTrades` / `useOpenTrades` read from `trade_view` instead of `trades`
+- `trades.account_id` reads become `resolved_account_id`
+- Advisory closes render a muted "unconfirmed close — waiting for broker confirmation" badge instead of a fake PnL row
+
+### D.4 Migration order (zero-downtime)
+
+1. Add new columns nullable. Backfill `install_id` + `broker_login` from `events.raw_payload`.
+2. Deploy new `ingest-events` that writes both old paths + new columns (dual-write).
+3. Build `trade_view`. Switch frontend reads.
+4. After 7 days clean ingestion, drop destructive code paths + repair UI + snapshot markers.
+5. Backfill `partial_closes` → `trade_partial_fills`. Drop the JSONB column.
+6. Make `install_id` + `broker_login` NOT NULL. Drop `trades.account_id`.
+
+---
+
+## Risk + rollback
+
+- Every phase is independently shippable. Phases A–C are pure refactors; rollback = revert the PR.
+- Phase D is gated on dual-write working for 7 days. The `partial_closes` column survives until the typed-table backfill is verified. The view-based account resolution is reversible by reinstating writes to `trades.account_id`.
+- DB migrations are forward-only by Lovable convention, but data is preserved at every step.
+
+---
+
+## What I'll do once you say "go"
+
+I'll execute Phase A in a single pass (deletes + extractions + the one-shot SQL heal for Hola Prime 70561), then stop and confirm before moving to B. If you'd rather batch A+B together to save round-trips, say so and I'll do that instead.

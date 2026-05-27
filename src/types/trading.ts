@@ -295,35 +295,6 @@ export interface EventIngestionResponse {
   retry_after?: number;
 }
 
-export interface OverlayTrade {
-  ticket: number;
-  symbol: string;
-  direction: TradeDirection;
-  entry: { price: number; time: string };
-  exit: { price: number; time: string } | null;
-  sl: number | null;
-  tp: number | null;
-  r_multiple: number | null;
-  result: 'win' | 'loss' | 'breakeven' | 'open';
-}
-
-// Trade Features (computed by edge function)
-export interface TradeFeatures {
-  id: string;
-  trade_id: string;
-  day_of_week: number | null;
-  time_since_session_open_mins: number | null;
-  volatility_regime: 'low' | 'normal' | 'high' | null;
-  range_size_pips: number | null;
-  entry_percentile: number | null;
-  distance_to_mean_pips: number | null;
-  htf_bias: 'bull' | 'bear' | 'neutral' | null;
-  entry_efficiency: number | null;
-  exit_efficiency: number | null;
-  stop_location_quality: number | null;
-  computed_at: string;
-}
-
 // Dashboard metrics
 export interface DashboardMetrics {
   totalTrades: number;
@@ -343,54 +314,4 @@ export interface SessionMetrics {
   winRate: number;
   totalPnl: number;
   avgR: number;
-}
-
-// CSV Import types
-export interface CSVImportRow {
-  date?: string;
-  pair?: string;
-  symbol?: string;
-  session?: string;
-  direction?: string;
-  entry_price?: string;
-  exit_price?: string;
-  sl?: string;
-  tp?: string;
-  lot_size?: string;
-  rr?: string;
-  result?: string;
-  pnl?: string;
-  emotional_state?: string;
-  notes?: string;
-  [key: string]: string | undefined;
-}
-
-export interface CSVColumnMapping {
-  csvColumn: string;
-  dbField: keyof Trade | 'emotional_state' | 'notes' | 'skip';
-}
-
-// Pattern Mining types
-export interface TradingPattern {
-  type: 'day_of_week' | 'session' | 'session_direction' | 'symbol' | 'regime' | 'time_of_day';
-  category: string;
-  insight: string;
-  severity: 'positive' | 'negative' | 'neutral';
-  recommendation: string;
-  stats: {
-    trades: number;
-    winRate: number;
-    avgR: number;
-    totalPnl: number;
-  };
-}
-
-export interface PatternMiningResult {
-  patterns: TradingPattern[];
-  summary: {
-    bestConditions: string[];
-    worstConditions: string[];
-    totalTradesAnalyzed: number;
-    dataRange: { start: string; end: string };
-  };
 }
