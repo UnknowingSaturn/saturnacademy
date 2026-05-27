@@ -83,11 +83,15 @@ export function MultiAccountPicker({
                   <Checkbox checked={checked} className="pointer-events-none" />
                 )}
                 <span className="flex-1 truncate">{acct.name}</span>
-                {acct.balance_start ? (
-                  <span className="text-xs text-muted-foreground">
-                    ${acct.balance_start.toLocaleString()}
-                  </span>
-                ) : null}
+                {(() => {
+                  const bal = acct.balance_start || acct.equity_current;
+                  return bal ? (
+                    <span className="text-xs text-muted-foreground">
+                      ${bal.toLocaleString()}
+                    </span>
+                  ) : null;
+                })()}
+
                 {singleSelect && checked && <Check className="h-4 w-4" />}
               </button>
             );

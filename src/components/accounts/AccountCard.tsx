@@ -115,8 +115,9 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">Starting Balance</span>
-              <p className="font-medium">${(account.balance_start || 0).toLocaleString()}</p>
+              <p className="font-medium">${(account.balance_start || account.equity_current || 0).toLocaleString()}</p>
             </div>
+
             <div>
               <span className="text-muted-foreground">Current Equity</span>
               <p className="font-medium">${(account.equity_current || 0).toLocaleString()}</p>
