@@ -1,53 +1,46 @@
-# Multi-account on one MT5 — one accounts row per broker login
 
-## What changes for the user
-- When you log into a new broker login on an MT5 terminal already known to the journal, a **new account row is auto-created** (named `${broker} - ${login}`, inheriting prop-firm / api-key / install-id / copier role from the sibling). It appears in **All Accounts** immediately, badge **Live**.
-- The previously-active login on that terminal flips to **Dormant** within ~10 min; its open trades keep the *"⏸ Pending broker verification"* chip until you log back in.
-- Every login owns its own history, balance, equity curve, prop-firm rules, and live state.
+# Auto-create accounts on connect — no trade required
 
-## The bug being fixed
-The current sibling-fallback in `ingest-events` and `sync-account-state` resolves an unknown login by **overwriting `account_number`** on whichever row matches `mt5_install_id`. Switching logins keeps mutating the same row instead of producing one row per login — which is why the selector only shows one HolaPrime account.
+## Problem
+
+Today, switching MT5 logins doesn't surface the new account until either a deal is sent or a heartbeat with `account_info` arrives. `sync-account-state` (the function the EA hits on connect and on its polling timer) detects the new login but returns `account_id: null` and waits for `ingest-events` to create the row. Result: you switched accounts and see nothing in the UI.
 
 ## Fix
 
-### 1. Schema guardrail
-Partial unique index so concurrent events for a freshly-switched login can't create duplicate rows:
-```
-UNIQUE (user_id, mt5_install_id, account_number)
-  WHERE mt5_install_id IS NOT NULL AND account_number IS NOT NULL
-```
-Auto-create uses `ON CONFLICT DO NOTHING` then re-selects.
+Make `sync-account-state` itself create the account row the first time it sees a new login, using the install's sibling account as a template — same approach `ingest-events` already uses. The EA's connect payload already includes `login`, `install_id`, and (in current EA builds) basic account context like broker name, so this is enough to materialise a real row immediately.
 
-### 2. `ingest-events` resolution cascade
-1. `(user_id, account_number = login)` → use it.
-2. Else if `(user_id, mt5_install_id = installId)` matches a sibling:
-   - If `brokerLogin` present → treat sibling as a **template** and fall through to auto-create. Never overwrite `account_number` on the sibling.
-   - If `brokerLogin` is null (legacy EA) → adopt sibling as-is.
-3. Else if `accForKey` exists AND no login → use api-key-bound row.
-4. Else if `payload.account_info` present → **auto-create new accounts row** copying `user_id`, `api_key`, `mt5_install_id`, `copier_role`, `master_account_id`, `sync_history_enabled`, `sync_history_from`, `account_type`, `prop_firm`, `broker`, `broker_utc_offset`, `broker_dst_profile`, `ea_type` from the sibling template (or from `account_info` + setup_token when no sibling). Set `account_number = login`, `name = "${broker} - ${login}"`, `live_state = 'live'`, `last_heartbeat_at = now()`.
-5. Else: reject.
+## Behaviour after the fix
 
-`mt5_install_id` is still backfilled on the matched row. `account_number` is **never** overwritten to a different login.
+1. EA connects → calls `sync-account-state` with `login=B`, `install_id=X`.
+2. Cascade resolves:
+   - No row matches `(user_id, account_number=B)`.
+   - A sibling row exists for `(user_id, mt5_install_id=X)` → use it as template.
+3. Insert new row: `account_number=B`, `mt5_install_id=X`, `name="${sibling.broker} - B"`, `live_state='live'`, `last_heartbeat_at=now()`, copying `api_key`, `copier_role`, `master_account_id`, `sync_history_enabled`, `account_type`, `prop_firm`, `broker`, `broker_utc_offset`, `broker_dst_profile`, `ea_type` from the sibling. Handle `23505` race by re-selecting.
+4. Return `account_id` of the new row with `last_deal_id: null`, `last_event_time: null` so the EA does a fresh history sync.
+5. Account appears in the UI immediately — no trade required. First deals/heartbeats then flow into it normally via `ingest-events` (whose existing auto-create branch becomes a safety net).
 
-### 3. `sync-account-state` resolution cascade
-Same first three steps. When the sibling exists but `brokerLogin` is new, **return `account_id: null` with `last_deal_id: null`** so the EA does a fresh history sync; the first event then hits ingest-events branch 4 and creates the row.
+Switch back to A → resolves by `account_number=A` (branch 1), no duplicate, no overwrite. A's prior open trades stay tagged for repair until A's next dormant→live cycle or a manual Resync.
 
-### 4. Repair logic (unchanged)
-- `mark-dormant-accounts` cron flips accounts to `dormant` after 10 min without heartbeat.
-- On reconnect (`live_state was dormant` or `force_resync=true`), `sync-account-state` auto-closes any `is_open` trade whose ticket isn't in EA's `expected_open_tickets[]`.
+If there's no sibling (brand-new install with brand-new login) and the API key isn't bound to anything, behaviour is unchanged: return `account_id: null` and wait for `ingest-events` to create from a payload carrying `account_info`. This edge case requires EA-level info we don't have on connect alone.
 
-## Files touched
-- New migration: partial unique index on `accounts (user_id, mt5_install_id, account_number)`.
-- `supabase/functions/ingest-events/index.ts` — replace sibling-backfill branch; auto-create from sibling template.
-- `supabase/functions/sync-account-state/index.ts` — sibling branch returns null when `brokerLogin` is new.
+## Technical changes
 
-## Out of scope
-- No EA changes (it already sends `api_key`, `install_id`, `login`, `account_info`).
-- No new `terminals` table — `mt5_install_id` is enough.
-- `balance_start` on auto-created rows comes from `account_info.balance`; user can edit later.
+**`supabase/functions/sync-account-state/index.ts`** — only this file changes.
+
+- In cascade step 2, when a sibling exists and `brokerLogin` is new:
+  - Build template insert from sibling row (select the template columns above).
+  - `insert(...).select().single()` with `23505` handler that re-selects on `(user_id, account_number, is_active=true)`.
+  - Set `account` to the newly created row and continue.
+- Remove the current "siblingExists → return null" short-circuit; replace with the create-from-template path.
+- Keep dormant/force_resync repair logic intact (it's a no-op for a brand new row since it has no `is_open=true` trades).
+- Keep all existing response shape and EA contract.
+
+No schema changes. No EA changes. No frontend changes. `ingest-events` keeps its existing auto-create branch as a safety net for legacy EA payloads.
 
 ## Validation
-1. Log into login A on terminal → row A appears, badge **Live**.
-2. Switch to login B on the same terminal → row B auto-created on first event; A flips to **Dormant** within ~10 min; both visible in the dropdown; A's open trades show the pending-verification chip.
-3. Switch back to A → A flips to **Live**, no duplicate row, A's `account_number` unchanged, B stays its own row.
-4. Concurrent events for a new login → unique index ensures exactly one row, no Postgres error surfaces to the EA.
+
+- Log into A → row A appears Live (already works).
+- Switch to B in MT5 → within one EA poll cycle (seconds), row B appears Live in the All Accounts list, before any trade.
+- A flips to Dormant after 10 min idle (cron, unchanged).
+- Switch back to A → A flips Live, B stays its own row, no duplicates, account numbers unchanged.
+- Brand-new install, brand-new login, no API-key-bound account → still waits for first event (documented edge case).
