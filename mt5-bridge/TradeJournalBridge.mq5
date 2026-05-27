@@ -469,6 +469,8 @@ void HandlePositionModification(const MqlTradeTransaction& trans)
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"install_id\":\"" + g_installId + "\",";
+   json += "\"active_login\":\"" + g_activeLogin + "\",";
    json += "\"ea_type\":\"journal\",";
    json += "\"event_type\":\"modify\",";
    json += "\"position_id\":" + IntegerToString(posTicket) + ",";
@@ -814,6 +816,8 @@ void SendPositionSnapshot()
    string json = "{";
    json += "\"idempotency_key\":\"" + g_terminalId + "_snapshot_" + IntegerToString(TimeCurrent()) + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"install_id\":\"" + g_installId + "\",";
+   json += "\"active_login\":\"" + g_activeLogin + "\",";
    json += "\"ea_type\":\"journal\",";
    json += "\"event_type\":\"position_snapshot\",";
    json += "\"position_id\":0,";
@@ -849,6 +853,8 @@ void SendHeartbeat()
    string json = "{";
    json += "\"idempotency_key\":\"" + g_terminalId + "_heartbeat_" + IntegerToString(TimeCurrent()) + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"install_id\":\"" + g_installId + "\",";
+   json += "\"active_login\":\"" + g_activeLogin + "\",";
    json += "\"ea_type\":\"journal\",";
    json += "\"event_type\":\"heartbeat\",";
    json += "\"position_id\":0,";
@@ -994,6 +1000,8 @@ string BuildPayload(ulong dealTicket, string eventType, string direction, string
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"install_id\":\"" + g_installId + "\",";
+   json += "\"active_login\":\"" + g_activeLogin + "\",";
    json += "\"ea_type\":\"journal\",";
    json += "\"event_type\":\"" + wireEventType + "\",";
    
@@ -1098,6 +1106,8 @@ string BuildOpenPositionPayload(ulong ticket, string symbol, string direction,
    string json = "{";
    json += "\"idempotency_key\":\"" + idempotencyKey + "\",";
    json += "\"terminal_id\":\"" + g_terminalId + "\",";
+   json += "\"install_id\":\"" + g_installId + "\",";
+   json += "\"active_login\":\"" + g_activeLogin + "\",";
    json += "\"ea_type\":\"journal\",";
    json += "\"event_type\":\"history_sync\",";
    json += "\"original_event_type\":\"entry\",";
