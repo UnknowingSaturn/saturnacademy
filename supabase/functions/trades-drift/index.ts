@@ -8,17 +8,18 @@ const corsHeaders = {
 };
 
 /**
- * Read-only drift detection.
+ * Read-only drift / dormancy report.
  *
- * For each (terminal_id, active_account) currently active for the caller,
- * compare the most recent terminal_snapshots row against trades that are
- * still is_open=true on that same account+terminal. Tickets present in
- * the DB but missing from the snapshot are "drift" — the broker probably
- * closed them but the EA missed the deal event.
- *
- * Dormant trades (on accounts not currently active on their terminal) are
- * NEVER flagged — they're expected to be invisible until that login is
- * reactivated.
+ * Returns two lists for the calling user:
+ *   - drift_trades   : trades still flagged is_open in the DB but missing from
+ *                      the latest snapshot of an ACTIVE (terminal,account). These
+ *                      were probably closed at the broker and the EA missed the
+ *                      deal event. The UI offers a repair action.
+ *   - dormant_accounts: accounts that share an MT5 install with a different
+ *                      currently-active login. Their open trades aren't drifted
+ *                      — the server simply hasn't heard from that login since
+ *                      the user switched. Surfaced so the UI can show "log back
+ *                      in to sync" instead of false-positive drift.
  */
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -42,12 +43,10 @@ serve(async (req) => {
       });
     }
 
-    // Currently-active accounts per terminal for this user
     const { data: activeRows, error: taErr } = await admin
       .from("terminal_accounts")
-      .select("terminal_id, account_id, last_active_at")
-      .eq("user_id", user.id)
-      .eq("is_currently_active", true);
+      .select("terminal_id, install_id, account_id, last_active_at, is_currently_active")
+      .eq("user_id", user.id);
 
     if (taErr) {
       return new Response(JSON.stringify({ error: taErr.message }), {
@@ -57,8 +56,28 @@ serve(async (req) => {
     }
 
     const driftTrades: any[] = [];
+    const dormantAccountIds = new Set<string>();
+
+    // Build install_id -> active_account_id for dormancy detection
+    const installActive = new Map<string, string>();
+    for (const row of activeRows || []) {
+      if (row.install_id && row.is_currently_active) {
+        installActive.set(row.install_id, row.account_id);
+      }
+    }
 
     for (const ta of activeRows || []) {
+      // Dormant: account shares an install with a different active login
+      if (ta.install_id) {
+        const activeOnInstall = installActive.get(ta.install_id);
+        if (activeOnInstall && activeOnInstall !== ta.account_id) {
+          dormantAccountIds.add(ta.account_id);
+          continue; // dormant accounts cannot drift — skip drift check
+        }
+      }
+
+      if (!ta.is_currently_active) continue;
+
       // Most recent snapshot for this terminal + active account
       const { data: snap } = await admin
         .from("terminal_snapshots")
@@ -78,7 +97,6 @@ serve(async (req) => {
       const openTickets: number[] = (snap.open_tickets || []).map((t: any) => Number(t));
       const openSet = new Set(openTickets);
 
-      // Open trades on this account+terminal whose ticket is NOT in the snapshot
       const { data: openTrades } = await admin
         .from("trades")
         .select("id, ticket, symbol, direction, entry_time, entry_price, total_lots, terminal_id, account_id")
@@ -88,7 +106,6 @@ serve(async (req) => {
 
       for (const t of openTrades || []) {
         if (!t.ticket) continue;
-        // Grace window: ignore trades opened in the last 60s (snapshot/event race)
         const tradeAge = Date.now() - new Date(t.entry_time).getTime();
         if (tradeAge < 60 * 1000) continue;
 
@@ -102,8 +119,18 @@ serve(async (req) => {
       }
     }
 
+    // Hydrate dormant_accounts with display data
+    let dormantAccounts: any[] = [];
+    if (dormantAccountIds.size > 0) {
+      const { data: accs } = await admin
+        .from("accounts")
+        .select("id, name, account_number, broker, last_sync_at")
+        .in("id", Array.from(dormantAccountIds));
+      dormantAccounts = accs || [];
+    }
+
     return new Response(
-      JSON.stringify({ drift_trades: driftTrades }),
+      JSON.stringify({ drift_trades: driftTrades, dormant_accounts: dormantAccounts }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
