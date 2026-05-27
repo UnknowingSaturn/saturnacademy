@@ -510,9 +510,15 @@ serve(async (req) => {
     // Process event into trades table
     await processEvent(supabase, newEvent, account.user_id, payload);
 
+    // Bump last_sync_at for this account so the UI freshness badge updates.
+    await supabase.from("accounts")
+      .update({ last_sync_at: new Date().toISOString() })
+      .eq("id", account.id);
+
     // Track terminal multi-tenancy: a real event from this account means
-    // it is currently the active login on this terminal.
-    await markTerminalActiveAccount(supabase, payload.terminal_id, account.id, account.user_id);
+    // it is currently the active login on this install.
+    await markTerminalActiveAccount(supabase, payload.terminal_id, payload.install_id, account.id, account.user_id);
+
 
     console.log("Event processed:", newEvent.id);
     return new Response(
