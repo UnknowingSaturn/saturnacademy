@@ -250,13 +250,14 @@ serve(async (req) => {
       );
     }
 
-    // Update terminal_id if not set
-    if (!account.terminal_id && payload.terminal_id) {
-      await supabase
-        .from("accounts")
-        .update({ terminal_id: payload.terminal_id })
-        .eq("id", account.id);
+    // Backfill terminal_id and install_id on the account row when EA provides them
+    const accountBackfill: Record<string, unknown> = {};
+    if (!account.terminal_id && payload.terminal_id) accountBackfill.terminal_id = payload.terminal_id;
+    if (payload.install_id) accountBackfill.mt5_install_id = payload.install_id;
+    if (Object.keys(accountBackfill).length > 0) {
+      await supabase.from("accounts").update(accountBackfill).eq("id", account.id);
     }
+
 
     // Update equity and ea_type if provided
     if (payload.account_info?.equity || payload.ea_type) {
