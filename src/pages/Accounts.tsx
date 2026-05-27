@@ -149,15 +149,6 @@ export default function Accounts() {
           <p className="text-muted-foreground">Manage your trading accounts and MT5 connections</p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onClick={handleRecoverTrades}
-            disabled={isRecovering}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isRecovering ? 'animate-spin' : ''}`} />
-            {isRecovering ? 'Recovering...' : 'Recover Missed Trades'}
-          </Button>
           <Button onClick={() => setQuickConnectOpen(true)}>
             <Link className="h-4 w-4 mr-2" />
             Connect MT5
