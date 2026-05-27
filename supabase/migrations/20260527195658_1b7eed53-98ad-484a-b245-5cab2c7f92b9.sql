@@ -1,0 +1,2 @@
+ALTER TABLE public.terminal_accounts ADD COLUMN IF NOT EXISTS is_currently_active boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_terminal_accounts_active ON public.terminal_accounts(account_id) WHERE is_currently_active;
