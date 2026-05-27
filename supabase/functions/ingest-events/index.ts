@@ -215,41 +215,69 @@ serve(async (req) => {
       // Only burn the setup token the first time it's used
       const shouldConsumeToken = setupTokenRow && !setupTokenRow.used && !anyAccountForKey;
 
-      let propFirm = null;
-      const serverLower = payload.account_info.server.toLowerCase();
-      if (serverLower.includes("ftmo")) propFirm = "ftmo";
-      else if (serverLower.includes("fundednext")) propFirm = "fundednext";
+      // Prefer the install sibling as a template (multi-account per terminal):
+      // a fresh broker login on a known install inherits firm/broker/role from
+      // its sibling, not a generic auto-create.
+      let propFirm: string | null = installSibling?.prop_firm ?? null;
+      if (!propFirm) {
+        const serverLower = (payload.account_info.server || "").toLowerCase();
+        if (serverLower.includes("ftmo")) propFirm = "ftmo";
+        else if (serverLower.includes("fundednext")) propFirm = "fundednext";
+      }
 
-      const copierRole = setupToken.copier_role || 'independent';
+      const copierRole = installSibling?.copier_role ?? (setupToken.copier_role || 'independent');
       const isCopierAccount = copierRole !== 'independent';
-      const eaType = copierRole !== 'independent' ? copierRole : (payload.ea_type || 'journal');
+      const eaType = installSibling?.ea_type
+        ?? (copierRole !== 'independent' ? copierRole : (payload.ea_type || 'journal'));
 
       const accountName = `${payload.account_info.broker} - ${payload.account_info.login}`;
-      const { data: newAccount, error: createError } = await supabase
+      const insertPayload: Record<string, unknown> = {
+        user_id: setupToken.user_id,
+        name: accountName,
+        broker: installSibling?.broker ?? payload.account_info.broker,
+        account_number: String(payload.account_info.login),
+        account_type: installSibling?.account_type ?? payload.account_info.account_type,
+        balance_start: payload.account_info.balance,
+        equity_current: payload.account_info.equity,
+        terminal_id: payload.terminal_id,
+        mt5_install_id: payload.install_id || null,
+        last_sync_at: new Date().toISOString(),
+        last_heartbeat_at: new Date().toISOString(),
+        live_state: 'live',
+        api_key: installSibling?.api_key ?? apiKey,
+        prop_firm: propFirm,
+        is_active: true,
+        sync_history_enabled: installSibling?.sync_history_enabled ?? (setupToken.sync_history_enabled ?? true),
+        sync_history_from: installSibling?.sync_history_from ?? setupToken.sync_history_from,
+        copier_role: copierRole,
+        copier_enabled: isCopierAccount,
+        master_account_id: installSibling?.master_account_id ?? (setupToken.master_account_id || null),
+        ea_type: eaType,
+      };
+      if (typeof installSibling?.broker_utc_offset === 'number') insertPayload.broker_utc_offset = installSibling.broker_utc_offset;
+      if (installSibling?.broker_dst_profile) insertPayload.broker_dst_profile = installSibling.broker_dst_profile;
+
+      let { data: newAccount, error: createError } = await supabase
         .from("accounts")
-        .insert({
-          user_id: setupToken.user_id,
-          name: accountName,
-          broker: payload.account_info.broker,
-          account_number: String(payload.account_info.login),
-          account_type: payload.account_info.account_type,
-          balance_start: payload.account_info.balance,
-          equity_current: payload.account_info.equity,
-          terminal_id: payload.terminal_id,
-          mt5_install_id: payload.install_id || null,
-          last_sync_at: new Date().toISOString(),
-          api_key: apiKey,
-          prop_firm: propFirm,
-          is_active: true,
-          sync_history_enabled: setupToken.sync_history_enabled ?? true,
-          sync_history_from: setupToken.sync_history_from,
-          copier_role: copierRole,
-          copier_enabled: isCopierAccount,
-          master_account_id: setupToken.master_account_id || null,
-          ea_type: eaType,
-        })
+        .insert(insertPayload)
         .select("id, user_id, terminal_id")
         .single();
+
+      // Race: another concurrent event already created this (user_id, install_id, login)
+      // — the partial unique index makes the second insert a duplicate. Re-select.
+      if (createError && (createError.code === '23505' || /duplicate key/i.test(createError.message || ''))) {
+        const { data: existing } = await supabase
+          .from("accounts")
+          .select("id, user_id, terminal_id")
+          .eq("user_id", setupToken.user_id)
+          .eq("mt5_install_id", payload.install_id || "")
+          .eq("account_number", String(payload.account_info.login))
+          .maybeSingle();
+        if (existing) {
+          newAccount = existing;
+          createError = null as any;
+        }
+      }
 
       if (createError) {
         console.error("Failed to create account:", createError);
@@ -268,7 +296,7 @@ serve(async (req) => {
 
       account = newAccount;
       console.log("Auto-created account:", account.id, accountName,
-        "login:", brokerLogin, "shared_terminal:", !!anyAccountForKey);
+        "login:", brokerLogin, "from_sibling:", !!installSibling);
     }
 
     if (!account) {
