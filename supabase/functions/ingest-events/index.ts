@@ -1134,6 +1134,18 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         partial_closes: finalPartialCloses,
       }).eq("id", existingTrade.id);
 
+      // Phase D dual-write: typed repair event when this close was a snapshot repair
+      if (isRepair) {
+        await supabase.from("trade_repair_events").insert({
+          user_id: userId,
+          trade_id: existingTrade.id,
+          action: "repaired_from_snapshot",
+          source: "ingest_full_close_repair",
+          metadata: { net_pnl: netPnl, ticket, note: "Real PnL recovered from MT5 deal history after EA reconnect" },
+          applied_at: new Date().toISOString(),
+        });
+      }
+
       console.log(isRepair ? "REPAIRED full close" : "Processed full close", "for position:", ticket, "PnL:", netPnl, "R:", rMultiple);
     }
   }
