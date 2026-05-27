@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { RefreshCw, Copy, Eye, EyeOff, Key, Info } from 'lucide-react';
+import { RefreshCw, Copy, Eye, EyeOff, Key, Info, History } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -396,6 +396,11 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
                 Use this API key in your EA to journal trades. Keep the same key when switching between EAs.
               </p>
             </div>
+
+            <Separator />
+
+            {/* Resync History Section */}
+            <ResyncHistorySection account={account} />
 
             <Separator />
 
