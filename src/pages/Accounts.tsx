@@ -71,37 +71,6 @@ export default function Accounts() {
     }
   };
 
-  const handleRecoverTrades = async () => {
-    setIsRecovering(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error("Please sign in to recover trades");
-        return;
-      }
-
-      const { data, error } = await supabase.functions.invoke('reprocess-orphan-exits', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-
-      if (error) throw error;
-
-      if (data.recovered > 0) {
-        toast.success(data.message, {
-          description: data.trades?.join(', '),
-        });
-      } else {
-        toast.info(data.message);
-      }
-    } catch (err) {
-      console.error("Recovery error:", err);
-      toast.error("Failed to recover trades");
-    } finally {
-      setIsRecovering(false);
-    }
-  };
 
   const handleFreshStart = async () => {
     if (!freshStartAccountId) {
