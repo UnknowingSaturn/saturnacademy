@@ -20,6 +20,8 @@ interface AccountInfo {
 interface EventPayload {
   idempotency_key: string;
   terminal_id: string;
+  install_id?: string;            // NEW v4: stable hash of MT5 install path
+  active_login?: string;          // NEW v4: currently active broker login on the install
   account_id?: string;
   ea_type?: "journal" | "master" | "receiver";
   event_type: "entry" | "exit" | "history_sync" | "open" | "modify" | "partial_close" | "close" | "position_snapshot" | "heartbeat";
