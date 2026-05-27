@@ -32,6 +32,7 @@ import {
 export default function Accounts() {
   const { data: accounts, isLoading, refetch } = useAccounts();
   const archiveAllMutation = useArchiveAllTrades();
+  const forceResync = useForceResync();
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
   const [isFreshStarting, setIsFreshStarting] = useState(false);
@@ -39,6 +40,15 @@ export default function Accounts() {
   const [archiveAllAccountId, setArchiveAllAccountId] = useState<string>('');
   const [repairAccountId, setRepairAccountId] = useState<string>('');
   const [isRepairing, setIsRepairing] = useState(false);
+
+  const handleResyncAll = async () => {
+    if (!accounts || accounts.length === 0) return;
+    await forceResync.mutateAsync({
+      accountIds: accounts.map((a) => a.id),
+      syncFrom: subYears(new Date(), 1),
+    });
+  };
+
 
   const handleRepairStuckTrades = async () => {
     if (!repairAccountId) {
