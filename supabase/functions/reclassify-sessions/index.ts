@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
       // Compute the new session per trade and only update changed ones
       for (const t of trades) {
         if (!t.entry_time) continue;
-        const newSession = classify(t.entry_time, sessions);
+        const newSession = classifySession(t.entry_time, sessions);
         counts[newSession] = (counts[newSession] || 0) + 1;
         if (newSession !== t.session) {
           const { error: updateError } = await supabase
