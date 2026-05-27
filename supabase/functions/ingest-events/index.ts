@@ -881,16 +881,8 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
     if (existingTrade) {
       // REPAIR: if a snapshot reconciliation incorrectly closed this trade,
       // and it's actually still open in MT5, reopen it.
-      if (isSnapshotClosed(existingTrade)) {
+      if (await isSnapshotClosed(supabase, existingTrade.id, existingTrade.is_open)) {
         console.log("REPAIR: reopening snapshot_closed trade:", existingTrade.id, "ticket:", ticket);
-        const repairedMarker = [
-          ...(existingTrade.partial_closes || []),
-          {
-            type: "repaired_reopened",
-            repaired_at: new Date().toISOString(),
-            note: "Reopened after EA reconnect — trade is still live in MT5",
-          },
-        ];
         await supabase.from("trades").update({
           is_open: true,
           exit_time: null,
@@ -902,10 +894,8 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
           total_lots: existingTrade.original_lots || event.lot_size,
           sl_final: event.sl || existingTrade.sl_final,
           tp_final: event.tp || existingTrade.tp_final,
-          partial_closes: repairedMarker,
         }).eq("id", existingTrade.id);
 
-        // Phase D dual-write: typed repair event for reopen
         await supabase.from("trade_repair_events").insert({
           user_id: userId,
           trade_id: existingTrade.id,
