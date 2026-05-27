@@ -294,7 +294,9 @@ export function useArchivedTrades() {
             playbook:playbooks (*)
           ),
           ai_reviews (*),
-          account:accounts (*)
+          account:accounts (*),
+          trade_partial_fills (*),
+          trade_repair_events (*)
         `)
         .eq('is_archived', true)
         .order('archived_at', { ascending: false });
