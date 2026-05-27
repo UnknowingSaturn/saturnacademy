@@ -13,6 +13,9 @@ interface AccountSlim {
   current_balance: number;
 }
 
+type BaselineSource = "snapshot" | "balance_start" | "current_equity" | "first_in_period" | "none";
+
+
 interface EquityCurveProps {
   trades: Trade[];
   startingBalance?: number;
