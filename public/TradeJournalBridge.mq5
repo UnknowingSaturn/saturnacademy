@@ -597,7 +597,7 @@ void OnTimer()
    
    // Server-driven gap-fill (catches trades closed while EA/login was dormant)
    g_catchupCounter++;
-   if(g_catchupCounter >= InpCatchupIntervalTicks)
+   if(g_backendReplayActive || g_catchupCounter >= InpCatchupIntervalTicks)
    {
       g_catchupCounter = 0;
       if(g_webRequestOk)
@@ -646,12 +646,15 @@ void RunCatchupCycle()
    datetime lastTime = (StringLen(lastTimeStr) > 0) ? ParseIsoUtcToBroker(lastTimeStr) : 0;
    datetime replayFrom = (StringLen(replayFromStr) > 0) ? ParseIsoUtcToBroker(replayFromStr) : 0;
    ulong lastDeal = (ulong)StringToInteger(lastDealStr);
+   g_backendReplayActive = (lastTime == 0 && replayFrom > 0);
    
    // 1) Send any deals newer than server's watermark.
    //    Floor cascade: known watermark -> account's sync_history_from -> 90-day default.
    datetime fromTime = (lastTime > 0)
                        ? lastTime - 3600
                        : (replayFrom > 0 ? replayFrom : TimeCurrent() - 90 * 86400);
+   if(g_backendReplayActive)
+      Print("Backend replay active: scanning from ", TimeToString(fromTime, TIME_DATE|TIME_SECONDS));
    if(HistorySelect(fromTime, TimeCurrent() + 3600))
    {
       int totalDeals = HistoryDealsTotal();
