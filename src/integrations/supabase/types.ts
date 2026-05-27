@@ -1587,6 +1587,7 @@ export type Database = {
           account_id: string
           created_at: string
           install_id: string | null
+          is_currently_active: boolean
           last_active_at: string
           terminal_id: string
           updated_at: string
@@ -1596,6 +1597,7 @@ export type Database = {
           account_id: string
           created_at?: string
           install_id?: string | null
+          is_currently_active?: boolean
           last_active_at?: string
           terminal_id: string
           updated_at?: string
@@ -1605,6 +1607,7 @@ export type Database = {
           account_id?: string
           created_at?: string
           install_id?: string | null
+          is_currently_active?: boolean
           last_active_at?: string
           terminal_id?: string
           updated_at?: string
