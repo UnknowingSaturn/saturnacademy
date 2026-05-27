@@ -318,7 +318,9 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     if (!Array.isArray(pc)) return false;
     const hasSnapshotClosed = pc.some((e: any) => e?.type === "snapshot_closed");
     const wasRepaired = pc.some((e: any) =>
-      e?.type === "repaired_from_snapshot" || e?.type === "repaired_reopened"
+      e?.type === "repaired_from_snapshot" ||
+      e?.type === "repaired_reopened" ||
+      e?.type === "phase_a_one_shot"
     );
     if (!hasSnapshotClosed || wasRepaired) return false;
     return trade.net_pnl == null || trade.net_pnl === 0;
