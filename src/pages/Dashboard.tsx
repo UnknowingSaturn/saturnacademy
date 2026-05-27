@@ -190,6 +190,20 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
           startingBalance={periodStartingBalance} 
           previousPeriodPnl={previousMetrics.totalPnl}
           periodLabel={periodType === 'week' ? 'week' : 'month'}
+          multiAccount={
+            filteredAccounts.length > 1
+              ? {
+                  accounts: filteredAccounts.map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    starting_balance: Number(a.balance_start || 0),
+                    current_balance: Number(a.equity_current || 0),
+                  })),
+                  snapshots: balanceHistory?.inPeriod ?? [],
+                  baselines: balanceHistory?.baselines ?? {},
+                }
+              : undefined
+          }
         />
         <SessionBreakdown bySession={dashboardMetrics.bySession} />
       </div>
