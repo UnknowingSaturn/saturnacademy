@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, RefreshCw, AlertTriangle, Archive, Flame, Wrench } from 'lucide-react';
+import { Link, AlertTriangle, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useArchiveAllTrades } from '@/hooks/useTrades';
@@ -7,8 +7,6 @@ import { AccountCard } from '@/components/accounts/AccountCard';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
 import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
 import { Account } from '@/types/trading';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,168 +26,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-type LegacyOwnershipSummary = {
-  action: 'reassign' | 'archive_duplicate';
-  from_account_number: string | null;
-  to_account_number: string | null;
-  count: number;
-};
-
-type LegacyOwnershipPreview = {
-  planned: number;
-  reassignable?: number;
-  archive_duplicates?: number;
-  scanned_trades: number;
-  missing_target_logins: string[];
-  summary: LegacyOwnershipSummary[];
-  message: string;
-};
-
 export default function Accounts() {
-  const { data: accounts, isLoading, refetch } = useAccounts();
+  const { data: accounts, isLoading } = useAccounts();
   const archiveAllMutation = useArchiveAllTrades();
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
-  const [isFreshStarting, setIsFreshStarting] = useState(false);
-  const [freshStartAccountId, setFreshStartAccountId] = useState<string>('');
   const [archiveAllAccountId, setArchiveAllAccountId] = useState<string>('');
-  const [repairAccountId, setRepairAccountId] = useState<string>('');
-  const [isRepairing, setIsRepairing] = useState(false);
-  const [legacyRepairAccountId, setLegacyRepairAccountId] = useState<string>('');
-  const [legacyRepairPreview, setLegacyRepairPreview] = useState<LegacyOwnershipPreview | null>(null);
-  const [isPreviewingLegacyRepair, setIsPreviewingLegacyRepair] = useState(false);
-  const [isApplyingLegacyRepair, setIsApplyingLegacyRepair] = useState(false);
-
-
-
-  const handleRepairStuckTrades = async () => {
-    if (!repairAccountId) {
-      toast.error("Please select an account");
-      return;
-    }
-    setIsRepairing(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error("Please sign in");
-        return;
-      }
-      const { data, error } = await supabase.functions.invoke('repair-snapshot-closed', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: { account_id: repairAccountId },
-      });
-      if (error) throw error;
-      toast.success(data.message, {
-        description: data.pending_mt5_reconnect > 0
-          ? `Pending tickets: ${data.pending_tickets?.slice(0, 5).join(', ')}${data.pending_tickets?.length > 5 ? '…' : ''}`
-          : undefined,
-      });
-      refetch();
-    } catch (err) {
-      console.error("Repair error:", err);
-      toast.error("Failed to repair trades");
-    } finally {
-      setIsRepairing(false);
-    }
-  };
-
-  const invokeLegacyOwnershipRepair = async (mode: 'preview' | 'apply') => {
-    if (!legacyRepairAccountId) {
-      toast.error('Please select an account');
-      return null;
-    }
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error('Please sign in');
-        return;
-      }
-
-      const { data, error } = await supabase.functions.invoke('repair-legacy-trade-ownership', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: { account_id: legacyRepairAccountId, mode },
-      });
-      if (error) throw error;
-
-      return data as LegacyOwnershipPreview & {
-        reassigned?: number;
-        archived_duplicates?: number;
-      };
-    } catch (err) {
-      console.error('Legacy ownership repair error:', err);
-      toast.error('Failed to repair legacy trade ownership');
-      return null;
-    }
-  };
-
-  const handlePreviewLegacyOwnershipRepair = async () => {
-    setIsPreviewingLegacyRepair(true);
-    try {
-      const data = await invokeLegacyOwnershipRepair('preview');
-      if (!data) return;
-      setLegacyRepairPreview(data);
-      if (data.planned > 0) {
-        toast.success(data.message);
-      } else {
-        toast.info(data.message);
-      }
-    } finally {
-      setIsPreviewingLegacyRepair(false);
-    }
-  };
-
-  const handleApplyLegacyOwnershipRepair = async () => {
-    setIsApplyingLegacyRepair(true);
-    try {
-      const data = await invokeLegacyOwnershipRepair('apply');
-      if (!data) return;
-      setLegacyRepairPreview(null);
-      toast.success(data.message || 'Legacy trade ownership repaired');
-      refetch();
-    } finally {
-      setIsApplyingLegacyRepair(false);
-    }
-  };
-
-
-  const handleFreshStart = async () => {
-    if (!freshStartAccountId) {
-      toast.error("Please select an account");
-      return;
-    }
-
-    setIsFreshStarting(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error("Please sign in");
-        return;
-      }
-
-      const { data, error } = await supabase.functions.invoke('fresh-start', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: { account_id: freshStartAccountId },
-      });
-
-      if (error) throw error;
-
-      toast.success(data.message, {
-        description: "Restart your EA to re-import all trades.",
-      });
-
-      // Refetch accounts to update trade counts
-      refetch();
-    } catch (err) {
-      console.error("Fresh start error:", err);
-      toast.error("Failed to perform fresh start");
-    } finally {
-      setIsFreshStarting(false);
-      setFreshStartAccountId('');
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -199,7 +41,6 @@ export default function Accounts() {
           <p className="text-muted-foreground">Manage your trading accounts and MT5 connections</p>
         </div>
         <div className="flex gap-2">
-
           <Button onClick={() => setQuickConnectOpen(true)}>
             <Link className="h-4 w-4 mr-2" />
             Connect MT5
@@ -234,144 +75,13 @@ export default function Accounts() {
             ))}
           </div>
 
-          {/* Maintenance Zone — Repair stuck trades */}
-          <div className="mt-8 border border-amber-500/30 rounded-lg overflow-hidden">
-            <div className="flex items-center gap-2 p-4 bg-amber-500/5 border-b border-amber-500/20">
-              <Wrench className="h-5 w-5 text-amber-600" />
-              <h3 className="font-semibold text-amber-600">Repair</h3>
-            </div>
-            <div className="p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <RefreshCw className="h-4 w-4 text-amber-500" />
-                <h4 className="font-medium">Repair stuck "break-even" trades</h4>
-              </div>
-              <p className="text-sm text-muted-foreground mb-3">
-                If you switch broker logins inside the same MT5 terminal, some trades may have been incorrectly closed at PnL 0.
-                This rebuilds them from the real MT5 deal history. Trades that still need MT5 reconnect to heal will be flagged.
-              </p>
-
-              <div className="flex items-center gap-3">
-                <Select value={repairAccountId} onValueChange={setRepairAccountId}>
-                  <SelectTrigger className="w-[250px]">
-                    <SelectValue placeholder="Select account..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts?.map((account) => (
-                      <SelectItem key={account.id} value={account.id}>
-                        {account.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <Button
-                  variant="outline"
-                  className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
-                  onClick={handleRepairStuckTrades}
-                  disabled={!repairAccountId || isRepairing}
-                >
-                  {isRepairing ? 'Repairing...' : 'Repair stuck trades'}
-                </Button>
-              </div>
-
-              <div className="mt-5 border-t border-amber-500/20 pt-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Archive className="h-4 w-4 text-amber-500" />
-                  <h4 className="font-medium">Repair legacy trade ownership</h4>
-                </div>
-                <p className="text-sm text-muted-foreground mb-3">
-                  Moves old trades to the account proven by their MT5 terminal login. Duplicate copies are archived, not deleted.
-                </p>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Select
-                    value={legacyRepairAccountId}
-                    onValueChange={(value) => {
-                      setLegacyRepairAccountId(value);
-                      setLegacyRepairPreview(null);
-                    }}
-                  >
-                    <SelectTrigger className="w-[250px]">
-                      <SelectValue placeholder="Select MT5 install..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accounts?.map((account) => (
-                        <SelectItem key={account.id} value={account.id}>
-                          {account.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Button
-                    variant="outline"
-                    className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
-                    onClick={handlePreviewLegacyOwnershipRepair}
-                    disabled={!legacyRepairAccountId || isPreviewingLegacyRepair || isApplyingLegacyRepair}
-                  >
-                    {isPreviewingLegacyRepair ? 'Checking...' : 'Preview repair'}
-                  </Button>
-
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
-                        disabled={!legacyRepairPreview?.planned || isApplyingLegacyRepair}
-                      >
-                        {isApplyingLegacyRepair ? 'Applying...' : 'Apply repair'}
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Apply legacy trade ownership repair?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This will reassign provably mis-tagged trades to the account shown by their MT5 terminal login. Duplicate copies will be archived, not deleted.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={handleApplyLegacyOwnershipRepair}
-                          className="bg-amber-500 text-white hover:bg-amber-600"
-                        >
-                          Apply Repair
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-
-                {legacyRepairPreview && (
-                  <div className="mt-3 rounded-md border border-amber-500/20 bg-amber-500/5 p-3 text-sm">
-                    <p className="font-medium">{legacyRepairPreview.message}</p>
-                    {legacyRepairPreview.summary.length > 0 && (
-                      <ul className="mt-2 space-y-1 text-muted-foreground">
-                        {legacyRepairPreview.summary.map((item) => (
-                          <li key={`${item.action}-${item.from_account_number}-${item.to_account_number}`}>
-                            {item.action === 'reassign' ? 'Move' : 'Archive duplicate'} {item.count} trade{item.count === 1 ? '' : 's'}: {item.from_account_number} → {item.to_account_number}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {legacyRepairPreview.missing_target_logins.length > 0 && (
-                      <p className="mt-2 text-muted-foreground">
-                        Missing target accounts: {legacyRepairPreview.missing_target_logins.join(', ')}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
           <div className="mt-8 border border-destructive/30 rounded-lg overflow-hidden">
             <div className="flex items-center gap-2 p-4 bg-destructive/5 border-b border-destructive/20">
               <AlertTriangle className="h-5 w-5 text-destructive" />
               <h3 className="font-semibold text-destructive">Danger Zone</h3>
             </div>
-            
-            {/* Archive All Section */}
-            <div className="p-4 border-b border-destructive/20">
+
+            <div className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Archive className="h-4 w-4 text-amber-500" />
                 <h4 className="font-medium">Archive All Trades (Reversible)</h4>
@@ -379,7 +89,7 @@ export default function Accounts() {
               <p className="text-sm text-muted-foreground mb-3">
                 Hide all trades from the journal. You can restore them later from the Archived tab.
               </p>
-              
+
               <div className="flex items-center gap-3">
                 <Select value={archiveAllAccountId} onValueChange={setArchiveAllAccountId}>
                   <SelectTrigger className="w-[250px]">
@@ -396,8 +106,8 @@ export default function Accounts() {
 
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
                       disabled={!archiveAllAccountId || archiveAllMutation.isPending}
                     >
@@ -415,72 +125,15 @@ export default function Accounts() {
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction 
+                      <AlertDialogAction
                         onClick={() => {
                           archiveAllMutation.mutate(archiveAllAccountId, {
-                            onSuccess: () => setArchiveAllAccountId('')
+                            onSuccess: () => setArchiveAllAccountId(''),
                           });
                         }}
                         className="bg-amber-500 text-white hover:bg-amber-600"
                       >
                         Archive All Trades
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            </div>
-
-            {/* Fresh Start Section */}
-            <div className="p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Flame className="h-4 w-4 text-destructive" />
-                <h4 className="font-medium">Fresh Start (Permanent)</h4>
-              </div>
-              <p className="text-sm text-muted-foreground mb-3">
-                Delete all trades AND events for EA re-import. This cannot be undone.
-              </p>
-              
-              <div className="flex items-center gap-3">
-                <Select value={freshStartAccountId} onValueChange={setFreshStartAccountId}>
-                  <SelectTrigger className="w-[250px]">
-                    <SelectValue placeholder="Select account..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts?.map((account) => (
-                      <SelectItem key={account.id} value={account.id}>
-                        {account.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button 
-                      variant="destructive" 
-                      disabled={!freshStartAccountId || isFreshStarting}
-                    >
-                      {isFreshStarting ? 'Processing...' : 'Fresh Start'}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This will permanently delete <strong>all trades and events</strong> for the selected account. 
-                        This action cannot be undone.
-                        <br /><br />
-                        After this, restart your EA to re-import all historical trades from scratch.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction 
-                        onClick={handleFreshStart}
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      >
-                        Yes, Delete Everything
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
