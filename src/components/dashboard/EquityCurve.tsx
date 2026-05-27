@@ -18,7 +18,9 @@ type BaselineSource =
   | "balance_start"
   | "reconstructed"
   | "first_in_period"
+  | "ledger"
   | "none";
+
 
 
 interface EquityCurveProps {
