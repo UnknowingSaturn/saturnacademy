@@ -1,4 +1,4 @@
-import { Trade, TradeReview, PartialClose, ActionableStep } from "@/types/trading";
+import { Trade, TradeReview, PartialClose, PartialFill, RepairEvent, ActionableStep } from "@/types/trading";
 
 // Helper to normalize embedded trade_reviews (could be object or array from Supabase)
 export function normalizeReviews(raw: any): any[] {
