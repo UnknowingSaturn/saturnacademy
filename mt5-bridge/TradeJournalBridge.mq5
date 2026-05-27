@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "Trade Journal Bridge"
 #property link      ""
-#property version   "3.10"
+#property version   "4.00"
 #property description "Captures trade lifecycle events and sends to journal backend"
 #property description "SAFE: Read-only, no trading operations, prop-firm compliant"
 #property description "Connects directly to cloud - no relay server needed!"
-#property description "v3.10: Multi-account safe — same API key can serve multiple broker logins"
+#property description "v4.00: Server-driven gap-fill, stable install_id, multi-account-per-terminal aware"
 
 //+------------------------------------------------------------------+
 //| Input Parameters                                                  |
