@@ -1,47 +1,40 @@
-## What’s happening
+# Trim production: remove one-off repair tooling
 
-The issue is not just duplicate tickets anymore. The old sync logic stored trades under account `70561`, but many rows still carry a `terminal_id` like `MT5_76036_HolaPrime-`, `MT5_76034_HolaPrime-`, etc. That means the correct account can be recovered for a lot of legacy rows.
+Now that all account histories are reconciled and the EA routes new events by `broker_login`/`account_info.login`, several pieces of repair scaffolding are no longer pulling their weight. Below is what to keep, what to remove, and what to fold away behind a less prominent surface.
 
-Current signal:
-- `70561` has 64 visible trades.
-- Of those, only 20 visible trades have `terminal_id = MT5_70561_HolaPrime-`.
-- The other visible rows are assigned to `70561` but their terminal login points to `70581`, `70573`, `76036`, `76034`, `70583`, or `86021`.
-- Existing ingestion now resolves by broker login, so new events should route correctly.
+## Keep (still useful in steady state)
 
-## Plan
+- **`sync-account-state`, `ingest-events`, `copier-*`, `generate-report`, `get-shared-report`, `schedule-reports`, `extract-knowledge`, `knowledge-chat`, `playbook-assistant`, `scalp-edge-analysis`** — core product.
+- **`AccountCard` resync banner + `useStopResync`** — small, harmless, only renders when `force_resync = true` (currently 0 accounts). Useful if we ever need to re-trigger a backfill.
+- **`DriftTray` + `repair-snapshot-closed`** — still catches genuine future drift when a broker silently closes a position and the EA misses the deal. This is an ongoing failure mode, not a legacy one.
+- **Archive All Trades (Danger Zone)** — generic, not legacy-specific.
 
-1. **Add a temporary repair action for all accounts on the same MT5 install**
-   - Replace the hardcoded “Archive duplicate legacy 70561 trades” button with a more general maintenance action.
-   - It will scan trades on the selected MT5 install and parse the intended login from `terminal_id` (`MT5_<login>_...`).
+## Remove (one-off, legacy-only)
 
-2. **Reassign provable legacy mis-tagged trades**
-   - If a trade is assigned to account A, but `terminal_id` says it belongs to login B, and account B exists, update that trade’s `account_id` to account B.
-   - Also normalize `broker_login` to B when it was incorrectly stored as A.
-   - This should move the wrongly tagged visible rows out of `70561`, bringing it close to the ~20 actual trades you see in MT5.
+1. **Edge function `repair-legacy-trade-ownership`** — only purpose was to fix trades misrouted before the EA started using `broker_login`. New events can't reach that state. Delete the function and its UI.
+2. **`Accounts.tsx` "Repair legacy trade ownership" card** (lines ~277–363) plus all related state (`legacyRepairAccountId`, `legacyRepairPreview`, `isPreviewingLegacyRepair`, `isApplyingLegacyRepair`, `invokeLegacyOwnershipRepair`, `handlePreviewLegacyOwnershipRepair`, `handleApplyLegacyOwnershipRepair`, the `LegacyOwnershipSummary`/`LegacyOwnershipPreview` types).
+3. **Edge function `fresh-start`** — destructive whole-account wipe used while we were untangling ownership. Archive All covers the safe path; keeping `fresh-start` around is a footgun. Verify no UI still calls it (`EditAccountDialog.tsx` is the only caller — remove that action too if it exists), then delete.
+4. **EA force-resync hot loop (v4.02 changes)** — keep the `force_resync` flag read on startup, but drop the "poll every 30s while resync is active" behavior in `public/TradeJournalBridge.mq5` and `mt5-bridge/TradeJournalBridge.mq5`. Return to the normal polling cadence. No account currently has `force_resync = true`, so this only matters next time we flip it; the aggressive cadence was a backfill convenience, not a permanent need.
+5. **`replay_from` references in the EA** — the DB column no longer exists. Remove any leftover reads so the EA doesn't log "column missing" warnings.
 
-3. **Archive only when reassigning is impossible or duplicate-conflicting**
-   - If the target account doesn’t exist yet, leave the row untouched and report it.
-   - If the target account already has the same ticket, archive the wrong source copy instead of creating two visible copies.
-   - No deletion. Everything stays reversible through archived trades or database history.
+## Demote (keep behind an admin-only surface, off the main Accounts page)
 
-4. **Add a dry-run/preview result before changing data**
-   - Show a summary like: “70561 → 76036: 7 trades”, “70561 → 76034: 5 trades”, etc.
-   - Then a confirmation button applies the repair.
+6. **`repair-snapshot-closed` "Repair stuck break-even trades" button** — keep the function (drift recovery), but move the button out of the main Accounts page and into the existing `DriftTray`, which already shows the affected trades. The standalone account-picker version was added when we didn't trust drift detection; we do now.
+7. **`reprocess-trades`, `restore-trade-times`, `reclassify-sessions`, `trades-drift`** — verify each is still wired into a real user flow (Session Config panel, TradeTable, DriftTray). If any are only reachable from a removed maintenance UI, delete them too. (Quick audit pass during implementation.)
 
-5. **Keep production simple**
-   - Do not add a complex reconciliation system yet.
-   - Keep the permanent rule: every new EA event routes by `account_info.login` / broker login.
-   - Temporary repair tooling can be removed later once the ledger is clean.
+## Result
 
-## Expected result
+- Accounts page loses ~130 lines of legacy repair UI and one entire maintenance card.
+- Two edge functions deleted (`repair-legacy-trade-ownership`, `fresh-start`), one demoted.
+- EA returns to a single steady-state polling cadence.
+- DriftTray becomes the single home for "something looks off, fix it" actions.
 
-After repair:
-- `70561` should show around 20 visible trades.
-- `76034`, `76036`, `70583`, and `86021` should receive the trades whose `terminal_id` proves they belong there.
-- Any uncertain rows remain untouched rather than guessed.
+## Technical notes
 
-## Implementation details
+- DB: nothing to migrate. `force_resync` column stays; `replay_from` is already gone.
+- Edge function deletion uses `supabase--delete_edge_functions`.
+- Frontend: trim `src/pages/Accounts.tsx`, remove unused imports (`Wrench`, `Archive` if no longer used, `AlertDialog*` if no longer used), remove unused state.
+- EA: revert the 30s force-resync polling block in both `public/` and `mt5-bridge/` copies; keep the broker_login routing (that's the permanent fix).
+- Memory: update `mem://copier/reconciliation-logic` if it referenced the legacy ownership repair flow.
 
-- Frontend: update the Accounts maintenance section to run a general legacy ownership repair instead of the hardcoded `70561` duplicate cleanup.
-- Backend/data: use a controlled data update, not schema changes.
-- Safety: no trade deletion; reassign only when the target account exists and the terminal login is provable.
+After approval I'll do a quick audit of the 4 functions listed in step 7 before deleting, so we don't drop something still wired into a user flow.
