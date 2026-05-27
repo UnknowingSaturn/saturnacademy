@@ -1864,8 +1864,11 @@ void MarkHistorySynced(int dealCount)
 //+------------------------------------------------------------------+
 void SyncHistoricalDeals()
 {
-   const int SYNC_DAYS = 90;
-   datetime fromTime = TimeCurrent() - (SYNC_DAYS * 86400);
+   SyncHistoricalDealsFrom(TimeCurrent() - (90 * 86400), "90-day sync");
+}
+
+void SyncHistoricalDealsFrom(datetime fromTime, string syncLabel)
+{
    datetime toTime = TimeCurrent();
    
    if(!HistorySelect(fromTime, toTime))
@@ -1875,7 +1878,7 @@ void SyncHistoricalDeals()
    }
    
    int totalDeals = HistoryDealsTotal();
-   Print("Scanning ", totalDeals, " deals from the last ", SYNC_DAYS, " days...");
+   Print("Scanning ", totalDeals, " deals for ", syncLabel, " from ", TimeToString(fromTime, TIME_DATE|TIME_SECONDS), "...");
    
    int sentCount = 0;
    int skippedCount = 0;
@@ -1921,7 +1924,8 @@ void SyncHistoricalDeals()
       Sleep(50);
    }
    
-   MarkHistorySynced(sentCount);
+   if(!g_backendReplayActive)
+      MarkHistorySynced(sentCount);
    
    Print("=================================================");
    Print("History sync complete!");
