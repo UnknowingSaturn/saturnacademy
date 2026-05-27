@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History, Activity, AlertTriangle, Crown, Radio, Minus } from 'lucide-react';
+import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History, Activity, AlertTriangle, Crown, Radio, Minus, RefreshCw, Square } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { useDeleteAccount } from '@/hooks/useAccounts';
+import { useDeleteAccount, useStopResync } from '@/hooks/useAccounts';
 import { useAccountStatus } from '@/hooks/useAccountStatus';
 import { Account } from '@/types/trading';
 import { formatDistanceToNow } from 'date-fns';
