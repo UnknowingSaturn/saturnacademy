@@ -53,7 +53,14 @@ export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open('/TradeJournalBridge.mq5', '_blank')}
+                onClick={() => {
+                  const link = document.createElement('a');
+                  link.href = '/TradeJournalBridge.mq5';
+                  link.download = 'TradeJournalBridge.mq5';
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
               >
                 <ExternalLink className="h-4 w-4 mr-2" />
                 Download EA File

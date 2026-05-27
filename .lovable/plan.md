@@ -1,19 +1,11 @@
-## Change
+## Fix
 
-In the journal trade table, the column header labels for the alignment and entry_timeframes columns are swapped relative to their intended meaning. Swap just the labels/placeholders — keep data bindings, field keys, ordering, and the detail panel labels untouched.
+`MT5SetupDialog`'s "Download EA File" button uses `window.open('/TradeJournalBridge.mq5', '_blank')`, which the browser renders as plain text instead of downloading. Replace with a programmatic `<a download>` click (same pattern already used in `QuickConnectDialog.tsx` lines 122–127) so the file saves to disk.
 
-## Files
+## File
 
-**`src/types/settings.ts`** — column registry labels (lines 275–276):
-- `alignment` label: `'Alignment'` → `'Entry'`
-- `entry_timeframes` label: `'Entry'` → `'Alignment'`
-
-**`src/components/journal/TradeTable.tsx`** — inline placeholders (lines 573, 594):
-- alignment BadgeSelect placeholder: `"Align"` → `"Entry TF"`
-- entry_timeframes BadgeSelect placeholder: `"Entry TF"` → `"Align"`
+**`src/components/accounts/MT5SetupDialog.tsx`** (line 56) — swap the `onClick` to create a temporary anchor with `href='/TradeJournalBridge.mq5'` and `download='TradeJournalBridge.mq5'`, click it, then remove.
 
 ## Out of scope
 
-- `TradeProperties.tsx` detail panel labels ("HTF Timeframes" / "Entry Timeframes") stay as-is — only the table header is wrong.
-- No DB changes, no field renames, no data migration.
-- Column order unchanged.
+No other download buttons, no server/MIME changes, no copy-path changes.
