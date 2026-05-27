@@ -175,10 +175,11 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
     const isProfit = periodPnl >= 0;
     const periodPnlPercent =
       isMulti && multiData
-        ? (multiData.points[multiData.points.length - 1]?.pct ?? 0).toFixed(2)
+        ? multiData.avgPct.toFixed(2)
         : startingBalance > 0
         ? ((periodPnl / startingBalance) * 100).toFixed(2)
         : "0.00";
+
 
     const prevIsProfit = previousPeriodPnl >= 0;
     const delta = periodPnl - previousPeriodPnl;
