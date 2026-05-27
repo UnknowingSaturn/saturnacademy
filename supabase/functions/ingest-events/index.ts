@@ -317,7 +317,7 @@ serve(async (req) => {
 
 
     // Every event bumps the per-account heartbeat and flips state back to 'live'.
-    // The cron worker (mark-dormant-accounts) flips it to 'dormant' if heartbeats stop.
+    // The mark_dormant_accounts() pg_cron job flips it to 'dormant' if heartbeats stop.
     {
       const liveBump: Record<string, unknown> = {
         last_heartbeat_at: new Date().toISOString(),
@@ -809,9 +809,36 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       const updateData: Record<string, unknown> = {};
       if (event.sl) updateData.sl_final = event.sl;
       if (event.tp) updateData.tp_final = event.tp;
-      
+
       await supabase.from("trades").update(updateData).eq("id", existingTrade.id);
-      console.log("Processed SL/TP modify for position:", ticket, 
+
+      // Phase D dual-write: typed modification rows for SL/TP changes
+      const mods: Array<Record<string, unknown>> = [];
+      if (event.sl && Number(event.sl) !== Number(existingTrade.sl_final ?? NaN)) {
+        mods.push({
+          user_id: userId,
+          trade_id: existingTrade.id,
+          field: "sl",
+          old_value: existingTrade.sl_final ?? null,
+          new_value: event.sl,
+          occurred_at: event.event_timestamp,
+        });
+      }
+      if (event.tp && Number(event.tp) !== Number(existingTrade.tp_final ?? NaN)) {
+        mods.push({
+          user_id: userId,
+          trade_id: existingTrade.id,
+          field: "tp",
+          old_value: existingTrade.tp_final ?? null,
+          new_value: event.tp,
+          occurred_at: event.event_timestamp,
+        });
+      }
+      if (mods.length > 0) {
+        await supabase.from("trade_modifications").insert(mods);
+      }
+
+      console.log("Processed SL/TP modify for position:", ticket,
         "SL:", event.sl, "TP:", event.tp,
         "previous_sl:", originalPayload.raw_payload?.previous_sl,
         "previous_tp:", originalPayload.raw_payload?.previous_tp);
