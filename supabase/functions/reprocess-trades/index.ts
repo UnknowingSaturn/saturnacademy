@@ -100,10 +100,10 @@ serve(async (req) => {
       }
     }
 
-    // Fetch all trades for this account
+    // Fetch all trades for this account with their typed partial fills.
     const { data: trades, error: tradesError } = await supabase
       .from("trades")
-      .select("*")
+      .select("*, trade_partial_fills(occurred_at, lots, price, profit, commission, swap)")
       .eq("account_id", account_id)
       .order("entry_time", { ascending: true });
 
@@ -153,7 +153,14 @@ serve(async (req) => {
           symbol: trade.symbol,
           equityAtEntry: trade.equity_at_entry || runningBalance,
           direction: trade.direction,
-          fills: Array.isArray(trade.partial_closes) ? trade.partial_closes : null,
+          fills: Array.isArray(trade.trade_partial_fills) && trade.trade_partial_fills.length > 0
+            ? trade.trade_partial_fills.map((f: any) => ({
+                time: f.occurred_at,
+                lots: Number(f.lots),
+                price: Number(f.price),
+                pnl: (Number(f.profit) || 0) - (Number(f.commission) || 0) - Math.abs(Number(f.swap) || 0),
+              }))
+            : null,
         });
 
         // Update the trade - only session, balance, and R%

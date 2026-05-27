@@ -33,7 +33,6 @@ export default function Accounts() {
   const archiveAllMutation = useArchiveAllTrades();
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
-  const [isRecovering, setIsRecovering] = useState(false);
   const [isFreshStarting, setIsFreshStarting] = useState(false);
   const [freshStartAccountId, setFreshStartAccountId] = useState<string>('');
   const [archiveAllAccountId, setArchiveAllAccountId] = useState<string>('');
@@ -71,37 +70,6 @@ export default function Accounts() {
     }
   };
 
-  const handleRecoverTrades = async () => {
-    setIsRecovering(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error("Please sign in to recover trades");
-        return;
-      }
-
-      const { data, error } = await supabase.functions.invoke('reprocess-orphan-exits', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-
-      if (error) throw error;
-
-      if (data.recovered > 0) {
-        toast.success(data.message, {
-          description: data.trades?.join(', '),
-        });
-      } else {
-        toast.info(data.message);
-      }
-    } catch (err) {
-      console.error("Recovery error:", err);
-      toast.error("Failed to recover trades");
-    } finally {
-      setIsRecovering(false);
-    }
-  };
 
   const handleFreshStart = async () => {
     if (!freshStartAccountId) {
@@ -149,15 +117,6 @@ export default function Accounts() {
           <p className="text-muted-foreground">Manage your trading accounts and MT5 connections</p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onClick={handleRecoverTrades}
-            disabled={isRecovering}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isRecovering ? 'animate-spin' : ''}`} />
-            {isRecovering ? 'Recovering...' : 'Recover Missed Trades'}
-          </Button>
           <Button onClick={() => setQuickConnectOpen(true)}>
             <Link className="h-4 w-4 mr-2" />
             Connect MT5
