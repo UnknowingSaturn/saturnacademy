@@ -365,22 +365,27 @@ serve(async (req) => {
       };
       if (payload.account_info?.equity) heartbeatUpdate.equity_current = payload.account_info.equity;
 
-      // Auto-detect broker DST profile from observed offset history.
-      // Only assign if account is still on the default 'MANUAL' profile, so we
-      // never overwrite an explicit user choice.
+      // Auto-detect broker DST profile from observed offsets.
+      // Cache results on the account row: once we've classified, we no longer
+      // scan history on every heartbeat — only widen the cache when a new
+      // distinct offset arrives.
       if (typeof payload.broker_utc_offset === 'number') {
         try {
           const { data: acc } = await supabase
             .from("accounts")
-            .select("broker_dst_profile")
+            .select("broker_dst_profile, broker_utc_offset")
             .eq("id", account.id)
             .single();
 
-          if (acc && (!acc.broker_dst_profile || acc.broker_dst_profile === 'MANUAL')) {
-            // Look at offsets observed across recent heartbeat events for this account.
+          const onManual = !acc?.broker_dst_profile || acc.broker_dst_profile === 'MANUAL';
+          const offsetChanged = acc?.broker_utc_offset !== payload.broker_utc_offset;
+
+          // Only do the expensive historical scan when we're still on MANUAL
+          // AND we've just observed a new offset value (potential DST flip).
+          if (onManual && offsetChanged) {
             const { data: recentHeartbeats } = await supabase
               .from("events")
-              .select("event_timestamp, raw_payload")
+              .select("raw_payload")
               .eq("account_id", account.id)
               .order("event_timestamp", { ascending: false })
               .limit(200);
@@ -400,12 +405,11 @@ serve(async (req) => {
               if (only === 0) detectedProfile = 'FIXED_PLUS_0';
               else if (only === 2) detectedProfile = 'FIXED_PLUS_2';
               else if (only === 3) detectedProfile = 'FIXED_PLUS_3';
-              // Other fixed offsets stay as MANUAL with broker_utc_offset numeric
             }
 
             if (detectedProfile) {
               heartbeatUpdate.broker_dst_profile = detectedProfile;
-              console.log(`Auto-detected broker DST profile: ${detectedProfile} for account ${account.id} (observed offsets: ${[...offsets].join(',')})`);
+              console.log(`Auto-detected broker DST profile: ${detectedProfile} for account ${account.id} (offsets: ${[...offsets].join(',')})`);
             }
           }
         } catch (err) {

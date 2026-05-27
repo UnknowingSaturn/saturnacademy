@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Trade, Playbook, SessionType } from "@/types/trading";
 import { useTrades } from "./useTrades";
 import { startOfDay, endOfDay, parseISO, format } from "date-fns";
+import { normalizeSymbol } from "@/lib/symbolAliases";
 
 export interface ComplianceRule {
   id: string;
@@ -75,9 +76,9 @@ export function useTradeCompliance(
 
     // Auto-verified: Symbol filter
     if (playbook.symbol_filter && playbook.symbol_filter.length > 0) {
-      const normalizedSymbol = trade.symbol.replace(/[^A-Za-z]/g, '').toUpperCase();
-      const symbolMatch = playbook.symbol_filter.some(s => 
-        normalizedSymbol.includes(s.replace(/[^A-Za-z]/g, '').toUpperCase())
+      const normalizedSymbol = normalizeSymbol(trade.symbol);
+      const symbolMatch = playbook.symbol_filter.some(s =>
+        normalizedSymbol.includes(normalizeSymbol(s))
       );
       autoVerified.push({
         id: 'auto_symbol',
@@ -90,19 +91,17 @@ export function useTradeCompliance(
       });
     }
 
-    // Auto-verified: Position size / R per trade
-    if (playbook.max_r_per_trade && trade.sl_initial) {
-      const riskPips = Math.abs(trade.entry_price - trade.sl_initial);
-      // This is a simplified check - in reality you'd need account balance to calculate actual R
-      const withinLimit = true; // We can't calculate R without knowing account balance
+    // Position size / R per trade — can't auto-verify without per-account balance & pip-value math.
+    // Show as pending rather than silently passing.
+    if (playbook.max_r_per_trade) {
       autoVerified.push({
         id: 'auto_position_size',
         label: 'Position Size',
         category: 'auto',
-        status: trade.sl_initial ? 'passed' : 'pending',
-        detail: trade.sl_initial 
-          ? `SL placed at ${trade.sl_initial} (max ${playbook.max_r_per_trade}R)` 
-          : 'No stop loss set yet',
+        status: trade.sl_initial ? 'pending' : 'failed',
+        detail: trade.sl_initial
+          ? `Manual check — limit ${playbook.max_r_per_trade}R per trade`
+          : 'No stop loss set — risk cannot be evaluated',
       });
     }
 
