@@ -38,6 +38,7 @@ export default function Accounts() {
   const [archiveAllAccountId, setArchiveAllAccountId] = useState<string>('');
   const [repairAccountId, setRepairAccountId] = useState<string>('');
   const [isRepairing, setIsRepairing] = useState(false);
+  const [isArchivingLegacyDuplicates, setIsArchivingLegacyDuplicates] = useState(false);
 
 
 
@@ -69,6 +70,56 @@ export default function Accounts() {
       toast.error("Failed to repair trades");
     } finally {
       setIsRepairing(false);
+    }
+  };
+
+  const handleArchiveLegacyDuplicates = async () => {
+    setIsArchivingLegacyDuplicates(true);
+    try {
+      const source = accounts?.find((account) => account.account_number === '70561');
+      if (!source?.mt5_install_id) {
+        toast.error('70561 account not found');
+        return;
+      }
+
+      const siblingIds = (accounts || [])
+        .filter((account) => account.mt5_install_id === source.mt5_install_id && account.id !== source.id)
+        .map((account) => account.id);
+
+      if (siblingIds.length === 0) {
+        toast.info('No sibling accounts found for this MT5 install');
+        return;
+      }
+
+      const { data: siblingTrades, error: siblingError } = await supabase
+        .from('trades')
+        .select('ticket')
+        .in('account_id', siblingIds);
+      if (siblingError) throw siblingError;
+
+      const duplicateTickets = Array.from(new Set((siblingTrades || []).map((trade) => trade.ticket).filter(Boolean)));
+      if (duplicateTickets.length === 0) {
+        toast.info('No duplicate tickets found');
+        return;
+      }
+
+      const { count, error } = await supabase
+        .from('trades')
+        .update({ is_archived: true, archived_at: new Date().toISOString() })
+        .eq('account_id', source.id)
+        .in('ticket', duplicateTickets)
+        .select('id', { count: 'exact' });
+      if (error) throw error;
+
+      toast.success(`Archived ${count || 0} duplicate 70561 trades`, {
+        description: 'Only 70561 copies with matching sibling tickets were hidden. Restore them from Archived if needed.',
+      });
+      refetch();
+    } catch (err) {
+      console.error('Legacy duplicate cleanup error:', err);
+      toast.error('Failed to archive legacy duplicates');
+    } finally {
+      setIsArchivingLegacyDuplicates(false);
     }
   };
 
@@ -192,6 +243,44 @@ export default function Accounts() {
                 >
                   {isRepairing ? 'Repairing...' : 'Repair stuck trades'}
                 </Button>
+              </div>
+
+              <div className="mt-5 border-t border-amber-500/20 pt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Archive className="h-4 w-4 text-amber-500" />
+                  <h4 className="font-medium">Archive duplicate legacy 70561 trades</h4>
+                </div>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Hides only 70561 trade copies whose ticket already exists on another account from the same MT5 install.
+                </p>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                      disabled={isArchivingLegacyDuplicates}
+                    >
+                      {isArchivingLegacyDuplicates ? 'Archiving...' : 'Archive duplicates'}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Archive confirmed duplicate 70561 trades?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will hide only 70561 trades that have the same ticket on another sibling account. Nothing is deleted, and archived trades can be restored later.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleArchiveLegacyDuplicates}
+                        className="bg-amber-500 text-white hover:bg-amber-600"
+                      >
+                        Archive Duplicates
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </div>
           </div>
