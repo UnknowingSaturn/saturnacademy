@@ -13,6 +13,7 @@ import { SessionBreakdown } from '@/components/dashboard/SessionBreakdown';
 import { PlaybookCompliance } from '@/components/dashboard/PlaybookCompliance';
 
 import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
+import { useBalanceHistory } from '@/hooks/useBalanceHistory';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Loader2 } from 'lucide-react';
@@ -50,6 +51,14 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
   const { filteredTrades, metrics } = useReports(trades, period);
   const { filteredTrades: previousTrades, metrics: previousMetrics } = useReports(trades, previousPeriod);
   const dashboardMetrics = useDashboardMetrics(filteredTrades);
+
+  // Per-account balance snapshots from EA heartbeats — powers % return curve
+  // when multiple accounts are selected. Fetched only when >1 account is in scope.
+  const { data: balanceHistory } = useBalanceHistory(
+    filteredAccounts.length > 1 ? filteredAccounts.map((a) => a.id) : [],
+    period.start,
+    period.end,
+  );
 
   // Calculate the starting balance for the equity curve
   // Priority: 1. First trade's balance_at_entry in current period
@@ -189,6 +198,20 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
           startingBalance={periodStartingBalance} 
           previousPeriodPnl={previousMetrics.totalPnl}
           periodLabel={periodType === 'week' ? 'week' : 'month'}
+          multiAccount={
+            filteredAccounts.length > 1
+              ? {
+                  accounts: filteredAccounts.map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    starting_balance: Number(a.balance_start || 0),
+                    current_balance: Number(a.equity_current || 0),
+                  })),
+                  snapshots: balanceHistory?.inPeriod ?? [],
+                  baselines: balanceHistory?.baselines ?? {},
+                }
+              : undefined
+          }
         />
         <SessionBreakdown bySession={dashboardMetrics.bySession} />
       </div>

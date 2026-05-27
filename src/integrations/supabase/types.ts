@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_balance_snapshots: {
+        Row: {
+          account_id: string
+          balance: number
+          created_at: string
+          equity: number | null
+          free_margin: number | null
+          id: string
+          margin: number | null
+          recorded_at: string
+          recorded_minute: number
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          balance: number
+          created_at?: string
+          equity?: number | null
+          free_margin?: number | null
+          id?: string
+          margin?: number | null
+          recorded_at?: string
+          recorded_minute: number
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          balance?: number
+          created_at?: string
+          equity?: number | null
+          free_margin?: number | null
+          id?: string
+          margin?: number | null
+          recorded_at?: string
+          recorded_minute?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       accounts: {
         Row: {
           account_number: string | null

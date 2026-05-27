@@ -328,6 +328,29 @@ serve(async (req) => {
       await supabase.from("accounts").update(liveBump).eq("id", account.id);
     }
 
+    // Per-account balance snapshot (deduped per minute via unique index).
+    // Captures balance/equity any time the EA sends account_info — heartbeats,
+    // position snapshots, and trade events alike. Powers the multi-account
+    // equity curve and includes deposits/withdrawals/payouts automatically.
+    if (payload.account_info?.balance != null) {
+      const nowMs = Date.now();
+      const recordedMinute = Math.floor(nowMs / 60000);
+      const { error: snapErr } = await supabase
+        .from("account_balance_snapshots")
+        .insert({
+          account_id: account.id,
+          user_id: account.user_id,
+          balance: payload.account_info.balance,
+          equity: payload.account_info.equity ?? null,
+          free_margin: payload.margin_free ?? null,
+          recorded_at: new Date(nowMs).toISOString(),
+          recorded_minute: recordedMinute,
+        });
+      if (snapErr && snapErr.code !== "23505") {
+        console.error("Failed to insert balance snapshot (non-fatal):", snapErr.message);
+      }
+    }
+
     // ==========================================
     // Handle heartbeat event — update account health, no event/trade processing
     // ==========================================
