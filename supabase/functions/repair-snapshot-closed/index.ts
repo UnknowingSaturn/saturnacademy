@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { isPendingRepair } from "../_shared/snapshotRepair.ts";
+import { computeNetPnl } from "../_shared/pnl.ts";
+import { insertRepairEvent } from "../_shared/repairEvent.ts";
 
 /**
  * Repair "snapshot_closed" trades for a given account by re-matching them
