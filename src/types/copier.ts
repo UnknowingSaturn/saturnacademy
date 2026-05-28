@@ -58,14 +58,6 @@ export interface CopierExecution {
   executed_at: string;
 }
 
-// Config version for tracking changes
-export interface CopierConfigVersion {
-  id: string;
-  user_id: string;
-  version: number;
-  config_hash: string;
-  created_at: string;
-}
 
 // The config file structure that gets downloaded
 export interface CopierConfigFile {

@@ -180,16 +180,12 @@ serve(async (req) => {
       console.error('Receiver settings error:', settingsError);
     }
 
-    // Get latest config version
-    const { data: latestVersion } = await supabase
-      .from('copier_config_versions')
-      .select('version')
-      .eq('user_id', userId)
-      .order('version', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // Config version derived from receiver_settings.updated_at (the EA polls that for changes).
+    const latestUpdate = (receiverSettings || [])
+      .map((s: any) => new Date(s.updated_at || 0).getTime())
+      .reduce((a: number, b: number) => Math.max(a, b), 0);
+    const version = latestUpdate || Date.now();
 
-    const version = latestVersion?.version || 1;
 
     // Build receiver configs
     const receivers: CopierReceiverConfig[] = (receiverAccounts || []).map(receiver => {

@@ -246,30 +246,6 @@ export type Database = {
           },
         ]
       }
-      copier_config_versions: {
-        Row: {
-          config_hash: string
-          created_at: string | null
-          id: string
-          user_id: string
-          version: number
-        }
-        Insert: {
-          config_hash: string
-          created_at?: string | null
-          id?: string
-          user_id: string
-          version?: number
-        }
-        Update: {
-          config_hash?: string
-          created_at?: string | null
-          id?: string
-          user_id?: string
-          version?: number
-        }
-        Relationships: []
-      }
       copier_executions: {
         Row: {
           direction: string
@@ -2112,6 +2088,10 @@ export type Database = {
       }
     }
     Functions: {
+      apply_equity_delta: {
+        Args: { _account_id: string; _delta: number }
+        Returns: undefined
+      }
       has_trade_access: { Args: { _trade_id: string }; Returns: boolean }
       increment_shared_report_view: {
         Args: { p_report_id: string }
@@ -2122,7 +2102,6 @@ export type Database = {
     Enums: {
       account_live_state: "live" | "dormant" | "verifying" | "stale"
       account_type: "demo" | "live" | "prop"
-      ai_provider: "openai" | "gemini" | "lovable"
       broker_dst_profile:
         | "EET_DST"
         | "GMT_DST"
@@ -2290,7 +2269,6 @@ export const Constants = {
     Enums: {
       account_live_state: ["live", "dormant", "verifying", "stale"],
       account_type: ["demo", "live", "prop"],
-      ai_provider: ["openai", "gemini", "lovable"],
       broker_dst_profile: [
         "EET_DST",
         "GMT_DST",

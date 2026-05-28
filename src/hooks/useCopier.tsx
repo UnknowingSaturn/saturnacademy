@@ -8,7 +8,6 @@ import type {
   CopierSymbolMapping, 
   CopierReceiverSettings, 
   CopierExecution,
-  CopierConfigVersion,
   RiskMode
 } from '@/types/copier';
 
@@ -312,63 +311,9 @@ export function useCopierExecutionsRealtime(filters?: {
   });
 }
 
-// Fetch config versions
-export function useConfigVersions() {
-  const { user } = useAuth();
-  
-  return useQuery({
-    queryKey: ['copier-config-versions'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('copier_config_versions')
-        .select('*')
-        .eq('user_id', user!.id)
-        .order('version', { ascending: false })
-        .limit(10);
-      
-      if (error) throw error;
-      return data as CopierConfigVersion[];
-    },
-    enabled: !!user,
-  });
-}
+// Note: config-version hooks removed — the copier_config_versions table was dropped.
+// The Receiver EA polls copier_receiver_settings.updated_at directly for change detection.
 
-// Create config version
-export function useCreateConfigVersion() {
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
-  
-  return useMutation({
-    mutationFn: async ({ configHash }: { configHash: string }) => {
-      // Get latest version
-      const { data: latest } = await supabase
-        .from('copier_config_versions')
-        .select('version')
-        .eq('user_id', user!.id)
-        .order('version', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      
-      const newVersion = (latest?.version || 0) + 1;
-      
-      const { data, error } = await supabase
-        .from('copier_config_versions')
-        .insert({
-          user_id: user!.id,
-          version: newVersion,
-          config_hash: configHash,
-        })
-        .select()
-        .single();
-      
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['copier-config-versions'] });
-    },
-  });
-}
 
 // Calculate copier statistics
 export function useCopierStats() {
