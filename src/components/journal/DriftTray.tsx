@@ -32,7 +32,7 @@ interface DormantAccount {
 /**
  * Surfaces trades that the broker probably closed but the EA missed the deal
  * event for. Non-destructive — clicking Repair pulls the real close from
- * MT5 deal history via the existing repair-snapshot-closed function.
+ * MT5 deal history via the trade-repair function.
  */
 export function DriftTray() {
   const [drift, setDrift] = useState<DriftTrade[]>([]);
