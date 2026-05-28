@@ -327,14 +327,13 @@ fn process_event_file(path: &Path, state: Arc<Mutex<CopierState>>) {
         }
     };
 
-    // Generate and check idempotency key
-    let idempotency_key = idempotency::generate_idempotency_key(
-        &event.event_type,
-        event.ticket,
-        event.deal_id.unwrap_or(0),
-        &event.symbol,
-        &event.timestamp,
-    );
+    // Prefer the EA-supplied idempotency key (canonical format). Fall back to
+    // reconstructing the same shape for legacy EA versions that don't include it.
+    let idempotency_key = event.idempotency_key.clone().unwrap_or_else(|| {
+        let term = event.terminal_id.clone().unwrap_or_else(|| "unknown".into());
+        let deal = event.deal_id.unwrap_or(event.ticket);
+        idempotency::build_canonical_key(&term, deal, &event.event_type)
+    });
     
     if idempotency::is_event_processed(&idempotency_key) {
         info!("Skipping duplicate event: {}", idempotency_key);
