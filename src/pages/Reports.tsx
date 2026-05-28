@@ -78,6 +78,8 @@ const StrategyLabPage = React.forwardRef<HTMLDivElement, object>(function Report
           <div className="h-full flex items-center justify-center text-muted-foreground">Select a report</div>
         )}
       </main>
+      </div>
+
 
       <Dialog open={genOpen} onOpenChange={setGenOpen}>
         <DialogContent>
