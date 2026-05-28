@@ -90,7 +90,7 @@ export type Database = {
           master_account_id: string | null
           mt5_install_id: string | null
           name: string
-          prop_firm: Database["public"]["Enums"]["prop_firm"] | null
+          prop_firm: string | null
           sync_history_enabled: boolean | null
           sync_history_from: string | null
           terminal_id: string | null
@@ -118,7 +118,7 @@ export type Database = {
           master_account_id?: string | null
           mt5_install_id?: string | null
           name: string
-          prop_firm?: Database["public"]["Enums"]["prop_firm"] | null
+          prop_firm?: string | null
           sync_history_enabled?: boolean | null
           sync_history_from?: string | null
           terminal_id?: string | null
@@ -146,7 +146,7 @@ export type Database = {
           master_account_id?: string | null
           mt5_install_id?: string | null
           name?: string
-          prop_firm?: Database["public"]["Enums"]["prop_firm"] | null
+          prop_firm?: string | null
           sync_history_enabled?: boolean | null
           sync_history_from?: string | null
           terminal_id?: string | null
@@ -167,6 +167,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "terminal_accounts"
             referencedColumns: ["account_id"]
+          },
+          {
+            foreignKeyName: "accounts_prop_firm_fkey"
+            columns: ["prop_firm"]
+            isOneToOne: false
+            referencedRelation: "prop_firms"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -865,7 +872,7 @@ export type Database = {
         Row: {
           created_at: string
           description: string | null
-          firm: Database["public"]["Enums"]["prop_firm"]
+          firm: string
           id: string
           is_percentage: boolean | null
           rule_name: string
@@ -875,7 +882,7 @@ export type Database = {
         Insert: {
           created_at?: string
           description?: string | null
-          firm: Database["public"]["Enums"]["prop_firm"]
+          firm: string
           id?: string
           is_percentage?: boolean | null
           rule_name: string
@@ -885,12 +892,44 @@ export type Database = {
         Update: {
           created_at?: string
           description?: string | null
-          firm?: Database["public"]["Enums"]["prop_firm"]
+          firm?: string
           id?: string
           is_percentage?: boolean | null
           rule_name?: string
           rule_type?: string
           value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prop_firm_rules_firm_fkey"
+            columns: ["firm"]
+            isOneToOne: false
+            referencedRelation: "prop_firms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      prop_firms: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
         }
         Relationships: []
       }
@@ -2202,7 +2241,6 @@ export type Database = {
         | "exhausted"
       event_type: "open" | "modify" | "partial_close" | "close"
       news_risk: "none" | "low" | "high"
-      prop_firm: "ftmo" | "fundednext" | "other"
       regime_type: "rotational" | "transitional"
       trade_direction: "buy" | "sell"
       trade_type: "executed" | "idea" | "paper" | "missed"
@@ -2362,7 +2400,6 @@ export const Constants = {
       ],
       event_type: ["open", "modify", "partial_close", "close"],
       news_risk: ["none", "low", "high"],
-      prop_firm: ["ftmo", "fundednext", "other"],
       regime_type: ["rotational", "transitional"],
       trade_direction: ["buy", "sell"],
       trade_type: ["executed", "idea", "paper", "missed"],
