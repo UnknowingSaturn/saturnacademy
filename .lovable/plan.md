@@ -99,6 +99,16 @@ Bundled `resources/` EAs intentionally fused with bridge + cloud logic; collapsi
 ## ⏸ R3 — DEFERRED
 Splitting `ingest-events` into a thin ACK path + async Postgres trigger processor is the highest-leverage backend change but also the riskiest: it changes the EA's contract semantics (sync repair → async repair) and would require coordinated EA + server testing on a staging copier setup before shipping to live users. Not safe to do blind.
 
+## ✅ R8 — SHIPPED (2026-05-28) — Deleted `reconciliation.rs`
+The auto-reconciliation background loop (~450 lines) was removed entirely. Drift is already handled by the event stream + gap-sync; the loop ran with defaults only and had no remaining UI controls.
+- Deleted `copier-desktop/src-tauri/src/copier/reconciliation.rs`
+- Removed `pub mod reconciliation;` from `copier/mod.rs`
+- Stripped 5 Tauri commands (`update_recon_config`, `get_recon_status`, `start_recon_loop`, `stop_recon_loop`, `run_reconciliation_now`) and their handler registrations
+- Removed the "RECONCILIATION STATUS" section from the debug bundle exporter
+- Stripped the Reconciliation panel + handlers from `Diagnostics.tsx`
+- Removed dead `ReconciliationConfig` / `ReconciliationAction` / `ReconciliationStatus` types from `copier-desktop/src/types.ts`
+- `position_sync.rs` retained — still used by `get_position_sync_status` and the manual `PositionSyncDialog`
+
 ---
 
 
