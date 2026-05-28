@@ -359,43 +359,10 @@ pub fn write_sync_command(
     Ok(())
 }
 
-/// Find the MQL5/Files path for a terminal, supporting both standard and portable installations
+/// Find the MQL5/Files path for a terminal.
+/// Delegates to the single source of truth in `mt5::bridge`.
 fn find_terminal_files_path(terminal_id: &str) -> Result<PathBuf, String> {
-    // Try portable terminal first via MT5 bridge
-    if terminal_id.starts_with("portable_") {
-        let terminals = crate::mt5::bridge::find_mt5_terminals();
-        for terminal in terminals {
-            if terminal.terminal_id == terminal_id {
-                return Ok(PathBuf::from(&terminal.path).join("MQL5").join("Files"));
-            }
-        }
-        return Err(format!("Portable terminal {} not found", terminal_id));
-    }
-    
-    // Standard AppData terminal path
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| "APPDATA environment variable not found")?;
-    
-    let files_path = PathBuf::from(&appdata)
-        .join("MetaQuotes")
-        .join("Terminal")
-        .join(terminal_id)
-        .join("MQL5")
-        .join("Files");
-    
-    if files_path.exists() {
-        return Ok(files_path);
-    }
-    
-    // Fallback: Check if MT5 bridge can find this terminal
-    let terminals = crate::mt5::bridge::find_mt5_terminals();
-    for terminal in terminals {
-        if terminal.terminal_id == terminal_id {
-            return Ok(PathBuf::from(&terminal.path).join("MQL5").join("Files"));
-        }
-    }
-    
-    Err(format!("Terminal {} not found in APPDATA or portable locations", terminal_id))
+    crate::mt5::bridge::resolve_files_path(terminal_id, false)
 }
 
 /// Sync command for receiver EA

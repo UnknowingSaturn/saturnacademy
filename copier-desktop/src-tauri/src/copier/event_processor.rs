@@ -4,50 +4,19 @@
 
 use parking_lot::Mutex;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tracing::{info, warn, error, debug};
 use uuid::Uuid;
 
 use super::{lot_calculator, safety, trade_executor, CopierConfig, CopierState, Execution, TradeEvent};
 use crate::sync::executions as exec_sync;
 
-// Terminal cache to avoid repeated filesystem scans
-static TERMINAL_CACHE: std::sync::LazyLock<Mutex<TerminalCache>> = 
-    std::sync::LazyLock::new(|| Mutex::new(TerminalCache::new()));
-
-struct TerminalCache {
-    terminals: Vec<crate::mt5::bridge::Mt5Terminal>,
-    last_refresh: Instant,
-    ttl: Duration,
-}
-
-impl TerminalCache {
-    fn new() -> Self {
-        Self {
-            terminals: Vec::new(),
-            last_refresh: Instant::now() - Duration::from_secs(60), // Force refresh on first use
-            ttl: Duration::from_secs(30), // Cache for 30 seconds
-        }
-    }
-    
-    fn get_terminals(&mut self) -> Vec<crate::mt5::bridge::Mt5Terminal> {
-        if self.last_refresh.elapsed() > self.ttl {
-            debug!("Refreshing terminal cache (via discovery)");
-            // Use unified discovery as source of truth, then adapt
-            self.terminals = crate::mt5::discovery::discover_all_terminals_cached(false)
-                .into_iter()
-                .filter_map(crate::mt5::bridge::Mt5Terminal::from_terminal_info)
-                .collect();
-            self.last_refresh = Instant::now();
-        }
-        self.terminals.clone()
-    }
-}
-
-/// Get cached terminals (public for use by commands.rs - M1 fix)
+/// Single discovery cache (10s TTL in `mt5::discovery`) — this used to wrap
+/// another 30s cache layer which could double-stale entries.
 pub fn get_cached_terminals() -> Vec<crate::mt5::bridge::Mt5Terminal> {
-    let mut cache = TERMINAL_CACHE.lock();
-    cache.get_terminals()
+    crate::mt5::discovery::discover_all_terminals_cached(false)
+        .into_iter()
+        .filter_map(crate::mt5::bridge::Mt5Terminal::from_terminal_info)
+        .collect()
 }
 
 /// Process a trade event from the master EA

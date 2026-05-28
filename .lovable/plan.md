@@ -52,7 +52,16 @@ Deferred (low-risk file-org refactors with wide call-site impact — skipped to 
 
 ---
 
-## P0 — Critical / Correctness or Security (do first)
+## ✅ R7 PARTIAL — SHIPPED (2026-05-28) — Copier cache & path collapse
+
+- 3 duplicate `find_terminal_files_path` / `get_terminal_files_path` implementations in `position_sync.rs`, `symbol_catalog.rs`, and `config_generator.rs` collapsed to thin wrappers around a new `mt5::bridge::resolve_files_path(terminal_id, create_if_missing)`.
+- `mt5::bridge::find_terminal_path` made `pub` and switched to `discover_all_terminals_cached` instead of the uncached `discover_all_terminals`.
+- Redundant 30s `TERMINAL_CACHE` layer in `event_processor.rs` deleted — `get_cached_terminals()` now goes straight to the single 10s `DISCOVERY_CACHE`, eliminating the double-staleness window.
+
+## ⏸ R1 — SKIPPED per user
+Bundled `resources/` EAs intentionally fused with bridge + cloud logic; collapsing to `mt5-bridge/` would regress live receivers. Revisit only with a feature-by-feature merge plan.
+
+---
 
 
 

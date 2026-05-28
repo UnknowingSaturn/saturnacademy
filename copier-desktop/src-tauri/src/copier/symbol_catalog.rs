@@ -432,29 +432,9 @@ pub fn auto_map_symbols(
     mappings
 }
 
-/// Get terminal files path
+/// Get terminal files path — delegates to the single source of truth in `mt5::bridge`.
 fn get_terminal_files_path(terminal_id: &str) -> Result<std::path::PathBuf, String> {
-    // Check if it's a portable terminal
-    if terminal_id.starts_with("portable_") {
-        // Search known locations
-        let terminals = crate::mt5::bridge::find_mt5_terminals();
-        for terminal in terminals {
-            if terminal.terminal_id == terminal_id {
-                let path = Path::new(&terminal.path).join("MQL5").join("Files");
-                return Ok(path);
-            }
-        }
-        return Err(format!("Terminal {} not found", terminal_id));
-    }
-    
-    // Standard AppData terminal
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| "APPDATA not found")?;
-    
-    Ok(std::path::PathBuf::from(format!(
-        "{}\\MetaQuotes\\Terminal\\{}\\MQL5\\Files",
-        appdata, terminal_id
-    )))
+    crate::mt5::bridge::resolve_files_path(terminal_id, false)
 }
 
 /// Calculate receiver lot size based on risk mode and symbol specs
