@@ -36,7 +36,7 @@ import { Plus, MoreHorizontal, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CustomFieldDialog } from "./CustomFieldDialog";
 import { SystemFieldConfigDialog } from "./SystemFieldConfigDialog";
-import { useFieldOverrides } from "@/hooks/useFieldOverrides";
+import { useFieldOverrides } from "@/hooks/useCustomFields";
 import {
   DndContext,
   closestCenter,
