@@ -1,110 +1,48 @@
-# Reconciliation Pipeline Redesign — One-Writer Model
+## Root cause
 
-## The bug behind the design
-
-Right now there are **two writers** mutating closed-trade PnL on the `trades` table:
-
-1. **`ingest-events`** — the legitimate writer. Sees real DEAL_ENTRY_OUT events and computes `gross_pnl / commission / swap / net_pnl / exit_price / exit_time`.
-2. **`sync-account-state`** — the "stale trade reaper." When a ticket is no longer in the EA's open list, it sets `is_open=false, exit_price=entry_price` (i.e. **PnL = 0**) without inserting any repair-event marker.
-
-The repair function (`repair-snapshot-closed`) is designed to heal trades that carry a `snapshot_closed` action in `trade_repair_events` — but **nobody writes that action** today (`rg` confirms zero writers). So:
-
-- `sync-account-state` silently zeros out PnL on any trade whose close event was attributed to a sibling login.
-- `repair-snapshot-closed` looks for trades it can never find.
-- `repair-snapshot-closed` and `trades-drift` both filter on `snapshot_closed`, so they are effectively dead code on real data.
-
-The fix is the **One-Writer** rule: only `ingest-events` may write PnL/exit fields. Everyone else uses tombstones.
-
-## Target design
-
-```text
-                       ┌──────────────────┐
-   EA file queue  ───► │  ingest-events   │ ─► sole writer of pnl/exit_*
-                       └──────────────────┘
-                                 │
-                                 │ inserts events + flips is_open
-                                 ▼
-                            trades table
-                                 ▲
-                                 │ tombstones only (awaiting_exit, repair markers)
-                                 │
-   EA heartbeat  ───► sync-account-state    ─► marks awaiting_exit, NEVER writes PnL
-                                 │
-                                 │
-   user clicks "Repair"   ───►   repair-snapshot-closed ─► one unified sweep
-```
-
-### Field semantics
-
-- `trades.is_open` — flips false only when we have a real exit (ingest-events) **or** the trade is tombstoned awaiting repair (sync-account-state).
-- `trades.awaiting_exit BOOLEAN DEFAULT false` — **new column**. True = "ticket disappeared from MT5 open list but we have no exit event yet." UI shows a pill, PnL stays `NULL`, the trade is excluded from win-rate stats.
-- `gross_pnl / net_pnl / exit_price / exit_time` — nullable; only ingest-events writes them.
-- `trade_repair_events.action = 'snapshot_closed'` — written by `sync-account-state` when it tombstones, so the repair sweep can find them.
-
-## Changes
-
-### 1. Schema migration
-
-```sql
-ALTER TABLE public.trades
-  ADD COLUMN IF NOT EXISTS awaiting_exit BOOLEAN NOT NULL DEFAULT false;
-
-CREATE INDEX IF NOT EXISTS idx_trades_awaiting_exit
-  ON public.trades (account_id) WHERE awaiting_exit = true;
-```
-
-### 2. `sync-account-state` — stop writing PnL
-
-Replace the auto-close block (lines ~196-212) with **tombstoning**:
+The "-129%" badge comes from `src/components/dashboard/EquityCurve.tsx:186-188`:
 
 ```ts
-for (const t of stale) {
-  await supabase.from("trades")
-    .update({
-      is_open: false,
-      awaiting_exit: true,
-      raw_payload: { ...(t.raw_payload || {}), tombstoned_at: new Date().toISOString() },
-    })
-    .eq("id", t.id);
-
-  await supabase.from("trade_repair_events").insert({
-    user_id: account.user_id,
-    trade_id: t.id,
-    action: "snapshot_closed",
-    source: "sync_account_state_reaper",
-    metadata: { ticket: t.ticket, reason: "ticket_not_in_open_list" },
-    applied_at: new Date().toISOString(),
-  });
-}
+const delta = periodPnl - previousPeriodPnl;          // e.g. -2,600 - 9,081 = -11,681
+const deltaPercent = previousPeriodPnl !== 0
+  ? ((delta / Math.abs(previousPeriodPnl)) * 100).toFixed(0)  // -11,681 / 9,081 ≈ -129%
+  : ...
 ```
 
-No more `exit_price = entry_price`. No more `exit_time = now()`. PnL stays null.
+The math is technically correct but **semantically wrong**: net P&L is a flow, not a stock, so a "% change of P&L vs last week" is meaningless. When the sign flips (profit → loss) or the previous value is near zero, the number explodes past ±100% and confuses users into thinking something is broken.
 
-### 3. `repair-snapshot-closed` — unchanged logic, now actually fires
+## Where else this pattern hides
 
-Already looks for `snapshot_closed` markers and applies real PnL from sibling-account events. With step 2 in place, this becomes the **one repair sweep** that finalizes tombstoned trades. Add `awaiting_exit: false` to its update payload.
+Audit of every `*100` percent calc in the codebase (`rg "/ ... * 100"`):
 
-### 4. `ingest-events` — also clear the tombstone
+- **Only offender**: `EquityCurve.tsx:188` — % change between two P&L totals.
+- **Safe (bounded ratios)**: win rate, success rate, checklist compliance, progress bars, % return on starting balance (`periodPnl / startingBalance`).
+- **Reports `DeltaCell`** (`ReportView.tsx:71-81`) shows server-computed **absolute** deltas (`a - b`, not %), so no false percentages — but it prints them without units (e.g. a Net P&L delta of `1500` shows as `+1500.00` with no `$`). Minor polish opportunity.
 
-When a real exit event lands for a trade currently `awaiting_exit = true`, set `awaiting_exit: false` alongside the real PnL write. The existing repair branches already do most of this; just append `awaiting_exit: false` to those `.update(...)` payloads.
+No similar broken `%` exists anywhere else.
 
-### 5. Frontend
+## Fix plan
 
-- `TradeTable.tsx`: show an "Awaiting exit" pill when `trade.awaiting_exit === true` (replaces the current confusing "$0.00 closed" row). Already has a `hasSnapshotClosed` branch — extend it to read the new column directly.
-- `useOpenTrades.tsx` / journal stats: exclude `awaiting_exit = true` trades from win-rate, expectancy, P&L sums. They're neither open nor truly closed.
+### 1. Replace the P&L delta badge in `EquityCurve.tsx`
 
-### 6. Hold on `reclassify-sessions` → `reprocess-trades` merge
+Switch from "% change of P&L" to a representation that always reads correctly:
 
-That was Section 3 of the audit, not Section 5. Leave it for a separate turn so this PR stays focused on the PnL writer split.
+- **Primary**: show the **$ delta** vs last period (`+$X` / `-$X`), which is unambiguous.
+- **Secondary** (only when meaningful): show the % expressed as a **share of starting balance**, i.e. `(periodPnl - previousPeriodPnl) / startingBalance * 100`. This stays in a sane range (typically ±10%) and is the metric traders actually care about ("we gave back 1.3% of the account vs last week"). Suppress this secondary if `startingBalance <= 0`.
+- **Sign-flip case** (profit → loss or loss → profit): drop the % entirely and show a small label like `Flipped` so we never display `-129%`-style noise.
+- Keep the existing `TrendingUp/Down/Minus` icon and color logic; just feed it the new value.
 
-## Why this is safe
+### 2. Polish `DeltaCell` in `ReportView.tsx`
 
-- **No data loss** — we're removing a write that zeroed real PnL. Historical trades already zeroed by the old reaper will need a one-off backfill (mark them `awaiting_exit = true` if `gross_pnl IS NULL OR (gross_pnl = 0 AND net_pnl = 0 AND exit_price = entry_price)`), but that backfill is part of the migration.
-- **Idempotent** — `trade_repair_events` already has unique constraints on `(trade_id, action)` semantics in the codebase; re-running sync on the same stale ticket is a no-op.
-- **Reversible** — if anything misbehaves, drop the column and revert the two functions.
+Pass the metric's unit (`$`, `R`, `%`, or none) alongside the delta so the rendered chip reads `+$1,500` / `+1.2R` / `+3.5%` instead of a bare number. No formula change, just formatting.
 
-## Out of scope
+### Technical notes
 
-- Splitting `ingest-events` (1151 LOC). Big, separate refactor.
-- Cron scheduling for `repair-snapshot-closed`. Stays manual/UI-triggered for now.
-- Playbooks.tsx god-file split (separate turn, deferred earlier).
+- All changes are confined to two presentation files: `src/components/dashboard/EquityCurve.tsx` and `src/components/reports/ReportView.tsx`.
+- No edge function, schema, or hook changes required — the underlying numbers (`periodPnl`, `previousPeriodPnl`, `startingBalance`, server-side `deltas`) are already correct.
+- No DB migration.
+
+### Out of scope
+
+- Server-side deltas in `generate-report` (already absolute, already correct).
+- Bounded-ratio percentages (win rate, compliance, etc.) — these are correct.

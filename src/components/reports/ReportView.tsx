@@ -68,14 +68,23 @@ function gradeColors(grade: string | null | undefined) {
   return { text: "text-destructive", from: "from-destructive/15" };
 }
 
-function DeltaCell({ value, invert = false }: { value: number | undefined; invert?: boolean }) {
+function DeltaCell({ value, invert = false, unit = "" }: { value: number | undefined; invert?: boolean; unit?: "$" | "R" | "%" | "" }) {
   if (value == null || !isFinite(value) || value === 0) return null;
   const positive = invert ? value < 0 : value > 0;
   const Icon = value > 0 ? TrendingUp : TrendingDown;
+  const abs = Math.abs(value);
+  const formatted =
+    unit === "$"
+      ? `${value > 0 ? "+" : "-"}$${abs.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+      : unit === "R"
+      ? `${value > 0 ? "+" : ""}${value.toFixed(2)}R`
+      : unit === "%"
+      ? `${value > 0 ? "+" : ""}${value.toFixed(1)}%`
+      : `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
   return (
     <span className={`inline-flex items-center gap-0.5 text-xs ${positive ? "text-success" : "text-destructive"}`}>
       <Icon className="w-3 h-3" />
-      {value > 0 ? "+" : ""}{value.toFixed(2)}
+      {formatted}
     </span>
   );
 }
@@ -293,20 +302,20 @@ export function ReportView({ report }: Props) {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
-                {[
-                  { label: "Net P&L", value: `$${formatNum(m?.total_pnl, 0)}`, delta: d.total_pnl },
-                  { label: "Total R", value: `${formatNum(m?.total_r, 1)}R`, delta: d.total_r },
-                  { label: "Trades", value: `${m?.trade_count ?? 0}`, delta: d.trade_count },
-                  { label: "Win rate", value: `${formatNum(m?.win_rate, 1)}%`, delta: d.win_rate },
-                  { label: "Profit factor", value: formatNum(m?.profit_factor), delta: d.profit_factor },
-                  { label: "Expectancy", value: `${formatNum(m?.expectancy_r)}R`, delta: d.expectancy_r },
-                  { label: "Max DD", value: `${formatNum(m?.max_drawdown_r)}R`, delta: d.max_drawdown_r, invert: true },
-                  { label: "Checklist", value: m?.checklist_compliance_pct != null ? `${formatNum(m.checklist_compliance_pct, 0)}%` : "—", delta: d.checklist_compliance_pct },
-                ].map((cell) => (
+                {([
+                  { label: "Net P&L", value: `$${formatNum(m?.total_pnl, 0)}`, delta: d.total_pnl, unit: "$" as const },
+                  { label: "Total R", value: `${formatNum(m?.total_r, 1)}R`, delta: d.total_r, unit: "R" as const },
+                  { label: "Trades", value: `${m?.trade_count ?? 0}`, delta: d.trade_count, unit: "" as const },
+                  { label: "Win rate", value: `${formatNum(m?.win_rate, 1)}%`, delta: d.win_rate, unit: "%" as const },
+                  { label: "Profit factor", value: formatNum(m?.profit_factor), delta: d.profit_factor, unit: "" as const },
+                  { label: "Expectancy", value: `${formatNum(m?.expectancy_r)}R`, delta: d.expectancy_r, unit: "R" as const },
+                  { label: "Max DD", value: `${formatNum(m?.max_drawdown_r)}R`, delta: d.max_drawdown_r, invert: true, unit: "R" as const },
+                  { label: "Checklist", value: m?.checklist_compliance_pct != null ? `${formatNum(m.checklist_compliance_pct, 0)}%` : "—", delta: d.checklist_compliance_pct, unit: "%" as const },
+                ]).map((cell) => (
                   <div key={cell.label}>
                     <div className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">{cell.label}</div>
                     <div className="text-xl font-semibold mt-1 tabular-nums">{cell.value}</div>
-                    <div className="h-4 mt-0.5"><DeltaCell value={cell.delta as number | undefined} invert={cell.invert} /></div>
+                    <div className="h-4 mt-0.5"><DeltaCell value={cell.delta as number | undefined} invert={(cell as any).invert} unit={cell.unit} /></div>
                   </div>
                 ))}
               </div>

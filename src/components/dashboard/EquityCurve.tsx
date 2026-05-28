@@ -183,12 +183,19 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
 
     const prevIsProfit = previousPeriodPnl >= 0;
     const delta = periodPnl - previousPeriodPnl;
-    const deltaPercent =
-      previousPeriodPnl !== 0
-        ? ((delta / Math.abs(previousPeriodPnl)) * 100).toFixed(0)
-        : periodPnl !== 0
-        ? "100"
-        : "0";
+    // Show $ delta as the primary comparison (P&L is a flow — "% change of P&L" is meaningless,
+    // especially when sign flips). Secondary % is share of starting balance, only when sane.
+    const deltaAbs = Math.abs(delta);
+    const deltaDollar = `${delta >= 0 ? "+" : "-"}$${deltaAbs.toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    })}`;
+    const signFlipped =
+      (periodPnl > 0 && previousPeriodPnl < 0) || (periodPnl < 0 && previousPeriodPnl > 0);
+    const deltaBalancePct =
+      !signFlipped && startingBalance > 0
+        ? ((delta / startingBalance) * 100).toFixed(1)
+        : null;
 
     const isBetter = delta > 0;
     const isWorse = delta < 0;
@@ -303,8 +310,13 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
                     ) : (
                       <TrendingDown className="w-3 h-3" />
                     )}
-                    {isBetter ? "+" : ""}
-                    {deltaPercent}%
+                    <span title={deltaBalancePct ? `${delta >= 0 ? "+" : ""}${deltaBalancePct}% of starting balance` : undefined}>
+                      {deltaDollar}
+                      {deltaBalancePct && (
+                        <span className="opacity-70 ml-1">({delta >= 0 ? "+" : ""}{deltaBalancePct}%)</span>
+                      )}
+                      {signFlipped && <span className="opacity-70 ml-1">(flipped)</span>}
+                    </span>
                   </span>
                 )}
                 {isSame && (
