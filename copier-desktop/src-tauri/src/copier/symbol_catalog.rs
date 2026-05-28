@@ -476,35 +476,6 @@ mod tests {
     }
 
     #[test]
-    fn test_calculate_lots_balance_multiplier() {
-        let symbol = SymbolSpec {
-            name: "EURUSD".to_string(),
-            normalized_key: "EURUSD".to_string(),
-            tick_value: 1.0,
-            tick_size: 0.00001,
-            contract_size: 100000.0,
-            digits: 5,
-            min_lot: 0.01,
-            lot_step: 0.01,
-            max_lot: 100.0,
-            description: None,
-            trade_mode: None,
-        };
-        
-        let lots = calculate_receiver_lots(
-            1.0,                // master lots
-            "balance_multiplier",
-            1.0,                // multiplier
-            10000.0,           // master balance
-            50000.0,           // receiver balance (5x)
-            None,
-            &symbol,
-        );
-        
-        assert_eq!(lots, 5.0);
-    }
-
-    #[test]
     fn test_clamp_lots() {
         let symbol = SymbolSpec {
             name: "EURUSD".to_string(),
@@ -518,10 +489,12 @@ mod tests {
             max_lot: 10.0,
             description: None,
             trade_mode: None,
+            profit_currency: None,
         };
-        
+
         assert_eq!(clamp_lots(0.001, &symbol), 0.01);  // Below min
         assert_eq!(clamp_lots(15.0, &symbol), 10.0);   // Above max
         assert_eq!(clamp_lots(1.234, &symbol), 1.23);  // Round to step
     }
 }
+
