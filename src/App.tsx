@@ -26,7 +26,18 @@ import SharedReportEditor from "./pages/SharedReportEditor";
 import PublicReport from "./pages/PublicReport";
 import Knowledge from "./pages/Knowledge";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Most data is per-user and changes infrequently; one-minute freshness
+      // kills the bulk of redundant refetches when navigating between pages.
+      staleTime: 60_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const QueryClientProvider = QCP;
 const BrowserRouter = BR;
