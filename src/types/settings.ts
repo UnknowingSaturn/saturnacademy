@@ -99,7 +99,8 @@ export type DetailSectionKey =
   | 'mistakes'
   | 'did_well'
   | 'to_improve'
-  | 'actionable_steps';
+  | 'actionable_steps'
+  | 'comments';
 
 export interface DetailSectionDef {
   key: DetailSectionKey;
@@ -164,6 +165,7 @@ export const DETAIL_SECTION_CATALOG: DetailSectionDef[] = [
   { key: 'did_well',          label: 'What I Did Well',    defaultVisible: true },
   { key: 'to_improve',        label: 'To Improve',         defaultVisible: true },
   { key: 'actionable_steps',  label: 'Actionable Steps',   defaultVisible: true },
+  { key: 'comments',          label: 'Comments & Notes',   defaultVisible: true },
 ];
 
 export const DEFAULT_DETAIL_VISIBLE_FIELDS = DETAIL_FIELD_CATALOG.filter(f => f.defaultVisible).map(f => f.key);
