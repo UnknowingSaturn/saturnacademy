@@ -47,8 +47,6 @@ export interface Account {
   copier_role: CopierRole;
   master_account_id: string | null;
   copier_enabled: boolean;
-  // EA type from installation
-  ea_type: EAType | null;
   // Historical sync settings
   sync_history_enabled: boolean;
   sync_history_from: string | null;
