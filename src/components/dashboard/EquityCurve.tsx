@@ -270,44 +270,6 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
                 </p>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/50">
-                <span className="text-xs text-muted-foreground">
-                  Last {periodLabel}:{" "}
-                  <span className={prevIsProfit ? "text-profit/80" : "text-loss/80"}>
-                    {previousPeriodPnl >= 0 ? "+" : ""}$
-                    {previousPeriodPnl.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                </span>
-                {!isSame && (
-                  <span
-                    className={`inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded ${
-                      isBetter ? "bg-profit/15 text-profit" : "bg-loss/15 text-loss"
-                    }`}
-                  >
-                    {isBetter ? (
-                      <TrendingUp className="w-3 h-3" />
-                    ) : (
-                      <TrendingDown className="w-3 h-3" />
-                    )}
-                    <span title={deltaBalancePct ? `${delta >= 0 ? "+" : ""}${deltaBalancePct}% of starting balance` : undefined}>
-                      {deltaDollar}
-                      {deltaBalancePct && (
-                        <span className="opacity-70 ml-1">({delta >= 0 ? "+" : ""}{deltaBalancePct}%)</span>
-                      )}
-                      {signFlipped && <span className="opacity-70 ml-1">(flipped)</span>}
-                    </span>
-                  </span>
-                )}
-                {isSame && (
-                  <span className="inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                    <Minus className="w-3 h-3" />
-                    Same
-                  </span>
-                )}
-              </div>
             </div>
           </div>
 
