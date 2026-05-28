@@ -7,7 +7,7 @@ import {
   LayoutDashboard,
   List,
   Settings,
-  Sliders,
+  
   Users,
   Wand2,
   Wifi,
@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { CopierStatus } from "../types";
 
-export type NavItem = "dashboard" | "positions" | "receivers" | "configuration" | "activity" | "terminals" | "diagnostics" | "settings";
+export type NavItem = "dashboard" | "positions" | "receivers" | "activity" | "terminals" | "diagnostics" | "settings";
 
 interface SidebarProps {
   activeItem: NavItem;
@@ -162,13 +162,6 @@ export default function Sidebar({ activeItem, onNavigate, onShowWizard, status, 
           active={activeItem === "receivers"}
           collapsed={collapsed}
           onClick={() => onNavigate("receivers")}
-        />
-        <NavButton
-          icon={Sliders}
-          label="Configuration"
-          active={activeItem === "configuration"}
-          collapsed={collapsed}
-          onClick={() => onNavigate("configuration")}
         />
         <NavButton
           icon={Activity}
