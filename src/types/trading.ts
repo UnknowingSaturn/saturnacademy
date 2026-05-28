@@ -26,7 +26,7 @@ export interface Profile {
 }
 
 export type CopierRole = 'independent' | 'master' | 'receiver';
-export type EAType = 'journal' | 'master' | 'receiver';
+
 
 export interface Account {
   id: string;
