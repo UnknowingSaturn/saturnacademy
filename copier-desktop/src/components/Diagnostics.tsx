@@ -13,32 +13,9 @@ import {
   Layers,
   XCircle,
   Download,
-  Play,
-  Pause,
-  RotateCcw,
 } from "lucide-react";
 import { DiagnosticsInfo } from "../types";
 
-interface ReconciliationStatus {
-  config: {
-    enabled: boolean;
-    interval_secs: number;
-    auto_close_orphaned: boolean;
-    auto_open_missing: boolean;
-    auto_adjust_volume: boolean;
-    auto_sync_sl_tp: boolean;
-  };
-  last_run: string | null;
-  recent_actions: Array<{
-    timestamp: string;
-    receiver_id: string;
-    action_type: string;
-    symbol: string;
-    details: string;
-    success: boolean;
-    error: string | null;
-  }>;
-}
 
 interface DiscoveryDebug {
   total: number;
@@ -52,23 +29,19 @@ interface DiscoveryDebug {
 
 export default function Diagnostics() {
   const [diagnostics, setDiagnostics] = useState<DiagnosticsInfo | null>(null);
-  const [reconStatus, setReconStatus] = useState<ReconciliationStatus | null>(null);
   const [discoveryDebug, setDiscoveryDebug] = useState<DiscoveryDebug | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [exporting, setExporting] = useState(false);
-  const [runningRecon, setRunningRecon] = useState(false);
 
   const fetchDiagnostics = async () => {
     try {
-      const [data, recon, debug] = await Promise.all([
+      const [data, debug] = await Promise.all([
         invoke<DiagnosticsInfo>("get_diagnostics"),
-        invoke<ReconciliationStatus>("get_recon_status"),
         invoke<DiscoveryDebug>("get_discovery_debug").catch(() => null),
       ]);
       setDiagnostics(data);
-      setReconStatus(recon);
       setDiscoveryDebug(debug);
       setError(null);
     } catch (err) {
@@ -97,36 +70,6 @@ export default function Diagnostics() {
     }
   };
 
-  const handleRunReconciliation = async () => {
-    try {
-      setRunningRecon(true);
-      const result = await invoke<{ discrepancy_count: number }>("run_reconciliation_now");
-      alert(`Reconciliation complete: ${result.discrepancy_count} discrepancies found`);
-      fetchDiagnostics();
-    } catch (err) {
-      alert(`Reconciliation failed: ${err}`);
-    } finally {
-      setRunningRecon(false);
-    }
-  };
-
-  const handleToggleRecon = async (enabled: boolean) => {
-    try {
-      if (reconStatus) {
-        await invoke("update_recon_config", {
-          config: { ...reconStatus.config, enabled },
-        });
-        if (enabled) {
-          await invoke("start_recon_loop");
-        } else {
-          await invoke("stop_recon_loop");
-        }
-        fetchDiagnostics();
-      }
-    } catch (err) {
-      alert(`Failed to toggle reconciliation: ${err}`);
-    }
-  };
 
   useEffect(() => {
     fetchDiagnostics();
@@ -364,93 +307,6 @@ export default function Diagnostics() {
             </div>
           </div>
 
-          {/* Reconciliation Status */}
-          {reconStatus && (
-            <div className="bg-card border border-border rounded-lg overflow-hidden">
-              <div className="px-4 py-3 border-b border-border bg-muted/50 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <RotateCcw className="w-4 h-4 text-primary" />
-                  <h3 className="text-sm font-semibold">Automatic Reconciliation</h3>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleRunReconciliation}
-                    disabled={runningRecon}
-                    className="flex items-center gap-1 px-2 py-1 text-xs border border-border rounded hover:bg-accent disabled:opacity-50"
-                  >
-                    <Play className={`w-3 h-3 ${runningRecon ? "animate-pulse" : ""}`} />
-                    Run Now
-                  </button>
-                  <button
-                    onClick={() => handleToggleRecon(!reconStatus.config.enabled)}
-                    className={`flex items-center gap-1 px-2 py-1 text-xs border rounded ${
-                      reconStatus.config.enabled
-                        ? "bg-green-500/20 text-green-500 border-green-500/30"
-                        : "border-border hover:bg-accent"
-                    }`}
-                  >
-                    {reconStatus.config.enabled ? (
-                      <>
-                        <Pause className="w-3 h-3" />
-                        Enabled
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-3 h-3" />
-                        Disabled
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-              <div className="p-4 space-y-3">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Interval</span>
-                    <p className="font-medium">{reconStatus.config.interval_secs}s</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Last Run</span>
-                    <p className="font-medium">
-                      {reconStatus.last_run
-                        ? new Date(reconStatus.last_run).toLocaleTimeString()
-                        : "Never"}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Auto-close Orphaned</span>
-                    <p className="font-medium">{reconStatus.config.auto_close_orphaned ? "Yes" : "No"}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Auto-sync SL/TP</span>
-                    <p className="font-medium">{reconStatus.config.auto_sync_sl_tp ? "Yes" : "No"}</p>
-                  </div>
-                </div>
-                
-                {reconStatus.recent_actions.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-border">
-                    <p className="text-xs text-muted-foreground mb-2">Recent Actions</p>
-                    <div className="max-h-24 overflow-y-auto space-y-1">
-                      {reconStatus.recent_actions.slice(0, 5).map((action, i) => (
-                        <div key={i} className="flex items-center gap-2 text-xs">
-                          {action.success ? (
-                            <CheckCircle2 className="w-3 h-3 text-green-500" />
-                          ) : (
-                            <XCircle className="w-3 h-3 text-red-500" />
-                          )}
-                          <span className="text-muted-foreground">
-                            {new Date(action.timestamp).toLocaleTimeString()}
-                          </span>
-                          <span className="font-mono">{action.symbol}</span>
-                          <span>{action.action_type}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Idempotency Keys */}
           <div className="bg-card border border-border rounded-lg p-4">
