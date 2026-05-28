@@ -264,9 +264,8 @@ function Dashboard() {
           </p>
         </div>
         )}
-      </div>
-    );
-  }
-);
+    </div>
+  );
+}
 
 export default Dashboard;
