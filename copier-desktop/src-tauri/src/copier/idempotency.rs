@@ -160,29 +160,30 @@ pub fn mark_event_processed(idempotency_key: &str) {
     }
 }
 
-/// Generate an idempotency key from event data
-/// Now includes deal_id for uniqueness across partial closes and reopens
-pub fn generate_idempotency_key(
+/// Build the canonical idempotency key used end-to-end.
+///
+/// Format: `{terminal_id}:{deal_id_or_position_id}:{event_type}`.
+/// This matches what the Master EA writes into each event JSON, what the
+/// Receiver execution log stores, and what the cloud's `events.idempotency_key`
+/// column expects.
+///
+/// Used only as a fallback when the EA-supplied `idempotency_key` is missing
+/// from the event file (older EA versions). The file watcher prefers the
+/// EA-supplied value verbatim.
+pub fn build_canonical_key(
+    terminal_id: &str,
+    deal_or_position_id: i64,
     event_type: &str,
-    ticket: i64,
-    deal_id: i64,
-    symbol: &str,
-    timestamp: &str,
 ) -> String {
-    // Include deal_id to differentiate between different deals on the same position
-    // This prevents issues where:
-    // 1. A partial close creates a new deal on the same position
-    // 2. A position is closed and a new one opened with same ticket
-    format!("{}:{}:{}:{}:{}", event_type, ticket, deal_id, symbol, timestamp)
+    format!("{}:{}:{}", terminal_id, deal_or_position_id, event_type)
 }
 
 /// Generate idempotency key for modify events (no deal_id)
 pub fn generate_modify_idempotency_key(
+    terminal_id: &str,
     position_id: i64,
-    symbol: &str,
-    timestamp: &str,
 ) -> String {
-    format!("modify:{}:{}:{}", position_id, symbol, timestamp)
+    format!("{}:{}:modify", terminal_id, position_id)
 }
 
 /// Clear all processed keys (for testing or reset)
