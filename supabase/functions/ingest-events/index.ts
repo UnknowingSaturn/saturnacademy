@@ -294,7 +294,7 @@ serve(async (req) => {
         live_state: "live",
       };
       if (payload.account_info?.equity) liveBump.equity_current = payload.account_info.equity;
-      if (payload.ea_type) liveBump.ea_type = payload.ea_type;
+      // ea_type payload field ignored — copier_role is the single source of truth.
       await supabase.from("accounts").update(liveBump).eq("id", account.id);
     }
 
