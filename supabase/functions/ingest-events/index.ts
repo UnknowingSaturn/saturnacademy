@@ -5,6 +5,8 @@ import { classifySession, loadSessions } from "../_shared/session.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { resolveUserFromApiKey } from "../_shared/apiKey.ts";
 import { isPendingRepair } from "../_shared/snapshotRepair.ts";
+import { computeNetPnl } from "../_shared/pnl.ts";
+import { insertRepairEvent } from "../_shared/repairEvent.ts";
 
 interface AccountInfo {
   login: number;
