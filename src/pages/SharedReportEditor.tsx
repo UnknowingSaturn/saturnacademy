@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSharedReport, useUpdateSharedReport, useAddTradeToReport, useUpdateReportTrade, useRemoveTradeFromReport, useDeleteSharedReport } from "@/hooks/useSharedReports";
 import { useTrades } from "@/hooks/useTrades";
@@ -25,16 +25,7 @@ import {
   differenceInCalendarDays,
   formatDistanceToNow,
 } from "date-fns";
-// Simple inline debounced callback hook
-function useDebouncedCallback<T extends (...args: any[]) => void>(fn: T, delay: number) {
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fnRef = useRef(fn);
-  fnRef.current = fn;
-  return useCallback((...args: Parameters<T>) => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => fnRef.current(...args), delay);
-  }, [delay]);
-}
+import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { toast } from "sonner";
 import type { PublicTradeCard } from "@/types/sharedReports";
 

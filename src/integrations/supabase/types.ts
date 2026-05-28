@@ -2189,6 +2189,7 @@ export type Database = {
       }
     }
     Functions: {
+      has_trade_access: { Args: { _trade_id: string }; Returns: boolean }
       increment_shared_report_view: {
         Args: { p_report_id: string }
         Returns: undefined
