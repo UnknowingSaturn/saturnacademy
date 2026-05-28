@@ -152,7 +152,7 @@ export function useUpdateUserSettings() {
       if (updates.column_order) dbUpdates.column_order = updates.column_order;
       if (updates.column_overrides !== undefined) dbUpdates.column_overrides = updates.column_overrides as any;
       if (updates.default_filters) dbUpdates.default_filters = updates.default_filters as any;
-      if (updates.live_trade_questions) dbUpdates.live_trade_questions = updates.live_trade_questions as any;
+      // live_trade_questions moved to useLiveTradeQuestions()
       if (updates.display_timezone) dbUpdates.display_timezone = updates.display_timezone;
       if (updates.detail_visible_fields !== undefined) dbUpdates.detail_visible_fields = updates.detail_visible_fields as any;
       if (updates.detail_field_order !== undefined) dbUpdates.detail_field_order = updates.detail_field_order as any;
