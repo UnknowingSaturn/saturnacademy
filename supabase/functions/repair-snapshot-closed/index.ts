@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { isPendingRepair } from "../_shared/snapshotRepair.ts";
+import { computeNetPnl } from "../_shared/pnl.ts";
+import { insertRepairEvent } from "../_shared/repairEvent.ts";
 
 /**
  * Repair "snapshot_closed" trades for a given account by re-matching them
@@ -140,7 +142,7 @@ serve(async (req) => {
       const grossPnl = Number(exitEvent.profit) || 0;
       const commission = Number(exitEvent.commission) || 0;
       const swap = Number(exitEvent.swap) || 0;
-      const netPnl = grossPnl - commission - Math.abs(swap);
+      const netPnl = computeNetPnl(grossPnl, commission, swap);
 
       const duration = Math.floor(
         (new Date(exitEvent.event_timestamp).getTime() -
@@ -183,9 +185,9 @@ serve(async (req) => {
       await admin.from("trades").update(update).eq("id", trade.id);
 
       // Typed repair event
-      await admin.from("trade_repair_events").insert({
-        user_id: user.id,
-        trade_id: trade.id,
+      await insertRepairEvent(admin, {
+        userId: user.id,
+        tradeId: trade.id,
         action: "repaired_from_snapshot",
         source: "manual_repair_snapshot_closed",
         metadata: {
@@ -193,7 +195,6 @@ serve(async (req) => {
           ticket: trade.ticket ?? null,
           reassigned: exitEvent.account_id !== trade.account_id,
         },
-        applied_at: new Date().toISOString(),
       });
 
       repaired++;

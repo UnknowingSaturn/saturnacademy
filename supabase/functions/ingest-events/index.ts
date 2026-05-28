@@ -5,6 +5,8 @@ import { classifySession, loadSessions } from "../_shared/session.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { resolveUserFromApiKey } from "../_shared/apiKey.ts";
 import { isPendingRepair } from "../_shared/snapshotRepair.ts";
+import { computeNetPnl } from "../_shared/pnl.ts";
+import { insertRepairEvent } from "../_shared/repairEvent.ts";
 
 interface AccountInfo {
   login: number;
@@ -718,7 +720,7 @@ async function tryRepairSiblingSnapshotClosed(
     const grossPnl = Number(event.profit) || 0;
     const commission = Number(event.commission) || 0;
     const swap = Number(event.swap) || 0;
-    const netPnl = grossPnl - commission - Math.abs(swap);
+    const netPnl = computeNetPnl(grossPnl, commission, swap);
     const duration = Math.floor(
       (new Date(event.event_timestamp).getTime() -
         new Date(candidate.entry_time).getTime()) / 1000
@@ -754,13 +756,12 @@ async function tryRepairSiblingSnapshotClosed(
     }).eq("id", candidate.id);
 
     // Typed repair event (Phase 3 — no more JSONB markers).
-    await supabase.from("trade_repair_events").insert({
-      user_id: userId,
-      trade_id: candidate.id,
+    await insertRepairEvent(supabase, {
+      userId,
+      tradeId: candidate.id,
       action: "repaired_from_snapshot",
       source: "ingest_sibling_repair",
       metadata: { net_pnl: netPnl, ticket: Number(ticket), note: "Auto-repaired on ingest from sibling login on same MT5 install" },
-      applied_at: new Date().toISOString(),
     });
 
     console.log("AUTO-REPAIR: healed sibling snapshot_closed trade", candidate.id, "ticket:", ticket, "PnL:", netPnl);
@@ -871,13 +872,12 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
           tp_final: event.tp || existingTrade.tp_final,
         }).eq("id", existingTrade.id);
 
-        await supabase.from("trade_repair_events").insert({
-          user_id: userId,
-          trade_id: existingTrade.id,
+        await insertRepairEvent(supabase, {
+          userId,
+          tradeId: existingTrade.id,
           action: "repaired_reopened",
           source: "ingest_entry_reopen",
           metadata: { ticket, note: "Reopened after EA reconnect — trade is still live in MT5" },
-          applied_at: new Date().toISOString(),
         });
       } else {
         console.log("Trade already exists for position:", ticket);
@@ -943,7 +943,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       const grossPnl = event.profit || 0;
       const commission = event.commission || 0;
       const swap = event.swap || 0;
-      const netPnl = grossPnl - commission - Math.abs(swap);
+      const netPnl = computeNetPnl(grossPnl, commission, swap);
       
       const equityAtEntry = rawPayload.equity_at_entry || originalPayload.equity_at_entry || currentEquity;
       const rMultiple = computeRMultiple({
@@ -1060,7 +1060,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
       totalCommission += existingTrade.commission || 0;
       totalSwap += existingTrade.swap || 0;
 
-      const netPnl = totalGrossPnl - totalCommission - Math.abs(totalSwap);
+      const netPnl = computeNetPnl(totalGrossPnl, totalCommission, totalSwap);
 
       const rMultiple = computeRMultiple({
         entryPrice: existingTrade.entry_price,
@@ -1077,7 +1077,7 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
               time: f.occurred_at,
               lots: Number(f.lots),
               price: Number(f.price),
-              pnl: (Number(f.profit) || 0) - (Number(f.commission) || 0) - Math.abs(Number(f.swap) || 0),
+              pnl: computeNetPnl(Number(f.profit) || 0, Number(f.commission) || 0, Number(f.swap) || 0),
             }))
           : null,
       });
@@ -1106,13 +1106,12 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
 
       // Typed repair event when this close was a snapshot repair
       if (isRepair) {
-        await supabase.from("trade_repair_events").insert({
-          user_id: userId,
-          trade_id: existingTrade.id,
+        await insertRepairEvent(supabase, {
+          userId,
+          tradeId: existingTrade.id,
           action: "repaired_from_snapshot",
           source: "ingest_full_close_repair",
           metadata: { net_pnl: netPnl, ticket, note: "Real PnL recovered from MT5 deal history after EA reconnect" },
-          applied_at: new Date().toISOString(),
         });
       }
 

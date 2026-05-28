@@ -18,6 +18,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { resolveUserFromApiKey } from "../_shared/apiKey.ts";
+import { insertRepairEvent } from "../_shared/repairEvent.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -204,13 +205,12 @@ serve(async (req) => {
           .maybeSingle();
 
         if (!existingMarker) {
-          await supabase.from("trade_repair_events").insert({
-            user_id: account.user_id,
-            trade_id: t.id,
+          await insertRepairEvent(supabase, {
+            userId: account.user_id,
+            tradeId: t.id,
             action: "snapshot_closed",
             source: "sync_account_state_reaper",
             metadata: { ticket: t.ticket, reason: "ticket_not_in_open_list" },
-            applied_at: new Date().toISOString(),
           });
         }
 
