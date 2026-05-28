@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Trade } from "@/types/trading";
 import { format } from "date-fns";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+
 import type { BalanceSnapshot } from "@/hooks/useBalanceHistory";
 
 interface AccountSlim {
@@ -181,25 +181,7 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
         : "0.00";
 
 
-    const prevIsProfit = previousPeriodPnl >= 0;
-    const delta = periodPnl - previousPeriodPnl;
-    // Show $ delta as the primary comparison (P&L is a flow — "% change of P&L" is meaningless,
-    // especially when sign flips). Secondary % is share of starting balance, only when sane.
-    const deltaAbs = Math.abs(delta);
-    const deltaDollar = `${delta >= 0 ? "+" : "-"}$${deltaAbs.toLocaleString(undefined, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    })}`;
-    const signFlipped =
-      (periodPnl > 0 && previousPeriodPnl < 0) || (periodPnl < 0 && previousPeriodPnl > 0);
-    const deltaBalancePct =
-      !signFlipped && startingBalance > 0
-        ? ((delta / startingBalance) * 100).toFixed(1)
-        : null;
 
-    const isBetter = delta > 0;
-    const isWorse = delta < 0;
-    const isSame = delta === 0;
 
     // Chart data + formatters depending on mode
     const chartData = isMulti && multiData
@@ -288,44 +270,6 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
                 </p>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/50">
-                <span className="text-xs text-muted-foreground">
-                  Last {periodLabel}:{" "}
-                  <span className={prevIsProfit ? "text-profit/80" : "text-loss/80"}>
-                    {previousPeriodPnl >= 0 ? "+" : ""}$
-                    {previousPeriodPnl.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                </span>
-                {!isSame && (
-                  <span
-                    className={`inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded ${
-                      isBetter ? "bg-profit/15 text-profit" : "bg-loss/15 text-loss"
-                    }`}
-                  >
-                    {isBetter ? (
-                      <TrendingUp className="w-3 h-3" />
-                    ) : (
-                      <TrendingDown className="w-3 h-3" />
-                    )}
-                    <span title={deltaBalancePct ? `${delta >= 0 ? "+" : ""}${deltaBalancePct}% of starting balance` : undefined}>
-                      {deltaDollar}
-                      {deltaBalancePct && (
-                        <span className="opacity-70 ml-1">({delta >= 0 ? "+" : ""}{deltaBalancePct}%)</span>
-                      )}
-                      {signFlipped && <span className="opacity-70 ml-1">(flipped)</span>}
-                    </span>
-                  </span>
-                )}
-                {isSame && (
-                  <span className="inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                    <Minus className="w-3 h-3" />
-                    Same
-                  </span>
-                )}
-              </div>
             </div>
           </div>
 
