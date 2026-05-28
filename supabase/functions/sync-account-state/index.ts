@@ -46,24 +46,7 @@ serve(async (req) => {
     );
 
     // Resolve user from API key (account.api_key OR active setup_token)
-    const { data: accForKey } = await supabase
-      .from("accounts")
-      .select("id, user_id")
-      .eq("api_key", apiKey)
-      .eq("is_active", true)
-      .limit(1)
-      .maybeSingle();
-
-    let userId: string | null = accForKey?.user_id ?? null;
-    if (!userId) {
-      const { data: tok } = await supabase
-        .from("setup_tokens")
-        .select("user_id, used")
-        .eq("token", apiKey)
-        .gt("expires_at", new Date().toISOString())
-        .maybeSingle();
-      if (tok && !tok.used) userId = tok.user_id;
-    }
+    const { userId, accountForKey: accForKey } = await resolveUserFromApiKey(supabase, apiKey);
     if (!userId) return jsonError("Invalid API key", 401);
 
     // ---- Resolution cascade ----
