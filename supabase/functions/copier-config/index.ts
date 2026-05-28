@@ -125,13 +125,11 @@ serve(async (req) => {
     }
 
     // Get all receiver accounts (or just this one if receiver is requesting)
-    // Must have copier_role AND ea_type = receiver
     let receiverQuery = supabase
       .from('accounts')
       .select('id, name, broker, terminal_id, master_account_id')
       .eq('user_id', userId)
       .eq('copier_role', 'receiver')
-      .eq('ea_type', 'receiver')
       .eq('copier_enabled', true)
       .eq('master_account_id', masterAccount.id);
 
