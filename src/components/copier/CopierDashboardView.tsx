@@ -61,13 +61,9 @@ export function CopierDashboardView() {
   const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo>(DEFAULT_RELEASE);
   const [loadingRelease, setLoadingRelease] = useState(true);
 
-  // Derive master and receiver accounts
-  const masterAccount = accounts?.find(a => 
-    a.copier_role === 'master' && a.ea_type === 'master'
-  );
-  const receiverAccounts = accounts?.filter(a => 
-    a.copier_role === 'receiver' && a.ea_type === 'receiver'
-  ) || [];
+  // Derive master and receiver accounts from copier_role (single source of truth).
+  const masterAccount = accounts?.find(a => a.copier_role === 'master');
+  const receiverAccounts = accounts?.filter(a => a.copier_role === 'receiver') || [];
   const hasCopierSetup = masterAccount || receiverAccounts.length > 0;
 
   // Config details

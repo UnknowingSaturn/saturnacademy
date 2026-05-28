@@ -77,6 +77,12 @@ Investigation showed the column had 0 rows of data, 0 readers, 0 writers — lef
 - Migration drops the enum and converts `trades.session` to `text` and `playbooks.session_filter` to `text[]`; `trade_view` recreated to pick up the new column type.
 - TS `SessionType` widened to `string` (with `KNOWN_SESSIONS` const exported for UI defaults), so user-defined sessions from `session_definitions` can flow through trades/playbooks without enum churn on every new entry.
 
+## ✅ R11 partial — SHIPPED (2026-05-28) — `ea_type` collapsed into `copier_role`
+- Dropped `accounts.ea_type` column and the `ea_type` enum; `idx_accounts_copier` recreated without it.
+- `copier_role` is now the single source of truth for an account's copier intent; runtime EA presence is observable via `last_heartbeat_at`/`live_state` rather than a parallel column.
+- Edge functions (`ingest-events`, `copier-config`, `sync-account-state`) no longer read or write `ea_type`; payload field is accepted but ignored for backward compatibility with older EA builds.
+- Frontend (`Copier.tsx`, `CopierDashboardView.tsx`) filters by `copier_role` alone; removed `EAType` from `src/types/trading.ts` and `src/types/copier.ts`.
+
 ## ⏸ R1 — SKIPPED per user
 Bundled `resources/` EAs intentionally fused with bridge + cloud logic; collapsing to `mt5-bridge/` would regress live receivers. Revisit only with a feature-by-feature merge plan.
 

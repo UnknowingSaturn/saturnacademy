@@ -74,7 +74,7 @@ serve(async (req) => {
       const { data: sibling } = await supabase
         .from("accounts")
         .select(
-          "id, api_key, copier_role, master_account_id, sync_history_enabled, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile, ea_type",
+          "id, api_key, copier_role, master_account_id, sync_history_enabled, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile",
         )
         .eq("user_id", userId)
         .eq("mt5_install_id", installId)
@@ -102,7 +102,6 @@ serve(async (req) => {
           broker: (sibling as any).broker,
           broker_utc_offset: (sibling as any).broker_utc_offset,
           broker_dst_profile: (sibling as any).broker_dst_profile,
-          ea_type: (sibling as any).ea_type,
         };
 
         const { data: created, error: insErr } = await supabase

@@ -14,13 +14,9 @@ export default function Copier() {
   const { data: accounts } = useCopierAccounts();
   const [tutorialOpen, setTutorialOpen] = useState(false);
   
-  // Only show accounts where the actual copier EA is running (ea_type matches copier_role)
-  const masterAccount = accounts?.find(a => 
-    a.copier_role === 'master' && a.ea_type === 'master'
-  );
-  const receiverAccounts = accounts?.filter(a => 
-    a.copier_role === 'receiver' && a.ea_type === 'receiver'
-  ) || [];
+  // copier_role is the single source of truth for an account's copier intent.
+  const masterAccount = accounts?.find(a => a.copier_role === 'master');
+  const receiverAccounts = accounts?.filter(a => a.copier_role === 'receiver') || [];
   const hasCopierSetup = masterAccount || receiverAccounts.length > 0;
   
   return (

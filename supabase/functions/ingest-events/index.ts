@@ -127,7 +127,7 @@ serve(async (req) => {
     if (!account && payload.install_id) {
       const { data: byInstall } = await supabase
         .from("accounts")
-        .select("id, user_id, terminal_id, api_key, copier_role, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile, ea_type")
+        .select("id, user_id, terminal_id, api_key, copier_role, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile")
         .eq("user_id", userIdForKey)
         .eq("mt5_install_id", payload.install_id)
         .eq("is_active", true)
@@ -200,8 +200,6 @@ serve(async (req) => {
 
       const copierRole = installSibling?.copier_role ?? (setupToken.copier_role || 'independent');
       const isCopierAccount = copierRole !== 'independent';
-      const eaType = installSibling?.ea_type
-        ?? (copierRole !== 'independent' ? copierRole : (payload.ea_type || 'journal'));
 
       const accountName = `${payload.account_info.broker} - ${payload.account_info.login}`;
       const insertPayload: Record<string, unknown> = {
@@ -225,7 +223,6 @@ serve(async (req) => {
         copier_role: copierRole,
         copier_enabled: isCopierAccount,
         master_account_id: installSibling?.master_account_id ?? (setupToken.master_account_id || null),
-        ea_type: eaType,
       };
       if (typeof installSibling?.broker_utc_offset === 'number') insertPayload.broker_utc_offset = installSibling.broker_utc_offset;
       if (installSibling?.broker_dst_profile) insertPayload.broker_dst_profile = installSibling.broker_dst_profile;
@@ -297,7 +294,7 @@ serve(async (req) => {
         live_state: "live",
       };
       if (payload.account_info?.equity) liveBump.equity_current = payload.account_info.equity;
-      if (payload.ea_type) liveBump.ea_type = payload.ea_type;
+      // ea_type payload field ignored — copier_role is the single source of truth.
       await supabase.from("accounts").update(liveBump).eq("id", account.id);
     }
 
