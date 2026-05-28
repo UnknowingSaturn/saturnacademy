@@ -102,7 +102,6 @@ serve(async (req) => {
           broker: (sibling as any).broker,
           broker_utc_offset: (sibling as any).broker_utc_offset,
           broker_dst_profile: (sibling as any).broker_dst_profile,
-          ea_type: (sibling as any).ea_type,
         };
 
         const { data: created, error: insErr } = await supabase
