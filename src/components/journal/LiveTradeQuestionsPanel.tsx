@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Trade } from "@/types/trading";
 import { useUpsertTradeReview } from "@/hooks/useTrades";
-import { useUserSettings } from "@/hooks/useUserSettings";
+import { useLiveTradeQuestions } from "@/hooks/useUserSettings";
 import { useLiveTrades } from "@/contexts/LiveTradesContext";
 import { LiveTradeQuestion } from "@/types/settings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,11 +20,11 @@ interface LiveTradeQuestionsPanelProps {
 const PREFIX = "__live_questions.";
 
 export function LiveTradeQuestionsPanel({ trade, playbookId }: LiveTradeQuestionsPanelProps) {
-  const { data: settings } = useUserSettings();
+  const { data: questionsData } = useLiveTradeQuestions();
   const upsertReview = useUpsertTradeReview();
   const { registerPendingSave, unregisterPendingSave } = useLiveTrades();
 
-  const questions: LiveTradeQuestion[] = settings?.live_trade_questions || [];
+  const questions: LiveTradeQuestion[] = questionsData || [];
   const existingReview = trade.review;
 
   // Hydrate from review.checklist_answers using prefix
