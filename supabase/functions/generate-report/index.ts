@@ -1172,8 +1172,20 @@ serve(async (req) => {
     const baselineDays = new Set((baseTrades || []).map((t: any) => t.entry_time.slice(0, 10))).size || 1;
     const baselineTradesPerDay = (baseTrades?.length || 0) / baselineDays;
 
-    // user_settings for schema suggestions + prior report for goal evaluation
-    const { data: settings } = await admin.from('user_settings').select('live_trade_questions').eq('user_id', targetUserId).maybeSingle();
+    // Live-question definitions for schema suggestions (live questions now live in
+    // custom_field_definitions with scope='live_question')
+    const { data: liveQuestionRows } = await admin
+      .from('custom_field_definitions')
+      .select('key,label,type,options,is_active')
+      .eq('user_id', targetUserId)
+      .eq('scope', 'live_question')
+      .eq('is_active', true);
+    const liveQuestions = ((liveQuestionRows as any[]) || []).map((r) => ({
+      id: r.key,
+      label: r.label,
+      type: r.type,
+      options: Array.isArray(r.options) ? r.options : [],
+    }));
 
     const { data: priorReport } = await admin
       .from('reports')
@@ -1211,7 +1223,7 @@ serve(async (req) => {
     const suggestions = schemaSuggestions(
       trades as TradeRow[],
       reviews,
-      (settings?.live_trade_questions as any[]) || [],
+      liveQuestions,
       (customFieldDefs as any[]) || [],
     );
 

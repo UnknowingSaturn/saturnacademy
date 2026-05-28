@@ -116,17 +116,15 @@ export function ReportView({ report }: Props) {
     queryKey: ["existing_journal_fields", user?.id],
     enabled: !!user?.id,
     queryFn: async () => {
-      const [{ data: settings }, { data: customFields }] = await Promise.all([
-        supabase.from("user_settings").select("live_trade_questions").eq("user_id", user!.id).maybeSingle(),
-        (supabase as any).from("custom_field_definitions").select("key,label,is_active").eq("user_id", user!.id).eq("is_active", true),
-      ]);
+      // All field-like keys (live questions + custom fields) live in custom_field_definitions
+      const { data: defs } = await (supabase as any)
+        .from("custom_field_definitions")
+        .select("key,label,scope,is_active")
+        .eq("user_id", user!.id)
+        .eq("is_active", true);
       const keys = new Set<string>(SYSTEM_FIELD_KEYS);
       const labels = new Set<string>(SYSTEM_FIELD_LABEL_TOKENS);
-      for (const q of (settings?.live_trade_questions as any[]) || []) {
-        if (q?.id) keys.add(String(q.id));
-        if (q?.label) labels.add(normalizeLabel(q.label));
-      }
-      for (const f of (customFields as any[]) || []) {
+      for (const f of (defs as any[]) || []) {
         if (f?.key) keys.add(String(f.key));
         if (f?.label) labels.add(normalizeLabel(f.label));
       }

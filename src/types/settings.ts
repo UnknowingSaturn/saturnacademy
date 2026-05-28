@@ -25,7 +25,7 @@ export interface UserSettings {
   column_order: string[];
   column_overrides: Record<string, ColumnOverride>;
   default_filters: FilterCondition[];
-  live_trade_questions: LiveTradeQuestion[];
+  // live_trade_questions moved to custom_field_definitions (scope='live_question'); use useLiveTradeQuestions().
   display_timezone: string;
   // Notion-style layout for the trade detail panel
   detail_visible_fields: string[];      // empty array = use defaults
