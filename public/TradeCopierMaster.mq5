@@ -15,7 +15,7 @@
 //+------------------------------------------------------------------+
 input group "=== Journal Settings (Cloud Sync) ==="
 input string   InpApiKey             = "";                         // API Key (from journal app)
-input int      InpBrokerUTCOffset    = 2;                          // Broker Server UTC Offset
+input int      InpBrokerUTCOffset    = 0;                          // Manual UTC Offset (0 = auto-detect)
 
 input group "=== Local Copier Settings ==="
 input bool     InpEnableCopier       = true;                       // Enable Local Copier
@@ -61,6 +61,28 @@ datetime       g_lastHeartbeat       = 0;
 datetime       g_lastCleanup         = 0;
 bool           g_webRequestOk        = false;
 string         g_terminalId          = "";
+
+// Auto-detected broker UTC offset (seconds). Refreshed hourly.
+int            g_brokerUtcOffsetSec  = 0;
+datetime       g_lastUtcRefresh      = 0;
+
+void RefreshUtcOffset()
+{
+   if(InpBrokerUTCOffset != 0)
+   {
+      g_brokerUtcOffsetSec = InpBrokerUTCOffset * 3600;
+      return;
+   }
+   long diff = (long)TimeCurrent() - (long)TimeGMT();
+   long rounded = ((diff + (diff >= 0 ? 900 : -900)) / 1800) * 1800;
+   g_brokerUtcOffsetSec = (int)rounded;
+   g_lastUtcRefresh = TimeCurrent();
+}
+
+datetime BrokerToUtc(datetime brokerTime)
+{
+   return brokerTime - g_brokerUtcOffsetSec;
+}
 
 // Track processed deals
 ulong          g_processedDeals[];
@@ -124,6 +146,7 @@ int OnInit()
    }
    
    // Set timer for queue processing and heartbeat
+   RefreshUtcOffset();
    EventSetTimer(1); // 1 second timer for responsive heartbeat
    
    // Initialize processed deals array
@@ -291,7 +314,7 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
    string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
    
    // Generate modify event
-   string idempotencyKey = g_terminalId + "_modify_" + IntegerToString(posId) + "_" + 
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(posId) + ":modify:" +
                            IntegerToString(TimeCurrent());
    
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -309,7 +332,7 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
       json += "  \"sl\": " + DoubleToString(sl, digits) + ",\n";
    if(tp > 0)
       json += "  \"tp\": " + DoubleToString(tp, digits) + ",\n";
-   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
+   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(BrokerToUtc(TimeCurrent())) + "\"\n";
    json += "}";
    
    // Write to pending folder
@@ -338,6 +361,8 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+   if(TimeCurrent() - g_lastUtcRefresh > 3600)
+      RefreshUtcOffset();
    datetime now = TimeCurrent();
    
    // Heartbeat every N seconds
@@ -419,13 +444,13 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
    datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
    
    // Convert to UTC
-   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
+   datetime dealTimeUTC = BrokerToUtc(dealTime);
    
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
    
    // Build idempotency key
-   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(dealTicket) + ":" + eventType;
    
    // Get account info
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -504,21 +529,24 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
 //+------------------------------------------------------------------+
 void WriteHeartbeat()
 {
-   int handle = FileOpen(g_heartbeatFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
-   if(handle != INVALID_HANDLE)
-   {
-      string json = "{\n";
-      json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\",\n";
-      json += "  \"terminal_id\": \"" + g_terminalId + "\",\n";
-      json += "  \"account\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",\n";
-      json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
-      json += "  \"equity\": " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",\n";
-      json += "  \"open_positions\": " + IntegerToString(PositionsTotal()) + "\n";
-      json += "}";
-      
-      FileWriteString(handle, json);
-      FileClose(handle);
-   }
+   // Phase 2.7: write atomically via .tmp + FileMove so readers never see a half-written file.
+   string tmpFile = g_heartbeatFile + ".tmp";
+   int handle = FileOpen(tmpFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+      return;
+
+   string json = "{\n";
+   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(BrokerToUtc(TimeCurrent())) + "\",\n";
+   json += "  \"terminal_id\": \"" + g_terminalId + "\",\n";
+   json += "  \"account\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",\n";
+   json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
+   json += "  \"equity\": " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",\n";
+   json += "  \"open_positions\": " + IntegerToString(PositionsTotal()) + "\n";
+   json += "}";
+
+   FileWriteString(handle, json);
+   FileClose(handle);
+   FileMove(tmpFile, 0, g_heartbeatFile, FILE_REWRITE);
 }
 
 //+------------------------------------------------------------------+
@@ -526,19 +554,22 @@ void WriteHeartbeat()
 //+------------------------------------------------------------------+
 void WriteOpenPositions()
 {
-   string filename = InpCopierQueuePath + "\\open_positions.json";
-   int handle = FileOpen(filename, FILE_WRITE|FILE_TXT|FILE_ANSI);
-   
+   // Write atomically: tmp file + FileMove so the desktop reconciler never
+   // reads a half-written JSON document.
+   string finalFile = InpCopierQueuePath + "\\open_positions.json";
+   string tmpFile   = InpCopierQueuePath + "\\open_positions.json.tmp";
+   int handle = FileOpen(tmpFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+
    if(handle != INVALID_HANDLE)
    {
       string json = "{\n  \"positions\": [\n";
-      
+
       int total = PositionsTotal();
       for(int i = 0; i < total; i++)
       {
          ulong ticket = PositionGetTicket(i);
          if(ticket == 0) continue;
-         
+
          string symbol = PositionGetString(POSITION_SYMBOL);
          long posId = PositionGetInteger(POSITION_IDENTIFIER);
          double volume = PositionGetDouble(POSITION_VOLUME);
@@ -547,7 +578,7 @@ void WriteOpenPositions()
          double tp = PositionGetDouble(POSITION_TP);
          ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
          string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
-         
+
          if(i > 0) json += ",\n";
          json += "    {\n";
          json += "      \"position_id\": " + IntegerToString(posId) + ",\n";
@@ -559,13 +590,14 @@ void WriteOpenPositions()
          json += "      \"tp\": " + DoubleToString(tp, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + "\n";
          json += "    }";
       }
-      
+
       json += "\n  ],\n";
-      json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
+      json += "  \"updated_at\": \"" + FormatTimestampUTC(BrokerToUtc(TimeCurrent())) + "\"\n";
       json += "}";
-      
+
       FileWriteString(handle, json);
       FileClose(handle);
+      FileMove(tmpFile, 0, finalFile, FILE_REWRITE);
    }
 }
 
@@ -712,11 +744,11 @@ string BuildCloudPayload(ulong dealTicket, string eventType, string direction)
    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
    string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
    
-   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
+   datetime dealTimeUTC = BrokerToUtc(dealTime);
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
    
-   string idempotencyKey = g_terminalId + "_" + IntegerToString(dealTicket) + "_" + eventType;
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(dealTicket) + ":" + eventType;
    
    long accountLogin = AccountInfoInteger(ACCOUNT_LOGIN);
    string broker = AccountInfoString(ACCOUNT_COMPANY);
