@@ -1,48 +1,35 @@
 ## Root cause
 
-The "-129%" badge comes from `src/components/dashboard/EquityCurve.tsx:186-188`:
+Account #76036 has 2 legacy stuck trades with this `trade_repair_events` history:
 
-```ts
-const delta = periodPnl - previousPeriodPnl;          // e.g. -2,600 - 9,081 = -11,681
-const deltaPercent = previousPeriodPnl !== 0
-  ? ((delta / Math.abs(previousPeriodPnl)) * 100).toFixed(0)  // -11,681 / 9,081 ≈ -129%
-  : ...
+```
+snapshot_closed     (legacy tombstone, 2026-05-12 / 2026-05-20)
+phase_a_one_shot    (one-shot backfill marker, 2026-05-27)
 ```
 
-The math is technically correct but **semantically wrong**: net P&L is a flow, not a stock, so a "% change of P&L vs last week" is meaningless. When the sign flips (profit → loss) or the previous value is near zero, the number explodes past ±100% and confuses users into thinking something is broken.
+`phase_a_one_shot` is the "I've accepted this trade, stop nagging me" marker. Two places already treat it as a resolved state:
 
-## Where else this pattern hides
+- `src/components/journal/TradeTable.tsx:325-329, 336-340` — clears the per-row "Awaiting repair" pill.
+- `supabase/functions/ingest-events/index.ts:646-650` — clears the in-event awaiting check.
 
-Audit of every `*100` percent calc in the codebase (`rg "/ ... * 100"`):
+But the dormant-account badge ("2 awaiting repair") and the "Try repair" button go through two other paths that **don't** recognize `phase_a_one_shot`:
 
-- **Only offender**: `EquityCurve.tsx:188` — % change between two P&L totals.
-- **Safe (bounded ratios)**: win rate, success rate, checklist compliance, progress bars, % return on starting balance (`periodPnl / startingBalance`).
-- **Reports `DeltaCell`** (`ReportView.tsx:71-81`) shows server-computed **absolute** deltas (`a - b`, not %), so no false percentages — but it prints them without units (e.g. a Net P&L delta of `1500` shows as `+1500.00` with no `$`). Minor polish opportunity.
+- `supabase/functions/trades-drift/index.ts:142-146` — counts a trade as pending if it has `snapshot_closed` and lacks `repaired_from_snapshot` / `repaired_reopened`.
+- `supabase/functions/repair-snapshot-closed/index.ts:110-117` — same filter when picking candidates to repair.
 
-No similar broken `%` exists anywhere else.
+So the badge counts these legacy trades forever, and clicking Try repair runs `repair-snapshot-closed`, which searches `events` for a real close, finds nothing (the events never came in because the user switched MT5 logins), and returns "pending". Badge never clears.
 
-## Fix plan
+## Fix
 
-### 1. Replace the P&L delta badge in `EquityCurve.tsx`
+Treat `phase_a_one_shot` as a "repaired" marker in both edge functions, exactly like the frontend and ingest path already do.
 
-Switch from "% change of P&L" to a representation that always reads correctly:
+### Edits
 
-- **Primary**: show the **$ delta** vs last period (`+$X` / `-$X`), which is unambiguous.
-- **Secondary** (only when meaningful): show the % expressed as a **share of starting balance**, i.e. `(periodPnl - previousPeriodPnl) / startingBalance * 100`. This stays in a sane range (typically ±10%) and is the metric traders actually care about ("we gave back 1.3% of the account vs last week"). Suppress this secondary if `startingBalance <= 0`.
-- **Sign-flip case** (profit → loss or loss → profit): drop the % entirely and show a small label like `Flipped` so we never display `-129%`-style noise.
-- Keep the existing `TrendingUp/Down/Minus` icon and color logic; just feed it the new value.
+1. **`supabase/functions/trades-drift/index.ts`** — add `e.action === "phase_a_one_shot"` to the `repaired` predicate at line 143-145.
+2. **`supabase/functions/repair-snapshot-closed/index.ts`** — same addition at line 113-115, so phase-A-acknowledged trades stop being re-considered as candidates.
 
-### 2. Polish `DeltaCell` in `ReportView.tsx`
+No schema changes. No frontend changes (already correct). Deploy both functions after edit.
 
-Pass the metric's unit (`$`, `R`, `%`, or none) alongside the delta so the rendered chip reads `+$1,500` / `+1.2R` / `+3.5%` instead of a bare number. No formula change, just formatting.
+### Why this is right, not a patch
 
-### Technical notes
-
-- All changes are confined to two presentation files: `src/components/dashboard/EquityCurve.tsx` and `src/components/reports/ReportView.tsx`.
-- No edge function, schema, or hook changes required — the underlying numbers (`periodPnl`, `previousPeriodPnl`, `startingBalance`, server-side `deltas`) are already correct.
-- No DB migration.
-
-### Out of scope
-
-- Server-side deltas in `generate-report` (already absolute, already correct).
-- Bounded-ratio percentages (win rate, compliance, etc.) — these are correct.
+The four call sites that read repair-event history were inconsistent — three included `phase_a_one_shot`, one did not. Aligning them on the same "resolved" definition is the actual fix, not a workaround. Optionally we can extract `REPAIRED_ACTIONS = ["repaired_from_snapshot","repaired_reopened","phase_a_one_shot"]` into a shared constant later, but inlining it in two more places is fine and keeps the change minimal.

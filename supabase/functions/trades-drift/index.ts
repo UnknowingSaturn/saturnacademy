@@ -141,7 +141,9 @@ serve(async (req) => {
         const events = ((t as any).trade_repair_events || []) as Array<{ action: string }>;
         const hasSnap = events.some((e) => e.action === "snapshot_closed");
         const repaired = events.some((e) =>
-          e.action === "repaired_from_snapshot" || e.action === "repaired_reopened"
+          e.action === "repaired_from_snapshot" ||
+          e.action === "repaired_reopened" ||
+          e.action === "phase_a_one_shot"
         );
         if (hasSnap && !repaired) {
           const accId = (t as any).account_id;
