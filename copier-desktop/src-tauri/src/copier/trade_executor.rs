@@ -186,6 +186,11 @@ fn execute_single_attempt_sync(
     wait_for_response_sync(&command_folder, command.timestamp)
 }
 
+/// Calculate exponential backoff delay
+fn calculate_backoff_delay(attempt: u32, config: &RetryConfig) -> u64 {
+    let delay = config.base_delay_ms as f64 * config.exponential_base.powi(attempt as i32);
+    (delay as u64).min(config.max_delay_ms)
+}
 
 /// Check if an error is retryable
 fn is_retryable_error(error: &str) -> bool {
