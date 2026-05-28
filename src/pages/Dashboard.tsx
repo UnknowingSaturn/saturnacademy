@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Loader2 } from 'lucide-react';
 import { addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
+import { PageIntroBanner } from '@/components/tutorial/PageIntroBanner';
 
 const Dashboard = React.forwardRef<HTMLDivElement, object>(
   function Dashboard(_props, _ref) {
