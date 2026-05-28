@@ -68,6 +68,11 @@ Extracted without changing any external function boundaries:
 ## ✅ R4 — SHIPPED (2026-05-28) — Dropped defunct `journal_conversation` column
 Investigation showed the column had 0 rows of data, 0 readers, 0 writers — leftover from an abandoned feature. No new table needed; column + TS type dropped.
 
+## ✅ R6 — SHIPPED (2026-05-28) — Live questions → `custom_field_definitions`
+- Migration backfills `user_settings.live_trade_questions` JSONB into `custom_field_definitions` (scope='live_question'); CHECK constraint widened to allow `rating` type; old column dropped.
+- New hooks `useLiveTradeQuestions()` + `useUpsertLiveTradeQuestions()` in `useUserSettings.tsx`.
+- Rewired `LiveTradeQuestionsPanel`, `SchemaSuggestionCard`, `ReportView` (existing-fields probe), and `generate-report` edge function to read/write the unified table. `useCustomFieldDefinitions()` already filters `scope='user'`, so live-question rows don't bleed into the trade-table custom fields UI.
+
 ## ⏸ R1 — SKIPPED per user
 Bundled `resources/` EAs intentionally fused with bridge + cloud logic; collapsing to `mt5-bridge/` would regress live receivers. Revisit only with a feature-by-feature merge plan.
 
