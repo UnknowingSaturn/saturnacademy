@@ -4,7 +4,10 @@ export type TradeDirection = 'buy' | 'sell';
 export type EventType = 'open' | 'modify' | 'partial_close' | 'close';
 export type AccountType = 'demo' | 'live' | 'prop';
 export type PropFirm = 'ftmo' | 'fundednext' | 'other';
-export type SessionType = 'tokyo' | 'london' | 'new_york' | 'new_york_am' | 'new_york_pm' | 'overlap_london_ny' | 'off_hours';
+// Session is free-form text (matches session_definitions.key) — well-known values listed for UI defaults.
+export type SessionType = string;
+export const KNOWN_SESSIONS = ['tokyo', 'london', 'new_york', 'new_york_am', 'new_york_pm', 'overlap_london_ny', 'off_hours'] as const;
+export type KnownSession = typeof KNOWN_SESSIONS[number];
 export type RegimeType = 'rotational' | 'transitional';
 export type NewsRisk = 'none' | 'low' | 'high';
 export type TradeType = 'executed' | 'idea' | 'paper' | 'missed';
