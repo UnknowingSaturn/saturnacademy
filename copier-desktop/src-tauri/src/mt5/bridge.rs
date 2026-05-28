@@ -346,10 +346,10 @@ pub fn install_ea_to_terminal(
 /// Strategy:
 ///  1. Look up against the unified discovery cache first.
 ///  2. Fall back to a literal `%APPDATA%\MetaQuotes\Terminal\<id>` path.
-fn find_terminal_path(terminal_id: &str) -> Result<PathBuf, String> {
+pub fn find_terminal_path(terminal_id: &str) -> Result<PathBuf, String> {
     // 1. Discovery cache (covers AppData hashes, Registry installs, manual paths,
     //    LocalAppData\Programs, portable installs).
-    let terminals = discovery::discover_all_terminals();
+    let terminals = discovery::discover_all_terminals_cached(false);
     let discovered_count = terminals.len();
     for t in &terminals {
         if t.terminal_id == terminal_id {
@@ -382,6 +382,22 @@ fn find_terminal_path(terminal_id: &str) -> Result<PathBuf, String> {
         "Terminal '{}' not found ({} terminals known to discovery)",
         terminal_id, discovered_count
     ))
+}
+
+/// Single source of truth for resolving a terminal's `MQL5/Files` directory.
+/// Replaces three local copies that previously lived in `position_sync`,
+/// `symbol_catalog`, and `config_generator`.
+///
+/// If `create_if_missing` is true, the directory is created (used by config
+/// writers); otherwise the path is returned as-is even if it does not exist
+/// (used by readers that handle absence themselves).
+pub fn resolve_files_path(terminal_id: &str, create_if_missing: bool) -> Result<PathBuf, String> {
+    let files_path = find_terminal_path(terminal_id)?.join("MQL5").join("Files");
+    if create_if_missing && !files_path.exists() {
+        std::fs::create_dir_all(&files_path)
+            .map_err(|e| format!("Failed to create {}: {}", files_path.display(), e))?;
+    }
+    Ok(files_path)
 }
 
 /// Get account info from MT5 terminal via file
