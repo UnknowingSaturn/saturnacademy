@@ -22,11 +22,6 @@ use copier::commands::{
     close_all_positions, pause_all_receivers, resume_all_receivers,
     read_master_heartbeat, is_master_online, Heartbeat,
 };
-use copier::reconciliation::{
-    ReconciliationConfig,
-    update_reconciliation_config, get_reconciliation_status,
-    start_reconciliation_loop, stop_reconciliation_loop, trigger_reconciliation,
-};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -395,54 +390,7 @@ fn check_master_online(terminal_id: String) -> bool {
 }
 
 
-// ==================== RECONCILIATION COMMANDS ====================
 
-
-#[tauri::command]
-fn update_recon_config(config: serde_json::Value) -> Result<(), String> {
-    let recon_config = ReconciliationConfig {
-        enabled: config["enabled"].as_bool().unwrap_or(false),
-        interval_secs: config["interval_secs"].as_u64().unwrap_or(30),
-        auto_close_orphaned: config["auto_close_orphaned"].as_bool().unwrap_or(false),
-        auto_open_missing: config["auto_open_missing"].as_bool().unwrap_or(false),
-        auto_adjust_volume: config["auto_adjust_volume"].as_bool().unwrap_or(false),
-        auto_sync_sl_tp: config["auto_sync_sl_tp"].as_bool().unwrap_or(true),
-    };
-    
-    update_reconciliation_config(recon_config);
-    Ok(())
-}
-
-#[tauri::command]
-fn get_recon_status() -> serde_json::Value {
-    let (config, last_run, actions) = get_reconciliation_status();
-    serde_json::json!({
-        "config": config,
-        "last_run": last_run,
-        "recent_actions": actions,
-    })
-}
-
-#[tauri::command]
-fn start_recon_loop() -> Result<(), String> {
-    start_reconciliation_loop();
-    Ok(())
-}
-
-#[tauri::command]
-fn stop_recon_loop() -> Result<(), String> {
-    stop_reconciliation_loop();
-    Ok(())
-}
-
-#[tauri::command]
-fn run_reconciliation_now() -> Result<serde_json::Value, String> {
-    let discrepancies = trigger_reconciliation()?;
-    Ok(serde_json::json!({
-        "discrepancy_count": discrepancies.len(),
-        "discrepancies": discrepancies,
-    }))
-}
 
 // ==================== DEBUG BUNDLE EXPORT ====================
 
@@ -469,21 +417,7 @@ async fn export_debug_bundle(save_path: String) -> Result<String, String> {
     }
     bundle.push_str("\n");
     
-    // Reconciliation status
-    bundle.push_str("=== RECONCILIATION STATUS ===\n");
-    let (recon_config, last_run, actions) = get_reconciliation_status();
-    bundle.push_str(&format!("Enabled: {}\n", recon_config.enabled));
-    bundle.push_str(&format!("Interval: {}s\n", recon_config.interval_secs));
-    bundle.push_str(&format!("Last Run: {:?}\n", last_run));
-    bundle.push_str(&format!("Recent Actions: {}\n\n", actions.len()));
     
-    for action in actions.iter().take(20) {
-        bundle.push_str(&format!(
-            "  {} | {} | {} | {}\n",
-            action.timestamp, action.receiver_id, action.action_type, action.details
-        ));
-    }
-    bundle.push_str("\n");
     
     // Idempotency cache
     bundle.push_str("=== IDEMPOTENCY CACHE ===\n");
@@ -679,12 +613,6 @@ fn main() {
             resume_receivers,
             get_master_heartbeat,
             check_master_online,
-            // Reconciliation commands
-            update_recon_config,
-            get_recon_status,
-            start_recon_loop,
-            stop_recon_loop,
-            run_reconciliation_now,
             // Debug commands
             export_debug_bundle,
         ])
