@@ -24,6 +24,7 @@ import { EditableRuleItem } from "@/components/playbooks/EditableRuleItem";
 import { PlaybookCard } from "@/components/playbooks/PlaybookCard";
 import { PlaybookDetailSheet } from "@/components/playbooks/PlaybookDetailSheet";
 import { PlaybookScreenshotGallery } from "@/components/playbooks/PlaybookScreenshotGallery";
+import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 
 const SESSIONS: { value: SessionType; label: string }[] = [
   { value: "new_york_am", label: "New York AM" },
@@ -378,6 +379,11 @@ export default function Playbooks() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      <PageIntroBanner
+        routeKey="playbooks"
+        title="Playbooks codify what you actually trade"
+        body="Each playbook stores a checklist, entry/exit rules, and risk limits. Tag your trades with a playbook and the AI uses them to grade rule compliance and surface failure modes. Start from a template or build from scratch."
+      />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Playbooks</h1>

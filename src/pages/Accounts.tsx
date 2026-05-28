@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { Link, AlertTriangle, Archive } from 'lucide-react';
+import { Link, AlertTriangle, Archive, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useArchiveAllTrades } from '@/hooks/useTrades';
 import { AccountCard } from '@/components/accounts/AccountCard';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
 import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
+import { PageIntroBanner } from '@/components/tutorial/PageIntroBanner';
+import { TutorialDialog } from '@/components/tutorial/TutorialDialog';
+import { useFirstVisit } from '@/hooks/useFirstVisit';
 import { Account } from '@/types/trading';
 import {
   AlertDialog,
@@ -32,6 +35,8 @@ export default function Accounts() {
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
   const [archiveAllAccountId, setArchiveAllAccountId] = useState<string>('');
+  const firstVisit = useFirstVisit('accounts');
+  const [tutorialOpen, setTutorialOpen] = useState(firstVisit);
 
   return (
     <div className="space-y-6">
@@ -41,12 +46,24 @@ export default function Accounts() {
           <p className="text-muted-foreground">Manage your trading accounts and MT5 connections</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setTutorialOpen(true)}>
+            <HelpCircle className="h-4 w-4 mr-2" />
+            How it works
+          </Button>
           <Button onClick={() => setQuickConnectOpen(true)}>
             <Link className="h-4 w-4 mr-2" />
             Connect MT5
           </Button>
         </div>
       </div>
+
+      <PageIntroBanner
+        routeKey="accounts"
+        title="Connect MT5 terminals — one EA per chart, many accounts supported"
+        body="Track several accounts in parallel by installing MT5 once per account and attaching the bridge EA to a scratch chart in each. The EA is read-only and prop-firm safe."
+        actionLabel="Open the setup guide"
+        onAction={() => setTutorialOpen(true)}
+      />
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2">
@@ -146,6 +163,12 @@ export default function Accounts() {
 
       <MT5SetupDialog account={setupAccount} onOpenChange={(open) => !open && setSetupAccount(null)} />
       <QuickConnectDialog open={quickConnectOpen} onOpenChange={setQuickConnectOpen} />
+      <TutorialDialog
+        open={tutorialOpen}
+        onOpenChange={setTutorialOpen}
+        title="MT5 setup & best practices"
+        description="Everything you need to connect terminals, run several accounts, and avoid prop-firm pitfalls."
+      />
     </div>
   );
 }

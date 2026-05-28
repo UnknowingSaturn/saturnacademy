@@ -31,6 +31,7 @@ import {
   format, isWithinInterval, parseISO
 } from "date-fns";
 import { cn } from "@/lib/utils";
+import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 
 type PeriodType = "week" | "month" | "custom";
 
@@ -221,6 +222,11 @@ export default function Journal() {
   return (
     <div className="space-y-6 animate-fade-in">
       <DriftTray />
+      <PageIntroBanner
+        routeKey="journal"
+        title="Trade journal — defaults to the current month"
+        body="Mix executed trades with hypothetical ideas, attach up to 5 labelled screenshots per trade, and use the Settings cog to tweak sessions and custom properties. Stuck on an open trade that's actually closed? Open it and use Dismiss as closed."
+      />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Trade Journal</h1>

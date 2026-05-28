@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
+import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 
 export default function LiveTrades() {
   const location = useLocation();
@@ -86,6 +87,11 @@ export default function LiveTrades() {
 
   return (
     <div className="h-full flex flex-col p-6 animate-fade-in gap-4">
+      <PageIntroBanner
+        routeKey="live-trades"
+        title="Real-time positions from your MT5 EA"
+        body="Open trades stream in from the bridge EA. Start a live trade manually if you opened a position before the EA was attached. Rows with Awaiting repair recover automatically the next time the EA reconnects — click Try repair to force a sync."
+      />
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">

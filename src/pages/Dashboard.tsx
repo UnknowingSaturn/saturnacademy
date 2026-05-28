@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Loader2 } from 'lucide-react';
 import { addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
+import { PageIntroBanner } from '@/components/tutorial/PageIntroBanner';
 
 const Dashboard = React.forwardRef<HTMLDivElement, object>(
   function Dashboard(_props, _ref) {
@@ -122,6 +123,11 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
 
   return (
     <div className="space-y-6 p-6 animate-fade-in">
+      <PageIntroBanner
+        routeKey="dashboard"
+        title="Your trading performance at a glance"
+        body="The equity curve shows a dollar delta plus the change as a percentage of your starting balance. Switch period (week / month) at the top right, and use the account selector in the sidebar to slice metrics by account."
+      />
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">

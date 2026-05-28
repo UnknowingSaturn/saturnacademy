@@ -9,6 +9,7 @@ import { ReportSidebar } from "@/components/reports/ReportSidebar";
 import { ReportView } from "@/components/reports/ReportView";
 import { useReportsList, useReport, useGenerateReport, useDeleteReport } from "@/hooks/useSenseiReports";
 import { format, subDays } from "date-fns";
+import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 
 const StrategyLabPage = React.forwardRef<HTMLDivElement, object>(function ReportsPage(_props, _ref) {
   const { data: reports = [], isLoading } = useReportsList();
@@ -40,7 +41,15 @@ const StrategyLabPage = React.forwardRef<HTMLDivElement, object>(function Report
   };
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="px-4 pt-4">
+        <PageIntroBanner
+          routeKey="reports"
+          title="AI-written weekly recaps of your trading"
+          body="A new report lands here every Saturday with a monthly recap on the 1st. Generate an ad-hoc report from any range. Deltas in the metric tables are shown in dollars, R-multiples, or percent depending on the row."
+        />
+      </div>
+      <div className="flex flex-1 overflow-hidden">
       <ReportSidebar
         reports={reports}
         selectedId={selectedId}
@@ -69,6 +78,8 @@ const StrategyLabPage = React.forwardRef<HTMLDivElement, object>(function Report
           <div className="h-full flex items-center justify-center text-muted-foreground">Select a report</div>
         )}
       </main>
+      </div>
+
 
       <Dialog open={genOpen} onOpenChange={setGenOpen}>
         <DialogContent>
