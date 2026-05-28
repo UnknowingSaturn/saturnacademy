@@ -91,7 +91,7 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             .unwrap_or_else(|| event.symbol.clone());
 
         // Calculate lot size using the improved calculator
-        let receiver_lots = lot_calculator::calculate_lots(
+        let raw_lots = lot_calculator::calculate_lots(
             &receiver.risk_mode,
             receiver.risk_value,
             event.lots,
@@ -101,6 +101,13 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             receiver_account.as_ref(),
             symbol_info.as_ref(),
         );
+
+        // R9: clamp to the receiver broker's real min/max/step from the
+        // symbol catalog when available. Falls through to the raw value if
+        // the catalog hasn't been fetched yet — the receiver EA will then
+        // perform a second clamp using live `SymbolInfoDouble` values.
+        let receiver_lots = clamp_to_broker_specs(&receiver.terminal_id, &mapped_symbol, raw_lots);
+
 
         // Canonical idempotency key — prefer EA-supplied, else build it.
         let deal = event.deal_id.unwrap_or(event.ticket);
