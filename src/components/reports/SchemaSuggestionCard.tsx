@@ -22,24 +22,44 @@ export function SchemaSuggestionCard({ suggestion }: Props) {
     if (!user) return;
     setBusy(true);
     try {
-      const { data: settings } = await supabase
-        .from("user_settings")
-        .select("live_trade_questions")
+      const q = suggestion.proposed_question;
+      // Check if a live-question row with this key already exists
+      const { data: existing } = await (supabase as any)
+        .from("custom_field_definitions")
+        .select("id")
         .eq("user_id", user.id)
+        .eq("scope", "live_question")
+        .eq("key", q.id)
         .maybeSingle();
-      const existing = (settings?.live_trade_questions as any[]) || [];
-      if (existing.find((q: any) => q.id === suggestion.proposed_question.id)) {
+      if (existing) {
         setAdded(true);
         toast.info("This question already exists in your journal.");
         return;
       }
-      const next = [...existing, suggestion.proposed_question];
-      const { error } = await supabase
-        .from("user_settings")
-        .upsert({ user_id: user.id, live_trade_questions: next }, { onConflict: "user_id" });
+      // Compute next sort_order
+      const { data: rows } = await (supabase as any)
+        .from("custom_field_definitions")
+        .select("sort_order")
+        .eq("user_id", user.id)
+        .eq("scope", "live_question")
+        .order("sort_order", { ascending: false })
+        .limit(1);
+      const nextSort = rows && rows[0] ? (rows[0].sort_order ?? 0) + 1 : 0;
+      const { error } = await (supabase as any)
+        .from("custom_field_definitions")
+        .insert({
+          user_id: user.id,
+          scope: "live_question",
+          key: q.id,
+          label: q.label,
+          type: q.type,
+          options: q.options ?? [],
+          sort_order: nextSort,
+          is_active: true,
+        });
       if (error) throw error;
       setAdded(true);
-      toast.success(`Added "${suggestion.proposed_question.label}" to your live trade questions.`);
+      toast.success(`Added "${q.label}" to your live trade questions.`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to add question");
     } finally {
