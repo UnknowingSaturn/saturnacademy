@@ -392,8 +392,7 @@ serve(async (req) => {
       heartbeatUpdate.last_sync_at = new Date().toISOString();
       await supabase.from("accounts").update(heartbeatUpdate).eq("id", account.id);
 
-      // Track terminal multi-tenancy: this account is now the active login on this terminal.
-      await markTerminalActiveAccount(supabase, payload.terminal_id, payload.install_id, account.id, account.user_id);
+      // (active-login tracking now derived from accounts.last_heartbeat_at via terminal_accounts view)
 
 
       return new Response(
