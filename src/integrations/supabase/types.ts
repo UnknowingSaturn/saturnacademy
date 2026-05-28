@@ -973,7 +973,15 @@ export type Database = {
           status?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "report_schedule_runs_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "reports"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reports: {
         Row: {
@@ -1054,7 +1062,15 @@ export type Database = {
           user_id?: string
           verdict?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "reports_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       session_definitions: {
         Row: {
@@ -2173,6 +2189,10 @@ export type Database = {
       }
     }
     Functions: {
+      increment_shared_report_view: {
+        Args: { p_report_id: string }
+        Returns: undefined
+      }
       mark_dormant_accounts: { Args: never; Returns: undefined }
     }
     Enums: {
