@@ -1223,7 +1223,7 @@ serve(async (req) => {
     const suggestions = schemaSuggestions(
       trades as TradeRow[],
       reviews,
-      (settings?.live_trade_questions as any[]) || [],
+      liveQuestions,
       (customFieldDefs as any[]) || [],
     );
 
