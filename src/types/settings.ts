@@ -68,11 +68,11 @@ export function resolveFieldLabel(
 // Custom fields are appended dynamically at runtime.
 export type DetailFieldKind =
   | 'readonly'           // pure display (e.g. P&L)
-  | 'select'             // single select from property_options
-  | 'multi-select'       // multi select from property_options
+  | 'select'             // single select from custom_field_definitions (options)
+  | 'multi-select'       // multi select from custom_field_definitions (options)
   | 'playbook-select'    // single select from playbooks
   | 'dual-playbook'      // planned + actual playbook side-by-side
-  | 'dual-select'        // planned + actual property_options
+  | 'dual-select'        // planned + actual options
   | 'dual-multi'         // planned + actual multi-select
   | 'text'               // free text inline edit
   | 'account-select';    // accounts dropdown (manual trades)
@@ -81,7 +81,7 @@ export interface DetailFieldDef {
   key: string;
   label: string;
   kind: DetailFieldKind;
-  propertyName?: string;       // for select/multi → property_options group
+  propertyName?: string;       // for select/multi → options group
   // For dual fields, we read/write two separate trade columns:
   plannedField?: string;
   actualField?: string;
@@ -250,7 +250,7 @@ export interface ColumnDefinition {
   filterable: boolean;
   hideable: boolean;
   width?: string;
-  propertyName?: string; // For columns that use property_options
+  propertyName?: string; // For columns that use custom field options
   category: 'calculated' | 'editable';
 }
 

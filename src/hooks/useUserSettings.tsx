@@ -185,9 +185,8 @@ export function useUpdateUserSettings() {
       queryClient.invalidateQueries({ queryKey: ['user_settings'] });
     },
     onError: (error) => {
-      toast.error('Failed to save settings');
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Save failed");
+      toast.error(error instanceof Error ? error.message : 'Save failed');
     },
   });
 }
@@ -285,9 +284,8 @@ export function useCreateSession() {
       toast.success('Session created');
     },
     onError: (error) => {
-      toast.error('Failed to create session');
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Save failed");
+      toast.error(error instanceof Error ? error.message : 'Save failed');
     },
   });
 }
@@ -309,9 +307,8 @@ export function useUpdateSession() {
       queryClient.invalidateQueries({ queryKey: ['session_definitions'] });
     },
     onError: (error) => {
-      toast.error('Failed to update session');
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Save failed");
+      toast.error(error instanceof Error ? error.message : 'Save failed');
     },
   });
 }
@@ -331,9 +328,8 @@ export function useDeleteSession() {
       toast.success('Session deleted');
     },
     onError: (error) => {
-      toast.error('Failed to delete session');
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Save failed");
+      toast.error(error instanceof Error ? error.message : 'Save failed');
     },
   });
 }
@@ -354,9 +350,8 @@ export function useReorderSessions() {
       queryClient.invalidateQueries({ queryKey: ['session_definitions'] });
     },
     onError: (error) => {
-      toast.error('Failed to reorder sessions');
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Save failed");
+      toast.error(error instanceof Error ? error.message : 'Save failed');
     },
   });
 }
