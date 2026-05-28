@@ -63,8 +63,8 @@ export function DriftTray() {
   const repair = async (trade: DriftTrade) => {
     try {
       setRepairing(trade.id);
-      const { error } = await supabase.functions.invoke("repair-snapshot-closed", {
-        body: { account_id: trade.account_id },
+      const { error } = await supabase.functions.invoke("trade-repair", {
+        body: { action: "repair", account_id: trade.account_id },
       });
       if (error) throw error;
       toast.success(`Repair requested for ${trade.symbol} #${trade.ticket}`);
