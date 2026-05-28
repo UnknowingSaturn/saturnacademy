@@ -93,10 +93,22 @@ Deferred from this phase (require larger refactors or have live callers that nee
 - `generate-report` duplicate computations — `readQualityBlock` is actually stored as `read_quality` in the LLM payload, so the audit note for that one was wrong; the `buildLlmContext` vs main-handler duplication of `worstTradeNarratives` / `symbolExpectancy` / `reviewExcerpts` is genuine but deserves its own extraction PR.
 - `test_copy`, `get_diagnostics` queue counters, receiver `allowed_sessions`, `remove_manual_terminal`, and AppData-folder consolidation — listed for Phase 4 implementation-or-removal decisions.
 
-### Phase 4 — Targeted refactors for long-term robustness (~1 week, optional but high-leverage)
-- **Frontend**: extract `<PlaybookFormDialog>` + `usePlaybookForm` reducer; introduce `TradeReviewContext` to kill the `TradeDetailPanel` → `TradeProperties` prop wall; split `useUserSettings.tsx` into 3 files; extract a shared `<ScreenshotGrid>`, `<DateRangePicker>`, `useDebounce`, `useBulkReorder`, and `colorPalette.ts`; set a global React Query `staleTime: 60_000`; collapse `useDashboardMetrics` into `useReports`.
-- **Schema**: collapse `property_options` + `field_overrides` into `custom_field_definitions` (add `is_system` / `is_override` flags); drop `accounts.terminal_id` and `events.terminal_id` after confirming no readers; remove `accounts.equity_current` / `balance_start` and derive from `account_balance_snapshots` via a view; add a `playbook_questions` table so checklist answers don't orphan; replace all `trade_id IN (SELECT …)` RLS policies with one `has_trade_access(uuid)` SECURITY DEFINER helper; add `updated_at` triggers to the two copier tables; revoke default `anon` table grants and rely on explicit `authenticated` grants + RLS.
-- **Contracts**: version `copier-config.json` and the `TradeEvent` queue files; have the Receiver EA refuse unknown `schema_version` rather than silently dropping unknown fields.
+### Phase 4 — Targeted refactors for long-term robustness — IN PROGRESS
+
+**Shipped in this pass (low-risk, high-leverage):**
+- `src/lib/colorPalette.ts` is now the single source of truth for the picker palette. The four inline duplicates (`SessionConfigPanel`, `PropertyOptionsPanel`, `CustomFieldDialog`, `SystemFieldConfigDialog`) and the `journal/settings/fields/constants.ts` copy all import from it now. The two dialog files that used a 7-color subset now get the full 18-color palette like the rest of the app.
+- `src/hooks/useDebouncedCallback.ts` extracted from the inline copy in `SharedReportEditor.tsx` and rewired.
+- Global React Query defaults: `staleTime: 60_000`, `gcTime: 5min`, `refetchOnWindowFocus: false`, `retry: 1` on the root `QueryClient` in `src/App.tsx` — drops the bulk of redundant refetches when navigating between pages.
+- DB: added `public.has_trade_access(uuid)` `STABLE SECURITY DEFINER` helper (same pattern as `has_role`). Existing `trade_id IN (SELECT …)` policies are left untouched in this pass; the helper is available for the next round of policy rewrites without behavior changes.
+- Verified the audit was already wrong on two points: `updated_at` triggers **do** exist on `copier_symbol_mappings` and `copier_receiver_settings`, and `COLOR_PALETTE` already had a partial extraction in `journal/settings/fields/constants.ts` — both are now reconciled.
+
+**Deferred — each needs its own approved plan because of blast radius:**
+- **Schema collapses & column drops**: merging `property_options` + `field_overrides` into `custom_field_definitions`, dropping `accounts.terminal_id` / `events.terminal_id`, removing `accounts.equity_current` / `balance_start` in favor of a view over `account_balance_snapshots`. Each touches live data and live readers; needs a backfill + reader-audit pass.
+- **Frontend refactors**: extract `<PlaybookFormDialog>` + `usePlaybookForm` reducer from the 886-LOC `Playbooks.tsx`; introduce `TradeReviewContext` to retire the `TradeDetailPanel` → `TradeProperties` prop wall; split `useUserSettings.tsx` (572 LOC, 11 hooks) into three focused files; collapse `useDashboardMetrics` into `useReports`. These are large rewrites that should ship in their own PRs with focused review.
+- **Shared UI extractions**: `<ScreenshotGrid>`, `<DateRangePicker>`, `useBulkReorder` — straightforward but touch many call sites, so each needs its own pass.
+- **RLS policy rewrites** to use `has_trade_access`: helper is ready, policy migration deferred so we can verify behavior on one table first.
+- **Contract versioning**: bump `copier-config.json` to a `schema_version`, have the Receiver EA refuse unknown versions instead of silently dropping fields. The Receiver currently reads a `version` integer for cache invalidation only; adding a `schema_version` reject path is a wire-protocol change and needs an EA release alongside.
+- **Anonymous grants audit**: revoke default `anon` privileges on auth-only tables and rely on explicit `authenticated` grants + RLS. Needs a `pg_policies` × `information_schema.table_privileges` walk to confirm no public-facing table loses access.
 
 ---
 
