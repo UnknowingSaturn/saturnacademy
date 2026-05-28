@@ -331,9 +331,9 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="ftmo">FTMO</SelectItem>
-                          <SelectItem value="fundednext">FundedNext</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
+                          {(propFirms ?? []).map((pf) => (
+                            <SelectItem key={pf.id} value={pf.id}>{pf.name}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <FormMessage />
