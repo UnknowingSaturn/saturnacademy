@@ -1,3 +1,13 @@
+// Symbol utilities:
+//   1. Map broker symbols to TradingView (`EXCHANGE:SYMBOL`) format for chart embeds.
+//   2. Normalize and group cross-broker aliases for the same instrument (used by
+//      compliance matching, copier symbol mapping, etc.). Consolidated from
+//      the former src/lib/symbolAliases.ts.
+
+// =====================================================================
+// TradingView mapping
+// =====================================================================
+
 // Maps broker symbols to TradingView format
 // TradingView uses EXCHANGE:SYMBOL format
 
