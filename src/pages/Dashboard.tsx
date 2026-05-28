@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { useState, useMemo } from 'react';
 import { useTrades } from '@/hooks/useTrades';
 import { useAccounts } from '@/hooks/useAccounts';
