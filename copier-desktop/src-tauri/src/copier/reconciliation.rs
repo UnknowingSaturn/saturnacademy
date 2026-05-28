@@ -121,7 +121,7 @@ pub fn update_reconciliation_config(config: ReconciliationConfig) {
 fn get_config_path() -> PathBuf {
     let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(appdata)
-        .join("TradeCopier")
+        .join(crate::copier::safety::APP_DATA_FOLDER)
         .join("reconciliation_config.json")
 }
 

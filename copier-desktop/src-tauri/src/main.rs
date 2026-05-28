@@ -132,11 +132,6 @@ fn discover_terminals() -> Vec<mt5::discovery::TerminalInfo> {
     mt5::discovery::discover_all_terminals()
 }
 
-/// Add a manual terminal path and persist it
-#[tauri::command]
-fn add_manual_terminal(path: String) -> Result<(), String> {
-    mt5::discovery::add_manual_terminal(&path)
-}
 
 #[tauri::command]
 fn add_terminal_path(path: String) -> Option<mt5::bridge::Mt5Terminal> {
@@ -265,10 +260,6 @@ fn install_ea(
     mt5::bridge::install_ea_to_terminal(&terminal_id, &ea_type, &ea_content)
 }
 
-#[tauri::command]
-fn get_terminal_account_info(terminal_id: String) -> Option<mt5::bridge::AccountInfo> {
-    mt5::bridge::get_account_info(&terminal_id)
-}
 
 // ==================== NEW COMMANDS ====================
 
@@ -403,51 +394,9 @@ fn check_master_online(terminal_id: String) -> bool {
     is_master_online(&terminal_id)
 }
 
-/// Test copy functionality - opens and closes a small test trade on demo accounts
-#[tauri::command]
-async fn test_copy(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let (is_running, config) = {
-        let copier = state.copier.lock();
-        (copier.is_running, copier.config.clone())
-    };
-    
-    if !is_running {
-        return Err("Copier is not running".to_string());
-    }
-    
-    let config = config.ok_or("No configuration loaded")?;
-    
-    if config.receivers.is_empty() {
-        return Err("No receiver accounts configured".to_string());
-    }
-    
-    // For now, return a placeholder - full implementation requires EA coordination
-    Ok(serde_json::json!({
-        "success": true,
-        "message": "Test copy initiated. Check receiver accounts for 0.01 lot test trade."
-    }))
-}
 
 // ==================== RECONCILIATION COMMANDS ====================
 
-#[tauri::command]
-fn set_reconciliation_config(
-    master_terminal_id: String,
-    receiver_terminal_ids: Vec<String>,
-    config: serde_json::Value,
-) -> Result<(), String> {
-    let recon_config = ReconciliationConfig {
-        enabled: config["enabled"].as_bool().unwrap_or(false),
-        interval_secs: config["interval_secs"].as_u64().unwrap_or(30),
-        auto_close_orphaned: config["auto_close_orphaned"].as_bool().unwrap_or(false),
-        auto_open_missing: config["auto_open_missing"].as_bool().unwrap_or(false),
-        auto_adjust_volume: config["auto_adjust_volume"].as_bool().unwrap_or(false),
-        auto_sync_sl_tp: config["auto_sync_sl_tp"].as_bool().unwrap_or(true),
-    };
-    
-    init_reconciliation(&master_terminal_id, &receiver_terminal_ids, recon_config);
-    Ok(())
-}
 
 #[tauri::command]
 fn update_recon_config(config: serde_json::Value) -> Result<(), String> {
@@ -544,7 +493,7 @@ async fn export_debug_bundle(save_path: String) -> Result<String, String> {
     // Safety states
     bundle.push_str("=== SAFETY STATES ===\n");
     if let Ok(safety_json) = std::fs::read_to_string(
-        std::env::var("APPDATA").unwrap_or_default() + "\\TradeCopier\\safety_state.json"
+        std::env::var("APPDATA").unwrap_or_default() + "\\" + copier::safety::APP_DATA_FOLDER + "\\safety_state.json"
     ) {
         bundle.push_str(&safety_json);
     } else {
