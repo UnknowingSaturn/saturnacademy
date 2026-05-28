@@ -26,7 +26,35 @@ Deferred to R1: dual cloud upload path in the bundled Master EA (intentional com
 
 ---
 
+## ✅ P1 BATCH — SHIPPED (2026-05-28)
+
+Backend:
+- pg_cron job `prune-monitoring-snapshots` runs daily at 03:00 UTC — 90-day retention on `terminal_snapshots` and `account_balance_snapshots`
+- COMMENT ON TABLE added to all intentionally append-only tables (`events`, `terminal_snapshots`, `account_balance_snapshots`, `trade_repair_events`)
+
+Edge functions:
+- Dropped the XHR polyfill from `copier-config` and `copier-executions` (Deno has native fetch)
+- 12 edge functions now `import { corsHeaders } from "../_shared/cors.ts"` instead of redeclaring (also closes the missing-`x-api-key` gap in 3 of them)
+- `copier-config` config hash is now SHA-256 (was a 32-bit shift-hash with collisions)
+- `copier-config` config version is now derived from `receiver_settings.updated_at`
+
+Frontend:
+- `useUserSettings.tsx` — collapsed all duplicate `toast.error` calls in mutation error handlers (was firing twice per failure)
+- `src/types/settings.ts` — stale `property_options` comments rewritten to reference `custom_field_definitions`
+
+Deferred (low-risk file-org refactors with wide call-site impact — skipped to avoid touching many components):
+- Folding `useFieldOverrides.tsx` into `useCustomFields.tsx` (hooks already work against the unified table; this is purely cosmetic)
+- Extracting `computeBaseMetrics` to `src/lib/tradeMath.ts`
+- Merging `symbolAliases.ts` + `symbolMapping.ts`
+- Moving `LiveTradesProvider` inside the `/live-trades` route
+- Deleting `@deprecated` broker-time helpers
+- Desktop Rust cleanups (12 unused Tauri commands, AppData folder consolidation) — defer to R7/R8
+
+---
+
 ## P0 — Critical / Correctness or Security (do first)
+
+
 
 
 
