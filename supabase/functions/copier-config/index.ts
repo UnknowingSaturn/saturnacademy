@@ -231,7 +231,7 @@ serve(async (req) => {
 
     const config: CopierConfigFile = {
       ...configWithoutHash,
-      config_hash: generateConfigHash(configWithoutHash),
+      config_hash: await generateConfigHash(configWithoutHash),
     };
 
     console.log(`Generated config for user ${userId}, version ${version}, ${receivers.length} receivers`);
