@@ -700,3 +700,89 @@ export function useInitializeDefaults() {
     },
   });
 }
+
+// ============================================================================
+// Live Trade Questions — stored in custom_field_definitions with scope='live_question'.
+// (Migrated from user_settings.live_trade_questions JSONB column.)
+// ============================================================================
+
+export function useLiveTradeQuestions() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['live_trade_questions', user?.id],
+    queryFn: async (): Promise<LiveTradeQuestion[]> => {
+      if (!user?.id) return DEFAULT_LIVE_TRADE_QUESTIONS;
+      const { data, error } = await (supabase as any)
+        .from('custom_field_definitions')
+        .select('key, label, type, options, sort_order, is_active')
+        .eq('user_id', user.id)
+        .eq('scope', 'live_question')
+        .eq('is_active', true)
+        .order('sort_order');
+      if (error) throw error;
+      if (!data || data.length === 0) return DEFAULT_LIVE_TRADE_QUESTIONS;
+      return (data as any[]).map((r) => ({
+        id: r.key,
+        label: r.label,
+        type: (r.type === 'select' || r.type === 'rating' || r.type === 'text') ? r.type : 'text',
+        options: Array.isArray(r.options) ? r.options : undefined,
+      })) as LiveTradeQuestion[];
+    },
+    enabled: !!user?.id,
+  });
+}
+
+/**
+ * Replaces the user's full live-question set. Deletes any rows not present in
+ * the new list, then upserts each entry by (user_id, scope, key).
+ */
+export function useUpsertLiveTradeQuestions() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: async (questions: LiveTradeQuestion[]) => {
+      if (!user?.id) throw new Error('Not authenticated');
+      const keys = questions.map((q) => q.id);
+      // Delete rows that are no longer present
+      if (keys.length > 0) {
+        await (supabase as any)
+          .from('custom_field_definitions')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('scope', 'live_question')
+          .not('key', 'in', `(${keys.map((k) => `"${k.replace(/"/g, '\\"')}"`).join(',')})`);
+      } else {
+        await (supabase as any)
+          .from('custom_field_definitions')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('scope', 'live_question');
+      }
+      // Upsert each question
+      const rows = questions.map((q, idx) => ({
+        user_id: user.id,
+        scope: 'live_question',
+        key: q.id,
+        label: q.label,
+        type: q.type,
+        options: q.options ?? [],
+        sort_order: idx,
+        is_active: true,
+      }));
+      if (rows.length > 0) {
+        const { error } = await (supabase as any)
+          .from('custom_field_definitions')
+          .upsert(rows, { onConflict: 'user_id,scope,key' });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['live_trade_questions'] });
+      queryClient.invalidateQueries({ queryKey: ['custom_field_definitions'] });
+    },
+    onError: (error) => {
+      console.error(error);
+      toast.error(error instanceof Error ? error.message : 'Failed to save questions');
+    },
+  });
+}
