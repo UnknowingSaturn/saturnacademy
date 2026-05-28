@@ -491,7 +491,7 @@ serve(async (req) => {
       .from("events")
       .select("id")
       .eq("idempotency_key", payload.idempotency_key)
-      .single();
+      .maybeSingle();
 
     if (existingEvent) {
       console.log("Duplicate event:", payload.idempotency_key);
