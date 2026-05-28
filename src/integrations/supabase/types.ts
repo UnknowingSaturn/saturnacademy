@@ -73,7 +73,6 @@ export type Database = {
           copier_enabled: boolean | null
           copier_role: Database["public"]["Enums"]["copier_role"] | null
           created_at: string
-          ea_type: Database["public"]["Enums"]["ea_type"] | null
           equity_current: number | null
           force_resync: boolean
           id: string
@@ -102,7 +101,6 @@ export type Database = {
           copier_enabled?: boolean | null
           copier_role?: Database["public"]["Enums"]["copier_role"] | null
           created_at?: string
-          ea_type?: Database["public"]["Enums"]["ea_type"] | null
           equity_current?: number | null
           force_resync?: boolean
           id?: string
@@ -131,7 +129,6 @@ export type Database = {
           copier_enabled?: boolean | null
           copier_role?: Database["public"]["Enums"]["copier_role"] | null
           created_at?: string
-          ea_type?: Database["public"]["Enums"]["ea_type"] | null
           equity_current?: number | null
           force_resync?: boolean
           id?: string
@@ -2105,7 +2102,6 @@ export type Database = {
         | "FIXED_PLUS_0"
         | "MANUAL"
       copier_role: "independent" | "master" | "receiver"
-      ea_type: "journal" | "master" | "receiver"
       emotional_state:
         | "great"
         | "good"
@@ -2265,7 +2261,6 @@ export const Constants = {
         "MANUAL",
       ],
       copier_role: ["independent", "master", "receiver"],
-      ea_type: ["journal", "master", "receiver"],
       emotional_state: [
         "great",
         "good",
