@@ -3,11 +3,12 @@ project_id = "soosdjmnpcyuqppdjsse"
 [functions.ingest-events]
 verify_jwt = false
 
-[functions.reprocess-trades]
+[functions.trade-rebuild]
 verify_jwt = false
 
-[functions.restore-trade-times]
+[functions.trade-repair]
 verify_jwt = false
+
 
 [functions.playbook-assistant]
 verify_jwt = false
