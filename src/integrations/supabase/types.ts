@@ -2098,6 +2098,7 @@ export type Database = {
         Returns: undefined
       }
       mark_dormant_accounts: { Args: never; Returns: undefined }
+      prune_monitoring_snapshots: { Args: never; Returns: undefined }
     }
     Enums: {
       account_live_state: "live" | "dormant" | "verifying" | "stale"
