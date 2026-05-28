@@ -65,6 +65,9 @@ Extracted without changing any external function boundaries:
 - `_shared/repairEvent.ts` → `insertRepairEvent(client, e)` replaces 5 hand-built `trade_repair_events` inserts across `ingest-events` (×3), `sync-account-state` (×1), `repair-snapshot-closed` (×1). Typed `action` enum prevents future CHECK-constraint violations at the call site.
 - The full R2 collapse (merging 7 functions into 3) is deliberately deferred — it changes external invocation paths and the EA's behavior is highly sensitive to the ingest contract. The helpers shipped here capture most of the de-duplication value and make a future collapse a pure rename.
 
+## ✅ R4 — SHIPPED (2026-05-28) — Dropped defunct `journal_conversation` column
+Investigation showed the column had 0 rows of data, 0 readers, 0 writers — leftover from an abandoned feature. No new table needed; column + TS type dropped.
+
 ## ⏸ R1 — SKIPPED per user
 Bundled `resources/` EAs intentionally fused with bridge + cloud logic; collapsing to `mt5-bridge/` would regress live receivers. Revisit only with a feature-by-feature merge plan.
 
