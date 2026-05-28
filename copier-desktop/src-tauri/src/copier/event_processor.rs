@@ -7,8 +7,38 @@ use std::sync::Arc;
 use tracing::{info, warn, error, debug};
 use uuid::Uuid;
 
-use super::{lot_calculator, safety, trade_executor, CopierConfig, CopierState, Execution, TradeEvent};
+use super::{lot_calculator, safety, symbol_catalog, trade_executor, CopierConfig, CopierState, Execution, TradeEvent};
 use crate::sync::executions as exec_sync;
+
+/// R9: Clamp raw computed lots to the receiver broker's real specs from the
+/// symbol catalog (min_lot, max_lot, lot_step). Returns the input unchanged
+/// when the catalog or symbol is not yet available — the receiver EA still
+/// performs a final safety clamp using live `SymbolInfoDouble` values.
+fn clamp_to_broker_specs(terminal_id: &str, symbol: &str, raw_lots: f64) -> f64 {
+    match symbol_catalog::fetch_symbol_catalog(terminal_id) {
+        Ok(catalog) => {
+            if let Some(spec) = catalog.symbols.iter().find(|s| s.name == symbol) {
+                let clamped = symbol_catalog::clamp_lots(raw_lots, spec);
+                if (clamped - raw_lots).abs() > f64::EPSILON {
+                    debug!(
+                        "Clamped lots for {} on {}: {} -> {} (min={}, max={}, step={})",
+                        symbol, terminal_id, raw_lots, clamped,
+                        spec.min_lot, spec.max_lot, spec.lot_step
+                    );
+                }
+                clamped
+            } else {
+                debug!("No catalog entry for {} on {}, EA will clamp", symbol, terminal_id);
+                raw_lots
+            }
+        }
+        Err(e) => {
+            debug!("Symbol catalog unavailable for {}: {} — EA will clamp", terminal_id, e);
+            raw_lots
+        }
+    }
+}
+
 
 /// Single discovery cache (10s TTL in `mt5::discovery`) — this used to wrap
 /// another 30s cache layer which could double-stale entries.
@@ -49,13 +79,19 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
     };
 
     for receiver in &config.receivers {
-        // Check safety limits before processing
+        // Check safety limits before processing.
+        //
+        // NOTE (R9): `max_daily_loss_r` is configured in R-multiples, but the
+        // safety module expects a percentage. We don't have a per-receiver
+        // R-in-dollars here, so we deliberately leave this unset and let
+        // `SafetyConfig::default()` (3% daily loss) apply. The previous
+        // `r.map(|r| r * 1.0)` was a no-op pretending to convert units.
         let safety_config = safety::SafetyConfig {
-            max_daily_loss_percent: receiver.max_daily_loss_r.map(|r| r * 1.0), // Convert R to %
             max_slippage_pips: receiver.max_slippage_pips,
             prop_firm_safe_mode: receiver.prop_firm_safe_mode,
             ..Default::default()
         };
+
         
         // Get receiver account info from cached state (would be updated from heartbeat)
         let receiver_account = get_cached_account_info(&receiver.terminal_id);
@@ -85,7 +121,7 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             .unwrap_or_else(|| event.symbol.clone());
 
         // Calculate lot size using the improved calculator
-        let receiver_lots = lot_calculator::calculate_lots(
+        let raw_lots = lot_calculator::calculate_lots(
             &receiver.risk_mode,
             receiver.risk_value,
             event.lots,
@@ -95,6 +131,13 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             receiver_account.as_ref(),
             symbol_info.as_ref(),
         );
+
+        // R9: clamp to the receiver broker's real min/max/step from the
+        // symbol catalog when available. Falls through to the raw value if
+        // the catalog hasn't been fetched yet — the receiver EA will then
+        // perform a second clamp using live `SymbolInfoDouble` values.
+        let receiver_lots = clamp_to_broker_specs(&receiver.terminal_id, &mapped_symbol, raw_lots);
+
 
         // Canonical idempotency key — prefer EA-supplied, else build it.
         let deal = event.deal_id.unwrap_or(event.ticket);

@@ -251,4 +251,12 @@ After approval I can implement these in tranches starting with the P0/P1 batches
 - **#21 Unused Tauri commands removed** — `add_manual_terminal`, `get_terminal_account_info`, `set_reconciliation_config` (callers gone or were dead code).
 - **#22 `test_copy` placeholder removed** — Rust command, Dashboard button, state, handler, and `TestTube2`/`AlertCircle` imports all gone.
 
-Remaining outstanding: **R8** (decision on `reconciliation.rs` keep-or-delete) and **R9** (centralize lot-size clamping), plus the major backend refactor window **R2 full + R3** together.
+Remaining outstanding: major backend refactor window **R2 full + R3** together.
+
+## ✅ R9 — SHIPPED (2026-05-28) — Centralized lot-size clamping
+- `symbol_catalog::clamp_lots` made `pub`; it's now the single source of truth for min/max/step clamping using real broker `SymbolSpec` (loaded from `CopierSymbolCatalog.json`).
+- `event_processor::process_event` now passes the raw computed lot through a new `clamp_to_broker_specs(terminal_id, symbol, raw)` helper before building the execution. Falls back to the raw value if the catalog isn't fetched yet — the receiver EA still performs its own `SymbolInfoDouble` clamp as a backstop.
+- Deleted the dead parallel `symbol_catalog::calculate_receiver_lots` (only its own test referenced it) — `lot_calculator::calculate_lots` is now the single risk-mode calculator.
+- Deleted the dead `lot_calculator::apply_max_lot_limit` / `apply_min_lot_limit` exports (no callers; hardcoded 0.01 fallbacks).
+- Removed the bogus `max_daily_loss_r.map(|r| r * 1.0)` "convert R to %" mapping in `event_processor.rs`. `max_daily_loss_r` is in R-multiples and we have no per-receiver R-in-dollars at that point, so the safety module now falls back to its `SafetyConfig::default()` of 3% daily loss instead of silently treating "3 R" as "3 %".
+
