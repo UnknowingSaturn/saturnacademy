@@ -722,7 +722,7 @@ export type Database = {
           max_trades_per_session: number | null
           name: string
           screenshots: Json | null
-          session_filter: Database["public"]["Enums"]["session_type"][] | null
+          session_filter: string[] | null
           symbol_filter: string[] | null
           updated_at: string
           user_id: string
@@ -745,7 +745,7 @@ export type Database = {
           max_trades_per_session?: number | null
           name: string
           screenshots?: Json | null
-          session_filter?: Database["public"]["Enums"]["session_type"][] | null
+          session_filter?: string[] | null
           symbol_filter?: string[] | null
           updated_at?: string
           user_id: string
@@ -768,7 +768,7 @@ export type Database = {
           max_trades_per_session?: number | null
           name?: string
           screenshots?: Json | null
-          session_filter?: Database["public"]["Enums"]["session_type"][] | null
+          session_filter?: string[] | null
           symbol_filter?: string[] | null
           updated_at?: string
           user_id?: string
@@ -1702,7 +1702,7 @@ export type Database = {
           r_multiple_planned: number | null
           repair_state: string
           risk_percent: number | null
-          session: Database["public"]["Enums"]["session_type"] | null
+          session: string | null
           sl_final: number | null
           sl_initial: number | null
           swap: number | null
@@ -1752,7 +1752,7 @@ export type Database = {
           r_multiple_planned?: number | null
           repair_state?: string
           risk_percent?: number | null
-          session?: Database["public"]["Enums"]["session_type"] | null
+          session?: string | null
           sl_final?: number | null
           sl_initial?: number | null
           swap?: number | null
@@ -1802,7 +1802,7 @@ export type Database = {
           r_multiple_planned?: number | null
           repair_state?: string
           risk_percent?: number | null
-          session?: Database["public"]["Enums"]["session_type"] | null
+          session?: string | null
           sl_final?: number | null
           sl_initial?: number | null
           swap?: number | null
@@ -1941,7 +1941,7 @@ export type Database = {
           repair_state: string | null
           resolved_account_id: string | null
           risk_percent: number | null
-          session: Database["public"]["Enums"]["session_type"] | null
+          session: string | null
           sl_final: number | null
           sl_initial: number | null
           swap: number | null
@@ -1991,7 +1991,7 @@ export type Database = {
           repair_state?: string | null
           resolved_account_id?: never
           risk_percent?: number | null
-          session?: Database["public"]["Enums"]["session_type"] | null
+          session?: string | null
           sl_final?: number | null
           sl_initial?: number | null
           swap?: number | null
@@ -2041,7 +2041,7 @@ export type Database = {
           repair_state?: string | null
           resolved_account_id?: never
           risk_percent?: number | null
-          session?: Database["public"]["Enums"]["session_type"] | null
+          session?: string | null
           sl_final?: number | null
           sl_initial?: number | null
           swap?: number | null
@@ -2125,14 +2125,6 @@ export type Database = {
       news_risk: "none" | "low" | "high"
       prop_firm: "ftmo" | "fundednext" | "other"
       regime_type: "rotational" | "transitional"
-      session_type:
-        | "tokyo"
-        | "london"
-        | "new_york"
-        | "overlap_london_ny"
-        | "off_hours"
-        | "new_york_am"
-        | "new_york_pm"
       trade_direction: "buy" | "sell"
       trade_type: "executed" | "idea" | "paper" | "missed"
     }
@@ -2294,15 +2286,6 @@ export const Constants = {
       news_risk: ["none", "low", "high"],
       prop_firm: ["ftmo", "fundednext", "other"],
       regime_type: ["rotational", "transitional"],
-      session_type: [
-        "tokyo",
-        "london",
-        "new_york",
-        "overlap_london_ny",
-        "off_hours",
-        "new_york_am",
-        "new_york_pm",
-      ],
       trade_direction: ["buy", "sell"],
       trade_type: ["executed", "idea", "paper", "missed"],
     },
