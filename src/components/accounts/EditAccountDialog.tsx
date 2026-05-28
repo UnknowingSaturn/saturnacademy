@@ -42,7 +42,7 @@ const formSchema = z.object({
   broker: z.string().optional(),
   account_number: z.string().optional(),
   account_type: z.enum(['demo', 'live', 'prop']),
-  prop_firm: z.enum(['ftmo', 'fundednext', 'other']).optional(),
+  prop_firm: z.string().optional(),
   balance_start: z.coerce.number().min(0),
   equity_current: z.coerce.number().min(0),
   broker_utc_offset: z.coerce.number().min(-12).max(14),
