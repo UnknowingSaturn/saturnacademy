@@ -611,14 +611,7 @@ async function isSnapshotClosed(supabase: any, tradeId: string, isOpen: boolean)
     .from("trade_repair_events")
     .select("action")
     .eq("trade_id", tradeId);
-  const events = (data || []) as Array<{ action: string }>;
-  const hasSnap = events.some((e) => e.action === "snapshot_closed");
-  const repaired = events.some((e) =>
-    e.action === "repaired_from_snapshot" ||
-    e.action === "repaired_reopened" ||
-    e.action === "phase_a_one_shot"
-  );
-  return hasSnap && !repaired;
+  return isPendingRepair(data as any);
 }
 
 /**
