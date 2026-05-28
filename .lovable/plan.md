@@ -58,8 +58,18 @@ Deferred (low-risk file-org refactors with wide call-site impact — skipped to 
 - `mt5::bridge::find_terminal_path` made `pub` and switched to `discover_all_terminals_cached` instead of the uncached `discover_all_terminals`.
 - Redundant 30s `TERMINAL_CACHE` layer in `event_processor.rs` deleted — `get_cached_terminals()` now goes straight to the single 10s `DISCOVERY_CACHE`, eliminating the double-staleness window.
 
+## ✅ R2 PARTIAL — SHIPPED (2026-05-28) — Shared edge-function helpers
+
+Extracted without changing any external function boundaries:
+- `_shared/pnl.ts` → `computeNetPnl(gross, commission, swap)` replaces 6 inline copies of `gross - commission - Math.abs(swap)` across `ingest-events` (×4 incl. per-fill), `repair-snapshot-closed` (×1).
+- `_shared/repairEvent.ts` → `insertRepairEvent(client, e)` replaces 5 hand-built `trade_repair_events` inserts across `ingest-events` (×3), `sync-account-state` (×1), `repair-snapshot-closed` (×1). Typed `action` enum prevents future CHECK-constraint violations at the call site.
+- The full R2 collapse (merging 7 functions into 3) is deliberately deferred — it changes external invocation paths and the EA's behavior is highly sensitive to the ingest contract. The helpers shipped here capture most of the de-duplication value and make a future collapse a pure rename.
+
 ## ⏸ R1 — SKIPPED per user
 Bundled `resources/` EAs intentionally fused with bridge + cloud logic; collapsing to `mt5-bridge/` would regress live receivers. Revisit only with a feature-by-feature merge plan.
+
+## ⏸ R3 — DEFERRED
+Splitting `ingest-events` into a thin ACK path + async Postgres trigger processor is the highest-leverage backend change but also the riskiest: it changes the EA's contract semantics (sync repair → async repair) and would require coordinated EA + server testing on a staging copier setup before shipping to live users. Not safe to do blind.
 
 ---
 
