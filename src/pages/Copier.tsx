@@ -1,9 +1,13 @@
 import * as React from 'react';
+import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { LayoutDashboard, Activity } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { LayoutDashboard, Activity, HelpCircle } from 'lucide-react';
 import { CopierDashboard } from '@/components/copier/CopierDashboard';
 import { CopierDashboardView } from '@/components/copier/CopierDashboardView';
 import { ExecutionHistory } from '@/components/copier/ExecutionHistory';
+import { PageIntroBanner } from '@/components/tutorial/PageIntroBanner';
+import { TutorialDialog } from '@/components/tutorial/TutorialDialog';
 import { useCopierAccounts } from '@/hooks/useCopier';
 
 export default function Copier() {
