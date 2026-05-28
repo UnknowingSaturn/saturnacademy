@@ -23,8 +23,8 @@ use copier::commands::{
     read_master_heartbeat, is_master_online, Heartbeat,
 };
 use copier::reconciliation::{
-    ReconciliationConfig, ReconciliationAction, 
-    init_reconciliation, update_reconciliation_config, get_reconciliation_status,
+    ReconciliationConfig,
+    update_reconciliation_config, get_reconciliation_status,
     start_reconciliation_loop, stop_reconciliation_loop, trigger_reconciliation,
 };
 use parking_lot::Mutex;
@@ -664,9 +664,7 @@ fn main() {
             find_terminals,
             discover_terminals,
             add_terminal_path,
-            add_manual_terminal,
             install_ea,
-            get_terminal_account_info,
             get_symbol_catalog,
             get_master_symbols,
             auto_map_symbols,
@@ -681,9 +679,7 @@ fn main() {
             resume_receivers,
             get_master_heartbeat,
             check_master_online,
-            test_copy,
             // Reconciliation commands
-            set_reconciliation_config,
             update_recon_config,
             get_recon_status,
             start_recon_loop,
