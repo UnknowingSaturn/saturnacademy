@@ -81,14 +81,25 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
     for receiver in &config.receivers {
         // Check safety limits before processing.
         //
-        // NOTE (R9): `max_daily_loss_r` is configured in R-multiples, but the
-        // safety module expects a percentage. We don't have a per-receiver
-        // R-in-dollars here, so we deliberately leave this unset and let
-        // `SafetyConfig::default()` (3% daily loss) apply. The previous
-        // `r.map(|r| r * 1.0)` was a no-op pretending to convert units.
+        // Forward every field that has a direct runtime counterpart in
+        // `safety::SafetyConfig`. The two structs are intentionally
+        // different shapes:
+        //   - `config_generator::SafetyConfig` is the EA wire format
+        //     (includes `max_daily_loss_r`, `manual_confirm_mode`,
+        //     `poll_interval_ms` — all consumed only by the EA).
+        //   - `safety::SafetyConfig` is the desktop runtime guard
+        //     (uses percentage-based daily loss).
+        //
+        // `max_daily_loss_r` cannot be converted to a percentage here
+        // without a per-receiver R-in-dollars value; the EA enforces the
+        // R-based limit itself. We fall back to the 3% default for the
+        // desktop-side guard.
         let safety_config = safety::SafetyConfig {
             max_slippage_pips: receiver.max_slippage_pips,
             prop_firm_safe_mode: receiver.prop_firm_safe_mode,
+            max_drawdown_percent: receiver.max_drawdown_percent,
+            trailing_drawdown_enabled: receiver.trailing_drawdown_enabled,
+            min_equity: receiver.min_equity,
             ..Default::default()
         };
 

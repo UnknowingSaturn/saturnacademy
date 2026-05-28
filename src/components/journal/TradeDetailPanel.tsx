@@ -14,6 +14,7 @@ import { SaveStatusIndicator } from "./SaveStatusIndicator";
 
 import { TradeProperties } from "./TradeProperties";
 import { TradeScreenshotGallery } from "./TradeScreenshotGallery";
+import { TradeComments } from "./TradeComments";
 import { RuleComplianceAlert } from "@/components/playbooks/RuleComplianceAlert";
 import { PlaybookComplianceChecklist } from "./PlaybookComplianceChecklist";
 import { Button } from "@/components/ui/button";
@@ -556,6 +557,14 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                                 <Plus className="w-3 h-3" />
                               </Button>
                             </div>
+                          </div>
+                        );
+
+                      case 'comments':
+                        return (
+                          <div>
+                            <Label className="text-sm font-semibold mb-3 block">Comments & Notes</Label>
+                            <TradeComments tradeId={trade.id} />
                           </div>
                         );
 

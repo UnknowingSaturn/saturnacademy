@@ -1431,6 +1431,7 @@ serve(async (req) => {
       sensei_notes: sensei,
       sensei_model: model,
       schema_suggestions: suggestions,
+      read_quality: readQualityBlock,
       goals,
       prior_goals_evaluation,
       verdict,

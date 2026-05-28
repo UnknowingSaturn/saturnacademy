@@ -9,8 +9,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
-import { isPendingRepair } from "../_shared/snapshotRepair.ts";
+import { isPendingRepair, hasSnapshotClosed, isAlreadyRepaired } from "../_shared/snapshotRepair.ts";
 import { computeNetPnl } from "../_shared/pnl.ts";
+import { computeRMultiple } from "../_shared/rMultiple.ts";
 import { insertRepairEvent } from "../_shared/repairEvent.ts";
 
 type Action = "list-drift" | "repair";
@@ -108,13 +109,9 @@ async function runListDrift(admin: SupabaseClient, userId: string) {
     const stuckByAccount = new Map<string, number>();
     for (const t of stuckTrades || []) {
       const events = ((t as any).trade_repair_events || []) as Array<{ action: string }>;
-      const hasSnap = events.some((e) => e.action === "snapshot_closed");
-      const repaired = events.some((e) =>
-        e.action === "repaired_from_snapshot" ||
-        e.action === "repaired_reopened" ||
-        e.action === "phase_a_one_shot"
-      );
-      if (hasSnap && !repaired) {
+      // Use the canonical helpers so new REPAIRED_ACTIONS / dismiss actions
+      // don't silently leak through as "still stuck".
+      if (hasSnapshotClosed(events) && !isAlreadyRepaired(events)) {
         const accId = (t as any).account_id;
         stuckByAccount.set(accId, (stuckByAccount.get(accId) || 0) + 1);
       }
@@ -220,18 +217,23 @@ async function runRepair(
         new Date(trade.entry_time).getTime()) / 1000,
     );
 
-    let rMultiple: number | null = null;
+    // Use the shared, broker-agnostic R-multiple calculator so repaired
+    // trades match ingest-events / trade-rebuild values (indices, metals,
+    // crypto, and partial-fill paths handled uniformly).
     const entryPrice = Number(trade.entry_price);
     const exitPrice = Number(exitEvent.price);
-    const sl = trade.sl_initial != null ? Number(trade.sl_initial) : null;
-    if (sl != null && Number.isFinite(sl) && Number.isFinite(entryPrice) && Number.isFinite(exitPrice)) {
-      const isBuy = String(trade.direction).toLowerCase() === "buy";
-      const riskPerUnit = isBuy ? entryPrice - sl : sl - entryPrice;
-      if (riskPerUnit > 0) {
-        const move = isBuy ? exitPrice - entryPrice : entryPrice - exitPrice;
-        rMultiple = move / riskPerUnit;
-      }
-    }
+    const rMultiple = computeRMultiple({
+      entryPrice: Number.isFinite(entryPrice) ? entryPrice : null,
+      exitPrice: Number.isFinite(exitPrice) ? exitPrice : null,
+      slPrice: trade.sl_initial != null ? Number(trade.sl_initial) : null,
+      lots: trade.original_lots != null ? Number(trade.original_lots) : null,
+      grossPnl,
+      netPnl,
+      symbol: String(trade.symbol || ""),
+      equityAtEntry: trade.equity_at_entry != null ? Number(trade.equity_at_entry) : null,
+      direction: String(trade.direction || "").toLowerCase(),
+      fills: null,
+    });
 
     const update: Record<string, unknown> = {
       exit_price: exitPrice,

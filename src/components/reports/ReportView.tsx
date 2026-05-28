@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { TrendingUp, TrendingDown, AlertCircle, Target, Brain, Activity, Sparkles, Trophy, Skull, RefreshCw } from "lucide-react";
+import { TrendingUp, TrendingDown, AlertCircle, Target, Brain, Activity, Sparkles, Trophy, Skull, RefreshCw, Eye } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { CitedTradeChip } from "./CitedTradeChip";
 import { SchemaSuggestionCard } from "./SchemaSuggestionCard";
@@ -358,6 +358,65 @@ export function ReportView({ report }: Props) {
                     flagText="off-rhythm"
                   />
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* §5b Read quality — planned-vs-actual playbook grading */}
+          {report.read_quality && report.read_quality.graded_count >= 5 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Eye className="w-4 h-4" /> Read quality
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">Correctly read</div>
+                    <div className="text-xl font-semibold mt-1 tabular-nums text-success">
+                      {report.read_quality.match}
+                      <span className="text-xs text-muted-foreground ml-1">/ {report.read_quality.graded_count}</span>
+                    </div>
+                    {report.read_quality.win_rate_when_correctly_read != null && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {formatNum(report.read_quality.win_rate_when_correctly_read, 0)}% win rate
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">Partial</div>
+                    <div className="text-xl font-semibold mt-1 tabular-nums text-warning">
+                      {report.read_quality.partial}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">Misread</div>
+                    <div className="text-xl font-semibold mt-1 tabular-nums text-destructive">
+                      {report.read_quality.mismatch}
+                    </div>
+                    {report.read_quality.win_rate_when_misread != null && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {formatNum(report.read_quality.win_rate_when_misread, 0)}% win rate
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {report.read_quality.top_misreads?.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase mb-2">
+                      Top misreads (planned → actual)
+                    </div>
+                    <div className="space-y-1">
+                      {report.read_quality.top_misreads.map((m, i) => (
+                        <div key={i} className="text-sm flex items-center justify-between border-b border-border/50 pb-1 last:border-0">
+                          <span className="font-mono text-xs">{m.pair}</span>
+                          <span className="text-xs text-muted-foreground tabular-nums">{m.count}×</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

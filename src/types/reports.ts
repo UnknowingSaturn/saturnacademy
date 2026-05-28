@@ -136,6 +136,18 @@ export interface SchemaSuggestion {
   };
 }
 
+// Planned-vs-actual playbook grading. Computed by generate-report when
+// at least 5 trades carry both a planned and an actual classifier.
+export interface ReadQualityBlock {
+  graded_count: number;
+  match: number;
+  partial: number;
+  mismatch: number;
+  win_rate_when_correctly_read: number | null;
+  win_rate_when_misread: number | null;
+  top_misreads: Array<{ pair: string; count: number }>;
+}
+
 export interface ReportGoal {
   id: string;
   text: string;             // "Reduce post-loss trades opened within 30min from 5 to ≤1"
@@ -174,6 +186,8 @@ export interface Report {
   schema_suggestions: SchemaSuggestion[];
   goals: ReportGoal[];
   prior_goals_evaluation: PriorGoalsEvaluation | null;
+
+  read_quality: ReadQualityBlock | null;
 
   verdict: string | null;
   grade: ReportGrade | null;
