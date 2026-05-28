@@ -67,7 +67,7 @@ function Dashboard() {
   // Priority: 1. First trade's balance_at_entry in current period
   //           2. Previous period's ending balance (start + pnl)
   //           3. Account's starting balance (fallback)
-  const periodStartingBalance = React.useMemo(() => {
+  const periodStartingBalance = useMemo(() => {
     // Sort current period trades by entry time to find the earliest
     const sortedCurrentTrades = [...filteredTrades]
       .filter(t => t.balance_at_entry !== null)
