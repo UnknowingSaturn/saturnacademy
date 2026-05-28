@@ -109,6 +109,6 @@ function StrategyLabPage() {
       </Dialog>
     </div>
   );
-});
+}
 
 export default StrategyLabPage;
