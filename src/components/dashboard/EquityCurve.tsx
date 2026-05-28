@@ -310,8 +310,13 @@ export const EquityCurve = React.forwardRef<HTMLDivElement, EquityCurveProps>(
                     ) : (
                       <TrendingDown className="w-3 h-3" />
                     )}
-                    {isBetter ? "+" : ""}
-                    {deltaPercent}%
+                    <span title={deltaBalancePct ? `${delta >= 0 ? "+" : ""}${deltaBalancePct}% of starting balance` : undefined}>
+                      {deltaDollar}
+                      {deltaBalancePct && (
+                        <span className="opacity-70 ml-1">({delta >= 0 ? "+" : ""}{deltaBalancePct}%)</span>
+                      )}
+                      {signFlipped && <span className="opacity-70 ml-1">(flipped)</span>}
+                    </span>
                   </span>
                 )}
                 {isSame && (
