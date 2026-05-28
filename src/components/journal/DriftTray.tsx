@@ -80,8 +80,8 @@ export function DriftTray() {
   const repairAccount = async (accountId: string) => {
     try {
       setRepairing(accountId);
-      const { data, error } = await supabase.functions.invoke("repair-snapshot-closed", {
-        body: { account_id: accountId },
+      const { data, error } = await supabase.functions.invoke("trade-repair", {
+        body: { action: "repair", account_id: accountId },
       });
       if (error) throw error;
       const msg = (data as any)?.message || "Repair complete";
