@@ -43,7 +43,7 @@ export function DriftTray() {
   const load = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase.functions.invoke("trades-drift");
+      const { data, error } = await supabase.functions.invoke("trade-repair", { body: { action: "list-drift" } });
       if (error) throw error;
       setDrift(data?.drift_trades ?? []);
       setDormant(data?.dormant_accounts ?? []);
