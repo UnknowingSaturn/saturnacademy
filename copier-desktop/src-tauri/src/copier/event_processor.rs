@@ -7,8 +7,38 @@ use std::sync::Arc;
 use tracing::{info, warn, error, debug};
 use uuid::Uuid;
 
-use super::{lot_calculator, safety, trade_executor, CopierConfig, CopierState, Execution, TradeEvent};
+use super::{lot_calculator, safety, symbol_catalog, trade_executor, CopierConfig, CopierState, Execution, TradeEvent};
 use crate::sync::executions as exec_sync;
+
+/// R9: Clamp raw computed lots to the receiver broker's real specs from the
+/// symbol catalog (min_lot, max_lot, lot_step). Returns the input unchanged
+/// when the catalog or symbol is not yet available — the receiver EA still
+/// performs a final safety clamp using live `SymbolInfoDouble` values.
+fn clamp_to_broker_specs(terminal_id: &str, symbol: &str, raw_lots: f64) -> f64 {
+    match symbol_catalog::fetch_symbol_catalog(terminal_id) {
+        Ok(catalog) => {
+            if let Some(spec) = catalog.symbols.iter().find(|s| s.name == symbol) {
+                let clamped = symbol_catalog::clamp_lots(raw_lots, spec);
+                if (clamped - raw_lots).abs() > f64::EPSILON {
+                    debug!(
+                        "Clamped lots for {} on {}: {} -> {} (min={}, max={}, step={})",
+                        symbol, terminal_id, raw_lots, clamped,
+                        spec.min_lot, spec.max_lot, spec.lot_step
+                    );
+                }
+                clamped
+            } else {
+                debug!("No catalog entry for {} on {}, EA will clamp", symbol, terminal_id);
+                raw_lots
+            }
+        }
+        Err(e) => {
+            debug!("Symbol catalog unavailable for {}: {} — EA will clamp", terminal_id, e);
+            raw_lots
+        }
+    }
+}
+
 
 /// Single discovery cache (10s TTL in `mt5::discovery`) — this used to wrap
 /// another 30s cache layer which could double-stale entries.
