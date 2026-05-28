@@ -59,6 +59,13 @@ export type Database = {
             referencedRelation: "accounts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "abs_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
+          },
         ]
       }
       accounts: {
@@ -153,6 +160,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "accounts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accounts_master_account_id_fkey"
+            columns: ["master_account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
           },
         ]
       }
@@ -313,11 +327,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "copier_executions_master_account_id_fkey"
+            columns: ["master_account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
+          },
+          {
             foreignKeyName: "copier_executions_receiver_account_id_fkey"
             columns: ["receiver_account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "copier_executions_receiver_account_id_fkey"
+            columns: ["receiver_account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
           },
         ]
       }
@@ -375,6 +403,13 @@ export type Database = {
             referencedRelation: "accounts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "copier_receiver_settings_receiver_account_id_fkey"
+            columns: ["receiver_account_id"]
+            isOneToOne: true
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
+          },
         ]
       }
       copier_symbol_mappings: {
@@ -420,11 +455,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "copier_symbol_mappings_master_account_id_fkey"
+            columns: ["master_account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
+          },
+          {
             foreignKeyName: "copier_symbol_mappings_receiver_account_id_fkey"
             columns: ["receiver_account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "copier_symbol_mappings_receiver_account_id_fkey"
+            columns: ["receiver_account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
           },
         ]
       }
@@ -553,6 +602,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "accounts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
           },
         ]
       }
@@ -966,6 +1022,13 @@ export type Database = {
             referencedRelation: "accounts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "reports_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
+          },
         ]
       }
       session_definitions: {
@@ -1074,6 +1137,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "accounts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "setup_tokens_master_account_id_fkey"
+            columns: ["master_account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
           },
         ]
       }
@@ -1210,47 +1280,6 @@ export type Database = {
         }
         Relationships: []
       }
-      terminal_accounts: {
-        Row: {
-          account_id: string
-          created_at: string
-          install_id: string | null
-          is_currently_active: boolean
-          last_active_at: string
-          terminal_id: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          account_id: string
-          created_at?: string
-          install_id?: string | null
-          is_currently_active?: boolean
-          last_active_at?: string
-          terminal_id: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          account_id?: string
-          created_at?: string
-          install_id?: string | null
-          is_currently_active?: boolean
-          last_active_at?: string
-          terminal_id?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "terminal_accounts_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "accounts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       terminal_snapshots: {
         Row: {
           account_id: string | null
@@ -1295,6 +1324,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "accounts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "terminal_snapshots_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
           },
         ]
       }
@@ -1823,6 +1859,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "trades_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
+          },
+          {
             foreignKeyName: "trades_actual_playbook_id_fkey"
             columns: ["actual_playbook_id"]
             isOneToOne: false
@@ -1902,6 +1945,39 @@ export type Database = {
       }
     }
     Views: {
+      terminal_accounts: {
+        Row: {
+          account_id: string | null
+          created_at: string | null
+          install_id: string | null
+          is_currently_active: boolean | null
+          last_active_at: string | null
+          terminal_id: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          created_at?: string | null
+          install_id?: string | null
+          is_currently_active?: never
+          last_active_at?: string | null
+          terminal_id?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          created_at?: string | null
+          install_id?: string | null
+          is_currently_active?: never
+          last_active_at?: string | null
+          terminal_id?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       trade_view: {
         Row: {
           account_id: string | null
@@ -2060,6 +2136,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "accounts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trades_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_accounts"
+            referencedColumns: ["account_id"]
           },
           {
             foreignKeyName: "trades_actual_playbook_id_fkey"
