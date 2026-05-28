@@ -83,6 +83,11 @@ Investigation showed the column had 0 rows of data, 0 readers, 0 writers — lef
 - Edge functions (`ingest-events`, `copier-config`, `sync-account-state`) no longer read or write `ea_type`; payload field is accepted but ignored for backward compatibility with older EA builds.
 - Frontend (`Copier.tsx`, `CopierDashboardView.tsx`) filters by `copier_role` alone; removed `EAType` from `src/types/trading.ts` and `src/types/copier.ts`.
 
+## ✅ R10 — SHIPPED (2026-05-28) — `terminal_accounts` table → derived view
+- Dropped the `terminal_accounts` table (it duplicated state already on `accounts`).
+- Recreated as a `security_invoker` view over `accounts`: `is_currently_active` is true for the row with the latest `last_heartbeat_at` per `(user_id, mt5_install_id)`.
+- Removed `markTerminalActiveAccount` helper + 3 call sites in `ingest-events`. The heartbeat bump on `accounts` (already part of every event) is the new (and only) write path; `trades-drift` reads the view unchanged.
+
 ## ⏸ R1 — SKIPPED per user
 Bundled `resources/` EAs intentionally fused with bridge + cloud logic; collapsing to `mt5-bridge/` would regress live receivers. Revisit only with a feature-by-feature merge plan.
 
