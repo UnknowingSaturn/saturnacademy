@@ -92,7 +92,7 @@ serve(async (req) => {
     // Pull stuck trades across all target accounts, joined to their repair events.
     const { data: stuckTrades, error: tradesErr } = await admin
       .from("trades")
-      .select("id, ticket, symbol, entry_price, entry_time, original_lots, equity_at_entry, balance_at_entry, sl_initial, account_id, trade_repair_events(action)")
+      .select("id, ticket, symbol, direction, entry_price, entry_time, original_lots, equity_at_entry, balance_at_entry, sl_initial, account_id, trade_repair_events(action)")
       .in("account_id", targetAccountIds)
       .eq("is_open", false);
 
