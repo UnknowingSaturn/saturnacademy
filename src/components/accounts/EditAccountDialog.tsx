@@ -199,8 +199,9 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
         broker_dst_profile: dstProfile,
       });
 
-      const { data: restoreData, error: restoreError } = await supabase.functions.invoke('restore-trade-times', {
+      const { data: restoreData, error: restoreError } = await supabase.functions.invoke('trade-rebuild', {
         body: {
+          mode: 'restore-times',
           account_id: account.id,
           broker_utc_offset: brokerOffset,
           broker_dst_profile: dstProfile,
@@ -221,8 +222,8 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
         return;
       }
 
-      const { error: reprocessError } = await supabase.functions.invoke('reprocess-trades', {
-        body: { account_id: account.id },
+      const { error: reprocessError } = await supabase.functions.invoke('trade-rebuild', {
+        body: { mode: 'reprocess', account_id: account.id },
       });
 
       if (reprocessError) {

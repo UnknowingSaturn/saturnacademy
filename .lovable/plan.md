@@ -58,12 +58,20 @@ Deferred (low-risk file-org refactors with wide call-site impact — skipped to 
 - `mt5::bridge::find_terminal_path` made `pub` and switched to `discover_all_terminals_cached` instead of the uncached `discover_all_terminals`.
 - Redundant 30s `TERMINAL_CACHE` layer in `event_processor.rs` deleted — `get_cached_terminals()` now goes straight to the single 10s `DISCOVERY_CACHE`, eliminating the double-staleness window.
 
-## ✅ R2 PARTIAL — SHIPPED (2026-05-28) — Shared edge-function helpers
+## ✅ R2 — SHIPPED (2026-05-28) — Edge function consolidation (5 → 2, plus earlier shared helpers)
 
-Extracted without changing any external function boundaries:
-- `_shared/pnl.ts` → `computeNetPnl(gross, commission, swap)` replaces 6 inline copies of `gross - commission - Math.abs(swap)` across `ingest-events` (×4 incl. per-fill), `repair-snapshot-closed` (×1).
-- `_shared/repairEvent.ts` → `insertRepairEvent(client, e)` replaces 5 hand-built `trade_repair_events` inserts across `ingest-events` (×3), `sync-account-state` (×1), `repair-snapshot-closed` (×1). Typed `action` enum prevents future CHECK-constraint violations at the call site.
-- The full R2 collapse (merging 7 functions into 3) is deliberately deferred — it changes external invocation paths and the EA's behavior is highly sensitive to the ingest contract. The helpers shipped here capture most of the de-duplication value and make a future collapse a pure rename.
+**Phase 1 (earlier today)** — shared helpers extracted without changing function boundaries:
+- `_shared/pnl.ts` → `computeNetPnl(gross, commission, swap)` (6 inline copies removed).
+- `_shared/repairEvent.ts` → `insertRepairEvent(client, e)` (5 hand-built inserts removed), typed `action` enum.
+
+**Phase 2 (now)** — function-level consolidation for everything not pinned by the EA URL:
+- `trade-rebuild` (new) consolidates `reprocess-trades` + `reclassify-sessions` + `restore-trade-times`. Single `mode` param: `reprocess` | `reclassify-sessions` | `restore-times`. Updated callers: `EditAccountDialog.tsx` (×2), `SessionConfigPanel.tsx`.
+- `trade-repair` (new) consolidates `trades-drift` + `repair-snapshot-closed`. Single `action` param: `list-drift` | `repair`. Updated callers: `DriftTray.tsx` (×3), `TradeTable.tsx`.
+- 5 old function dirs deleted, 5 deployed functions removed, `config.toml` rewritten, both new functions deployed and smoke-tested with status 200.
+
+`sync-account-state` is intentionally NOT consolidated — the MQL5 bridge hardcodes its URL, so renaming it would break every deployed EA. It will fold into a `reconcile` umbrella only when the EA contract version is bumped.
+
+
 
 ## ✅ R4 — SHIPPED (2026-05-28) — Dropped defunct `journal_conversation` column
 Investigation showed the column had 0 rows of data, 0 readers, 0 writers — leftover from an abandoned feature. No new table needed; column + TS type dropped.

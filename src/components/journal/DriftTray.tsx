@@ -32,7 +32,7 @@ interface DormantAccount {
 /**
  * Surfaces trades that the broker probably closed but the EA missed the deal
  * event for. Non-destructive — clicking Repair pulls the real close from
- * MT5 deal history via the existing repair-snapshot-closed function.
+ * MT5 deal history via the trade-repair function.
  */
 export function DriftTray() {
   const [drift, setDrift] = useState<DriftTrade[]>([]);
@@ -43,7 +43,7 @@ export function DriftTray() {
   const load = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase.functions.invoke("trades-drift");
+      const { data, error } = await supabase.functions.invoke("trade-repair", { body: { action: "list-drift" } });
       if (error) throw error;
       setDrift(data?.drift_trades ?? []);
       setDormant(data?.dormant_accounts ?? []);
@@ -63,8 +63,8 @@ export function DriftTray() {
   const repair = async (trade: DriftTrade) => {
     try {
       setRepairing(trade.id);
-      const { error } = await supabase.functions.invoke("repair-snapshot-closed", {
-        body: { account_id: trade.account_id },
+      const { error } = await supabase.functions.invoke("trade-repair", {
+        body: { action: "repair", account_id: trade.account_id },
       });
       if (error) throw error;
       toast.success(`Repair requested for ${trade.symbol} #${trade.ticket}`);
@@ -80,8 +80,8 @@ export function DriftTray() {
   const repairAccount = async (accountId: string) => {
     try {
       setRepairing(accountId);
-      const { data, error } = await supabase.functions.invoke("repair-snapshot-closed", {
-        body: { account_id: accountId },
+      const { data, error } = await supabase.functions.invoke("trade-repair", {
+        body: { action: "repair", account_id: accountId },
       });
       if (error) throw error;
       const msg = (data as any)?.message || "Repair complete";

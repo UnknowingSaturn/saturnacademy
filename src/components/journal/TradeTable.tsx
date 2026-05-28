@@ -358,8 +358,8 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   const handleRepair = async (trade: Trade) => {
     try {
       setRepairingId(trade.id);
-      const { data, error } = await supabase.functions.invoke("repair-snapshot-closed", {
-        body: { account_id: trade.account_id },
+      const { data, error } = await supabase.functions.invoke("trade-repair", {
+        body: { action: "repair", account_id: trade.account_id },
       });
       if (error) throw error;
       const result = data as any;
