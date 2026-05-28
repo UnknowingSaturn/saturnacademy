@@ -73,6 +73,10 @@ Investigation showed the column had 0 rows of data, 0 readers, 0 writers — lef
 - New hooks `useLiveTradeQuestions()` + `useUpsertLiveTradeQuestions()` in `useUserSettings.tsx`.
 - Rewired `LiveTradeQuestionsPanel`, `SchemaSuggestionCard`, `ReportView` (existing-fields probe), and `generate-report` edge function to read/write the unified table. `useCustomFieldDefinitions()` already filters `scope='user'`, so live-question rows don't bleed into the trade-table custom fields UI.
 
+## ✅ R5 — SHIPPED (2026-05-28) — `session_type` enum → free-form text
+- Migration drops the enum and converts `trades.session` to `text` and `playbooks.session_filter` to `text[]`; `trade_view` recreated to pick up the new column type.
+- TS `SessionType` widened to `string` (with `KNOWN_SESSIONS` const exported for UI defaults), so user-defined sessions from `session_definitions` can flow through trades/playbooks without enum churn on every new entry.
+
 ## ⏸ R1 — SKIPPED per user
 Bundled `resources/` EAs intentionally fused with bridge + cloud logic; collapsing to `mt5-bridge/` would regress live receivers. Revisit only with a feature-by-feature merge plan.
 
