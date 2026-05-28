@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, FileSpreadsheet, ArrowRight, Loader2, Check, AlertCircle } from "lucide-react";
 import { format, parse } from "date-fns";
+import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 
 interface CSVRow {
   [key: string]: string;
@@ -283,6 +284,13 @@ export default function Import() {
         <h1 className="text-2xl font-bold">Import Trades</h1>
         <p className="text-muted-foreground">Import your historical trades from a CSV file</p>
       </div>
+
+      <PageIntroBanner
+        routeKey="import"
+        title="Use this for CSVs from brokers or other journals"
+        body="If you just want past MT5 trades, the EA's Import History (on each account card) is faster — it pulls closed deals directly. Use this CSV importer for trades that don't live in MT5 or for accounts you can't connect."
+      />
+
 
       <Tabs value={step} className="space-y-6">
         <TabsList className="grid w-full max-w-md grid-cols-3">
