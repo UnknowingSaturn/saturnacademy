@@ -63,6 +63,20 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
   const [isSyncing, setIsSyncing] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
 
+  const { data: propFirms } = useQuery({
+    queryKey: ['prop_firms'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('prop_firms')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('sort_order');
+      if (error) throw error;
+      return data as { id: string; name: string }[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const maskedKey = account.api_key
     ? `${account.api_key.slice(0, 8)}${'•'.repeat(16)}${account.api_key.slice(-4)}`
     : 'No API key';
