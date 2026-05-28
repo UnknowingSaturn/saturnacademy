@@ -97,6 +97,12 @@ pub struct TradeEvent {
     /// Master account number (string form, matches accounts.account_number)
     #[serde(default)]
     pub master_account_number: Option<String>,
+    /// Canonical idempotency key written by the Master EA.
+    /// Format: `{terminal_id}:{deal_id_or_position_id}:{event_type}`.
+    /// When present, the file watcher uses this verbatim; otherwise it falls
+    /// back to constructing the same shape from the other fields.
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

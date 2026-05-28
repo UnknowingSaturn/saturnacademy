@@ -76,8 +76,8 @@ A single migration + targeted code edits covering items 1–13 above. No new abs
 3. EA: fix `HandlePositionModify` UTC math, make `WriteOpenPositions` atomic, drop the timestamp suffix from the modify idempotency key.
 4. Frontend: route the 7 components bypassing hooks through their hooks (or add `invalidateQueries`).
 
-### Phase 2 — Extract `_shared/` and one canonical idempotency key (~2–3 days)
-Create `_shared/auth.ts`, `_shared/apiKey.ts`, `_shared/accountResolve.ts`, `_shared/snapshotRepair.ts` (with the canonical `REPAIR_ACTIONS` constant). Migrate `ingest-events` and `sync-account-state` to consume them; delete the divergent copies. Pick the canonical idempotency key `{terminal_id}:{deal_id}:{event_type}`; rewrite `file_watcher.rs` to read `event.idempotency_key` from the JSON instead of regenerating its own; delete `idempotency::generate_idempotency_key`'s 5-part format.
+### Phase 2 — Extract `_shared/` and one canonical idempotency key (~2–3 days) — DONE
+Created `_shared/cors.ts`, `_shared/apiKey.ts`, `_shared/snapshotRepair.ts` (with the canonical `REPAIR_ACTIONS` constants `REPAIR_ACTION_SNAPSHOT_CLOSED` / `REPAIRED_ACTIONS` and `isPendingRepair` helper). Migrated `ingest-events`, `sync-account-state`, `repair-snapshot-closed`, `copier-config`, and `get-shared-report` to the shared modules — deleted ~80 LOC of divergent copies. Canonicalised the idempotency key to `{terminal_id}:{deal_id|position_id}:{event_type}`: Master EA modify keys no longer carry a timestamp suffix; Rust `TradeEvent` now reads the EA-supplied `idempotency_key` verbatim and only falls back to building it locally for legacy EAs; the old 5-part `generate_idempotency_key` is gone, replaced by `build_canonical_key`.
 
 ### Phase 3 — Delete the dead weight (~1 day, almost all removals)
 - Delete `execution_queue.rs` and the async `trade_executor` path.

@@ -1,11 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { corsHeaders } from "../_shared/cors.ts";
+import { isPendingRepair } from "../_shared/snapshotRepair.ts";
 
 /**
  * Repair "snapshot_closed" trades for a given account by re-matching them
@@ -107,16 +103,10 @@ serve(async (req) => {
       });
     }
 
-    const candidates = (stuckTrades || []).filter((t: any) => {
-      const events = (t.trade_repair_events || []) as Array<{ action: string }>;
-      const hasSnap = events.some((e) => e.action === "snapshot_closed");
-      const repaired = events.some((e) =>
-        e.action === "repaired_from_snapshot" ||
-        e.action === "repaired_reopened" ||
-        e.action === "phase_a_one_shot"
-      );
-      return hasSnap && !repaired;
-    });
+    const candidates = (stuckTrades || []).filter((t: any) =>
+      isPendingRepair(t.trade_repair_events as any),
+    );
+
 
     let repaired = 0;
     let pending = 0;

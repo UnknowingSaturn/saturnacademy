@@ -313,9 +313,9 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
    ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
    string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
    
-   // Generate modify event
-   string idempotencyKey = g_terminalId + ":" + IntegerToString(posId) + ":modify:" +
-                           IntegerToString(TimeCurrent());
+   // Canonical idempotency key: {terminal_id}:{position_id}:modify
+   // No timestamp suffix — modify retries for the same SL/TP target must dedupe.
+   string idempotencyKey = g_terminalId + ":" + IntegerToString(posId) + ":modify";
    
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;

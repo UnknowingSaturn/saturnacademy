@@ -2,12 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { computeRMultiple, getPipSize, getPipValue } from "../_shared/rMultiple.ts";
 import { classifySession, loadSessions } from "../_shared/session.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { corsHeaders } from "../_shared/cors.ts";
+import { resolveUserFromApiKey } from "../_shared/apiKey.ts";
+import { isPendingRepair } from "../_shared/snapshotRepair.ts";
 
 interface AccountInfo {
   login: number;
@@ -91,30 +88,11 @@ serve(async (req) => {
     // so that one MT5 terminal switching between Hola Prime accounts routes
     // each event to the correct journal account.
 
-    // Step 1: find any account using this API key — that gives us the user_id
-    const { data: anyAccountForKey } = await supabase
-      .from("accounts")
-      .select("id, user_id, terminal_id, account_number")
-      .eq("api_key", apiKey)
-      .eq("is_active", true)
-      .limit(1)
-      .maybeSingle();
-
-    let userIdForKey: string | null = anyAccountForKey?.user_id ?? null;
-    let setupTokenRow: any = null;
-
-    if (!userIdForKey) {
-      const { data: tok } = await supabase
-        .from("setup_tokens")
-        .select("user_id, used, sync_history_enabled, sync_history_from, copier_role, master_account_id")
-        .eq("token", apiKey)
-        .gt("expires_at", new Date().toISOString())
-        .maybeSingle();
-      if (tok && !tok.used) {
-        userIdForKey = tok.user_id;
-        setupTokenRow = tok;
-      }
-    }
+    // Step 1: resolve the API key to a user (shared with sync-account-state)
+    const keyRes = await resolveUserFromApiKey(supabase, apiKey);
+    const anyAccountForKey = keyRes.accountForKey;
+    let setupTokenRow: any = keyRes.setupToken;
+    const userIdForKey: string | null = keyRes.userId;
 
     if (!userIdForKey) {
       console.error("Invalid API key — no account or active setup token");
@@ -180,16 +158,8 @@ serve(async (req) => {
     if (!account && payload.account_info) {
       console.log("No account found for login", brokerLogin, "— auto-creating");
 
-      // Re-fetch setup token data if we haven't already
-      if (!setupTokenRow) {
-        const { data: tok } = await supabase
-          .from("setup_tokens")
-          .select("user_id, used, sync_history_enabled, sync_history_from, copier_role, master_account_id")
-          .eq("token", apiKey)
-          .gt("expires_at", new Date().toISOString())
-          .maybeSingle();
-        setupTokenRow = tok ?? null;
-      }
+      // setupTokenRow is already populated by resolveUserFromApiKey when the
+      // API key was an unused setup token; no need to refetch.
 
       // For multi-account on same terminal, allow auto-create even without
       // a setup token — as long as the API key is already linked to the user.
@@ -641,14 +611,7 @@ async function isSnapshotClosed(supabase: any, tradeId: string, isOpen: boolean)
     .from("trade_repair_events")
     .select("action")
     .eq("trade_id", tradeId);
-  const events = (data || []) as Array<{ action: string }>;
-  const hasSnap = events.some((e) => e.action === "snapshot_closed");
-  const repaired = events.some((e) =>
-    e.action === "repaired_from_snapshot" ||
-    e.action === "repaired_reopened" ||
-    e.action === "phase_a_one_shot"
-  );
-  return hasSnap && !repaired;
+  return isPendingRepair(data as any);
 }
 
 /**
@@ -748,14 +711,7 @@ async function tryRepairSiblingSnapshotClosed(
         .from("trade_repair_events")
         .select("action")
         .eq("trade_id", t.id);
-      const events = (evs || []) as Array<{ action: string }>;
-      const hasSnap = events.some((e) => e.action === "snapshot_closed");
-      const repaired = events.some((e) =>
-        e.action === "repaired_from_snapshot" ||
-        e.action === "repaired_reopened" ||
-        e.action === "phase_a_one_shot"
-      );
-      if (hasSnap && !repaired) { candidate = t; break; }
+      if (isPendingRepair(evs as any)) { candidate = t; break; }
     }
     if (!candidate) return false;
 

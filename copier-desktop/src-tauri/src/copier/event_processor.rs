@@ -127,10 +127,12 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
             symbol_info.as_ref(),
         );
 
-        // Build canonical idempotency key {terminal_id}:{deal_id}:{event_type}
-        let term = event.terminal_id.clone().unwrap_or_else(|| "unknown".into());
+        // Canonical idempotency key — prefer EA-supplied, else build it.
         let deal = event.deal_id.unwrap_or(event.ticket);
-        let idem = format!("{}:{}:{}", term, deal, event.event_type);
+        let idem = event.idempotency_key.clone().unwrap_or_else(|| {
+            let term = event.terminal_id.clone().unwrap_or_else(|| "unknown".into());
+            crate::copier::idempotency::build_canonical_key(&term, deal, &event.event_type)
+        });
 
         // Create execution record
         let execution = Execution {
