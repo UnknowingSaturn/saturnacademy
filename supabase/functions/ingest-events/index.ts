@@ -1082,12 +1082,11 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
           : null,
       });
 
-      // Update account equity (skip on repair to avoid drift; equity has already been updated by broker since)
+      // Atomic equity delta — avoids the read/compute/write race on concurrent closes.
       if (!isRepair) {
-        const equityForUpdate = existingTrade.equity_at_entry || existingTrade.balance_at_entry || currentEquity;
-        const newEquity = equityForUpdate + netPnl;
-        await supabase.from("accounts").update({ equity_current: newEquity }).eq("id", account_id);
+        await supabase.rpc("apply_equity_delta", { _account_id: account_id, _delta: netPnl });
       }
+
 
       await supabase.from("trades").update({
         exit_price: event.price,
