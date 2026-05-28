@@ -768,6 +768,20 @@ async function tryRepairSiblingSnapshotClosed(
         new Date(candidate.entry_time).getTime()) / 1000
     );
 
+    // Recompute R-multiple now that we have real exit data (was previously
+    // left null on repaired trades, permanently breaking R reporting).
+    const rMultiple = computeRMultiple({
+      entryPrice: Number(candidate.entry_price) || null,
+      exitPrice: Number(event.price) || null,
+      slPrice: Number(candidate.sl_initial) || null,
+      lots: Number(candidate.original_lots) || null,
+      grossPnl,
+      netPnl,
+      symbol: candidate.symbol,
+      equityAtEntry: Number(candidate.equity_at_entry) || Number(candidate.balance_at_entry) || null,
+      direction: candidate.direction,
+    });
+
     await supabase.from("trades").update({
       account_id: currentAccountId,
       terminal_id: event.terminal_id,
@@ -777,6 +791,7 @@ async function tryRepairSiblingSnapshotClosed(
       commission,
       swap,
       net_pnl: netPnl,
+      r_multiple_actual: rMultiple,
       duration_seconds: duration > 0 ? duration : null,
       total_lots: 0,
       awaiting_exit: false,
