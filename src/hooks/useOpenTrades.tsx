@@ -5,6 +5,7 @@ import { Trade, Playbook } from "@/types/trading";
 import { usePlaybooks } from "./usePlaybooks";
 import { detectSessionFromUtc } from "@/lib/time";
 import { transformTrade } from "@/lib/tradeTransform";
+import { TRADE_SELECT, tradeKeys } from "./_shared/tradeQueries";
 
 export interface OpenTradeWithCompliance extends Trade {
   matchedPlaybook?: Playbook;
@@ -34,7 +35,8 @@ export function useOpenTrades() {
           const oldRecord = payload.old as { is_open?: boolean } | undefined;
           
           if (newRecord?.is_open || oldRecord?.is_open) {
-            queryClient.invalidateQueries({ queryKey: ['open-trades'] });
+            queryClient.invalidateQueries({ queryKey: tradeKeys.open });
+
           }
         }
       )
@@ -46,22 +48,16 @@ export function useOpenTrades() {
   }, [queryClient]);
 
   return useQuery<OpenTradeWithCompliance[]>({
-    queryKey: ["open-trades"],
+    queryKey: tradeKeys.open,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("trades")
-        .select(`
-          *,
-          playbook:playbooks!trades_playbook_id_fkey (*),
-          actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color),
-          trade_reviews(*),
-          accounts(*),
-          trade_partial_fills(*),
-          trade_repair_events(*)
-        `)
+        .select(TRADE_SELECT)
         .eq("is_open", true)
         .eq("is_archived", false)
         .order("entry_time", { ascending: false });
+
+      if (error) throw error;
 
       if (error) throw error;
 

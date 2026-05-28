@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Trade, TradeReview, SessionType, ActionableStep, PartialClose } from '@/types/trading';
+import { Trade, TradeReview, SessionType } from '@/types/trading';
 import { useToast } from '@/hooks/use-toast';
 import { Json } from '@/integrations/supabase/types';
-import { transformTrade, transformReview, normalizeReviews } from '@/lib/tradeTransform';
-
+import { transformTrade } from '@/lib/tradeTransform';
+import { TRADE_SELECT, tradeKeys, invalidateAllTradeCaches } from './_shared/tradeQueries';
 
 export function useTrades(filters?: {
   accountId?: string;
@@ -16,23 +16,11 @@ export function useTrades(filters?: {
   isArchived?: boolean;
 }) {
   return useQuery({
-    queryKey: ['trades', filters],
+    queryKey: tradeKeys.list(filters),
     queryFn: async () => {
       let query = supabase
         .from('trades')
-        .select(`
-          *,
-          playbook:playbooks!trades_playbook_id_fkey (*),
-          actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color),
-          trade_reviews (
-            *,
-            playbook:playbooks (*)
-          ),
-          ai_reviews (*),
-          account:accounts (*),
-          trade_partial_fills (*),
-          trade_repair_events (*)
-        `)
+        .select(TRADE_SELECT)
         .order('entry_time', { ascending: false });
 
       // Default to showing non-archived trades unless explicitly requested
@@ -58,12 +46,12 @@ export function useTrades(filters?: {
 
 export function useTrade(tradeId: string | undefined) {
   return useQuery({
-    queryKey: ['trade', tradeId],
+    queryKey: tradeKeys.detail(tradeId),
     queryFn: async () => {
       if (!tradeId) return null;
       const { data, error } = await supabase
         .from('trades')
-        .select(`*, playbook:playbooks!trades_playbook_id_fkey (*), actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color), trade_reviews (*, playbook:playbooks (*)), ai_reviews (*), account:accounts (*), trade_partial_fills (*), trade_repair_events (*)`)
+        .select(TRADE_SELECT)
         .eq('id', tradeId)
         .maybeSingle();
       if (error) throw error;
@@ -111,7 +99,7 @@ export function useCreateTrade() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      invalidateAllTradeCaches(queryClient);
       toast({ title: 'Trade created successfully' });
     },
     onError: (error) => {
@@ -127,7 +115,7 @@ export function useUpdateTrade() {
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Trade> & { id: string }) => {
       const updateData: Record<string, unknown> = {};
-      
+
       // Array fields
       if (updates.alignment) {
         updateData.alignment = updates.alignment;
@@ -139,7 +127,7 @@ export function useUpdateTrade() {
       if ((updates as any).custom_fields !== undefined) {
         updateData.custom_fields = (updates as any).custom_fields as unknown as Json;
       }
-      
+
       // Handle scalar fields
       const scalarFields = [
         'symbol', 'direction', 'total_lots', 'entry_price', 'entry_time',
@@ -149,13 +137,13 @@ export function useUpdateTrade() {
         'playbook_id', 'profile', 'place', 'trade_number', 'account_id',
         'actual_playbook_id', 'actual_profile', 'actual_regime'
       ] as const;
-      
+
       for (const field of scalarFields) {
         if (updates[field] !== undefined) {
           updateData[field] = updates[field];
         }
       }
-      
+
       const { data, error } = await supabase
         .from('trades')
         .update(updateData)
@@ -167,9 +155,7 @@ export function useUpdateTrade() {
       return data;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
-      queryClient.invalidateQueries({ queryKey: ['trade', variables.id] });
-      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
+      invalidateAllTradeCaches(queryClient, { tradeId: variables.id });
       toast({ title: 'Trade updated successfully' });
     },
     onError: (error) => {
@@ -188,7 +174,7 @@ export function useDeleteTrade() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      invalidateAllTradeCaches(queryClient);
       toast({ title: 'Trade deleted successfully' });
     },
     onError: (error) => {
@@ -211,9 +197,7 @@ export function useBulkArchiveTrades() {
       return tradeIds.length;
     },
     onSuccess: (count) => {
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
-      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
-      queryClient.invalidateQueries({ queryKey: ['archived-trades'] });
+      invalidateAllTradeCaches(queryClient);
       toast({ title: `${count} trade${count !== 1 ? 's' : ''} archived` });
     },
     onError: (error) => {
@@ -236,9 +220,7 @@ export function useRestoreTrades() {
       return tradeIds.length;
     },
     onSuccess: (count) => {
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
-      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
-      queryClient.invalidateQueries({ queryKey: ['archived-trades'] });
+      invalidateAllTradeCaches(queryClient);
       toast({ title: `${count} trade${count !== 1 ? 's' : ''} restored` });
     },
     onError: (error) => {
@@ -264,9 +246,7 @@ export function useArchiveAllTrades() {
       return data?.length || 0;
     },
     onSuccess: (count) => {
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
-      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
-      queryClient.invalidateQueries({ queryKey: ['archived-trades'] });
+      invalidateAllTradeCaches(queryClient);
       toast({ title: `${count} trade${count !== 1 ? 's' : ''} archived` });
     },
     onError: (error) => {
@@ -277,23 +257,11 @@ export function useArchiveAllTrades() {
 
 export function useArchivedTrades() {
   return useQuery({
-    queryKey: ['archived-trades'],
+    queryKey: tradeKeys.archived,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('trades')
-        .select(`
-          *,
-          playbook:playbooks!trades_playbook_id_fkey (*),
-          actual_playbook:playbooks!trades_actual_playbook_id_fkey (id, name, color),
-          trade_reviews (
-            *,
-            playbook:playbooks (*)
-          ),
-          ai_reviews (*),
-          account:accounts (*),
-          trade_partial_fills (*),
-          trade_repair_events (*)
-        `)
+        .select(TRADE_SELECT)
         .eq('is_archived', true)
         .order('archived_at', { ascending: false });
 
@@ -312,10 +280,9 @@ export function useUpsertTradeReview() {
     mutationFn: async (params: { review: Partial<TradeReview> & { trade_id: string }; silent?: boolean }) => {
       const { review, silent } = params;
 
-      // Build a partial payload — only include columns that the caller explicitly provided.
+      // Build a partial payload — only include columns the caller explicitly provided.
       // Postgres UPSERT will only update the columns present in the INSERT payload, so omitted
-      // fields are preserved on existing rows. For first-insert, DB column defaults handle the
-      // missing fields ('{}'/'[]'/null/0/'none'). This is the single source of truth that prevents
+      // fields are preserved on existing rows. This is the single source of truth that prevents
       // any panel from clobbering another panel's data.
       const payload: Record<string, any> = { trade_id: review.trade_id };
       if ('playbook_id' in review)            payload.playbook_id = review.playbook_id;
@@ -343,9 +310,7 @@ export function useUpsertTradeReview() {
       return { data, silent };
     },
     onSuccess: (result, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
-      queryClient.invalidateQueries({ queryKey: ['trade', variables.review.trade_id] });
-      queryClient.invalidateQueries({ queryKey: ['open-trades'] });
+      invalidateAllTradeCaches(queryClient, { tradeId: variables.review.trade_id });
       if (!result.silent) {
         toast({ title: 'Review saved successfully' });
       }
