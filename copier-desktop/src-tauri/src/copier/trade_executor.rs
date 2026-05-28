@@ -1,17 +1,15 @@
-//! Trade Executor with async execution and retry mechanism
-//! 
-//! Implements robust trade execution with:
-//! - Async/non-blocking file operations
-//! - Configurable retry with exponential backoff
-//! - Execution queue to prevent blocking the file watcher
+//! Trade Executor (synchronous file-IPC path)
+//!
+//! Writes a command JSON file into the receiver MT5 terminal's command folder
+//! and polls for the matching response JSON. Includes a small synchronous retry
+//! with exponential backoff for transient broker/file errors.
 
 use super::ReceiverConfig;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
-use tokio::sync::mpsc;
-use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
+
 
 /// Configuration for retry behavior
 #[derive(Debug, Clone)]
