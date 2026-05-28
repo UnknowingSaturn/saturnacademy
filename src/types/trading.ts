@@ -3,7 +3,8 @@
 export type TradeDirection = 'buy' | 'sell';
 export type EventType = 'open' | 'modify' | 'partial_close' | 'close';
 export type AccountType = 'demo' | 'live' | 'prop';
-export type PropFirm = 'ftmo' | 'fundednext' | 'other';
+// Prop firms are now stored in a lookup table (`prop_firms`); IDs are free-form slugs.
+export type PropFirm = string;
 // Session is free-form text (matches session_definitions.key) — well-known values listed for UI defaults.
 export type SessionType = string;
 export const KNOWN_SESSIONS = ['tokyo', 'london', 'new_york', 'new_york_am', 'new_york_pm', 'overlap_london_ny', 'off_hours'] as const;
