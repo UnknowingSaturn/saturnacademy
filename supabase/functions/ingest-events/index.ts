@@ -608,55 +608,8 @@ async function isSnapshotClosed(supabase: any, tradeId: string, isOpen: boolean)
   return isPendingRepair(data as any);
 }
 
-/**
- * Upsert terminal_accounts: mark this account as the currently-active login
- * on this MT5 install, and demote any sibling accounts on the same install.
- *
- * Prefers `install_id` (stable across login switches in the same MT5 install)
- * but falls back to the legacy login-flavoured `terminal_id` so payloads
- * from older EA versions still update correctly.
- */
-async function markTerminalActiveAccount(
-  supabase: any,
-  terminalId: string | null | undefined,
-  installId: string | null | undefined,
-  accountId: string,
-  userId: string,
-) {
-  if (!terminalId && !installId) return;
-  try {
-    // Scope sibling demotion by install_id when available, since terminal_id
-    // is per-login on the new EA. Without install_id we fall back to terminal_id.
-    if (installId) {
-      await supabase
-        .from("terminal_accounts")
-        .update({ is_currently_active: false })
-        .eq("install_id", installId)
-        .neq("account_id", accountId);
-    } else if (terminalId) {
-      await supabase
-        .from("terminal_accounts")
-        .update({ is_currently_active: false })
-        .eq("terminal_id", terminalId)
-        .neq("account_id", accountId);
-    }
-
-    // Upsert this (terminal, account) as active. terminal_id is still the
-    // unique key in terminal_accounts so we keep it as the conflict target.
-    await supabase
-      .from("terminal_accounts")
-      .upsert({
-        terminal_id: terminalId,
-        install_id: installId || null,
-        account_id: accountId,
-        user_id: userId,
-        last_active_at: new Date().toISOString(),
-        is_currently_active: true,
-      }, { onConflict: "terminal_id,account_id" });
-  } catch (err) {
-    console.error("markTerminalActiveAccount failed (non-fatal):", err);
-  }
-}
+// (markTerminalActiveAccount removed in R10: active-login state is now derived
+// from accounts.last_heartbeat_at via the terminal_accounts view.)
 
 /**
  * If a close/partial_close event arrives for a ticket that has no trade on
