@@ -1,0 +1,1 @@
+ALTER TABLE public.trade_reviews DROP COLUMN IF EXISTS journal_conversation;
