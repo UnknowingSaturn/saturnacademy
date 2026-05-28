@@ -191,7 +191,7 @@ serve(async (req) => {
       .eq('user_id', userId)
       .order('version', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     const version = latestVersion?.version || 1;
 

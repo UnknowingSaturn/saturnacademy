@@ -332,7 +332,7 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
       json += "  \"sl\": " + DoubleToString(sl, digits) + ",\n";
    if(tp > 0)
       json += "  \"tp\": " + DoubleToString(tp, digits) + ",\n";
-   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
+   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(BrokerToUtc(TimeCurrent())) + "\"\n";
    json += "}";
    
    // Write to pending folder
@@ -444,7 +444,7 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
    datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
    
    // Convert to UTC
-   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
+   datetime dealTimeUTC = BrokerToUtc(dealTime);
    
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
@@ -536,7 +536,7 @@ void WriteHeartbeat()
       return;
 
    string json = "{\n";
-   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\",\n";
+   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(BrokerToUtc(TimeCurrent())) + "\",\n";
    json += "  \"terminal_id\": \"" + g_terminalId + "\",\n";
    json += "  \"account\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",\n";
    json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
@@ -554,19 +554,22 @@ void WriteHeartbeat()
 //+------------------------------------------------------------------+
 void WriteOpenPositions()
 {
-   string filename = InpCopierQueuePath + "\\open_positions.json";
-   int handle = FileOpen(filename, FILE_WRITE|FILE_TXT|FILE_ANSI);
-   
+   // Write atomically: tmp file + FileMove so the desktop reconciler never
+   // reads a half-written JSON document.
+   string finalFile = InpCopierQueuePath + "\\open_positions.json";
+   string tmpFile   = InpCopierQueuePath + "\\open_positions.json.tmp";
+   int handle = FileOpen(tmpFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+
    if(handle != INVALID_HANDLE)
    {
       string json = "{\n  \"positions\": [\n";
-      
+
       int total = PositionsTotal();
       for(int i = 0; i < total; i++)
       {
          ulong ticket = PositionGetTicket(i);
          if(ticket == 0) continue;
-         
+
          string symbol = PositionGetString(POSITION_SYMBOL);
          long posId = PositionGetInteger(POSITION_IDENTIFIER);
          double volume = PositionGetDouble(POSITION_VOLUME);
@@ -575,7 +578,7 @@ void WriteOpenPositions()
          double tp = PositionGetDouble(POSITION_TP);
          ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
          string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
-         
+
          if(i > 0) json += ",\n";
          json += "    {\n";
          json += "      \"position_id\": " + IntegerToString(posId) + ",\n";
@@ -587,13 +590,14 @@ void WriteOpenPositions()
          json += "      \"tp\": " + DoubleToString(tp, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + "\n";
          json += "    }";
       }
-      
+
       json += "\n  ],\n";
-      json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
+      json += "  \"updated_at\": \"" + FormatTimestampUTC(BrokerToUtc(TimeCurrent())) + "\"\n";
       json += "}";
-      
+
       FileWriteString(handle, json);
       FileClose(handle);
+      FileMove(tmpFile, 0, finalFile, FILE_REWRITE);
    }
 }
 
@@ -740,7 +744,7 @@ string BuildCloudPayload(ulong dealTicket, string eventType, string direction)
    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
    string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
    
-   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
+   datetime dealTimeUTC = BrokerToUtc(dealTime);
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
    

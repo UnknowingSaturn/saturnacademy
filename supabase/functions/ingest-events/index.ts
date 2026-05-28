@@ -751,7 +751,9 @@ async function tryRepairSiblingSnapshotClosed(
       const events = (evs || []) as Array<{ action: string }>;
       const hasSnap = events.some((e) => e.action === "snapshot_closed");
       const repaired = events.some((e) =>
-        e.action === "repaired_from_snapshot" || e.action === "repaired_reopened"
+        e.action === "repaired_from_snapshot" ||
+        e.action === "repaired_reopened" ||
+        e.action === "phase_a_one_shot"
       );
       if (hasSnap && !repaired) { candidate = t; break; }
     }
@@ -766,6 +768,20 @@ async function tryRepairSiblingSnapshotClosed(
         new Date(candidate.entry_time).getTime()) / 1000
     );
 
+    // Recompute R-multiple now that we have real exit data (was previously
+    // left null on repaired trades, permanently breaking R reporting).
+    const rMultiple = computeRMultiple({
+      entryPrice: Number(candidate.entry_price) || null,
+      exitPrice: Number(event.price) || null,
+      slPrice: Number(candidate.sl_initial) || null,
+      lots: Number(candidate.original_lots) || null,
+      grossPnl,
+      netPnl,
+      symbol: candidate.symbol,
+      equityAtEntry: Number(candidate.equity_at_entry) || Number(candidate.balance_at_entry) || null,
+      direction: candidate.direction,
+    });
+
     await supabase.from("trades").update({
       account_id: currentAccountId,
       terminal_id: event.terminal_id,
@@ -775,6 +791,7 @@ async function tryRepairSiblingSnapshotClosed(
       commission,
       swap,
       net_pnl: netPnl,
+      r_multiple_actual: rMultiple,
       duration_seconds: duration > 0 ? duration : null,
       total_lots: 0,
       awaiting_exit: false,
@@ -1002,10 +1019,13 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         entry_time: entryTime,
         exit_price: event.price,
         exit_time: event.event_timestamp,
-        sl_initial: event.sl,
-        tp_initial: event.tp,
-        sl_final: event.sl,
-        tp_final: event.tp,
+        // Orphan exit: we never saw the entry, so true SL/TP at entry is unknown.
+        // Only store the value if the exit event actually carries a non-zero level;
+        // otherwise leave NULL so r_multiple_actual isn't poisoned by a fake 0 stop.
+        sl_initial: event.sl && Number(event.sl) !== 0 ? event.sl : null,
+        tp_initial: event.tp && Number(event.tp) !== 0 ? event.tp : null,
+        sl_final: event.sl && Number(event.sl) !== 0 ? event.sl : null,
+        tp_final: event.tp && Number(event.tp) !== 0 ? event.tp : null,
         gross_pnl: grossPnl,
         commission: commission,
         swap: swap,
