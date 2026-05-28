@@ -77,8 +77,8 @@ function AppRoutes() {
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
       <Route path="/analytics" element={<Navigate to="/reports" replace />} />
-      <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
-      <Route path="/live-trades" element={<ProtectedRoute><LiveTrades /></ProtectedRoute>} />
+      <Route path="/journal" element={<ProtectedRoute><LiveTradesProvider><Journal /></LiveTradesProvider></ProtectedRoute>} />
+      <Route path="/live-trades" element={<ProtectedRoute><LiveTradesProvider><LiveTrades /></LiveTradesProvider></ProtectedRoute>} />
       <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
       <Route path="/copier" element={<ProtectedRoute><Copier /></ProtectedRoute>} />
       
@@ -99,15 +99,13 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <AccountFilterProvider>
-            <LiveTradesProvider>
-              <TooltipProvider>
-                <Toaster />
-                <Sonner />
-                <BrowserRouter>
-                  <AppRoutes />
-                </BrowserRouter>
-              </TooltipProvider>
-            </LiveTradesProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <AppRoutes />
+              </BrowserRouter>
+            </TooltipProvider>
           </AccountFilterProvider>
         </AuthProvider>
       </QueryClientProvider>
