@@ -12,7 +12,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatBrokerDateTimeET } from "@/lib/time";
+import { formatToET } from "@/lib/time";
 import { TradeProgressBar } from "./TradeProgressBar";
 import { CloseLiveTradeDialog } from "./CloseLiveTradeDialog";
 import { useUpdateTrade } from "@/hooks/useTrades";
@@ -189,7 +189,7 @@ export function LiveTradeCard({ trade, isSelected, onClick, showAccountBadge = f
               </span>
             </div>
             <div className="text-xs text-muted-foreground">
-              {formatBrokerDateTimeET(trade.entry_time, trade.account?.broker_utc_offset ?? 0)}
+              {formatToET(trade.entry_time, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
             </div>
             {showAccountBadge && trade.account && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 mt-0.5">

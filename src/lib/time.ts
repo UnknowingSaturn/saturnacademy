@@ -105,55 +105,13 @@ export function formatFullDateTimeET(utcTimestamp: string | Date): string {
   }).format(date);
 }
 
-// =====================================================================
-// Legacy broker-time helpers (kept for backward compatibility).
-//
-// NEW CODE SHOULD NOT USE THESE. Live EA trades already arrive in UTC,
-// and CSV imports should be corrected via src/lib/brokerDst.ts at import
-// time so trades.entry_time / exit_time are always real UTC.
-// =====================================================================
-
-/** @deprecated Use brokerLocalToUtc from src/lib/brokerDst.ts (DST-aware). */
-export function brokerTimeToUTC(brokerTimestamp: string | Date, brokerUtcOffset: number): Date {
-  const date = new Date(brokerTimestamp);
-  const utcMs = date.getTime() - (brokerUtcOffset * 60 * 60 * 1000);
-  return new Date(utcMs);
-}
-
-/** @deprecated Format trades.entry_time directly with formatToET — it's already UTC. */
-export function formatBrokerTimeET(brokerTimestamp: string | Date, brokerUtcOffset: number): string {
-  const utcDate = brokerTimeToUTC(brokerTimestamp, brokerUtcOffset);
-  return formatToET(utcDate);
-}
-
-/** @deprecated Format trades.entry_time directly with the date/time formatters above. */
-export function formatBrokerDateTimeET(brokerTimestamp: string | Date, brokerUtcOffset: number): string {
-  const utcDate = brokerTimeToUTC(brokerTimestamp, brokerUtcOffset);
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: currentDisplayTimezone,
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(utcDate);
-}
-
-/** @deprecated Use getHourInET on the stored UTC timestamp. */
-export function getBrokerHourInET(brokerTimestamp: string | Date, brokerUtcOffset: number): number {
-  const utcDate = brokerTimeToUTC(brokerTimestamp, brokerUtcOffset);
-  return getHourInET(utcDate);
-}
-
 /**
- * Detect trading session from a broker timestamp using session times in ET.
- * Kept for legacy callers; prefer feeding UTC times directly into session logic.
+ * Detect trading session from a UTC timestamp using session times in ET.
+ * Live EA trades arrive in UTC; CSV imports are normalized to UTC at import time
+ * via src/lib/brokerDst.ts, so consumers should always pass UTC timestamps here.
  */
-export function detectSessionFromBrokerTime(
-  brokerTimestamp: string | Date,
-  brokerUtcOffset: number
-): SessionType {
-  const hourET = getBrokerHourInET(brokerTimestamp, brokerUtcOffset);
+export function detectSessionFromUtc(utcTimestamp: string | Date): SessionType {
+  const hourET = getHourInET(utcTimestamp);
   if (hourET >= 8 && hourET < 12) return 'overlap_london_ny';
   if (hourET >= 12 && hourET < 17) return 'new_york_pm';
   if (hourET >= 3 && hourET < 8) return 'london';
