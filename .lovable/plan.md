@@ -35,3 +35,21 @@ The original audit overstated the dead-code surface in two places:
 - B — Frontend hook architecture refactor
 - C — EA single-source-of-truth
 - Tier 3 structural consolidations (account resolver, N+1 collapses, etc.)
+
+---
+
+## Tranche C — EA single-source-of-truth ✅ DONE
+- New canonical directory `mql5/` holds the latest version of every EA:
+  - `TradeJournalBridge.mq5`, `TradeCopierMaster.mq5`, `TradeCopierReceiver.mq5`
+- New `scripts/sync-mql5.mjs` propagates canonical → all distribution targets:
+  - `public/` (web download buttons), `mt5-bridge/` (docs reference), `copier-desktop/src-tauri/resources/` (Tauri bundle).
+- Drift guard: script asserts EDGE_FUNCTION_URL, SYNC_STATE_URL and Supabase project ref are identical across every distributed copy. Fails non-zero on drift.
+- Wired into npm lifecycle:
+  - `predev` runs check, auto-syncs on first divergence.
+  - `prebuild` always runs sync so Vite output and bundle ship matching files.
+  - `mql5:sync` / `mql5:check` exposed for manual use.
+- Initial sync resolved a real drift: previously the desktop installer shipped a newer Receiver (3038 lines) while web downloads served an older one (2125 lines) with a different `InpBrokerUTCOffset` default. All three copies are now byte-equal at the newest version.
+- Single-file deployment preserved (no `.mqh` includes that would break end-user installs).
+
+## Remaining
+- Tranche D — Tier 3 structural consolidations.

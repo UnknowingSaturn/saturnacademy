@@ -4,11 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/sync-mql5.mjs --check || node scripts/sync-mql5.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/sync-mql5.mjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "mql5:sync": "node scripts/sync-mql5.mjs",
+    "mql5:check": "node scripts/sync-mql5.mjs --check"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

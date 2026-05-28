@@ -33,6 +33,10 @@ input double   InpDailyLossOverride  = 0;                          // Override d
 input double   InpMinEquity          = 0;                          // Minimum equity to continue copying (0 = disabled)
 input double   InpMaxDrawdownPct     = 0;                          // Max drawdown % from high water mark (0 = disabled)
 
+input group "=== Trade Execution ==="
+input long     InpMagicNumber        = 12345;                      // Magic number for copier trades (0 = auto-generate)
+input bool     InpAutoFillMode       = true;                       // Auto-detect order filling mode
+
 input group "=== Logging ==="
 input bool     InpEnableLogging      = true;                       // Enable file logging
 input bool     InpVerboseMode        = false;                      // Verbose console output
@@ -57,6 +61,9 @@ struct ReceiverConfig
    bool     manual_confirm_mode;
    bool     prop_firm_safe_mode;
    int      poll_interval_ms;
+   bool     use_relative_sl_tp;      // Use distance-based SL/TP for indices
+   bool     enable_retry;            // Enable execution retry
+   int      max_retry_attempts;      // Max retry attempts
 };
 
 struct SymbolMapping
@@ -91,8 +98,8 @@ PositionMap    g_positionMaps[];
 ExecutedEvent  g_executedEvents[];
 
 string         g_logFileName         = "TradeCopierReceiver.log";
-string         g_positionsFile       = "copier-positions.json";
-string         g_executedFile        = "copier-executed.json";
+string         g_positionsFile       = "copier-positions.json";   // JSON format for robustness
+string         g_executedFile        = "copier-executed.json";    // JSON format for robustness
 string         g_pendingFolder       = "";
 string         g_executedFolder      = "";
 int            g_logHandle           = INVALID_HANDLE;
@@ -104,6 +111,8 @@ bool           g_configLoaded        = false;
 int            g_configVersion       = 0;
 double         g_startingEquity      = 0;
 double         g_highWaterMark       = 0;
+long           g_magicNumber         = 12345;                       // Effective magic number
+ENUM_ORDER_TYPE_FILLING g_fillMode   = ORDER_FILLING_IOC;           // Detected fill mode
 string         g_commandsFolder      = "";
 bool           g_isPaused            = false;
 
@@ -113,6 +122,7 @@ bool           g_webRequestOk        = false;
 string         g_journalQueueFile    = "ReceiverJournalQueue.txt";
 ulong          g_processedDeals[];
 int            g_maxProcessedDeals   = 1000;
+string         g_processedDealsFile  = "";  // M1 fix: file for persisting processed deals
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                    |
@@ -139,6 +149,18 @@ int OnInit()
    g_startingEquity = AccountInfoDouble(ACCOUNT_EQUITY);
    g_highWaterMark = g_startingEquity;
    
+   // Initialize magic number
+   if(InpMagicNumber == 0)
+   {
+      // Auto-generate based on account number for uniqueness
+      g_magicNumber = 12345000 + (AccountInfoInteger(ACCOUNT_LOGIN) % 1000);
+   }
+   else
+   {
+      g_magicNumber = InpMagicNumber;
+   }
+   Print("Magic number: ", g_magicNumber);
+   
    // Initialize logging
    if(InpEnableLogging)
    {
@@ -162,6 +184,10 @@ int OnInit()
    // Load persisted data
    LoadPositionMaps();
    LoadExecutedEvents();
+   LoadProcessedDeals();  // M1 fix: load persisted deals to prevent duplicate journaling
+   
+   // Reconcile position maps - remove stale entries for positions that no longer exist
+   ReconcilePositionMaps();
    
    // Calculate today's P&L
    CalculateDailyPnL();
@@ -175,6 +201,9 @@ int OnInit()
    // Set timer for polling
    int pollMs = g_config.poll_interval_ms > 0 ? g_config.poll_interval_ms : InpPollIntervalMs;
    EventSetMillisecondTimer(pollMs);
+   
+   // Write initial account info for desktop app detection
+   WriteAccountInfo();
    
    Print("=================================================");
    Print("Trade Copier Receiver v2.00");
@@ -203,6 +232,7 @@ void OnDeinit(const int reason)
    // Save state
    SavePositionMaps();
    SaveExecutedEvents();
+   SaveProcessedDeals();  // M1 fix: persist processed deals
    
    if(g_logHandle != INVALID_HANDLE)
    {
@@ -274,6 +304,14 @@ void OnTimer()
    // Process pending events
    ProcessPendingEvents();
    
+   // Periodically update account info for desktop app (every 10 seconds)
+   static datetime lastAccountInfoUpdate = 0;
+   if(TimeCurrent() - lastAccountInfoUpdate >= 10)
+   {
+      WriteAccountInfo();
+      lastAccountInfoUpdate = TimeCurrent();
+   }
+   
    // Process journal retry queue
    if(InpEnableJournaling && StringLen(InpApiKey) > 0)
    {
@@ -314,7 +352,8 @@ bool CheckEquityProtection()
 //+------------------------------------------------------------------+
 void CheckEmergencyCommands()
 {
-   string searchPattern = g_commandsFolder + "\\*.json";
+   // Check for emergency commands (emergency_*.json)
+   string searchPattern = g_commandsFolder + "\\emergency_*.json";
    string filename;
    
    long handle = FileFindFirst(searchPattern, filename);
@@ -328,6 +367,159 @@ void CheckEmergencyCommands()
       while(FileFindNext(handle, filename));
       
       FileFindClose(handle);
+   }
+   
+   // Check for trade commands from desktop app (cmd_*.json)
+   searchPattern = g_commandsFolder + "\\cmd_*.json";
+   
+   handle = FileFindFirst(searchPattern, filename);
+   if(handle != INVALID_HANDLE)
+   {
+      do
+      {
+         string fullPath = g_commandsFolder + "\\" + filename;
+         ProcessDesktopCommand(fullPath, filename);
+      }
+      while(FileFindNext(handle, filename));
+      
+      FileFindClose(handle);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Process Desktop Trade Command and Write Response                  |
+//+------------------------------------------------------------------+
+void ProcessDesktopCommand(string fullPath, string filename)
+{
+   int fHandle = FileOpen(fullPath, FILE_READ|FILE_TXT|FILE_ANSI);
+   if(fHandle == INVALID_HANDLE)
+      return;
+   
+   string content = "";
+   while(!FileIsEnding(fHandle))
+   {
+      content += FileReadString(fHandle) + "\n";
+   }
+   FileClose(fHandle);
+   
+   // Parse command
+   string action = ExtractJsonString(content, "action");
+   string symbol = ExtractJsonString(content, "symbol");
+   string direction = ExtractJsonString(content, "direction");
+   double lots = ExtractJsonNumber(content, "lots");
+   double sl = ExtractJsonNumber(content, "sl");
+   double tp = ExtractJsonNumber(content, "tp");
+   long timestamp = (long)ExtractJsonNumber(content, "timestamp");
+   long masterPosId = (long)ExtractJsonNumber(content, "master_position_id");
+   
+   // Map symbol
+   symbol = MapSymbol(symbol);
+   if(StringLen(symbol) == 0)
+   {
+      WriteCommandResponse(timestamp, false, 0, 0, 0, "No symbol mapping found");
+      FileDelete(fullPath);
+      return;
+   }
+   
+   bool success = false;
+   double executedPrice = 0;
+   double slippagePips = 0;
+   long receiverPosId = 0;
+   string errorMsg = "";
+   
+   if(action == "entry")
+   {
+      success = ExecuteEntry(symbol, direction, lots, sl, tp, masterPosId, receiverPosId);
+      if(success)
+      {
+         executedPrice = (direction == "buy") ? 
+            SymbolInfoDouble(symbol, SYMBOL_ASK) : 
+            SymbolInfoDouble(symbol, SYMBOL_BID);
+      }
+      else
+      {
+         errorMsg = "Entry execution failed";
+      }
+   }
+   else if(action == "exit")
+   {
+      success = ExecuteExit(masterPosId, receiverPosId);
+      if(success)
+      {
+         executedPrice = SymbolInfoDouble(symbol, SYMBOL_BID);
+      }
+      else
+      {
+         errorMsg = "Exit execution failed - position not found";
+      }
+   }
+   else if(action == "modify")
+   {
+      receiverPosId = GetReceiverPositionId(masterPosId);
+      if(receiverPosId > 0 && PositionSelectByTicket((ulong)receiverPosId))
+      {
+         MqlTradeRequest request = {};
+         MqlTradeResult result = {};
+         
+         request.action = TRADE_ACTION_SLTP;
+         request.symbol = symbol;
+         request.position = (ulong)receiverPosId;
+         if(sl > 0) request.sl = sl;
+         if(tp > 0) request.tp = tp;
+         
+         success = OrderSend(request, result);
+         if(!success)
+         {
+            errorMsg = "Modify failed: " + IntegerToString(result.retcode);
+         }
+      }
+      else
+      {
+         errorMsg = "Position not found for modify";
+      }
+   }
+   
+   // Write response file
+   WriteCommandResponse(timestamp, success, executedPrice, slippagePips, receiverPosId, errorMsg);
+   
+   // Delete command file
+   FileDelete(fullPath);
+   
+   if(success)
+   {
+      LogMessage("Desktop command executed: " + action + " " + symbol);
+   }
+   else
+   {
+      LogMessage("Desktop command failed: " + action + " " + symbol + " - " + errorMsg);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Write Response File for Desktop App (Atomic Write - m2 fix)       |
+//+------------------------------------------------------------------+
+void WriteCommandResponse(long timestamp, bool success, double price, double slippage, long posId, string error)
+{
+   string tempFilename = g_commandsFolder + "\\resp_" + IntegerToString(timestamp) + ".tmp";
+   string respFilename = g_commandsFolder + "\\resp_" + IntegerToString(timestamp) + ".json";
+   
+   string json = "{\n";
+   json += "  \"success\": " + (success ? "true" : "false") + ",\n";
+   json += "  \"executed_price\": " + DoubleToString(price, 5) + ",\n";
+   json += "  \"slippage_pips\": " + DoubleToString(slippage, 1) + ",\n";
+   json += "  \"receiver_position_id\": " + IntegerToString(posId) + ",\n";
+   if(StringLen(error) > 0)
+      json += "  \"error\": \"" + error + "\",\n";
+   json += "  \"timestamp\": " + IntegerToString(TimeCurrent()) + "\n";
+   json += "}";
+   
+   // Write to temp file first, then rename (atomic)
+   int handle = FileOpen(tempFilename, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle != INVALID_HANDLE)
+   {
+      FileWriteString(handle, json);
+      FileClose(handle);
+      FileMove(tempFilename, 0, respFilename, FILE_REWRITE);
    }
 }
 
@@ -405,7 +597,7 @@ void ProcessEmergencyCommand(string fullPath, string filename)
          request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
          request.position = (ulong)positionId;
          request.deviation = 50;
-         request.type_filling = ORDER_FILLING_IOC;
+         request.type_filling = GetOptimalFillingMode(symbol);  // m1 fix: use dynamic fill mode
          
          if(OrderSend(request, result))
          {
@@ -429,8 +621,8 @@ void CloseAllCopierPositions()
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0) continue;
       
-      // Only close copier positions (magic 12345)
-      if(PositionGetInteger(POSITION_MAGIC) != 12345)
+      // Only close copier positions (check for our magic number)
+      if(PositionGetInteger(POSITION_MAGIC) != g_magicNumber)
          continue;
       
       string symbol = PositionGetString(POSITION_SYMBOL);
@@ -447,7 +639,7 @@ void CloseAllCopierPositions()
       request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
       request.position = ticket;
       request.deviation = 50;
-      request.type_filling = ORDER_FILLING_IOC;
+      request.type_filling = GetOptimalFillingMode(symbol);  // m4 fix: use dynamic fill mode
       
       if(OrderSend(request, result))
       {
@@ -491,10 +683,10 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
          return;
    }
    
-   // Check if this is a copier trade (magic number check)
-   long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
-   if(magic == 12345) // Copier magic - already handled by ExecuteEntry/ExecuteExit
-      return;
+    // Check if this is a copier trade (magic number check)
+    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+    if(magic == g_magicNumber) // Copier magic - already handled by ExecuteEntry/ExecuteExit
+       return;
    
    // Check if already processed
    if(IsDealProcessed(dealTicket))
@@ -944,6 +1136,21 @@ void ProcessEventFile(string fullPath, string filename)
 //+------------------------------------------------------------------+
 bool ExecuteEntry(string symbol, string direction, double lots, double masterSL, double masterTP, long masterPosId, long &receiverPosId)
 {
+   // Auto-enable symbol in Market Watch if not visible
+   if(!SymbolInfoInteger(symbol, SYMBOL_VISIBLE))
+   {
+      if(SymbolSelect(symbol, true))
+      {
+         LogMessage("Auto-added symbol to Market Watch: " + symbol);
+         Sleep(100); // Brief delay to allow symbol data to load
+      }
+      else
+      {
+         Print("Failed to add symbol to Market Watch: ", symbol);
+         return false;
+      }
+   }
+   
    MqlTradeRequest request = {};
    MqlTradeResult result = {};
    
@@ -953,16 +1160,41 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
    request.type = (direction == "buy") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
    request.price = (direction == "buy") ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
    request.deviation = (ulong)(g_config.max_slippage_pips * 10);
-   request.magic = 12345;
+   request.magic = g_magicNumber;
    request.comment = "Copier:" + IntegerToString(masterPosId);
    
-   if(masterSL > 0)
+   // Apply SL/TP - use relative mode for indices if enabled
+   if(g_config.use_relative_sl_tp && masterSL > 0)
+   {
+      // Calculate SL as distance from entry
+      double slDistance = MathAbs(request.price - masterSL);
+      if(direction == "buy")
+         request.sl = request.price - slDistance;
+      else
+         request.sl = request.price + slDistance;
+   }
+   else if(masterSL > 0)
+   {
       request.sl = masterSL;
-   if(masterTP > 0)
+   }
+   
+   if(g_config.use_relative_sl_tp && masterTP > 0)
+   {
+      // Calculate TP as distance from entry
+      double tpDistance = MathAbs(masterTP - request.price);
+      if(direction == "buy")
+         request.tp = request.price + tpDistance;
+      else
+         request.tp = request.price - tpDistance;
+   }
+   else if(masterTP > 0)
+   {
       request.tp = masterTP;
+   }
    
-   request.type_filling = ORDER_FILLING_IOC;
-   
+   // Dynamic order filling mode detection
+   request.type_filling = GetOptimalFillingMode(symbol);
+
    if(!OrderSend(request, result))
    {
       Print("OrderSend failed: ", result.retcode, " - ", result.comment);
@@ -975,7 +1207,50 @@ bool ExecuteEntry(string symbol, string direction, double lots, double masterSL,
       return false;
    }
    
-   receiverPosId = (long)result.order;
+   // CRITICAL: Get actual position ID, not order ticket
+   // result.order is the order ticket, we need the position ID
+   // After order execution, we need to find the position that was created
+   receiverPosId = 0;
+   
+   // Method 1: Check if result.deal has a position
+   if(result.deal > 0)
+   {
+      if(HistoryDealSelect(result.deal))
+      {
+         receiverPosId = HistoryDealGetInteger(result.deal, DEAL_POSITION_ID);
+      }
+   }
+   
+   // Method 2: If no position ID from deal, try to find matching position
+   if(receiverPosId == 0)
+   {
+      // Wait a moment for position to appear
+      Sleep(50);
+      
+      // Find the position with our comment
+      string expectedComment = "Copier:" + IntegerToString(masterPosId);
+      int total = PositionsTotal();
+      for(int i = 0; i < total; i++)
+      {
+         ulong posTicket = PositionGetTicket(i);
+         if(posTicket == 0) continue;
+         
+         if(PositionGetString(POSITION_SYMBOL) == symbol &&
+            PositionGetInteger(POSITION_MAGIC) == g_magicNumber &&
+            PositionGetString(POSITION_COMMENT) == expectedComment)
+         {
+            receiverPosId = (long)PositionGetInteger(POSITION_IDENTIFIER);
+            break;
+         }
+      }
+   }
+   
+   // Method 3: Fallback to order ticket if still no position ID
+   if(receiverPosId == 0)
+   {
+      receiverPosId = (long)result.order;
+      Print("Warning: Using order ticket as position ID: ", receiverPosId);
+   }
    
    // Store position mapping
    int idx = ArraySize(g_positionMaps);
@@ -1032,7 +1307,7 @@ bool ExecuteExit(long masterPosId, long &receiverPosId)
    request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
    request.position = (ulong)receiverPosId;
    request.deviation = (ulong)(g_config.max_slippage_pips * 10);
-   request.type_filling = ORDER_FILLING_IOC;
+   request.type_filling = GetOptimalFillingMode(symbol);
    
    if(!OrderSend(request, result))
    {
@@ -1134,7 +1409,7 @@ bool ExecutePartialClose(string eventJson, long masterPosId, long &receiverPosId
    request.price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
    request.position = (ulong)receiverPosId;
    request.deviation = (ulong)(g_config.max_slippage_pips * 10);
-   request.type_filling = ORDER_FILLING_IOC;
+   request.type_filling = GetOptimalFillingMode(symbol);
    
    if(!OrderSend(request, result))
    {
@@ -1313,7 +1588,7 @@ string BuildJournalPayloadFromParams(ulong dealTicket, string eventType, string 
    json += "},";
    
    json += "\"raw_payload\":{";
-   json += "\"magic\":12345,";
+   json += "\"magic\":" + IntegerToString(g_magicNumber) + ",";
    json += "\"comment\":\"Copier\",";
    json += "\"source\":\"receiver_ea\"";
    json += "}";
@@ -1683,9 +1958,36 @@ string EscapeJsonString(string str)
 
 //+------------------------------------------------------------------+
 //| Calculate Lot Size Based on Risk Mode                             |
+//| PRIORITY: Use desktop-calculated lots if provided                 |
 //+------------------------------------------------------------------+
 double CalculateLotSize(string eventJson, double masterLots, double masterSL, double masterPrice, string receiverSymbol)
 {
+   // ================================================================
+   // PRIORITY 1: Check if desktop app already calculated lots
+   // Per requirements: "Risk logic must live in desktop app, NOT EA"
+   // ================================================================
+   double desktopLots = ExtractJsonNumber(eventJson, "calculated_lots");
+   if(desktopLots > 0.001)
+   {
+      if(InpVerboseMode)
+         Print("Using desktop-calculated lots: ", desktopLots);
+      
+      // Just clamp to symbol limits, don't recalculate
+      double minLot = SymbolInfoDouble(receiverSymbol, SYMBOL_VOLUME_MIN);
+      double maxLot = SymbolInfoDouble(receiverSymbol, SYMBOL_VOLUME_MAX);
+      double lotStep = SymbolInfoDouble(receiverSymbol, SYMBOL_VOLUME_STEP);
+      
+      desktopLots = MathMax(minLot, desktopLots);
+      desktopLots = MathMin(maxLot, desktopLots);
+      desktopLots = MathFloor(desktopLots / lotStep) * lotStep;
+      
+      return NormalizeDouble(desktopLots, 2);
+   }
+   
+   // ================================================================
+   // FALLBACK: Local calculation (for backwards compatibility)
+   // This should only be used if desktop doesn't send calculated_lots
+   // ================================================================
    double lots = masterLots;
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    
@@ -1894,19 +2196,31 @@ bool CheckSessionFilter()
    if(sessionCount == 0)
       return true;
    
+   // Get current broker time and convert to UTC
    MqlDateTime now;
    TimeCurrent(now);
-   int currentHour = now.hour;
+   
+   // Adjust for broker UTC offset to get actual UTC hour
+   int utcHour = now.hour - InpBrokerUTCOffset;
+   if(utcHour < 0) utcHour += 24;
+   if(utcHour >= 24) utcHour -= 24;
    
    for(int i = 0; i < sessionCount; i++)
    {
       string session = g_config.allowed_sessions[i];
       
-      if(session == "tokyo" && currentHour >= 0 && currentHour < 9)
+      // Session times in UTC
+      if(session == "tokyo" && utcHour >= 0 && utcHour < 9)
          return true;
-      if(session == "london" && currentHour >= 8 && currentHour < 17)
+      if(session == "london" && utcHour >= 7 && utcHour < 16)
          return true;
-      if(session == "new_york" && currentHour >= 13 && currentHour < 22)
+      if(session == "new_york" && utcHour >= 12 && utcHour < 21)
+         return true;
+      if(session == "new_york_am" && utcHour >= 12 && utcHour < 17)
+         return true;
+      if(session == "new_york_pm" && utcHour >= 17 && utcHour < 21)
+         return true;
+      if(session == "overlap_london_ny" && utcHour >= 12 && utcHour < 16)
          return true;
    }
    
@@ -1947,6 +2261,29 @@ bool IsEventExecuted(string idempotencyKey)
 //+------------------------------------------------------------------+
 void MarkEventExecuted(string idempotencyKey, long receiverPosId, double slippage)
 {
+   // Prune old events if array is too large (keep last 500)
+   if(ArraySize(g_executedEvents) > 1000)
+   {
+      int keepCount = 500;
+      ExecutedEvent tempEvents[];
+      ArrayResize(tempEvents, keepCount);
+      
+      int startIdx = ArraySize(g_executedEvents) - keepCount;
+      for(int i = 0; i < keepCount; i++)
+      {
+         tempEvents[i] = g_executedEvents[startIdx + i];
+      }
+      
+      ArrayResize(g_executedEvents, keepCount);
+      for(int i = 0; i < keepCount; i++)
+      {
+         g_executedEvents[i] = tempEvents[i];
+      }
+      
+      if(InpVerboseMode)
+         Print("Pruned executed events array from 1000+ to ", keepCount);
+   }
+   
    int idx = ArraySize(g_executedEvents);
    ArrayResize(g_executedEvents, idx + 1);
    g_executedEvents[idx].idempotency_key = idempotencyKey;
@@ -1989,29 +2326,52 @@ void RemovePositionMap(long masterPosId)
 }
 
 //+------------------------------------------------------------------+
-//| Save Position Maps to File                                        |
+//| Save Position Maps to JSON File (Atomic Write)                    |
 //+------------------------------------------------------------------+
 void SavePositionMaps()
 {
-   int handle = FileOpen(g_positionsFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   string tempFile = g_positionsFile + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(handle == INVALID_HANDLE)
       return;
    
-   for(int i = 0; i < ArraySize(g_positionMaps); i++)
+   string json = "{\n";
+   json += "  \"version\": 2,\n";
+   json += "  \"receiver_id\": \"" + g_config.receiver_id + "\",\n";
+   json += "  \"magic_number\": " + IntegerToString(g_magicNumber) + ",\n";
+   json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent()) + "\",\n";
+   json += "  \"positions\": [\n";
+   
+   int count = ArraySize(g_positionMaps);
+   for(int i = 0; i < count; i++)
    {
-      string line = IntegerToString(g_positionMaps[i].master_position_id) + "|" +
-                    IntegerToString(g_positionMaps[i].receiver_position_id) + "|" +
-                    g_positionMaps[i].symbol + "|" +
-                    g_positionMaps[i].direction + "|" +
-                    DoubleToString(g_positionMaps[i].lots, 2);
-      FileWriteString(handle, line + "\n");
+      json += "    {\n";
+      json += "      \"master_position_id\": " + IntegerToString(g_positionMaps[i].master_position_id) + ",\n";
+      json += "      \"receiver_position_id\": " + IntegerToString(g_positionMaps[i].receiver_position_id) + ",\n";
+      json += "      \"symbol\": \"" + g_positionMaps[i].symbol + "\",\n";
+      json += "      \"direction\": \"" + g_positionMaps[i].direction + "\",\n";
+      json += "      \"lots\": " + DoubleToString(g_positionMaps[i].lots, 2) + "\n";
+      json += "    }";
+      if(i < count - 1)
+         json += ",";
+      json += "\n";
    }
    
+   json += "  ]\n";
+   json += "}";
+   
+   FileWriteString(handle, json);
    FileClose(handle);
+   
+   // Atomic rename: delete old file and rename temp to final
+   if(FileIsExist(g_positionsFile))
+      FileDelete(g_positionsFile);
+   FileMove(tempFile, 0, g_positionsFile, FILE_REWRITE);
 }
 
 //+------------------------------------------------------------------+
-//| Load Position Maps from File                                      |
+//| Load Position Maps from JSON File                                 |
 //+------------------------------------------------------------------+
 void LoadPositionMaps()
 {
@@ -2024,9 +2384,87 @@ void LoadPositionMaps()
    if(handle == INVALID_HANDLE)
       return;
    
+   string content = "";
    while(!FileIsEnding(handle))
    {
-      string line = FileReadString(handle);
+      content += FileReadString(handle) + "\n";
+   }
+   FileClose(handle);
+   
+   // Check if it's the old pipe-delimited format (for migration)
+   if(StringFind(content, "{") < 0)
+   {
+      // Old format - parse pipe-delimited
+      LoadPositionMapsLegacy(content);
+      // Save in new JSON format
+      SavePositionMaps();
+      return;
+   }
+   
+   // Parse JSON format
+   int positionsStart = StringFind(content, "\"positions\"");
+   if(positionsStart < 0)
+      return;
+   
+   int arrayStart = StringFind(content, "[", positionsStart);
+   int arrayEnd = StringFind(content, "]", arrayStart);
+   if(arrayStart < 0 || arrayEnd < 0)
+      return;
+   
+   string positionsStr = StringSubstr(content, arrayStart + 1, arrayEnd - arrayStart - 1);
+   
+   // Parse each position object
+   int searchPos = 0;
+   while(searchPos < StringLen(positionsStr))
+   {
+      int objStart = StringFind(positionsStr, "{", searchPos);
+      if(objStart < 0)
+         break;
+      
+      int objEnd = StringFind(positionsStr, "}", objStart);
+      if(objEnd < 0)
+         break;
+      
+      string objStr = StringSubstr(positionsStr, objStart, objEnd - objStart + 1);
+      
+      long masterPosId = (long)ExtractJsonNumber(objStr, "master_position_id");
+      long receiverPosId = (long)ExtractJsonNumber(objStr, "receiver_position_id");
+      string symbol = ExtractJsonString(objStr, "symbol");
+      string direction = ExtractJsonString(objStr, "direction");
+      double lots = ExtractJsonNumber(objStr, "lots");
+      
+      if(masterPosId > 0 && receiverPosId > 0)
+      {
+         int idx = ArraySize(g_positionMaps);
+         ArrayResize(g_positionMaps, idx + 1);
+         g_positionMaps[idx].master_position_id = masterPosId;
+         g_positionMaps[idx].receiver_position_id = receiverPosId;
+         g_positionMaps[idx].symbol = symbol;
+         g_positionMaps[idx].direction = direction;
+         g_positionMaps[idx].lots = lots;
+      }
+      
+      searchPos = objEnd + 1;
+   }
+   
+   if(InpVerboseMode)
+      Print("Loaded ", ArraySize(g_positionMaps), " position maps from JSON");
+}
+
+//+------------------------------------------------------------------+
+//| Load Legacy Position Maps (pipe-delimited format)                 |
+//+------------------------------------------------------------------+
+void LoadPositionMapsLegacy(string content)
+{
+   string lines[];
+   StringSplit(content, '\n', lines);
+   
+   for(int i = 0; i < ArraySize(lines); i++)
+   {
+      string line = lines[i];
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      
       if(StringLen(line) == 0)
          continue;
       
@@ -2043,38 +2481,163 @@ void LoadPositionMaps()
       }
    }
    
-   FileClose(handle);
-   
    if(InpVerboseMode)
-      Print("Loaded ", ArraySize(g_positionMaps), " position maps");
+      Print("Migrated ", ArraySize(g_positionMaps), " position maps from legacy format");
 }
 
 //+------------------------------------------------------------------+
-//| Save Executed Events to File                                      |
+//| Reconcile Position Maps - Validate and clean stale entries        |
+//| Called on EA startup to ensure position maps are consistent       |
+//+------------------------------------------------------------------+
+void ReconcilePositionMaps()
+{
+   if(ArraySize(g_positionMaps) == 0)
+      return;
+   
+   int originalCount = ArraySize(g_positionMaps);
+   int removedCount = 0;
+   int orphanedCount = 0;
+   
+   // Check each mapped position from the end (to safely remove while iterating)
+   for(int i = ArraySize(g_positionMaps) - 1; i >= 0; i--)
+   {
+      long receiverPosId = g_positionMaps[i].receiver_position_id;
+      long masterPosId = g_positionMaps[i].master_position_id;
+      string symbol = g_positionMaps[i].symbol;
+      
+      // Check if receiver position still exists
+      bool positionExists = PositionSelectByTicket((ulong)receiverPosId);
+      
+      if(!positionExists)
+      {
+         // Position was closed (manually or by SL/TP) - remove stale mapping
+         LogMessage("Reconcile: Removing stale mapping for closed receiver position " + 
+                   IntegerToString(receiverPosId) + " (master: " + IntegerToString(masterPosId) + ")");
+         
+         if(InpVerboseMode)
+            Print("Reconcile: Position ", receiverPosId, " no longer exists - removing mapping");
+         
+         // Remove this mapping
+         int size = ArraySize(g_positionMaps);
+         for(int j = i; j < size - 1; j++)
+         {
+            g_positionMaps[j] = g_positionMaps[j + 1];
+         }
+         ArrayResize(g_positionMaps, size - 1);
+         removedCount++;
+         continue;
+      }
+      
+      // Position exists - verify it matches our mapping
+      string posSymbol = PositionGetString(POSITION_SYMBOL);
+      double posVolume = PositionGetDouble(POSITION_VOLUME);
+      long posMagic = PositionGetInteger(POSITION_MAGIC);
+      
+      // Check if this is actually our copier position (m4 fix: remove stale mappings)
+      if(posMagic != g_magicNumber)
+      {
+         // Position exists but has different magic number - remove stale mapping
+         LogMessage("Reconcile: Removing orphaned mapping for position " + 
+                   IntegerToString(receiverPosId) + " (magic " + IntegerToString(posMagic) + 
+                   " != " + IntegerToString(g_magicNumber) + ")");
+         
+         if(InpVerboseMode)
+            Print("Reconcile: Position ", receiverPosId, " has wrong magic - removing mapping");
+         
+         // Remove this mapping
+         int size = ArraySize(g_positionMaps);
+         for(int j = i; j < size - 1; j++)
+         {
+            g_positionMaps[j] = g_positionMaps[j + 1];
+         }
+         ArrayResize(g_positionMaps, size - 1);
+         orphanedCount++;
+         removedCount++;
+         continue;
+      }
+      
+      // Update lot size if it changed (partial closes)
+      if(MathAbs(g_positionMaps[i].lots - posVolume) > 0.001)
+      {
+         if(InpVerboseMode)
+            Print("Reconcile: Updating lot size for position ", receiverPosId, 
+                  " from ", g_positionMaps[i].lots, " to ", posVolume);
+         g_positionMaps[i].lots = posVolume;
+      }
+   }
+   
+   // Save updated position maps if any changes were made
+   if(removedCount > 0)
+   {
+      SavePositionMaps();
+   }
+   
+   // Log reconciliation summary
+   Print("=== Position Reconciliation Summary ===");
+   Print("Original mappings: ", originalCount);
+   Print("Removed (closed): ", removedCount);
+   Print("Orphaned (magic mismatch): ", orphanedCount);
+   Print("Active mappings: ", ArraySize(g_positionMaps));
+   Print("=======================================");
+   
+   LogMessage("Reconciliation complete: " + IntegerToString(removedCount) + " stale mappings removed, " +
+              IntegerToString(ArraySize(g_positionMaps)) + " active");
+   
+   // Alert user if there are orphaned positions
+   if(orphanedCount > 0)
+   {
+      Print("WARNING: ", orphanedCount, " position(s) have mismatched magic numbers.");
+      Print("These may be orphaned positions from previous runs or manual trades.");
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Save Executed Events to JSON File (Atomic Write)                  |
 //+------------------------------------------------------------------+
 void SaveExecutedEvents()
 {
-   int handle = FileOpen(g_executedFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   string tempFile = g_executedFile + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(handle == INVALID_HANDLE)
       return;
    
    int saveCount = MathMin(ArraySize(g_executedEvents), 500);
    int startIdx = MathMax(0, ArraySize(g_executedEvents) - saveCount);
    
+   // Write as JSON array for better robustness
+   string json = "{\n";
+   json += "  \"version\": 1,\n";
+   json += "  \"saved_at\": \"" + FormatTimestampUTC(TimeCurrent()) + "\",\n";
+   json += "  \"events\": [\n";
+   
    for(int i = startIdx; i < ArraySize(g_executedEvents); i++)
    {
-      string line = g_executedEvents[i].idempotency_key + "|" +
-                    IntegerToString(g_executedEvents[i].receiver_position_id) + "|" +
-                    TimeToString(g_executedEvents[i].executed_at, TIME_DATE|TIME_SECONDS) + "|" +
-                    DoubleToString(g_executedEvents[i].slippage_pips, 1);
-      FileWriteString(handle, line + "\n");
+      json += "    {\n";
+      json += "      \"idempotency_key\": \"" + g_executedEvents[i].idempotency_key + "\",\n";
+      json += "      \"receiver_position_id\": " + IntegerToString(g_executedEvents[i].receiver_position_id) + ",\n";
+      json += "      \"executed_at\": \"" + TimeToString(g_executedEvents[i].executed_at, TIME_DATE|TIME_SECONDS) + "\",\n";
+      json += "      \"slippage_pips\": " + DoubleToString(g_executedEvents[i].slippage_pips, 1) + "\n";
+      json += "    }";
+      if(i < ArraySize(g_executedEvents) - 1)
+         json += ",";
+      json += "\n";
    }
    
+   json += "  ]\n";
+   json += "}";
+   
+   FileWriteString(handle, json);
    FileClose(handle);
+   
+   // Atomic rename
+   if(FileIsExist(g_executedFile))
+      FileDelete(g_executedFile);
+   FileMove(tempFile, 0, g_executedFile, FILE_REWRITE);
 }
 
 //+------------------------------------------------------------------+
-//| Load Executed Events from File                                    |
+//| Load Executed Events from File (supports both JSON and legacy)    |
 //+------------------------------------------------------------------+
 void LoadExecutedEvents()
 {
@@ -2087,9 +2650,87 @@ void LoadExecutedEvents()
    if(handle == INVALID_HANDLE)
       return;
    
+   string content = "";
    while(!FileIsEnding(handle))
    {
-      string line = FileReadString(handle);
+      content += FileReadString(handle) + "\n";
+   }
+   FileClose(handle);
+   
+   // Check if JSON format (new) or pipe-delimited (legacy)
+   if(StringFind(content, "{") >= 0 && StringFind(content, "\"events\"") >= 0)
+   {
+      // New JSON format
+      LoadExecutedEventsJson(content);
+   }
+   else
+   {
+      // Legacy pipe-delimited format
+      LoadExecutedEventsLegacy(content);
+   }
+   
+   if(InpVerboseMode)
+      Print("Loaded ", ArraySize(g_executedEvents), " executed events");
+}
+
+//+------------------------------------------------------------------+
+//| Load Executed Events from JSON format                             |
+//+------------------------------------------------------------------+
+void LoadExecutedEventsJson(string content)
+{
+   int eventsStart = StringFind(content, "\"events\"");
+   if(eventsStart < 0) return;
+   
+   int arrayStart = StringFind(content, "[", eventsStart);
+   int arrayEnd = StringFind(content, "]", arrayStart);
+   if(arrayStart < 0 || arrayEnd < 0) return;
+   
+   string eventsStr = StringSubstr(content, arrayStart + 1, arrayEnd - arrayStart - 1);
+   
+   int searchPos = 0;
+   while(searchPos < StringLen(eventsStr))
+   {
+      int objStart = StringFind(eventsStr, "{", searchPos);
+      if(objStart < 0) break;
+      
+      int objEnd = StringFind(eventsStr, "}", objStart);
+      if(objEnd < 0) break;
+      
+      string objStr = StringSubstr(eventsStr, objStart, objEnd - objStart + 1);
+      
+      string idempKey = ExtractJsonString(objStr, "idempotency_key");
+      long recvPosId = (long)ExtractJsonNumber(objStr, "receiver_position_id");
+      string execAt = ExtractJsonString(objStr, "executed_at");
+      double slippage = ExtractJsonNumber(objStr, "slippage_pips");
+      
+      if(StringLen(idempKey) > 0)
+      {
+         int idx = ArraySize(g_executedEvents);
+         ArrayResize(g_executedEvents, idx + 1);
+         g_executedEvents[idx].idempotency_key = idempKey;
+         g_executedEvents[idx].receiver_position_id = recvPosId;
+         g_executedEvents[idx].executed_at = StringToTime(execAt);
+         g_executedEvents[idx].slippage_pips = slippage;
+      }
+      
+      searchPos = objEnd + 1;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Load Executed Events from Legacy pipe-delimited format            |
+//+------------------------------------------------------------------+
+void LoadExecutedEventsLegacy(string content)
+{
+   string lines[];
+   StringSplit(content, '\n', lines);
+   
+   for(int i = 0; i < ArraySize(lines); i++)
+   {
+      string line = lines[i];
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      
       if(StringLen(line) == 0)
          continue;
       
@@ -2104,11 +2745,6 @@ void LoadExecutedEvents()
          g_executedEvents[idx].slippage_pips = StringToDouble(parts[3]);
       }
    }
-   
-   FileClose(handle);
-   
-   if(InpVerboseMode)
-      Print("Loaded ", ArraySize(g_executedEvents), " executed events");
 }
 
 //+------------------------------------------------------------------+
@@ -2122,4 +2758,281 @@ void LogMessage(string message)
    string logLine = TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + " | " + message;
    FileWriteString(g_logHandle, logLine + "\n");
    FileFlush(g_logHandle);
+}
+
+//+------------------------------------------------------------------+
+//| Get Optimal Filling Mode for Symbol                               |
+//| Automatically detects broker-supported filling mode               |
+//+------------------------------------------------------------------+
+ENUM_ORDER_TYPE_FILLING GetOptimalFillingMode(string symbol)
+{
+   // If auto-detect is disabled, use IOC as default
+   if(!InpAutoFillMode)
+      return ORDER_FILLING_IOC;
+   
+   // Get the filling modes supported by the symbol
+   uint fillModes = (uint)SymbolInfoInteger(symbol, SYMBOL_FILLING_MODE);
+   
+   // Check which modes are available and prefer in order: FOK > IOC > RETURN
+   if((fillModes & SYMBOL_FILLING_FOK) != 0)
+   {
+      // Fill or Kill - entire order must be filled or canceled
+      // Good for prop firms requiring full fills
+      return ORDER_FILLING_FOK;
+   }
+   else if((fillModes & SYMBOL_FILLING_IOC) != 0)
+   {
+      // Immediate or Cancel - fill what's available, cancel rest
+      // Good for partial fills
+      return ORDER_FILLING_IOC;
+   }
+   else if((fillModes & SYMBOL_FILLING_BOC) != 0)
+   {
+      // Book or Cancel (Return mode in some brokers)
+      return ORDER_FILLING_BOC;
+   }
+   
+   // Fallback to IOC if nothing detected (shouldn't happen)
+   return ORDER_FILLING_IOC;
+}
+
+//+------------------------------------------------------------------+
+//| Write Account Info for Desktop App (Atomic Write)                 |
+//+------------------------------------------------------------------+
+void WriteAccountInfo()
+{
+   string filename = "CopierAccountInfo.json";
+   string tempFile = filename + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   
+   if(handle != INVALID_HANDLE)
+   {
+      string json = "{\n";
+      json += "  \"account_number\": \"" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "\",\n";
+      json += "  \"broker\": \"" + EscapeJsonString(AccountInfoString(ACCOUNT_COMPANY)) + "\",\n";
+      json += "  \"server\": \"" + AccountInfoString(ACCOUNT_SERVER) + "\",\n";
+      json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
+      json += "  \"equity\": " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",\n";
+      json += "  \"margin\": " + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN), 2) + ",\n";
+      json += "  \"free_margin\": " + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) + ",\n";
+      json += "  \"leverage\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LEVERAGE)) + ",\n";
+      json += "  \"currency\": \"" + AccountInfoString(ACCOUNT_CURRENCY) + "\",\n";
+      json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
+      json += "}";
+      
+      FileWriteString(handle, json);
+      FileClose(handle);
+      
+      // Atomic rename
+      if(FileIsExist(filename))
+         FileDelete(filename);
+      FileMove(tempFile, 0, filename, FILE_REWRITE);
+   }
+   
+   // Also write symbol catalog periodically
+   static datetime lastCatalogWrite = 0;
+   if(TimeCurrent() - lastCatalogWrite >= 60) // Every 60 seconds
+   {
+      WriteSymbolCatalog();
+      lastCatalogWrite = TimeCurrent();
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Write Symbol Catalog for Desktop App Symbol Mapping               |
+//| This provides receiver's available symbols + specs for mapping    |
+//+------------------------------------------------------------------+
+void WriteSymbolCatalog()
+{
+   string filename = "CopierSymbolCatalog.json";
+   string tempFile = filename + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+   {
+      if(InpVerboseMode)
+         Print("Failed to write symbol catalog");
+      return;
+   }
+   
+   string json = "{\n";
+   json += "  \"terminal_id\": \"" + g_terminalId + "\",\n";
+   json += "  \"account\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",\n";
+   json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\",\n";
+   json += "  \"symbols\": [\n";
+   
+   int total = SymbolsTotal(false); // All symbols, not just Market Watch
+   bool first = true;
+   int exportedCount = 0;
+   
+   for(int i = 0; i < total; i++)
+   {
+      string symbol = SymbolName(i, false);
+      
+      // Check trade mode - skip non-tradeable symbols
+      long tradeMode = SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE);
+      if(tradeMode == SYMBOL_TRADE_MODE_DISABLED)
+         continue;
+      
+      // Get symbol specifications
+      double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+      double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+      double contractSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+      double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+      double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+      double maxLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+      string description = SymbolInfoString(symbol, SYMBOL_DESCRIPTION);
+      string profitCurrency = SymbolInfoString(symbol, SYMBOL_CURRENCY_PROFIT);
+      
+      // Get trade mode as string
+      string tradeModeStr = "full";
+      if(tradeMode == SYMBOL_TRADE_MODE_LONGONLY)
+         tradeModeStr = "long_only";
+      else if(tradeMode == SYMBOL_TRADE_MODE_SHORTONLY)
+         tradeModeStr = "short_only";
+      else if(tradeMode == SYMBOL_TRADE_MODE_CLOSEONLY)
+         tradeModeStr = "close_only";
+      
+      if(!first) json += ",\n";
+      first = false;
+      
+      json += "    {\n";
+      json += "      \"name\": \"" + symbol + "\",\n";
+      json += "      \"description\": \"" + EscapeJsonString(description) + "\",\n";
+      json += "      \"tick_value\": " + DoubleToString(tickValue, 6) + ",\n";
+      json += "      \"tick_size\": " + DoubleToString(tickSize, 8) + ",\n";
+      json += "      \"contract_size\": " + DoubleToString(contractSize, 2) + ",\n";
+      json += "      \"digits\": " + IntegerToString(digits) + ",\n";
+      json += "      \"min_lot\": " + DoubleToString(minLot, 2) + ",\n";
+      json += "      \"lot_step\": " + DoubleToString(lotStep, 2) + ",\n";
+      json += "      \"max_lot\": " + DoubleToString(maxLot, 2) + ",\n";
+      json += "      \"profit_currency\": \"" + profitCurrency + "\",\n";
+      json += "      \"trade_mode\": \"" + tradeModeStr + "\"\n";
+      json += "    }";
+      
+      exportedCount++;
+   }
+   
+   json += "\n  ]\n}";
+   
+   FileWriteString(handle, json);
+   FileClose(handle);
+   
+   // Atomic rename
+   if(FileIsExist(filename))
+      FileDelete(filename);
+   FileMove(tempFile, 0, filename, FILE_REWRITE);
+   
+   if(InpVerboseMode)
+      Print("Exported symbol catalog: ", exportedCount, " tradeable symbols");
+}
+
+//+------------------------------------------------------------------+
+//| Save Processed Deals to File (M1 fix - prevent duplicate journal) |
+//| Atomic write with temp file pattern                               |
+//+------------------------------------------------------------------+
+void SaveProcessedDeals()
+{
+   if(StringLen(g_processedDealsFile) == 0)
+   {
+      g_processedDealsFile = "ReceiverProcessedDeals_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".txt";
+   }
+   
+   string tempFile = g_processedDealsFile + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+   {
+      LogMessage("Failed to save processed deals - cannot open file");
+      return;
+   }
+   
+   // Save only the most recent deals to prevent file growth
+   int saveCount = MathMin(ArraySize(g_processedDeals), g_maxProcessedDeals);
+   int startIdx = MathMax(0, ArraySize(g_processedDeals) - saveCount);
+   
+   for(int i = startIdx; i < ArraySize(g_processedDeals); i++)
+   {
+      FileWriteString(handle, IntegerToString(g_processedDeals[i]) + "\n");
+   }
+   FileClose(handle);
+   
+   // Atomic rename
+   if(FileIsExist(g_processedDealsFile))
+      FileDelete(g_processedDealsFile);
+   FileMove(tempFile, 0, g_processedDealsFile, FILE_REWRITE);
+   
+   if(InpVerboseMode)
+      Print("Saved ", saveCount, " processed deals to disk");
+}
+
+//+------------------------------------------------------------------+
+//| Load Processed Deals from File (M1 fix)                           |
+//+------------------------------------------------------------------+
+void LoadProcessedDeals()
+{
+   ArrayResize(g_processedDeals, 0);
+   
+   // Set filename based on account
+   g_processedDealsFile = "ReceiverProcessedDeals_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".txt";
+   
+   if(!FileIsExist(g_processedDealsFile))
+   {
+      if(InpVerboseMode)
+         Print("No processed deals file found - starting fresh");
+      return;
+   }
+   
+   int handle = FileOpen(g_processedDealsFile, FILE_READ|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+   {
+      LogMessage("Failed to load processed deals - cannot open file");
+      return;
+   }
+   
+   while(!FileIsEnding(handle))
+   {
+      string line = FileReadString(handle);
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      
+      if(StringLen(line) == 0)
+         continue;
+      
+      ulong dealId = (ulong)StringToInteger(line);
+      if(dealId > 0)
+      {
+         int idx = ArraySize(g_processedDeals);
+         ArrayResize(g_processedDeals, idx + 1);
+         g_processedDeals[idx] = dealId;
+      }
+   }
+   FileClose(handle);
+   
+   // Prune if loaded too many (keep most recent)
+   if(ArraySize(g_processedDeals) > g_maxProcessedDeals)
+   {
+      ulong tempDeals[];
+      int keepCount = g_maxProcessedDeals;
+      ArrayResize(tempDeals, keepCount);
+      
+      int startIdx = ArraySize(g_processedDeals) - keepCount;
+      for(int i = 0; i < keepCount; i++)
+      {
+         tempDeals[i] = g_processedDeals[startIdx + i];
+      }
+      
+      ArrayResize(g_processedDeals, keepCount);
+      for(int i = 0; i < keepCount; i++)
+      {
+         g_processedDeals[i] = tempDeals[i];
+      }
+   }
+   
+   if(InpVerboseMode)
+      Print("Loaded ", ArraySize(g_processedDeals), " processed deals from disk");
+   
+   LogMessage("Loaded " + IntegerToString(ArraySize(g_processedDeals)) + " processed deals");
 }

@@ -15,7 +15,7 @@
 //+------------------------------------------------------------------+
 input group "=== Journal Settings (Cloud Sync) ==="
 input string   InpApiKey             = "";                         // API Key (from journal app)
-input int      InpBrokerUTCOffset    = 0;                          // Manual UTC Offset (0 = auto-detect)
+input int      InpBrokerUTCOffset    = 2;                          // Broker Server UTC Offset
 
 input group "=== Local Copier Settings ==="
 input bool     InpEnableCopier       = true;                       // Enable Local Copier
@@ -23,6 +23,14 @@ input string   InpCopierQueuePath    = "CopierQueue";              // Queue fold
 input bool     InpIntentMode         = true;                       // Send intent data for receiver calculation
 input int      InpEventRetentionMin  = 60;                         // Delete executed events after (minutes)
 input int      InpHeartbeatSec       = 10;                         // Heartbeat interval (seconds)
+
+input group "=== Copy Filters (CRITICAL) ==="
+input bool     InpPropFirmSafeMode   = true;                       // Prop Firm Safe Mode (disables all modifications)
+input bool     InpCopyMarketOnly     = true;                       // Copy MARKET orders only (recommended)
+input bool     InpCopySLTPModify     = false;                      // Copy SL/TP modifications (OFF in prop firm mode)
+input bool     InpCopyPartialClose   = true;                       // Copy partial closes
+input bool     InpCopyPendingOrders  = false;                      // Copy pending orders (DISABLED by default)
+input bool     InpCopyOnMasterClose  = true;                       // Close receiver when master closes
 
 input group "=== Cloud Sync Timing ==="
 input int      InpQueueCheckSec      = 30;                         // Cloud queue check interval (seconds)
@@ -60,31 +68,10 @@ datetime       g_lastCleanup         = 0;
 bool           g_webRequestOk        = false;
 string         g_terminalId          = "";
 
-// Auto-detected broker UTC offset (seconds). Refreshed hourly.
-int            g_brokerUtcOffsetSec  = 0;
-datetime       g_lastUtcRefresh      = 0;
-
-void RefreshUtcOffset()
-{
-   if(InpBrokerUTCOffset != 0)
-   {
-      g_brokerUtcOffsetSec = InpBrokerUTCOffset * 3600;
-      return;
-   }
-   long diff = (long)TimeCurrent() - (long)TimeGMT();
-   long rounded = ((diff + (diff >= 0 ? 900 : -900)) / 1800) * 1800;
-   g_brokerUtcOffsetSec = (int)rounded;
-   g_lastUtcRefresh = TimeCurrent();
-}
-
-datetime BrokerToUtc(datetime brokerTime)
-{
-   return brokerTime - g_brokerUtcOffsetSec;
-}
-
 // Track processed deals
 ulong          g_processedDeals[];
 int            g_maxProcessedDeals   = 1000;
+string         g_processedDealsFile  = "";        // File for persisting processed deals
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                    |
@@ -144,11 +131,12 @@ int OnInit()
    }
    
    // Set timer for queue processing and heartbeat
-   RefreshUtcOffset();
    EventSetTimer(1); // 1 second timer for responsive heartbeat
    
-   // Initialize processed deals array
+   // Initialize processed deals array and load persisted deals
+   g_processedDealsFile = "MasterProcessedDeals_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".txt";
    ArrayResize(g_processedDeals, 0);
+   LoadProcessedDeals();
    
    Print("=================================================");
    Print("Trade Copier Master v1.00");
@@ -184,6 +172,9 @@ void OnDeinit(const int reason)
 {
    EventKillTimer();
    
+   // Save processed deals for crash recovery
+   SaveProcessedDeals();
+   
    if(g_logHandle != INVALID_HANDLE)
    {
       LogMessage("=== Trade Copier Master Stopped ===");
@@ -201,10 +192,19 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
                         const MqlTradeRequest& request,
                         const MqlTradeResult& result)
 {
-   // Handle position modifications (SL/TP changes)
+   // Handle position modifications (SL/TP changes) - respects copy filter
+   // CRITICAL: In prop firm safe mode, SL/TP modifications are NEVER sent
    if(trans.type == TRADE_TRANSACTION_POSITION && InpEnableCopier)
    {
-      HandlePositionModify(trans);
+      if(InpPropFirmSafeMode)
+      {
+         // Prop firm mode: never send SL/TP modifications
+         return;
+      }
+      if(InpCopySLTPModify)
+      {
+         HandlePositionModify(trans);
+      }
       return;
    }
    
@@ -232,22 +232,62 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
    
-   // Apply filters
+   // Apply symbol/magic filters
    if(StringLen(InpSymbolFilter) > 0 && symbol != InpSymbolFilter)
       return;
    if(InpMagicFilter != 0 && magic != InpMagicFilter)
       return;
    
-   // Get deal type
+   // Get deal type and entry
    ENUM_DEAL_TYPE dealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
    ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+   ENUM_DEAL_REASON dealReason = (ENUM_DEAL_REASON)HistoryDealGetInteger(dealTicket, DEAL_REASON);
    
-   // Skip non-trade deals
+   // ========== CRITICAL: Skip non-trade deals ==========
    if(dealType == DEAL_TYPE_BALANCE || dealType == DEAL_TYPE_CREDIT ||
       dealType == DEAL_TYPE_COMMISSION || dealType == DEAL_TYPE_COMMISSION_DAILY ||
-      dealType == DEAL_TYPE_COMMISSION_MONTHLY)
+      dealType == DEAL_TYPE_COMMISSION_MONTHLY || dealType == DEAL_TYPE_INTEREST ||
+      dealType == DEAL_TYPE_CORRECTION || dealType == DEAL_TYPE_BONUS)
+   {
+      if(InpVerboseMode)
+         Print("Skipping non-trade deal type: ", EnumToString(dealType));
       return;
+   }
    
+   // ========== CRITICAL: Market order filter ==========
+   if(InpCopyMarketOnly)
+   {
+      // Only copy deals from manual/client orders, expert advisors, mobile, web
+      // Skip deals from SL/TP execution, StopOut, rollover, etc.
+      if(dealReason != DEAL_REASON_CLIENT && dealReason != DEAL_REASON_EXPERT &&
+         dealReason != DEAL_REASON_MOBILE && dealReason != DEAL_REASON_WEB)
+      {
+         // Allow SL/TP triggered exits if copy-on-master-close is enabled
+         if(dealEntry == DEAL_ENTRY_OUT || dealEntry == DEAL_ENTRY_INOUT)
+         {
+            if(InpCopyOnMasterClose)
+            {
+               // This is a close triggered by SL/TP - still copy it
+               if(InpVerboseMode)
+                  Print("Copying SL/TP triggered exit: ", EnumToString(dealReason));
+            }
+            else
+            {
+               if(InpVerboseMode)
+                  Print("Skipping deal, reason: ", EnumToString(dealReason));
+               return;
+            }
+         }
+         else
+         {
+            if(InpVerboseMode)
+               Print("Skipping deal, reason: ", EnumToString(dealReason));
+            return;
+         }
+      }
+   }
+   
+   // Determine direction
    string direction = "";
    if(dealType == DEAL_TYPE_BUY)
       direction = "buy";
@@ -256,14 +296,43 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    else
       return;
    
-   // Check for partial close
+   // Check for partial close and determine event type
    long positionId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
-   string eventType = DetermineEventType(dealEntry, dealTicket, positionId);
+   string eventType = "";
+   
+   if(dealEntry == DEAL_ENTRY_IN)
+   {
+      eventType = "entry";
+   }
+   else if(dealEntry == DEAL_ENTRY_OUT || dealEntry == DEAL_ENTRY_INOUT)
+   {
+      // Check if position still exists (partial close) or fully closed
+      if(PositionSelectByTicket((ulong)positionId))
+      {
+         // Position still exists = partial close
+         if(!InpCopyPartialClose)
+         {
+            if(InpVerboseMode)
+               Print("Partial close skipped (disabled): ", dealTicket);
+            return;
+         }
+         eventType = "partial_close";
+      }
+      else
+      {
+         eventType = "exit";
+      }
+   }
+   else
+   {
+      return;
+   }
+   
    if(eventType == "")
       return;
    
    if(InpVerboseMode)
-      Print("Event captured: ", eventType, " | Deal: ", dealTicket, " | Symbol: ", symbol);
+      Print("Event captured: ", eventType, " | Deal: ", dealTicket, " | Symbol: ", symbol, " | Reason: ", EnumToString(dealReason));
    
    LogMessage("Captured " + eventType + " event for deal " + IntegerToString(dealTicket));
    
@@ -311,9 +380,9 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
    ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
    string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
    
-   // Canonical idempotency key: {terminal_id}:{position_id}:modify
-   // No timestamp suffix — modify retries for the same SL/TP target must dedupe.
-   string idempotencyKey = g_terminalId + ":" + IntegerToString(posId) + ":modify";
+   // Generate modify event
+   string idempotencyKey = g_terminalId + ":modify:" + IntegerToString(posId) + ":" + 
+                           IntegerToString(TimeCurrent());
    
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
@@ -330,7 +399,7 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
       json += "  \"sl\": " + DoubleToString(sl, digits) + ",\n";
    if(tp > 0)
       json += "  \"tp\": " + DoubleToString(tp, digits) + ",\n";
-   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(BrokerToUtc(TimeCurrent())) + "\"\n";
+   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
    json += "}";
    
    // Write to pending folder
@@ -359,8 +428,6 @@ void HandlePositionModify(const MqlTradeTransaction& trans)
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-   if(TimeCurrent() - g_lastUtcRefresh > 3600)
-      RefreshUtcOffset();
    datetime now = TimeCurrent();
    
    // Heartbeat every N seconds
@@ -442,7 +509,7 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
    datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
    
    // Convert to UTC
-   datetime dealTimeUTC = BrokerToUtc(dealTime);
+   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
    
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
@@ -467,10 +534,28 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
    json += "  \"lot_size\": " + DoubleToString(volume, 2) + ",\n";
    json += "  \"price\": " + DoubleToString(price, digits) + ",\n";
    
+   // Calculate SL/TP distances for relative pricing (indices support)
+   double slDistance = 0;
+   double tpDistance = 0;
+   double pointValue = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   if(pointValue > 0)
+   {
+      if(sl > 0)
+         slDistance = MathAbs(price - sl) / pointValue;
+      if(tp > 0)
+         tpDistance = MathAbs(tp - price) / pointValue;
+   }
+   
    if(sl > 0)
+   {
       json += "  \"sl\": " + DoubleToString(sl, digits) + ",\n";
+      json += "  \"sl_distance_points\": " + DoubleToString(slDistance, 1) + ",\n";
+   }
    if(tp > 0)
+   {
       json += "  \"tp\": " + DoubleToString(tp, digits) + ",\n";
+      json += "  \"tp_distance_points\": " + DoubleToString(tpDistance, 1) + ",\n";
+   }
    
    json += "  \"commission\": " + DoubleToString(commission, 2) + ",\n";
    json += "  \"swap\": " + DoubleToString(swap, 2) + ",\n";
@@ -523,51 +608,92 @@ string BuildCopierEventJson(ulong dealTicket, string eventType, string direction
 }
 
 //+------------------------------------------------------------------+
-//| Write Heartbeat File                                              |
+//| Write Heartbeat File (Atomic Write - C2 fix)                      |
 //+------------------------------------------------------------------+
 void WriteHeartbeat()
 {
-   // Phase 2.7: write atomically via .tmp + FileMove so readers never see a half-written file.
-   string tmpFile = g_heartbeatFile + ".tmp";
-   int handle = FileOpen(tmpFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
-   if(handle == INVALID_HANDLE)
-      return;
-
-   string json = "{\n";
-   json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(BrokerToUtc(TimeCurrent())) + "\",\n";
-   json += "  \"terminal_id\": \"" + g_terminalId + "\",\n";
-   json += "  \"account\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",\n";
-   json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
-   json += "  \"equity\": " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",\n";
-   json += "  \"open_positions\": " + IntegerToString(PositionsTotal()) + "\n";
-   json += "}";
-
-   FileWriteString(handle, json);
-   FileClose(handle);
-   FileMove(tmpFile, 0, g_heartbeatFile, FILE_REWRITE);
+   string tempFile = g_heartbeatFile + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle != INVALID_HANDLE)
+   {
+      string json = "{\n";
+      json += "  \"timestamp_utc\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\",\n";
+      json += "  \"terminal_id\": \"" + g_terminalId + "\",\n";
+      json += "  \"account\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",\n";
+      json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
+      json += "  \"equity\": " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",\n";
+      json += "  \"open_positions\": " + IntegerToString(PositionsTotal()) + "\n";
+      json += "}";
+      
+      FileWriteString(handle, json);
+      FileClose(handle);
+      
+      // Atomic rename
+      if(FileIsExist(g_heartbeatFile))
+         FileDelete(g_heartbeatFile);
+      FileMove(tempFile, 0, g_heartbeatFile, FILE_REWRITE);
+   }
+   
+   // Also update account info for desktop app
+   WriteAccountInfo();
 }
 
 //+------------------------------------------------------------------+
-//| Write Current Open Positions for Restart Recovery                 |
+//| Write Account Info for Desktop App Detection (Atomic Write)       |
+//+------------------------------------------------------------------+
+void WriteAccountInfo()
+{
+   string filename = "CopierAccountInfo.json";
+   string tempFile = filename + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   
+   if(handle != INVALID_HANDLE)
+   {
+      string json = "{\n";
+      json += "  \"account_number\": \"" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "\",\n";
+      json += "  \"broker\": \"" + EscapeJsonString(AccountInfoString(ACCOUNT_COMPANY)) + "\",\n";
+      json += "  \"server\": \"" + AccountInfoString(ACCOUNT_SERVER) + "\",\n";
+      json += "  \"balance\": " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",\n";
+      json += "  \"equity\": " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",\n";
+      json += "  \"margin\": " + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN), 2) + ",\n";
+      json += "  \"free_margin\": " + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) + ",\n";
+      json += "  \"leverage\": " + IntegerToString(AccountInfoInteger(ACCOUNT_LEVERAGE)) + ",\n";
+      json += "  \"currency\": \"" + AccountInfoString(ACCOUNT_CURRENCY) + "\",\n";
+      json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
+      json += "}";
+      
+      FileWriteString(handle, json);
+      FileClose(handle);
+      
+      // Atomic rename
+      if(FileIsExist(filename))
+         FileDelete(filename);
+      FileMove(tempFile, 0, filename, FILE_REWRITE);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Write Current Open Positions for Restart Recovery (Atomic - M1)   |
 //+------------------------------------------------------------------+
 void WriteOpenPositions()
 {
-   // Write atomically: tmp file + FileMove so the desktop reconciler never
-   // reads a half-written JSON document.
-   string finalFile = InpCopierQueuePath + "\\open_positions.json";
-   string tmpFile   = InpCopierQueuePath + "\\open_positions.json.tmp";
-   int handle = FileOpen(tmpFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
-
+   string filename = InpCopierQueuePath + "\\open_positions.json";
+   string tempFile = filename + ".tmp";
+   
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   
    if(handle != INVALID_HANDLE)
    {
       string json = "{\n  \"positions\": [\n";
-
+      
       int total = PositionsTotal();
       for(int i = 0; i < total; i++)
       {
          ulong ticket = PositionGetTicket(i);
          if(ticket == 0) continue;
-
+         
          string symbol = PositionGetString(POSITION_SYMBOL);
          long posId = PositionGetInteger(POSITION_IDENTIFIER);
          double volume = PositionGetDouble(POSITION_VOLUME);
@@ -576,7 +702,19 @@ void WriteOpenPositions()
          double tp = PositionGetDouble(POSITION_TP);
          ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
          string direction = (posType == POSITION_TYPE_BUY) ? "buy" : "sell";
-
+         
+         // Calculate SL/TP distances for relative pricing
+         double pointValue = SymbolInfoDouble(symbol, SYMBOL_POINT);
+         double slDistance = 0;
+         double tpDistance = 0;
+         if(pointValue > 0)
+         {
+            if(sl > 0)
+               slDistance = MathAbs(openPrice - sl) / pointValue;
+            if(tp > 0)
+               tpDistance = MathAbs(tp - openPrice) / pointValue;
+         }
+         
          if(i > 0) json += ",\n";
          json += "    {\n";
          json += "      \"position_id\": " + IntegerToString(posId) + ",\n";
@@ -585,17 +723,23 @@ void WriteOpenPositions()
          json += "      \"volume\": " + DoubleToString(volume, 2) + ",\n";
          json += "      \"open_price\": " + DoubleToString(openPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",\n";
          json += "      \"sl\": " + DoubleToString(sl, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",\n";
-         json += "      \"tp\": " + DoubleToString(tp, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + "\n";
+         json += "      \"tp\": " + DoubleToString(tp, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",\n";
+         json += "      \"sl_distance_points\": " + DoubleToString(slDistance, 1) + ",\n";
+         json += "      \"tp_distance_points\": " + DoubleToString(tpDistance, 1) + "\n";
          json += "    }";
       }
-
+      
       json += "\n  ],\n";
-      json += "  \"updated_at\": \"" + FormatTimestampUTC(BrokerToUtc(TimeCurrent())) + "\"\n";
+      json += "  \"updated_at\": \"" + FormatTimestampUTC(TimeCurrent() - InpBrokerUTCOffset * 3600) + "\"\n";
       json += "}";
-
+      
       FileWriteString(handle, json);
       FileClose(handle);
-      FileMove(tmpFile, 0, finalFile, FILE_REWRITE);
+      
+      // Atomic rename
+      if(FileIsExist(filename))
+         FileDelete(filename);
+      FileMove(tempFile, 0, filename, FILE_REWRITE);
    }
 }
 
@@ -707,6 +851,87 @@ void MarkDealProcessed(ulong dealTicket)
    
    ArrayResize(g_processedDeals, size + 1);
    g_processedDeals[size] = dealTicket;
+   
+   // Periodically save to disk (every 10 deals)
+   static int saveCounter = 0;
+   saveCounter++;
+   if(saveCounter >= 10)
+   {
+      SaveProcessedDeals();
+      saveCounter = 0;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Save Processed Deals to File                                      |
+//+------------------------------------------------------------------+
+void SaveProcessedDeals()
+{
+   if(StringLen(g_processedDealsFile) == 0)
+      return;
+   
+   string tempFile = g_processedDealsFile + ".tmp";
+   int handle = FileOpen(tempFile, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+      return;
+   
+   // Only save the last 500 to keep file small
+   int count = MathMin(ArraySize(g_processedDeals), 500);
+   int start = MathMax(0, ArraySize(g_processedDeals) - count);
+   
+   for(int i = start; i < ArraySize(g_processedDeals); i++)
+   {
+      FileWriteString(handle, IntegerToString(g_processedDeals[i]) + "\n");
+   }
+   FileClose(handle);
+   
+   // Atomic rename
+   if(FileIsExist(g_processedDealsFile))
+      FileDelete(g_processedDealsFile);
+   FileMove(tempFile, 0, g_processedDealsFile, FILE_REWRITE);
+   
+   if(InpVerboseMode)
+      Print("Saved ", count, " processed deals to file");
+}
+
+//+------------------------------------------------------------------+
+//| Load Processed Deals from File                                    |
+//+------------------------------------------------------------------+
+void LoadProcessedDeals()
+{
+   if(StringLen(g_processedDealsFile) == 0)
+      return;
+   
+   if(!FileIsExist(g_processedDealsFile))
+      return;
+   
+   int handle = FileOpen(g_processedDealsFile, FILE_READ|FILE_TXT|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+      return;
+   
+   ArrayResize(g_processedDeals, 0);
+   
+   while(!FileIsEnding(handle))
+   {
+      string line = FileReadString(handle);
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      
+      if(StringLen(line) > 0)
+      {
+         ulong dealId = StringToInteger(line);
+         if(dealId > 0)
+         {
+            int idx = ArraySize(g_processedDeals);
+            ArrayResize(g_processedDeals, idx + 1);
+            g_processedDeals[idx] = dealId;
+         }
+      }
+   }
+   FileClose(handle);
+   
+   Print("Loaded ", ArraySize(g_processedDeals), " processed deals from file");
+   LogMessage("Loaded " + IntegerToString(ArraySize(g_processedDeals)) + " processed deals from file");
 }
 
 //+------------------------------------------------------------------+
@@ -742,7 +967,7 @@ string BuildCloudPayload(ulong dealTicket, string eventType, string direction)
    long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
    string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
    
-   datetime dealTimeUTC = BrokerToUtc(dealTime);
+   datetime dealTimeUTC = dealTime - (InpBrokerUTCOffset * 3600);
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    if(digits <= 0) digits = 5;
    
