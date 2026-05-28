@@ -49,13 +49,19 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
     };
 
     for receiver in &config.receivers {
-        // Check safety limits before processing
+        // Check safety limits before processing.
+        //
+        // NOTE (R9): `max_daily_loss_r` is configured in R-multiples, but the
+        // safety module expects a percentage. We don't have a per-receiver
+        // R-in-dollars here, so we deliberately leave this unset and let
+        // `SafetyConfig::default()` (3% daily loss) apply. The previous
+        // `r.map(|r| r * 1.0)` was a no-op pretending to convert units.
         let safety_config = safety::SafetyConfig {
-            max_daily_loss_percent: receiver.max_daily_loss_r.map(|r| r * 1.0), // Convert R to %
             max_slippage_pips: receiver.max_slippage_pips,
             prop_firm_safe_mode: receiver.prop_firm_safe_mode,
             ..Default::default()
         };
+
         
         // Get receiver account info from cached state (would be updated from heartbeat)
         let receiver_account = get_cached_account_info(&receiver.terminal_id);
