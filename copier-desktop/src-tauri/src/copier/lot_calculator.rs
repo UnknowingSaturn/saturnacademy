@@ -293,27 +293,12 @@ fn round_lots(lots: f64) -> f64 {
     round_lots_with_min(lots, 0.01, 0.01)
 }
 
-/// Apply maximum lot size limit
-pub fn apply_max_lot_limit(lots: f64, max_lots: Option<f64>) -> f64 {
-    match max_lots {
-        Some(max) if lots > max => {
-            tracing::info!("Lot size {} exceeds max {}, capping", lots, max);
-            max
-        }
-        _ => lots
-    }
-}
+// NOTE: Per-symbol min/max/step clamping lives in
+// `crate::copier::symbol_catalog::clamp_lots`, which uses the receiver's
+// broker spec (SymbolSpec) loaded from `CopierSymbolCatalog.json`. The old
+// `apply_max_lot_limit` / `apply_min_lot_limit` helpers were removed in R9 —
+// they hardcoded 0.01 defaults and were never called.
 
-/// Apply minimum lot size limit
-pub fn apply_min_lot_limit(lots: f64, min_lots: Option<f64>) -> f64 {
-    let min = min_lots.unwrap_or(0.01);
-    if lots < min {
-        tracing::info!("Lot size {} below min {}, using min", lots, min);
-        min
-    } else {
-        lots
-    }
-}
 
 #[cfg(test)]
 mod tests {
