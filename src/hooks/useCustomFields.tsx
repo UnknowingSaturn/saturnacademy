@@ -30,6 +30,7 @@ export function useCustomFieldDefinitions() {
         .from('custom_field_definitions')
         .select('*')
         .eq('user_id', user.id)
+        .eq('scope', 'user')
         .order('sort_order');
       if (error) throw error;
       return ((data || []) as any[]).map(transform);
@@ -64,6 +65,7 @@ export function useCreateCustomField() {
         .from('custom_field_definitions')
         .select('sort_order')
         .eq('user_id', user.id)
+        .eq('scope', 'user')
         .order('sort_order', { ascending: false })
         .limit(1);
       const nextOrder = existing?.[0]?.sort_order != null ? existing[0].sort_order + 1 : 0;

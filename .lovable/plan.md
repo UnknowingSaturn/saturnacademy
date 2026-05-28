@@ -1,119 +1,70 @@
-# Full Codebase Audit — Findings & Redesign Roadmap
+# Schema Collapse: property_options + field_overrides → custom_field_definitions
 
-Four parallel deep audits ran across edge functions (~5.7K LOC), frontend (~12K LOC), Supabase schema (68 migrations), and the Tauri desktop + MQL5 EA. Below is the consolidated picture, ordered by severity, then a phased plan to fix and redesign without patch-on-patch creep.
+## Why
+Today there are three tables doing one job:
 
----
+- `custom_field_definitions` — one row per user-defined field, `options` stored as `jsonb` array of `{value,label,color}`.
+- `property_options` — one row **per option** for built-in select properties (mistake, tag, etc.), keyed by `property_name`.
+- `field_overrides` — one row per built-in field a user re-typed or re-optioned, keyed by `field_key`.
 
-## P0 — Active bugs / data-corruption / security holes
+Result: three sets of hooks, three RLS surfaces, three default-seeders, and three places to query when rendering one dropdown. The audit flagged this as the largest source of "five places to store one thing".
 
-Fix these before anything else. Each is small in isolation; the damage if left is large.
+## Target shape
 
-| # | Where | Issue |
-|---|---|---|
-| 1 | `supabase` migration `20260527204815` | `trade_view` was recreated **without `WITH (security_invoker = on)`** → any authenticated user can read every user's trades via the view. RLS is bypassed. |
-| 2 | `supabase/functions/copier-config/index.ts:194` | `.single()` on `copier_config_versions` crashes when the table is empty. Should be `.maybeSingle()`. |
-| 3 | `mt5-bridge` Master EA + desktop `idempotency.rs:176` vs `event_processor.rs:133` | **Three incompatible idempotency-key formats** (`{terminal}:{deal}:{type}` vs 5-part vs `{terminal}:{posId}:modify:{ts}` with a timestamp suffix that makes modify replays non-idempotent). The desktop's dedup cache never matches EA-written keys. |
-| 4 | `ingest-events/index.ts:751–756` (`tryRepairSiblingSnapshotClosed`) | "Repaired" action list is missing `"phase_a_one_shot"` → trades repaired by phase A can be silently re-repaired by the sibling path. |
-| 5 | `ingest-events/index.ts:1007–1008` (orphan exits) | Sets `sl_initial = sl_final = exit_event.sl`, usually 0 → permanently wrong R-multiple. |
-| 6 | `sync-account-state/index.ts:217–224` | `force_resync` blindly inserts a `snapshot_closed` row per poll; not idempotent → `trade_repair_events` bloats indefinitely while resync is on. |
-| 7 | `repair-snapshot-closed` + sibling repair in `ingest-events` | Neither recalculates `r_multiple_actual` after writing exit data → repaired trades are permanently `null` on R. |
-| 8 | `mt5-bridge` Master EA `HandlePositionModify:335` | Uses `InpBrokerUTCOffset * 3600`; when auto-detect is on (`InpBrokerUTCOffset == 0`) this becomes `0`, so modify events ship broker time as if it were UTC. |
-| 9 | `mt5-bridge` Master EA `WriteOpenPositions:557–598` | Not written atomically (`.tmp` + move) → desktop reconciliation can read torn JSON. |
-| 10 | `db: set_trade_number()` trigger | `MAX()+1` without a lock or `UNIQUE(user_id, trade_number)` → concurrent EA imports produce duplicate trade numbers. |
-| 11 | `db: accounts.user_id` | **No index.** Every RLS subquery that ends in `accounts WHERE user_id = auth.uid()` scales linearly with the accounts table. |
-| 12 | `get-shared-report/index.ts:151` | View-count read-modify-write is not atomic → undercounts under load. |
-| 13 | `src/components/journal/TradeComments.tsx` & several other components | Direct `supabase.from(...).insert/update` with **no `queryClient.invalidateQueries`** → UI shows stale data after writes. |
+Single table `custom_field_definitions` with a `scope`:
 
----
+| column | meaning |
+|---|---|
+| `key` | `field_key` for system fields, `key` for user fields (already unique per user via composite index) |
+| `scope` | `'system_override'` for what `field_overrides` held; `'system_options'` for what `property_options` held (one row per `property_name`); `'user'` for existing custom fields |
+| `type` | unchanged |
+| `options` | jsonb array of `{value,label,color,is_active,sort_order}` — absorbs all per-option columns |
+| `default_value` | unchanged |
+| `label`, `sort_order`, `is_active` | unchanged (used by `'user'` scope; ignored by override scopes) |
 
-## P1 — Unfinished work that misleads users or rots silently
+Unique index `(user_id, scope, key)` replaces the old per-table uniques.
 
-- **EA "features" that don't exist**: `InpSyncHistory`, `InpMaxRetries`, `InpRetryDelayMs` on the Master EA are visible inputs but the functions they drive (`ProcessCloudQueue`, `SyncHistoricalDeals`) are 1-line stubs. Receiver EA's `allowed_sessions` config is parsed and `CheckSessionFilter` runs, but the desktop never writes the field → session filter is permanently inactive.
-- **Desktop placeholders**: `test_copy` returns a fake success string and sends no trade; `get_diagnostics` returns hardcoded `0` for queue counters; `reconciliation::VolumeMismatch::auto_adjust_volume` logs "not yet implemented"; `add_manual_terminal` exists but `remove_manual_terminal` is not registered as a Tauri command.
-- **Whole dead module**: `copier-desktop/src-tauri/src/copier/execution_queue.rs` (368 LOC) is fully implemented and **never instantiated**. So is the async path in `trade_executor.rs` (`execute_trade_async`, `execute_single_attempt`, `wait_for_response_async`).
-- **`restore-trade-times` edge function** is documented for CSV imports, but CSV imports don't go through the `events` table at all → the function returns `{trades_updated: 0}` for its stated use case.
-- **Edge function dead computations**: `generate-report` builds a `readQualityBlock` and never stores or sends it; computes `worstTradeNarratives` / `symbolExpectancy` / `reviewExcerpts` twice (once in main, once in `buildLlmContext`).
-- **Tutorial system is half-shipped**: 9 pages got `PageIntroBanner`, but `TutorialDialog` + "How it works" exists only on Accounts/Copier; `useFirstVisit` auto-opens only on Accounts; `HintPopover` is exported and used in zero pages; Knowledge and SharedReportEditor have no onboarding at all; `Import.tsx` advertises drag-and-drop with no `onDrop` handler; `resetAllTutorials` is wired to `window` but no settings UI calls it.
-- **Vestigial wrappers**: `Dashboard` and `Reports` are wrapped in `React.forwardRef<HTMLDivElement, object>` with no ref ever passed.
-- **Double `toast.error` on failure** is copy-pasted across 7 mutation hooks in `useUserSettings.tsx`.
+## Migration plan (single file)
 
----
+1. `ALTER TABLE custom_field_definitions ADD COLUMN scope text NOT NULL DEFAULT 'user'`.
+2. Backfill `field_overrides` → one row each, `scope='system_override'`, `key = field_overrides.field_key`, copying `type/options/default_value`.
+3. Backfill `property_options` grouped by `(user_id, property_name)` → one row each, `scope='system_options'`, `key = property_name`, `type='select'`, `options = jsonb_agg({value,label,color,is_active,sort_order} order by sort_order)`.
+4. Add `CREATE UNIQUE INDEX … ON custom_field_definitions (user_id, scope, key)`.
+5. Drop `property_options` and `field_overrides`.
+6. RLS already exists on `custom_field_definitions`; no policy change needed.
 
-## P2 — Over-engineering, duplication, design drift
+## Code changes
 
-### Frontend
-- `Playbooks.tsx` (886 LOC) owns 18 individual `useState` calls for one form, with the 80-line hydration block copy-pasted across `resetForm`, `openEditDialog`, and `handleDuplicatePlaybook`. The dialog (~450 LOC of inline JSX) belongs in its own component using `useReducer` or `react-hook-form`.
-- `TradeTable.tsx` (939 LOC), `TradeDetailPanel.tsx` (593) + `TradeProperties.tsx` (548) — prop-drilling between the latter two should become a `TradeReviewContext`. `TradeTable` has a duplicate import block mid-file (line 64) — the file grew organically and needs splitting.
-- `useUserSettings.tsx` (572 LOC) exports 11 hooks — split into 3 files. `useDashboardMetrics` ⊆ `useReports` (same formulas, two implementations). `usePlaybookStats` re-implements streak math from `useDashboardMetrics` and runs it client-side every 30s over all closed trades.
-- Three independent copies of the color-picker palette (Playbooks, PropertyOptionsPanel, SessionConfigPanel). Two inline debounce implementations (`SharedReportEditor`, `useAutoSave`). N+1 serial-loop updates in `useReorderSessions`, `useReorderCustomFields`, `useEraseCustomFieldData`, `useUpdateCustomField`.
-- Multiple components bypass their hooks and call `supabase` directly (TradeComments, DriftTray, ReportView, CitedTradeChip, EditAccountDialog, QuickConnectDialog, SessionConfigPanel) — each is a future cache-invalidation bug.
+**Delete**
+- `src/hooks/useFieldOverrides.tsx` (92 LOC, 3 hooks).
+- The 6 property-option hooks at the bottom of `useUserSettings.tsx` (~200 LOC: `usePropertyOptions`, `useCreate/Update/Delete/ReorderPropertyOption`, the property-options half of `useInitializeDefaults`).
 
-### Edge functions
-- ~300 LOC of cross-function duplication crying out for `_shared/` modules: JWT auth pattern (9 copies), API-key + setup-token resolution cascade (2 ~40-line copies), install-sibling auto-create (2 ~80-line copies), `isSnapshotClosed` + repair-action constants (4 divergent copies — root cause of bug #4 above), corsHeaders (17 copies). Plus `reprocess-trades` imports `loadSessions` from `_shared/session.ts` then does the query manually anyway.
-- `_shared/rMultiple.ts` falls back to "% of equity" but stores it in `r_multiple_actual` with no flag → silent unit mismatch downstream.
+**Add to `useCustomFields.tsx`**
+- `useSystemFieldOverride(fieldKey)` / `useUpsertSystemFieldOverride()` / `useResetSystemFieldOverride()` — same surface as today's `useFieldOverrides` but writes to `custom_field_definitions` with `scope='system_override'`.
+- `useSystemOptions(propertyName, { activeOnly })` returning the `options` jsonb of the matching `scope='system_options'` row, with the existing auto-seed-from-defaults effect ported over.
+- `useUpsertSystemOption()` / `useDeleteSystemOption()` / `useReorderSystemOptions()` that read-modify-write the `options` jsonb (single row write per change instead of N row writes — also fixes the N+1 reorder loop the audit called out).
 
-### Desktop / EA
-- Two Tauri terminal-discovery commands (`find_terminals`, `discover_terminals`) returning different shapes for the same data. Two reconciliation-config commands. Broker detection duplicated between `detect_terminal` and `detect_portable_terminal`. Wizard ships both `SymbolMappingStep.tsx` and `SymbolMappingStepV2.tsx`. Four different AppData folder names (`SaturnTradeCopier`, `TradeCopier`, `com.saturn.tradecopier`, …) for one app's state.
-- Log rotation is daily/date-based, not the 1 MB cap memory claims. EA log file has no rotation at all. No checksums on queue files (memory says there are).
+**Rewrite callers** (mechanical, types stay the same shape):
+- `PropertyOptionsPanel.tsx`, `SystemFieldConfigDialog.tsx`, `CustomFieldDialog.tsx`, `ReportView.tsx`, and any select renderer in `TradeProperties.tsx` that currently calls `usePropertyOptions(...)`.
+- `supabase/functions/generate-report/index.ts` — switch its two reads (`property_options`, `field_overrides`) to a single `custom_field_definitions` query filtered by `scope in ('system_options','system_override')`.
 
-### Schema
-- **Account identity sprawl**: `account_number`, `terminal_id`, `mt5_install_id`, `install_id`, `broker_login` exist across `accounts`, `events`, `trades`, `terminal_accounts` with overlapping semantics. Phase D meant `(mt5_install_id, account_number)` to be canonical, but the older `terminal_id` columns were never dropped.
-- **Five places store column/field config**: `property_options`, `custom_field_definitions`, `field_overrides`, `user_settings.column_overrides`, `user_settings.field_label_overrides`. These should collapse into `custom_field_definitions` + one settings JSONB.
-- `accounts.balance_start` / `equity_current` drift from `account_balance_snapshots` (dual source of truth). `accounts.last_sync_at` was added and is never set. `trade_features` may be populated by no function and read by no UI. `terminal_accounts.is_currently_active` was added → dropped → re-added across 3 migrations with different index semantics each time.
-- Many `user_id` columns lack FKs to `auth.users` (reports, knowledge_*, shared_reports, trade_partial_fills, trade_modifications, trade_repair_events, report_schedule_runs) → orphan rows on user deletion.
-- `copier_symbol_mappings.updated_at` and `copier_receiver_settings.updated_at` have no trigger → frozen at insert time.
+**Regen** `src/integrations/supabase/types.ts` is auto-managed; nothing to touch.
 
----
+## Rollout safety
 
-## Redesign roadmap
+- One migration, fully reversible until the `DROP TABLE` runs. I'll run the backfill + create the index + verify counts via `read_query` before the drop in the same migration (single transaction, so a count mismatch aborts everything).
+- No data loss path: every option / override becomes a row or a jsonb element in `custom_field_definitions` first.
+- The seed-on-empty effect is preserved so brand-new users still get `DEFAULT_PROPERTY_OPTIONS`.
+- Removes the audit's N+1 reorder bug as a side effect (options live in one jsonb, one UPDATE per reorder).
 
-Rather than patch each item, do this in four passes:
+## Out of scope (explicitly deferred)
+- `user_settings.column_overrides` and `user_settings.field_label_overrides` — also flagged by the audit but they live on `user_settings` (one row per user), so collapsing them is a separate, smaller pass.
+- RLS policy rewrites to use `has_trade_access` — already deferred by Phase 4.
+- Any UI redesign of the settings panels; this PR keeps every screen identical.
 
-### Phase 1 — Stop the bleeding (P0 only, ~1–2 days)
-A single migration + targeted code edits covering items 1–13 above. No new abstractions — just fix bugs in place. Specifically:
-1. Migration: re-add `WITH (security_invoker = on)` to `trade_view`; add `idx_accounts_user_id` and the other missing user_id indexes; add `UNIQUE(user_id, trade_number)` after backfilling collisions; add `auth.users` FKs; replace `set_trade_number` with a SECURITY DEFINER function using `pg_advisory_xact_lock(hashtext(user_id::text))`.
-2. Edge: `.maybeSingle()` fix, `phase_a_one_shot` added to sibling-repair list, `r_multiple_actual` recomputed on every repair path, atomic `view_count` via RPC, idempotent `snapshot_closed` insert in `sync-account-state`.
-3. EA: fix `HandlePositionModify` UTC math, make `WriteOpenPositions` atomic, drop the timestamp suffix from the modify idempotency key.
-4. Frontend: route the 7 components bypassing hooks through their hooks (or add `invalidateQueries`).
-
-### Phase 2 — Extract `_shared/` and one canonical idempotency key (~2–3 days) — DONE
-Created `_shared/cors.ts`, `_shared/apiKey.ts`, `_shared/snapshotRepair.ts` (with the canonical `REPAIR_ACTIONS` constants `REPAIR_ACTION_SNAPSHOT_CLOSED` / `REPAIRED_ACTIONS` and `isPendingRepair` helper). Migrated `ingest-events`, `sync-account-state`, `repair-snapshot-closed`, `copier-config`, and `get-shared-report` to the shared modules — deleted ~80 LOC of divergent copies. Canonicalised the idempotency key to `{terminal_id}:{deal_id|position_id}:{event_type}`: Master EA modify keys no longer carry a timestamp suffix; Rust `TradeEvent` now reads the EA-supplied `idempotency_key` verbatim and only falls back to building it locally for legacy EAs; the old 5-part `generate_idempotency_key` is gone, replaced by `build_canonical_key`.
-
-### Phase 3 — Delete the dead weight (~1 day, almost all removals) — DONE
-- Deleted `copier-desktop/src-tauri/src/copier/execution_queue.rs` (368 LOC, never instantiated) and dropped the `pub mod execution_queue;` line.
-- Deleted the async path in `trade_executor.rs`: `execute_trade_async`, `execute_single_attempt`, `wait_for_response_async`, the `ExecutionRequest` struct, the in-file `ExecutionQueue` channel, `start_queue_processor`, and the `QueueFull` error variant. Dropped now-unused `tokio::sync::mpsc` / `tokio::time::sleep` imports. The sync path (`execute_trade` → `execute_trade_sync` → `wait_for_response_sync`) is the only remaining executor.
-- Deleted `copier-desktop/src/components/wizard/SymbolMappingStep.tsx` (V1; only V2 is wired into the wizard).
-- Deleted `src/components/tutorial/HintPopover.tsx` (exported, used in zero pages).
-- Removed the no-op `React.forwardRef<HTMLDivElement, object>` wrappers on `src/pages/Dashboard.tsx` and `src/pages/Reports.tsx` — now plain function components.
-- Removed the EA stub inputs `InpMaxRetries` and `InpRetryDelayMs` from `TradeCopierMaster.mq5` in `mt5-bridge/`, `public/`, and `copier-desktop/src-tauri/resources/` (they were declared inputs that no code branch ever read). Kept `InpQueueCheckSec` (actually used) and renamed the group to "Cloud Sync Timing". Left `InpSyncHistory` / `InpSyncDaysBack` in place because their handler still exists and the user-facing toggle is shown — those stay scoped to Phase 4 along with the matching `ProcessCloudQueue` / `SyncHistoricalDeals` implementations.
-
-Deferred from this phase (require larger refactors or have live callers that need migration first):
-- `restore-trade-times` — still invoked by `EditAccountDialog`; folding its DST logic into `reprocess-trades` is a Phase 4 task.
-- `find_terminals` vs `discover_terminals` — both have live callers in `App.tsx`, `TerminalManager.tsx`, and `TerminalScanStep.tsx`; consolidation needs a UI-layer audit.
-- `generate-report` duplicate computations — `readQualityBlock` is actually stored as `read_quality` in the LLM payload, so the audit note for that one was wrong; the `buildLlmContext` vs main-handler duplication of `worstTradeNarratives` / `symbolExpectancy` / `reviewExcerpts` is genuine but deserves its own extraction PR.
-- `test_copy`, `get_diagnostics` queue counters, receiver `allowed_sessions`, `remove_manual_terminal`, and AppData-folder consolidation — listed for Phase 4 implementation-or-removal decisions.
-
-### Phase 4 — Targeted refactors for long-term robustness — IN PROGRESS
-
-**Shipped in this pass (low-risk, high-leverage):**
-- `src/lib/colorPalette.ts` is now the single source of truth for the picker palette. The four inline duplicates (`SessionConfigPanel`, `PropertyOptionsPanel`, `CustomFieldDialog`, `SystemFieldConfigDialog`) and the `journal/settings/fields/constants.ts` copy all import from it now. The two dialog files that used a 7-color subset now get the full 18-color palette like the rest of the app.
-- `src/hooks/useDebouncedCallback.ts` extracted from the inline copy in `SharedReportEditor.tsx` and rewired.
-- Global React Query defaults: `staleTime: 60_000`, `gcTime: 5min`, `refetchOnWindowFocus: false`, `retry: 1` on the root `QueryClient` in `src/App.tsx` — drops the bulk of redundant refetches when navigating between pages.
-- DB: added `public.has_trade_access(uuid)` `STABLE SECURITY DEFINER` helper (same pattern as `has_role`). Existing `trade_id IN (SELECT …)` policies are left untouched in this pass; the helper is available for the next round of policy rewrites without behavior changes.
-- Verified the audit was already wrong on two points: `updated_at` triggers **do** exist on `copier_symbol_mappings` and `copier_receiver_settings`, and `COLOR_PALETTE` already had a partial extraction in `journal/settings/fields/constants.ts` — both are now reconciled.
-
-**Deferred — each needs its own approved plan because of blast radius:**
-- **Schema collapses & column drops**: merging `property_options` + `field_overrides` into `custom_field_definitions`, dropping `accounts.terminal_id` / `events.terminal_id`, removing `accounts.equity_current` / `balance_start` in favor of a view over `account_balance_snapshots`. Each touches live data and live readers; needs a backfill + reader-audit pass.
-- **Frontend refactors**: extract `<PlaybookFormDialog>` + `usePlaybookForm` reducer from the 886-LOC `Playbooks.tsx`; introduce `TradeReviewContext` to retire the `TradeDetailPanel` → `TradeProperties` prop wall; split `useUserSettings.tsx` (572 LOC, 11 hooks) into three focused files; collapse `useDashboardMetrics` into `useReports`. These are large rewrites that should ship in their own PRs with focused review.
-- **Shared UI extractions**: `<ScreenshotGrid>`, `<DateRangePicker>`, `useBulkReorder` — straightforward but touch many call sites, so each needs its own pass.
-- **RLS policy rewrites** to use `has_trade_access`: helper is ready, policy migration deferred so we can verify behavior on one table first.
-- **Contract versioning**: bump `copier-config.json` to a `schema_version`, have the Receiver EA refuse unknown versions instead of silently dropping fields. The Receiver currently reads a `version` integer for cache invalidation only; adding a `schema_version` reject path is a wire-protocol change and needs an EA release alongside.
-- **Anonymous grants audit**: revoke default `anon` privileges on auth-only tables and rely on explicit `authenticated` grants + RLS. Needs a `pg_policies` × `information_schema.table_privileges` walk to confirm no public-facing table loses access.
-
----
-
-## Suggested order of work
-
-I'd recommend approving and shipping **Phase 1** as one tight follow-up plan first — those are the bugs actively risking data or security. Phases 2–3 are almost pure deletion/extraction with low risk and very high leverage. Phase 4 is genuine redesign and should be planned in its own session with you so we agree on scope.
-
-Each phase will be its own approved plan with concrete file diffs — this document is the map, not the implementation.
+## Order I'll ship
+1. Write + submit the migration (you approve).
+2. Add the new hooks in `useCustomFields.tsx`.
+3. Swap call sites + `generate-report`.
+4. Delete the dead hooks/file.
+5. Smoke-check on `/journal` and the settings panels.

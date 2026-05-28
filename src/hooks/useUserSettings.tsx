@@ -361,6 +361,66 @@ export function useReorderSessions() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Property Options — now stored as `custom_field_definitions` rows where
+// scope='system_options' and key=property_name. The `options` jsonb on that row
+// holds the full list. The public hook surface below preserves the original
+// PropertyOption shape (with synthetic ids of `${rowId}::${value}`) so call
+// sites in PropertyOptionsPanel / SystemOptionsEditor / TradeProperties keep
+// working unchanged.
+// ---------------------------------------------------------------------------
+
+type RawOption = {
+  value: string;
+  label: string;
+  color: string;
+  sort_order?: number;
+  is_active?: boolean;
+};
+
+const makeOptionId = (rowId: string, value: string) => `${rowId}::${value}`;
+const parseOptionId = (id: string): { rowId: string; value: string } => {
+  const idx = id.indexOf('::');
+  if (idx < 0) return { rowId: '', value: id };
+  return { rowId: id.slice(0, idx), value: id.slice(idx + 2) };
+};
+
+const expandOptions = (row: any): PropertyOption[] => {
+  const opts: RawOption[] = Array.isArray(row?.options) ? row.options : [];
+  return opts.map((o, i) => ({
+    id: makeOptionId(row.id, o.value),
+    user_id: row.user_id,
+    property_name: row.key,
+    value: o.value,
+    label: o.label,
+    color: o.color,
+    sort_order: o.sort_order ?? i,
+    is_active: o.is_active ?? true,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
+};
+
+async function fetchSystemOptionsRow(userId: string, propertyName: string) {
+  const { data, error } = await supabase
+    .from('custom_field_definitions')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('scope', 'system_options')
+    .eq('key', propertyName)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function writeOptions(rowId: string, options: RawOption[]) {
+  const { error } = await supabase
+    .from('custom_field_definitions')
+    .update({ options: options as any })
+    .eq('id', rowId);
+  if (error) throw error;
+}
+
 // Property Options Hook with auto-initialization
 // Pass activeOnly=true to filter out soft-deleted options for end-user dropdowns.
 export function usePropertyOptions(propertyName?: string, activeOnly: boolean = false) {
@@ -368,51 +428,54 @@ export function usePropertyOptions(propertyName?: string, activeOnly: boolean = 
   const queryClient = useQueryClient();
   const initializingRef = useRef(false);
 
-  const query = useQuery({
+  const query = useQuery<PropertyOption[]>({
     queryKey: ['property_options', user?.id, propertyName, activeOnly],
     queryFn: async () => {
       if (!user?.id) return [];
 
       let q = supabase
-        .from('property_options')
+        .from('custom_field_definitions')
         .select('*')
         .eq('user_id', user.id)
-        .order('sort_order');
+        .eq('scope', 'system_options');
 
-      if (propertyName) {
-        q = q.eq('property_name', propertyName);
-      }
-      if (activeOnly) {
-        q = q.eq('is_active', true);
-      }
+      if (propertyName) q = q.eq('key', propertyName);
 
       const { data, error } = await q;
-
       if (error) throw error;
 
-      return (data || []).map(transformPropertyOption);
+      const rows = (data || []) as any[];
+      const expanded = rows.flatMap(expandOptions);
+      const filtered = activeOnly ? expanded.filter((o) => o.is_active) : expanded;
+      return filtered.sort((a, b) => a.sort_order - b.sort_order);
     },
     enabled: !!user?.id,
   });
 
-  // Auto-initialize defaults if empty
+  // Auto-initialize defaults if the requested property has no row yet.
   useEffect(() => {
     const initializeDefaults = async () => {
-      if (!user?.id || initializingRef.current || query.isLoading) return;
+      if (!user?.id || !propertyName || initializingRef.current || query.isLoading) return;
       if (query.data && query.data.length === 0) {
         initializingRef.current = true;
         try {
-          // Only initialize for the specific property or all if no propertyName
-          const defaults = propertyName 
-            ? DEFAULT_PROPERTY_OPTIONS.filter(o => o.property_name === propertyName)
-            : DEFAULT_PROPERTY_OPTIONS;
-          
-          const options = defaults.map((o, i) => ({ 
-            ...o, 
-            user_id: user.id,
-            sort_order: i 
+          const defaults = DEFAULT_PROPERTY_OPTIONS.filter((o) => o.property_name === propertyName);
+          if (defaults.length === 0) return;
+          const options: RawOption[] = defaults.map((o, i) => ({
+            value: o.value,
+            label: o.label,
+            color: o.color,
+            sort_order: i,
+            is_active: true,
           }));
-          await supabase.from('property_options').insert(options);
+          await supabase.from('custom_field_definitions').insert({
+            user_id: user.id,
+            scope: 'system_options',
+            key: propertyName,
+            label: propertyName,
+            type: 'select',
+            options: options as any,
+          });
           queryClient.invalidateQueries({ queryKey: ['property_options'] });
         } catch (err) {
           console.error('Failed to initialize property options:', err);
@@ -434,21 +497,39 @@ export function useCreatePropertyOption() {
   return useMutation({
     mutationFn: async (option: Omit<PropertyOption, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
       if (!user?.id) throw new Error('Not authenticated');
-
-      const { error } = await supabase
-        .from('property_options')
-        .insert({ user_id: user.id, ...option });
-
-      if (error) throw error;
+      const row = await fetchSystemOptionsRow(user.id, option.property_name);
+      const next: RawOption = {
+        value: option.value,
+        label: option.label,
+        color: option.color,
+        sort_order: option.sort_order,
+        is_active: option.is_active,
+      };
+      if (row) {
+        const current: RawOption[] = Array.isArray(row.options) ? (row.options as any) : [];
+        if (current.some((o) => o.value === next.value)) {
+          throw new Error(`Option "${option.value}" already exists`);
+        }
+        await writeOptions(row.id, [...current, next]);
+      } else {
+        const { error } = await supabase.from('custom_field_definitions').insert({
+          user_id: user.id,
+          scope: 'system_options',
+          key: option.property_name,
+          label: option.property_name,
+          type: 'select',
+          options: [next] as any,
+        });
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['property_options'] });
       toast.success('Option created');
     },
     onError: (error) => {
-      toast.error('Failed to create option');
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Save failed");
+      toast.error(error instanceof Error ? error.message : 'Failed to create option');
     },
   });
 }
@@ -458,20 +539,36 @@ export function useUpdatePropertyOption() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<PropertyOption> & { id: string }) => {
-      const { error } = await supabase
-        .from('property_options')
-        .update(updates)
-        .eq('id', id);
-
-      if (error) throw error;
+      const { rowId, value } = parseOptionId(id);
+      if (!rowId) throw new Error('Invalid option id');
+      const { data: row, error: rowErr } = await supabase
+        .from('custom_field_definitions')
+        .select('id, options')
+        .eq('id', rowId)
+        .maybeSingle();
+      if (rowErr) throw rowErr;
+      if (!row) throw new Error('Property row not found');
+      const current: RawOption[] = Array.isArray(row.options) ? (row.options as any) : [];
+      const next = current.map((o) =>
+        o.value === value
+          ? {
+              ...o,
+              ...(updates.value !== undefined ? { value: updates.value } : {}),
+              ...(updates.label !== undefined ? { label: updates.label } : {}),
+              ...(updates.color !== undefined ? { color: updates.color } : {}),
+              ...(updates.sort_order !== undefined ? { sort_order: updates.sort_order } : {}),
+              ...(updates.is_active !== undefined ? { is_active: updates.is_active } : {}),
+            }
+          : o,
+      );
+      await writeOptions(rowId, next);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['property_options'] });
     },
     onError: (error) => {
-      toast.error('Failed to update option');
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Save failed");
+      toast.error(error instanceof Error ? error.message : 'Failed to update option');
     },
   });
 }
@@ -481,51 +578,72 @@ export function useDeletePropertyOption() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('property_options')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      const { rowId, value } = parseOptionId(id);
+      if (!rowId) throw new Error('Invalid option id');
+      const { data: row, error: rowErr } = await supabase
+        .from('custom_field_definitions')
+        .select('id, options')
+        .eq('id', rowId)
+        .maybeSingle();
+      if (rowErr) throw rowErr;
+      if (!row) return;
+      const current: RawOption[] = Array.isArray(row.options) ? (row.options as any) : [];
+      const next = current.filter((o) => o.value !== value);
+      await writeOptions(rowId, next);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['property_options'] });
       toast.success('Option deleted');
     },
     onError: (error) => {
-      toast.error('Failed to delete option');
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Save failed");
+      toast.error(error instanceof Error ? error.message : 'Failed to delete option');
     },
   });
 }
 
-// Bulk update sort orders for property options
+// Bulk update sort orders for property options — single write per row now
+// instead of one query per option (was the audit's N+1 reorder bug).
 export function useReorderPropertyOptions() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (options: { id: string; sort_order: number }[]) => {
-      for (const option of options) {
-        const { error } = await supabase
-          .from('property_options')
-          .update({ sort_order: option.sort_order })
-          .eq('id', option.id);
-        if (error) throw error;
+    mutationFn: async (updates: { id: string; sort_order: number }[]) => {
+      if (updates.length === 0) return;
+      const byRow = new Map<string, { value: string; sort_order: number }[]>();
+      for (const u of updates) {
+        const { rowId, value } = parseOptionId(u.id);
+        if (!rowId) continue;
+        if (!byRow.has(rowId)) byRow.set(rowId, []);
+        byRow.get(rowId)!.push({ value, sort_order: u.sort_order });
+      }
+      for (const [rowId, list] of byRow.entries()) {
+        const { data: row, error: rowErr } = await supabase
+          .from('custom_field_definitions')
+          .select('id, options')
+          .eq('id', rowId)
+          .maybeSingle();
+        if (rowErr) throw rowErr;
+        if (!row) continue;
+        const current: RawOption[] = Array.isArray(row.options) ? (row.options as any) : [];
+        const orderMap = new Map(list.map((l) => [l.value, l.sort_order]));
+        const next = current
+          .map((o) => ({ ...o, sort_order: orderMap.get(o.value) ?? o.sort_order ?? 0 }))
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+        await writeOptions(rowId, next);
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['property_options'] });
     },
     onError: (error) => {
-      toast.error('Failed to reorder options');
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Save failed");
+      toast.error(error instanceof Error ? error.message : 'Failed to reorder options');
     },
   });
 }
 
-// Bulk initialize default options for a user
+// Bulk initialize default sessions + system option rows for a brand-new user.
 export function useInitializeDefaults() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -534,7 +652,6 @@ export function useInitializeDefaults() {
     mutationFn: async () => {
       if (!user?.id) throw new Error('Not authenticated');
 
-      // Initialize sessions
       const { data: existingSessions } = await supabase
         .from('session_definitions')
         .select('id')
@@ -546,16 +663,35 @@ export function useInitializeDefaults() {
         await supabase.from('session_definitions').insert(sessions);
       }
 
-      // Initialize property options
-      const { data: existingOptions } = await supabase
-        .from('property_options')
-        .select('id')
+      const { data: existingRows } = await supabase
+        .from('custom_field_definitions')
+        .select('key')
         .eq('user_id', user.id)
-        .limit(1);
+        .eq('scope', 'system_options');
 
-      if (!existingOptions || existingOptions.length === 0) {
-        const options = DEFAULT_PROPERTY_OPTIONS.map((o, i) => ({ ...o, user_id: user.id, sort_order: i }));
-        await supabase.from('property_options').insert(options);
+      const existing = new Set((existingRows || []).map((r: any) => r.key));
+      const byProperty = new Map<string, RawOption[]>();
+      DEFAULT_PROPERTY_OPTIONS.forEach((o) => {
+        if (existing.has(o.property_name)) return;
+        if (!byProperty.has(o.property_name)) byProperty.set(o.property_name, []);
+        byProperty.get(o.property_name)!.push({
+          value: o.value,
+          label: o.label,
+          color: o.color,
+          sort_order: byProperty.get(o.property_name)!.length,
+          is_active: true,
+        });
+      });
+      const newRows = Array.from(byProperty.entries()).map(([propertyName, options]) => ({
+        user_id: user.id,
+        scope: 'system_options',
+        key: propertyName,
+        label: propertyName,
+        type: 'select',
+        options: options as any,
+      }));
+      if (newRows.length > 0) {
+        await supabase.from('custom_field_definitions').insert(newRows);
       }
     },
     onSuccess: () => {
@@ -564,9 +700,8 @@ export function useInitializeDefaults() {
       toast.success('Settings initialized');
     },
     onError: (error) => {
-      toast.error('Failed to initialize settings');
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Save failed");
+      toast.error(error instanceof Error ? error.message : 'Failed to initialize settings');
     },
   });
 }
