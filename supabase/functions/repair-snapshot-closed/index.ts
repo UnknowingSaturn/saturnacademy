@@ -147,13 +147,29 @@ serve(async (req) => {
           new Date(trade.entry_time).getTime()) / 1000
       );
 
+      // R-multiple (price-based): (exit-entry)/risk_per_unit for buys, inverted for sells.
+      // Falls back to null when sl is missing/invalid — matches inline ingest-events behaviour.
+      let rMultiple: number | null = null;
+      const entryPrice = Number(trade.entry_price);
+      const exitPrice = Number(exitEvent.price);
+      const sl = trade.sl_initial != null ? Number(trade.sl_initial) : null;
+      if (sl != null && Number.isFinite(sl) && Number.isFinite(entryPrice) && Number.isFinite(exitPrice)) {
+        const isBuy = String(trade.direction).toLowerCase() === "buy";
+        const riskPerUnit = isBuy ? entryPrice - sl : sl - entryPrice;
+        if (riskPerUnit > 0) {
+          const move = isBuy ? exitPrice - entryPrice : entryPrice - exitPrice;
+          rMultiple = move / riskPerUnit;
+        }
+      }
+
       const update: Record<string, unknown> = {
-        exit_price: Number(exitEvent.price),
+        exit_price: exitPrice,
         exit_time: exitEvent.event_timestamp,
         gross_pnl: grossPnl,
         commission,
         swap,
         net_pnl: netPnl,
+        r_multiple_actual: rMultiple,
         duration_seconds: duration > 0 ? duration : null,
         awaiting_exit: false,
       };
