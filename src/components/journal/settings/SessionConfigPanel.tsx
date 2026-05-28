@@ -252,7 +252,7 @@ export function SessionConfigPanel() {
             onClick={async () => {
               setReclassifying(true);
               try {
-                const { data, error } = await supabase.functions.invoke("reclassify-sessions", { body: {} });
+                const { data, error } = await supabase.functions.invoke("trade-rebuild", { body: { mode: "reclassify-sessions" } });
                 if (error) throw error;
                 toast({
                   title: "Sessions reclassified",
