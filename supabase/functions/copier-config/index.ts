@@ -35,20 +35,15 @@ interface CopierConfigFile {
   receivers: CopierReceiverConfig[];
 }
 
-function generateConfigHash(config: Omit<CopierConfigFile, 'config_hash'>): string {
-  const content = JSON.stringify({
-    master: config.master,
-    receivers: config.receivers,
-  });
-  
-  let hash = 0;
-  for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(16).padStart(8, '0');
+async function generateConfigHash(config: Omit<CopierConfigFile, 'config_hash'>): Promise<string> {
+  const content = JSON.stringify({ master: config.master, receivers: config.receivers });
+  const bytes = new TextEncoder().encode(content);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
+
 
 serve(async (req) => {
   // Handle CORS preflight
