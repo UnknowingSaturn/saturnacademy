@@ -107,45 +107,11 @@ pub fn generate_config_hash(config: &CopierConfigFile) -> String {
     format!("{:016x}", hash)
 }
 
-/// Get the MQL5 Files folder path for a terminal
-/// Supports both standard APPDATA installations and portable terminals
+/// Get the MQL5 Files folder path for a terminal.
+/// Delegates to the single source of truth in `mt5::bridge` and creates the
+/// directory if missing (config writers expect a writable path).
 pub fn get_terminal_files_path(terminal_id: &str) -> Option<PathBuf> {
-    // Check if it's a portable terminal first - use cached terminals (M3 fix)
-    if terminal_id.starts_with("portable_") {
-        let terminals = crate::copier::event_processor::get_cached_terminals();
-        for terminal in terminals {
-            if terminal.terminal_id == terminal_id {
-                let path = PathBuf::from(&terminal.path)
-                    .join("MQL5")
-                    .join("Files");
-                if path.exists() {
-                    return Some(path);
-                }
-                // Try to create it
-                if fs::create_dir_all(&path).is_ok() {
-                    return Some(path);
-                }
-            }
-        }
-        return None;
-    }
-    
-    // Standard AppData terminal
-    let appdata = std::env::var("APPDATA").ok()?;
-    let path = PathBuf::from(appdata)
-        .join("MetaQuotes")
-        .join("Terminal")
-        .join(terminal_id)
-        .join("MQL5")
-        .join("Files");
-    
-    if path.exists() {
-        Some(path)
-    } else {
-        // Try to create it
-        fs::create_dir_all(&path).ok()?;
-        Some(path)
-    }
+    crate::mt5::bridge::resolve_files_path(terminal_id, true).ok()
 }
 
 /// Save config file to a receiver terminal (atomic write)
