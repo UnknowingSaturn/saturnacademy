@@ -437,9 +437,7 @@ serve(async (req) => {
         .update({ last_sync_at: new Date().toISOString() })
         .eq("id", account.id);
 
-      // Mark this account as the currently-active login on this terminal,
-      // and demote any sibling accounts on the same install.
-      await markTerminalActiveAccount(supabase, payload.terminal_id, payload.install_id, account.id, account.user_id);
+      // (active-login tracking now derived from accounts.last_heartbeat_at via terminal_accounts view)
 
 
       return new Response(
