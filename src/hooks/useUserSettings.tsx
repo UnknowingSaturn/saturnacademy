@@ -42,7 +42,7 @@ const transformSettings = (row: any): UserSettings => ({
   column_order: migrateKeyList(row.column_order) || DEFAULT_VISIBLE_COLUMNS,
   column_overrides: migrateKeyedRecord(row.column_overrides as Record<string, any>),
   default_filters: row.default_filters || [],
-  live_trade_questions: (row.live_trade_questions as LiveTradeQuestion[]) || DEFAULT_LIVE_TRADE_QUESTIONS,
+  // live_trade_questions moved to custom_field_definitions (scope='live_question'); use useLiveTradeQuestions().
   display_timezone: row.display_timezone || 'America/New_York',
   detail_visible_fields: migrateDetailKeys((row.detail_visible_fields as string[]) || []),
   detail_field_order: migrateDetailKeys((row.detail_field_order as string[]) || []),
