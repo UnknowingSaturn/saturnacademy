@@ -231,3 +231,14 @@ Drop `ai_provider`. Merge `accounts.ea_type` and `accounts.copier_role` (identic
 5. **Schema modernization sprint**: R4, R5, R6, R10, R11 batched together to amortize migration risk.
 
 After approval I can implement these in tranches starting with the P0/P1 batches.
+
+---
+
+## ✅ P1 Copier Desktop Tranche (2026-05-28)
+
+- **#19 Configuration tab** — deleted (`Configuration.tsx` + `components/config/*`); Sidebar nav item + App route removed. Real config still flows through the setup wizard.
+- **#20 AppData folder consolidation** — `main.rs` (`safety_state.json` read path) and `reconciliation.rs` (config path) now use `copier::safety::APP_DATA_FOLDER` instead of literal `"TradeCopier"`. Fixes the silent bug where `export_debug_bundle` read from `TradeCopier\safety_state.json` while `safety.rs` writes to `SaturnTradeCopier\safety_state.json`.
+- **#21 Unused Tauri commands removed** — `add_manual_terminal`, `get_terminal_account_info`, `set_reconciliation_config` (callers gone or were dead code).
+- **#22 `test_copy` placeholder removed** — Rust command, Dashboard button, state, handler, and `TestTube2`/`AlertCircle` imports all gone.
+
+Remaining outstanding: **R8** (decision on `reconciliation.rs` keep-or-delete) and **R9** (centralize lot-size clamping), plus the major backend refactor window **R2 full + R3** together.
