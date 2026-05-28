@@ -751,7 +751,9 @@ async function tryRepairSiblingSnapshotClosed(
       const events = (evs || []) as Array<{ action: string }>;
       const hasSnap = events.some((e) => e.action === "snapshot_closed");
       const repaired = events.some((e) =>
-        e.action === "repaired_from_snapshot" || e.action === "repaired_reopened"
+        e.action === "repaired_from_snapshot" ||
+        e.action === "repaired_reopened" ||
+        e.action === "phase_a_one_shot"
       );
       if (hasSnap && !repaired) { candidate = t; break; }
     }

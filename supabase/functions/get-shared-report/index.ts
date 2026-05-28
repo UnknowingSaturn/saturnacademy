@@ -146,12 +146,9 @@ serve(async (req) => {
       };
     }).filter(Boolean) as PublicTradeCard[];
 
-    // Increment view count when not the owner viewing
+    // Increment view count when not the owner viewing (atomic RPC; no read-modify-write race)
     if (!isOwner && isPublished) {
-      await admin
-        .from("shared_reports")
-        .update({ view_count: (report.view_count || 0) + 1 })
-        .eq("id", report.id);
+      await admin.rpc("increment_shared_report_view", { p_report_id: report.id });
     }
 
     return json({
