@@ -437,93 +437,29 @@ fn get_terminal_files_path(terminal_id: &str) -> Result<std::path::PathBuf, Stri
     crate::mt5::bridge::resolve_files_path(terminal_id, false)
 }
 
-/// Calculate receiver lot size based on risk mode and symbol specs
-pub fn calculate_receiver_lots(
-    master_lots: f64,
-    risk_mode: &str,
-    risk_value: f64,
-    master_balance: f64,
-    receiver_balance: f64,
-    sl_distance_pips: Option<f64>,
-    receiver_symbol: &SymbolSpec,
-) -> f64 {
-    let lots = match risk_mode {
-        "fixed_lot" => risk_value,
-        
-        "lot_multiplier" => master_lots * risk_value,
-        
-        "balance_multiplier" => {
-            if master_balance > 0.0 {
-                master_lots * (receiver_balance / master_balance) * risk_value
-            } else {
-                master_lots * risk_value
-            }
-        }
-        
-        "risk_percent" => {
-            // Calculate lots based on percentage of balance at risk
-            if let Some(sl_pips) = sl_distance_pips {
-                if sl_pips > 0.0 && receiver_symbol.tick_value > 0.0 {
-                    let risk_amount = receiver_balance * (risk_value / 100.0);
-                    let pip_value = receiver_symbol.tick_value;
-                    // lots = risk_amount / (sl_pips * pip_value)
-                    risk_amount / (sl_pips * pip_value)
-                } else {
-                    master_lots
-                }
-            } else {
-                warn!("risk_percent mode requires SL, falling back to master lots");
-                master_lots
-            }
-        }
-        
-        "risk_dollar" => {
-            // Calculate lots based on fixed dollar risk
-            if let Some(sl_pips) = sl_distance_pips {
-                if sl_pips > 0.0 && receiver_symbol.tick_value > 0.0 {
-                    let pip_value = receiver_symbol.tick_value;
-                    risk_value / (sl_pips * pip_value)
-                } else {
-                    master_lots
-                }
-            } else {
-                warn!("risk_dollar mode requires SL, falling back to master lots");
-                master_lots
-            }
-        }
-        
-        _ => master_lots,
-    };
-    
-    // Clamp to valid range and round to lot step
-    clamp_lots(lots, receiver_symbol)
-}
-
-/// Clamp lots to valid range and round to lot step
-fn clamp_lots(lots: f64, symbol: &SymbolSpec) -> f64 {
+/// Clamp lots to the broker's valid range and round down to lot step.
+///
+/// Centralized here so the live event path (`event_processor`) and any future
+/// preview/UI path use the same min/max/step semantics as the receiver EA.
+pub fn clamp_lots(lots: f64, symbol: &SymbolSpec) -> f64 {
     let mut result = lots;
-    
-    // Clamp to min/max
-    if result < symbol.min_lot {
-        result = symbol.min_lot;
-    }
-    if result > symbol.max_lot {
+
+    if result > symbol.max_lot && symbol.max_lot > 0.0 {
         result = symbol.max_lot;
     }
-    
-    // Round to lot step
+
     if symbol.lot_step > 0.0 {
         result = (result / symbol.lot_step).floor() * symbol.lot_step;
     }
-    
-    // Ensure minimum lot
+
     if result < symbol.min_lot {
         result = symbol.min_lot;
     }
-    
-    // Round to 2 decimal places
+
+    // Round to 2 decimal places to avoid float drift
     (result * 100.0).round() / 100.0
 }
+
 
 #[cfg(test)]
 mod tests {
