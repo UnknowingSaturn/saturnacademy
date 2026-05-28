@@ -127,7 +127,7 @@ serve(async (req) => {
     if (!account && payload.install_id) {
       const { data: byInstall } = await supabase
         .from("accounts")
-        .select("id, user_id, terminal_id, api_key, copier_role, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile, ea_type")
+        .select("id, user_id, terminal_id, api_key, copier_role, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile")
         .eq("user_id", userIdForKey)
         .eq("mt5_install_id", payload.install_id)
         .eq("is_active", true)
