@@ -1019,10 +1019,13 @@ async function processEvent(supabase: any, event: any, userId: string, originalP
         entry_time: entryTime,
         exit_price: event.price,
         exit_time: event.event_timestamp,
-        sl_initial: event.sl,
-        tp_initial: event.tp,
-        sl_final: event.sl,
-        tp_final: event.tp,
+        // Orphan exit: we never saw the entry, so true SL/TP at entry is unknown.
+        // Only store the value if the exit event actually carries a non-zero level;
+        // otherwise leave NULL so r_multiple_actual isn't poisoned by a fake 0 stop.
+        sl_initial: event.sl && Number(event.sl) !== 0 ? event.sl : null,
+        tp_initial: event.tp && Number(event.tp) !== 0 ? event.tp : null,
+        sl_final: event.sl && Number(event.sl) !== 0 ? event.sl : null,
+        tp_final: event.tp && Number(event.tp) !== 0 ? event.tp : null,
         gross_pnl: grossPnl,
         commission: commission,
         swap: swap,
