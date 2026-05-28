@@ -464,6 +464,7 @@ export type Database = {
           key: string
           label: string
           options: Json
+          scope: string
           sort_order: number
           type: string
           updated_at: string
@@ -477,6 +478,7 @@ export type Database = {
           key: string
           label: string
           options?: Json
+          scope?: string
           sort_order?: number
           type: string
           updated_at?: string
@@ -490,6 +492,7 @@ export type Database = {
           key?: string
           label?: string
           options?: Json
+          scope?: string
           sort_order?: number
           type?: string
           updated_at?: string
@@ -579,39 +582,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      field_overrides: {
-        Row: {
-          created_at: string
-          default_value: Json | null
-          field_key: string
-          id: string
-          options: Json
-          type: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          default_value?: Json | null
-          field_key: string
-          id?: string
-          options?: Json
-          type: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          default_value?: Json | null
-          field_key?: string
-          id?: string
-          options?: Json
-          type?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
       }
       knowledge_chat_messages: {
         Row: {
@@ -894,53 +864,6 @@ export type Database = {
           value?: number
         }
         Relationships: []
-      }
-      property_options: {
-        Row: {
-          color: string
-          created_at: string
-          id: string
-          is_active: boolean
-          label: string
-          property_name: string
-          sort_order: number
-          updated_at: string
-          user_id: string
-          value: string
-        }
-        Insert: {
-          color?: string
-          created_at?: string
-          id?: string
-          is_active?: boolean
-          label: string
-          property_name: string
-          sort_order?: number
-          updated_at?: string
-          user_id: string
-          value: string
-        }
-        Update: {
-          color?: string
-          created_at?: string
-          id?: string
-          is_active?: boolean
-          label?: string
-          property_name?: string
-          sort_order?: number
-          updated_at?: string
-          user_id?: string
-          value?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "property_options_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       report_schedule_runs: {
         Row: {
