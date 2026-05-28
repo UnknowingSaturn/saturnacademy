@@ -30,6 +30,7 @@ export function useCustomFieldDefinitions() {
         .from('custom_field_definitions')
         .select('*')
         .eq('user_id', user.id)
+        .eq('scope', 'user')
         .order('sort_order');
       if (error) throw error;
       return ((data || []) as any[]).map(transform);
