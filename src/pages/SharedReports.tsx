@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { ChevronDown, Plus, Share2, Globe, Lock, Trash2, Eye, ExternalLink, Calendar, CalendarRange, CalendarDays, Radio } from "lucide-react";
 import { format, parseISO, subDays, formatDistanceToNow } from "date-fns";
+import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 
 const SharedReportsPage = React.forwardRef<HTMLDivElement, object>(function SharedReportsPage(_p, _r) {
   const navigate = useNavigate();
@@ -83,6 +84,11 @@ const SharedReportsPage = React.forwardRef<HTMLDivElement, object>(function Shar
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <PageIntroBanner
+        routeKey="shared-reports"
+        title="Educational recaps you can share publicly"
+        body="Build daily, weekly, or custom recaps with auto-generated captions. Money amounts and risk are always hidden so you can post to X, Discord, or email without leaking PnL."
+      />
       <header className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Shared Reports</h1>
