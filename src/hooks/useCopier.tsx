@@ -8,7 +8,6 @@ import type {
   CopierSymbolMapping, 
   CopierReceiverSettings, 
   CopierExecution,
-  CopierConfigVersion,
   RiskMode
 } from '@/types/copier';
 
