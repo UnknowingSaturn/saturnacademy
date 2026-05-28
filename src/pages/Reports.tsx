@@ -1,4 +1,3 @@
-import * as React from "react";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -11,7 +10,7 @@ import { useReportsList, useReport, useGenerateReport, useDeleteReport } from "@
 import { format, subDays } from "date-fns";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 
-const StrategyLabPage = React.forwardRef<HTMLDivElement, object>(function ReportsPage(_props, _ref) {
+function StrategyLabPage() {
   const { data: reports = [], isLoading } = useReportsList();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data: selected } = useReport(selectedId);
@@ -110,6 +109,6 @@ const StrategyLabPage = React.forwardRef<HTMLDivElement, object>(function Report
       </Dialog>
     </div>
   );
-});
+}
 
 export default StrategyLabPage;

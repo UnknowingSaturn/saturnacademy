@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { useState, useMemo } from 'react';
 import { useTrades } from '@/hooks/useTrades';
 import { useAccounts } from '@/hooks/useAccounts';
@@ -20,8 +19,7 @@ import { ChevronLeft, ChevronRight, LayoutDashboard, Loader2 } from 'lucide-reac
 import { addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 import { PageIntroBanner } from '@/components/tutorial/PageIntroBanner';
 
-const Dashboard = React.forwardRef<HTMLDivElement, object>(
-  function Dashboard(_props, _ref) {
+function Dashboard() {
   const { data: allTrades = [], isLoading } = useTrades();
   const { data: accounts = [] } = useAccounts();
   const { selectedAccountId, selectedAccount } = useAccountFilter();
@@ -69,7 +67,7 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
   // Priority: 1. First trade's balance_at_entry in current period
   //           2. Previous period's ending balance (start + pnl)
   //           3. Account's starting balance (fallback)
-  const periodStartingBalance = React.useMemo(() => {
+  const periodStartingBalance = useMemo(() => {
     // Sort current period trades by entry time to find the earliest
     const sortedCurrentTrades = [...filteredTrades]
       .filter(t => t.balance_at_entry !== null)
@@ -266,9 +264,8 @@ const Dashboard = React.forwardRef<HTMLDivElement, object>(
           </p>
         </div>
         )}
-      </div>
-    );
-  }
-);
+    </div>
+  );
+}
 
 export default Dashboard;

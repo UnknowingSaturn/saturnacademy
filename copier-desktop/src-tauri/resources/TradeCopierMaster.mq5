@@ -32,10 +32,8 @@ input bool     InpCopyPartialClose   = true;                       // Copy parti
 input bool     InpCopyPendingOrders  = false;                      // Copy pending orders (DISABLED by default)
 input bool     InpCopyOnMasterClose  = true;                       // Close receiver when master closes
 
-input group "=== Retry Settings ==="
-input int      InpMaxRetries         = 5;                          // Max retry attempts
-input int      InpRetryDelayMs       = 5000;                       // Retry delay (milliseconds)
-input int      InpQueueCheckSec      = 30;                         // Queue check interval (seconds)
+input group "=== Cloud Sync Timing ==="
+input int      InpQueueCheckSec      = 30;                         // Cloud queue check interval (seconds)
 
 input group "=== Logging ==="
 input bool     InpEnableLogging      = true;                       // Enable file logging
