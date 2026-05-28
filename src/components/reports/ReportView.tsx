@@ -68,14 +68,23 @@ function gradeColors(grade: string | null | undefined) {
   return { text: "text-destructive", from: "from-destructive/15" };
 }
 
-function DeltaCell({ value, invert = false }: { value: number | undefined; invert?: boolean }) {
+function DeltaCell({ value, invert = false, unit = "" }: { value: number | undefined; invert?: boolean; unit?: "$" | "R" | "%" | "" }) {
   if (value == null || !isFinite(value) || value === 0) return null;
   const positive = invert ? value < 0 : value > 0;
   const Icon = value > 0 ? TrendingUp : TrendingDown;
+  const abs = Math.abs(value);
+  const formatted =
+    unit === "$"
+      ? `${value > 0 ? "+" : "-"}$${abs.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+      : unit === "R"
+      ? `${value > 0 ? "+" : ""}${value.toFixed(2)}R`
+      : unit === "%"
+      ? `${value > 0 ? "+" : ""}${value.toFixed(1)}%`
+      : `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
   return (
     <span className={`inline-flex items-center gap-0.5 text-xs ${positive ? "text-success" : "text-destructive"}`}>
       <Icon className="w-3 h-3" />
-      {value > 0 ? "+" : ""}{value.toFixed(2)}
+      {formatted}
     </span>
   );
 }
