@@ -81,25 +81,21 @@ pub fn process_event(event: &TradeEvent, config: &CopierConfig, state: Arc<Mutex
     for receiver in &config.receivers {
         // Check safety limits before processing.
         //
-        // Forward every field that has a direct runtime counterpart in
-        // `safety::SafetyConfig`. The two structs are intentionally
-        // different shapes:
-        //   - `config_generator::SafetyConfig` is the EA wire format
-        //     (includes `max_daily_loss_r`, `manual_confirm_mode`,
-        //     `poll_interval_ms` — all consumed only by the EA).
-        //   - `safety::SafetyConfig` is the desktop runtime guard
-        //     (uses percentage-based daily loss).
+        // `config_generator::SafetyConfig` (the EA wire format) carries
+        // several fields that have NO counterpart on the runtime
+        // `ReceiverConfig` that we receive here: `max_daily_loss_r`,
+        // `manual_confirm_mode`, `poll_interval_ms`, `max_drawdown_percent`,
+        // `trailing_drawdown_enabled`, `min_equity`. Those are consumed
+        // exclusively by the receiver EA, which enforces them itself.
         //
-        // `max_daily_loss_r` cannot be converted to a percentage here
-        // without a per-receiver R-in-dollars value; the EA enforces the
-        // R-based limit itself. We fall back to the 3% default for the
-        // desktop-side guard.
+        // The desktop-side guard intentionally uses only what flows through
+        // `ReceiverConfig` plus `SafetyConfig::default()` (3% daily loss
+        // fallback). Threading the remaining fields through requires a
+        // coordinated change to the JSON config schema and the copier-config
+        // edge function — tracked separately.
         let safety_config = safety::SafetyConfig {
             max_slippage_pips: receiver.max_slippage_pips,
             prop_firm_safe_mode: receiver.prop_firm_safe_mode,
-            max_drawdown_percent: receiver.max_drawdown_percent,
-            trailing_drawdown_enabled: receiver.trailing_drawdown_enabled,
-            min_equity: receiver.min_equity,
             ..Default::default()
         };
 

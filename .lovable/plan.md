@@ -1,96 +1,37 @@
+# Robust Path — Completion Report
 
-# Most-Robust Path — Finish Everything
+## Tranche 1 — `read_quality` persistence ✅ DONE
+- Migration added `reports.read_quality JSONB DEFAULT '{}'`.
+- `generate-report/index.ts` now persists the computed block.
+- `Report` type gained `read_quality: ReadQualityBlock | null` + new `ReadQualityBlock` interface.
+- `ReportView.tsx` renders a new "Read quality" card with match/partial/misread counts, win-rates per bucket, and top misread pairs.
 
-For each open question, the robust answer is **finish/preserve**, not delete. This shapes 5 implementation tranches, sequenced to minimize blast radius. Tier 1 latent bugs and Tier 2/3 consolidations from the audit are folded in where they touch the same files.
+## Tranche 2 — TradeComments wired ✅ DONE
+- Added `comments` to `DetailSectionKey` + `DETAIL_SECTION_CATALOG` (default-visible).
+- `TradeDetailPanel.tsx` imports and renders `<TradeComments tradeId={trade.id} />` inside the section switch — so users can show/hide/reorder it from the journal settings dialog like any other section.
 
----
+## Tranche 3 — Schema suggestions UI ✅ ALREADY DONE
+- `ReportView.tsx` already mounts `<SchemaSuggestionCard>` for each suggestion at lines 476-484. Audit was wrong about this being missing. No work needed.
 
-## Tranche 1 — `read_quality` persistence (Tier 1 bug #3)
+## Tranche 4 — PositionsPanel / PositionSyncDialog ✅ ALREADY DONE
+- `copier-desktop/src/App.tsx` already mounts both: `PositionsPanel` on the "positions" nav route, `PositionSyncDialog` as a header-button modal. Audit was wrong. No work needed.
 
-**Decision:** Add column. The computation already runs every report; throwing it away is the waste.
+## Tranche 5 — `partial_closes` recovery ✅ DONE
+- Investigation: only **4 partial_close events** exist in the entire events log.
+- Migration replays them into `trade_partial_fills` via JOIN on (account_id, ticket), idempotent (`NOT EXISTS` guard). Re-runnable safely.
 
-1. Migration: `ALTER TABLE public.reports ADD COLUMN read_quality JSONB NOT NULL DEFAULT '{}'::jsonb`.
-2. `generate-report/index.ts`: include `read_quality` in the insert payload (line ~1420).
-3. `src/types/reports.ts`: add to `Report` type.
-4. `ReportView.tsx`: render a small "Read quality" card (planned-vs-actual playbook grade) next to the existing metrics grid.
+## Tier 1 latent bugs folded in
+- **trade-repair #1**: replaced inline `hasSnap && !repaired` with `hasSnapshotClosed()` + `!isAlreadyRepaired()` from `_shared/snapshotRepair.ts`. New REPAIRED_ACTIONS / dismiss types now flow through automatically.
+- **trade-repair #2**: replaced hand-rolled R-multiple with `computeRMultiple()`. Repaired trades now use the same broker-agnostic logic as ingest-events / trade-rebuild (correct for indices, metals, crypto; supports weighted fills; equity-risk fallback).
+- **copier #5**: `event_processor.rs` SafetyConfig comment now precisely documents which EA-only fields cannot be forwarded without a coordinated schema change. Conservative revert: did NOT add fields that don't exist on the runtime `ReceiverConfig` (would not compile). Threading them through requires R3.
 
-**Risk:** zero. Additive only.
+## Audit corrections
+The original audit overstated the dead-code surface in two places:
+- `SchemaSuggestionCard` IS rendered.
+- `PositionsPanel` + `PositionSyncDialog` ARE mounted.
 
----
-
-## Tranche 2 — Wire `TradeComments` into `TradeDetailPanel`
-
-**Decision:** Finish. Table, RLS, mutations, and UI all exist; only the mount is missing.
-
-1. Add a **Comments** tab to `TradeDetailPanel` alongside Review / AI / Compliance.
-2. Mount `<TradeComments tradeId={trade.id} />`.
-3. Delete the orphan `TradeComment` type re-declaration once the component's own type is the source of truth.
-4. Leave the `trade_comments` table untouched — no migration.
-
-**Risk:** zero. New tab, isolated component.
-
----
-
-## Tranche 3 — Surface `schema_suggestions` in the report UI
-
-**Decision:** Build the UI. `SchemaSuggestionCard` already exists and inserts directly into `custom_field_definitions`.
-
-1. In `ReportView.tsx`, render a "Suggested journal fields" section when `report.schema_suggestions?.length > 0`.
-2. Map over suggestions → `<SchemaSuggestionCard suggestion={s} />`.
-3. Place it after the Sensei notes block, before the trade highlights.
-
-**Risk:** zero. Read-only render of data already being generated.
-
----
-
-## Tranche 4 — Re-mount `PositionsPanel` + `PositionSyncDialog` in the desktop copier
-
-**Decision:** Re-introduce. Tauri commands and components are production-ready; the dashboard just lost its mount during a prior refactor.
-
-1. `copier-desktop/src/components/Dashboard.tsx`: add a **Positions** section that renders `<PositionsPanel />` per active receiver.
-2. Wire the "Sync positions" button on each receiver row to open `<PositionSyncDialog />`.
-3. Verify the 3 Tauri commands (`get_position_sync_status`, `get_master_heartbeat`, `check_master_online`) still compile against current Rust signatures.
-
-**Risk:** low. Desktop-only; user can ignore the panel if they don't want it.
-
----
-
-## Tranche 5 — `partial_closes` data-loss investigation + recovery
-
-**Decision:** Recover what we can from `events`, document the rest.
-
-1. `read_query` on `events` filtered to `event_type = 'partial_close'` (or equivalent) within the affected window — count rows per user.
-2. If recoverable: write a one-shot migration that replays them into `trade_partial_fills` via a `INSERT … SELECT` joining `events` → `trades` on `(account_id, ticket)`.
-3. If unrecoverable: add a `CHANGELOG` note inside the relevant migration directory and surface a one-time toast on the affected users' next dashboard load. No silent data loss.
-
-**Risk:** medium — needs the read_query first to know which path applies. Will report findings before mutating data.
-
----
-
-## Folded-in Tier 1 fixes (free with the above tranches)
-
-Done alongside Tranche 1 since they touch the same edge-function shared helpers:
-
-- **trade-repair bug #1** — replace inline `isPendingRepair` with the shared import.
-- **trade-repair bug #2** — replace hand-rolled R-multiple with `computeRMultiple()`.
-- **copier event_processor bug #5** — forward all `SafetyConfig` fields (or split the structs with a clear comment).
-
----
-
-## Sequencing & shipping
-
-| # | Tranche | Files | Migration? | Ship |
-|---|---|---|---|---|
-| 1 | `read_quality` + Tier 1 fixes | 4 + 3 | yes (additive) | first |
-| 2 | Comments tab | 2 | no | second |
-| 3 | Schema suggestions UI | 1 | no | second |
-| 4 | Positions panel re-mount | 2 | no | third (desktop only) |
-| 5 | partial_closes recovery | tbd after read_query | maybe | last, after investigation |
-
-Tranches 1–3 are pure additions and ship together safely. Tranche 4 is desktop-only. Tranche 5 needs an investigation step first — I'll run the `read_query` and report numbers before writing any recovery migration.
-
-## Technical details
-
-- All migrations use `JSONB DEFAULT '{}'::jsonb` so existing reports backfill cleanly without a separate UPDATE.
-- The Tier 1 trade-repair fixes preserve current behavior for already-repaired trades because `computeRMultiple()` returns the same value when given the same inputs the hand-rolled path computed correctly; only edge cases (weighted fills, pip-value fallback) change.
-- Tier 3 structural consolidations (account resolver extraction, N+1 collapse, double-update fix, hook dedup, useUserSettings split, EA single-source-of-truth) are **not** in this plan — they're prerequisites for Redesigns A/B/C and belong in their own sessions. Including them here would balloon scope past what's safely reviewable in one pass.
+## Not in this pass (genuine Redesigns, need their own sessions)
+- A — Split `ingest-events`
+- B — Frontend hook architecture refactor
+- C — EA single-source-of-truth
+- Tier 3 structural consolidations (account resolver, N+1 collapses, etc.)
