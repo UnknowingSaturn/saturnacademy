@@ -4,7 +4,31 @@ Four parallel deep audits ran across **DB/RLS**, **edge functions**, **React fro
 
 ---
 
+## ✅ P0 BATCH — SHIPPED (2026-05-28)
+
+Migration `20260528_p0_security_and_correctness` applied:
+- All ~14 tables with PUBLIC-default policies rewritten with `TO authenticated`
+- `trade_reviews` + `trade_features` policies switched to `has_trade_access()` helper
+- Hot-path indexes added on `trades`, `events`, `shared_reports`, `shared_report_trades`, `copier_executions`
+- Orphaned `copier_config_versions` table dropped (hooks + edge function updated; version now derived from `receiver_settings.updated_at`)
+- Unused `ai_provider` enum dropped
+- `trade_repair_events.action` got CHECK constraint
+- All `NOT VALID` FKs validated
+- New `apply_equity_delta(account_id, delta)` SECURITY DEFINER RPC for atomic equity updates
+
+Code fixes:
+- `copier-desktop/src-tauri/resources/TradeCopierMaster.mq5` — idempotency separator standardized to `:` (3 sites)
+- `supabase/functions/ingest-events` — `.single()` → `.maybeSingle()` on dedup check; equity update switched to atomic `apply_equity_delta` RPC
+- `supabase/functions/repair-snapshot-closed` — now computes `r_multiple_actual` (price-based, matches inline ingest-events behaviour)
+- `supabase/config.toml` — added entries for `reclassify-sessions` and `trades-drift`
+
+Deferred to R1: dual cloud upload path in the bundled Master EA (intentional combined copier+bridge mode; server-side idempotency dedupes it).
+
+---
+
 ## P0 — Critical / Correctness or Security (do first)
+
+
 
 ### Security: RLS role qualifier missing on ~14 tables
 Many policies were created without `TO authenticated`, so they default to `PUBLIC` (anon **and** authenticated). Affected: `copier_executions`, `copier_config_versions`, `copier_symbol_mappings`, `copier_receiver_settings`, `notebook_entries`, `session_definitions`, `user_settings`, `playbooks`, `trade_comments`, `setup_tokens`, `trade_reviews`, `trade_features`. One migration, pure policy rewrite, no data change.
