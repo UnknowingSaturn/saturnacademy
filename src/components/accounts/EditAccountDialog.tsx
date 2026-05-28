@@ -222,8 +222,8 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
         return;
       }
 
-      const { error: reprocessError } = await supabase.functions.invoke('reprocess-trades', {
-        body: { account_id: account.id },
+      const { error: reprocessError } = await supabase.functions.invoke('trade-rebuild', {
+        body: { mode: 'reprocess', account_id: account.id },
       });
 
       if (reprocessError) {
