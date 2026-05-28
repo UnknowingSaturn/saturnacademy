@@ -572,9 +572,7 @@ serve(async (req) => {
       .update({ last_sync_at: new Date().toISOString() })
       .eq("id", account.id);
 
-    // Track terminal multi-tenancy: a real event from this account means
-    // it is currently the active login on this install.
-    await markTerminalActiveAccount(supabase, payload.terminal_id, payload.install_id, account.id, account.user_id);
+    // (active-login tracking now derived from accounts.last_heartbeat_at via terminal_accounts view)
 
 
     console.log("Event processed:", newEvent.id);
