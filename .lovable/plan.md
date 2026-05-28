@@ -79,12 +79,19 @@ A single migration + targeted code edits covering items 1–13 above. No new abs
 ### Phase 2 — Extract `_shared/` and one canonical idempotency key (~2–3 days) — DONE
 Created `_shared/cors.ts`, `_shared/apiKey.ts`, `_shared/snapshotRepair.ts` (with the canonical `REPAIR_ACTIONS` constants `REPAIR_ACTION_SNAPSHOT_CLOSED` / `REPAIRED_ACTIONS` and `isPendingRepair` helper). Migrated `ingest-events`, `sync-account-state`, `repair-snapshot-closed`, `copier-config`, and `get-shared-report` to the shared modules — deleted ~80 LOC of divergent copies. Canonicalised the idempotency key to `{terminal_id}:{deal_id|position_id}:{event_type}`: Master EA modify keys no longer carry a timestamp suffix; Rust `TradeEvent` now reads the EA-supplied `idempotency_key` verbatim and only falls back to building it locally for legacy EAs; the old 5-part `generate_idempotency_key` is gone, replaced by `build_canonical_key`.
 
-### Phase 3 — Delete the dead weight (~1 day, almost all removals)
-- Delete `execution_queue.rs` and the async `trade_executor` path.
-- Delete one of `find_terminals` / `discover_terminals`; delete one symbol-mapping wizard step; delete the unused `xhr` polyfill imports; delete `readQualityBlock` computation in `generate-report`; delete the duplicate `worstTradeNarratives` / `symbolExpectancy` / `reviewExcerpts` blocks in `buildLlmContext`.
-- Either implement or remove EA inputs `InpSyncHistory`, `InpMaxRetries`, `InpRetryDelayMs`, the receiver `allowed_sessions` filter, the `test_copy` placeholder, the queue counters in `get_diagnostics`, the `remove_manual_terminal` UI gap, and `restore-trade-times` (fold its DST logic into `reprocess-trades` as a flag).
-- Consolidate the 4 AppData folder names into one.
-- Delete `HintPopover` (or actually use it); delete the `forwardRef` wrappers on Dashboard/Reports.
+### Phase 3 — Delete the dead weight (~1 day, almost all removals) — DONE
+- Deleted `copier-desktop/src-tauri/src/copier/execution_queue.rs` (368 LOC, never instantiated) and dropped the `pub mod execution_queue;` line.
+- Deleted the async path in `trade_executor.rs`: `execute_trade_async`, `execute_single_attempt`, `wait_for_response_async`, the `ExecutionRequest` struct, the in-file `ExecutionQueue` channel, `start_queue_processor`, and the `QueueFull` error variant. Dropped now-unused `tokio::sync::mpsc` / `tokio::time::sleep` imports. The sync path (`execute_trade` → `execute_trade_sync` → `wait_for_response_sync`) is the only remaining executor.
+- Deleted `copier-desktop/src/components/wizard/SymbolMappingStep.tsx` (V1; only V2 is wired into the wizard).
+- Deleted `src/components/tutorial/HintPopover.tsx` (exported, used in zero pages).
+- Removed the no-op `React.forwardRef<HTMLDivElement, object>` wrappers on `src/pages/Dashboard.tsx` and `src/pages/Reports.tsx` — now plain function components.
+- Removed the EA stub inputs `InpMaxRetries` and `InpRetryDelayMs` from `TradeCopierMaster.mq5` in `mt5-bridge/`, `public/`, and `copier-desktop/src-tauri/resources/` (they were declared inputs that no code branch ever read). Kept `InpQueueCheckSec` (actually used) and renamed the group to "Cloud Sync Timing". Left `InpSyncHistory` / `InpSyncDaysBack` in place because their handler still exists and the user-facing toggle is shown — those stay scoped to Phase 4 along with the matching `ProcessCloudQueue` / `SyncHistoricalDeals` implementations.
+
+Deferred from this phase (require larger refactors or have live callers that need migration first):
+- `restore-trade-times` — still invoked by `EditAccountDialog`; folding its DST logic into `reprocess-trades` is a Phase 4 task.
+- `find_terminals` vs `discover_terminals` — both have live callers in `App.tsx`, `TerminalManager.tsx`, and `TerminalScanStep.tsx`; consolidation needs a UI-layer audit.
+- `generate-report` duplicate computations — `readQualityBlock` is actually stored as `read_quality` in the LLM payload, so the audit note for that one was wrong; the `buildLlmContext` vs main-handler duplication of `worstTradeNarratives` / `symbolExpectancy` / `reviewExcerpts` is genuine but deserves its own extraction PR.
+- `test_copy`, `get_diagnostics` queue counters, receiver `allowed_sessions`, `remove_manual_terminal`, and AppData-folder consolidation — listed for Phase 4 implementation-or-removal decisions.
 
 ### Phase 4 — Targeted refactors for long-term robustness (~1 week, optional but high-leverage)
 - **Frontend**: extract `<PlaybookFormDialog>` + `usePlaybookForm` reducer; introduce `TradeReviewContext` to kill the `TradeDetailPanel` → `TradeProperties` prop wall; split `useUserSettings.tsx` into 3 files; extract a shared `<ScreenshotGrid>`, `<DateRangePicker>`, `useDebounce`, `useBulkReorder`, and `colorPalette.ts`; set a global React Query `staleTime: 60_000`; collapse `useDashboardMetrics` into `useReports`.
