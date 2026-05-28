@@ -1,11 +1,7 @@
-// Shared constants & helpers for the Fields settings panel
+// Shared constants & helpers for the Fields settings panel.
+// COLOR_PALETTE is re-exported from the single source of truth in @/lib/colorPalette.
+export { COLOR_PALETTE } from "@/lib/colorPalette";
 
-export const COLOR_PALETTE = [
-  "#EF4444", "#F97316", "#F59E0B", "#EAB308", "#84CC16",
-  "#22C55E", "#10B981", "#14B8A6", "#06B6D4", "#0EA5E9",
-  "#3B82F6", "#6366F1", "#8B5CF6", "#A855F7", "#D946EF",
-  "#EC4899", "#F43F5E", "#6B7280",
-];
 
 export const SYSTEM_OPTION_PROPERTY: Record<string, string> = {
   session: "session",
