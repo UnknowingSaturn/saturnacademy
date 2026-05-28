@@ -47,3 +47,10 @@ verify_jwt = false
 [functions.sync-account-state]
 verify_jwt = false
 
+[functions.reclassify-sessions]
+verify_jwt = false
+
+[functions.trades-drift]
+verify_jwt = false
+
+
