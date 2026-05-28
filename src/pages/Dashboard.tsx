@@ -19,8 +19,7 @@ import { ChevronLeft, ChevronRight, LayoutDashboard, Loader2 } from 'lucide-reac
 import { addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 import { PageIntroBanner } from '@/components/tutorial/PageIntroBanner';
 
-const Dashboard = React.forwardRef<HTMLDivElement, object>(
-  function Dashboard(_props, _ref) {
+function Dashboard() {
   const { data: allTrades = [], isLoading } = useTrades();
   const { data: accounts = [] } = useAccounts();
   const { selectedAccountId, selectedAccount } = useAccountFilter();
