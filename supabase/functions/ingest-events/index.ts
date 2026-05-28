@@ -158,16 +158,8 @@ serve(async (req) => {
     if (!account && payload.account_info) {
       console.log("No account found for login", brokerLogin, "— auto-creating");
 
-      // Re-fetch setup token data if we haven't already
-      if (!setupTokenRow) {
-        const { data: tok } = await supabase
-          .from("setup_tokens")
-          .select("user_id, used, sync_history_enabled, sync_history_from, copier_role, master_account_id")
-          .eq("token", apiKey)
-          .gt("expires_at", new Date().toISOString())
-          .maybeSingle();
-        setupTokenRow = tok ?? null;
-      }
+      // setupTokenRow is already populated by resolveUserFromApiKey when the
+      // API key was an unused setup token; no need to refetch.
 
       // For multi-account on same terminal, allow auto-create even without
       // a setup token — as long as the API key is already linked to the user.
