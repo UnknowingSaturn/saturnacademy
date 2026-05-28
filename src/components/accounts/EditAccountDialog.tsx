@@ -42,7 +42,7 @@ const formSchema = z.object({
   broker: z.string().optional(),
   account_number: z.string().optional(),
   account_type: z.enum(['demo', 'live', 'prop']),
-  prop_firm: z.enum(['ftmo', 'fundednext', 'other']).optional(),
+  prop_firm: z.string().optional(),
   balance_start: z.coerce.number().min(0),
   equity_current: z.coerce.number().min(0),
   broker_utc_offset: z.coerce.number().min(-12).max(14),
@@ -62,6 +62,20 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
   const { toast } = useToast();
   const [isSyncing, setIsSyncing] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+
+  const { data: propFirms } = useQuery({
+    queryKey: ['prop_firms'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('prop_firms')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('sort_order');
+      if (error) throw error;
+      return data as { id: string; name: string }[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 
   const maskedKey = account.api_key
     ? `${account.api_key.slice(0, 8)}${'•'.repeat(16)}${account.api_key.slice(-4)}`
@@ -331,9 +345,9 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="ftmo">FTMO</SelectItem>
-                          <SelectItem value="fundednext">FundedNext</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
+                          {(propFirms ?? []).map((pf) => (
+                            <SelectItem key={pf.id} value={pf.id}>{pf.name}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <FormMessage />

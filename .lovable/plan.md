@@ -88,6 +88,11 @@ Investigation showed the column had 0 rows of data, 0 readers, 0 writers — lef
 - Recreated as a `security_invoker` view over `accounts`: `is_currently_active` is true for the row with the latest `last_heartbeat_at` per `(user_id, mt5_install_id)`.
 - Removed `markTerminalActiveAccount` helper + 3 call sites in `ingest-events`. The heartbeat bump on `accounts` (already part of every event) is the new (and only) write path; `trades-drift` reads the view unchanged.
 
+## ✅ R11 full — SHIPPED (2026-05-28) — `prop_firm` enum → `prop_firms` lookup table
+- New `prop_firms` lookup table (id slug + name + sort_order); seeded with FTMO, FundedNext, Other. Public-read RLS so the account-edit dropdown can list them.
+- Converted `accounts.prop_firm` and `prop_firm_rules.firm` from enum to text with FKs to the new table; dropped the `prop_firm` enum.
+- `EditAccountDialog` now fetches the list from `prop_firms` instead of hardcoding; `PropFirm` TS type widened to `string` so future firms need no code change — just an insert.
+
 ## ⏸ R1 — SKIPPED per user
 Bundled `resources/` EAs intentionally fused with bridge + cloud logic; collapsing to `mt5-bridge/` would regress live receivers. Revisit only with a feature-by-feature merge plan.
 
