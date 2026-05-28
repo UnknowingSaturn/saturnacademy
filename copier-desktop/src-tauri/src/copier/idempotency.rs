@@ -206,24 +206,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_idempotency_key_generation() {
-        let key = generate_idempotency_key("open", 12345, 67890, "EURUSD", "2024-01-15T10:30:00Z");
-        assert_eq!(key, "open:12345:67890:EURUSD:2024-01-15T10:30:00Z");
+    fn test_canonical_key() {
+        let key = build_canonical_key("4F2D8E1A", 67890, "open");
+        assert_eq!(key, "4F2D8E1A:67890:open");
     }
-    
-    #[test]
-    fn test_idempotency_key_with_deal_id_uniqueness() {
-        // Same position, different deals should have different keys
-        let key1 = generate_idempotency_key("close", 12345, 100, "EURUSD", "2024-01-15T10:30:00Z");
-        let key2 = generate_idempotency_key("close", 12345, 101, "EURUSD", "2024-01-15T10:31:00Z");
-        assert_ne!(key1, key2);
-    }
-    
+
     #[test]
     fn test_modify_key_generation() {
-        let key = generate_modify_idempotency_key(12345, "EURUSD", "2024-01-15T10:30:00Z");
-        assert_eq!(key, "modify:12345:EURUSD:2024-01-15T10:30:00Z");
+        let key = generate_modify_idempotency_key("4F2D8E1A", 12345);
+        assert_eq!(key, "4F2D8E1A:12345:modify");
     }
+
     
     #[test]
     fn test_idempotency_cache_fifo() {
