@@ -1210,6 +1210,7 @@ serve(async (req) => {
       .from('custom_field_definitions')
       .select('key,label,is_active')
       .eq('user_id', targetUserId)
+      .eq('scope', 'user')
       .eq('is_active', true);
     const suggestions = schemaSuggestions(
       trades as TradeRow[],
