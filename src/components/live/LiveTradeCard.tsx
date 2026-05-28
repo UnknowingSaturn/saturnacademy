@@ -12,7 +12,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatBrokerDateTimeET } from "@/lib/time";
+import { formatToET } from "@/lib/time";
 import { TradeProgressBar } from "./TradeProgressBar";
 import { CloseLiveTradeDialog } from "./CloseLiveTradeDialog";
 import { useUpdateTrade } from "@/hooks/useTrades";

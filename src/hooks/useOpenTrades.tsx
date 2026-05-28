@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Trade, Playbook } from "@/types/trading";
 import { usePlaybooks } from "./usePlaybooks";
-import { detectSessionFromBrokerTime } from "@/lib/time";
+import { detectSessionFromUtc } from "@/lib/time";
 import { transformTrade } from "@/lib/tradeTransform";
 
 export interface OpenTradeWithCompliance extends Trade {
@@ -73,9 +73,8 @@ export function useOpenTrades() {
         const matchedPlaybook = trade.playbook 
           || (trade.playbook_id ? playbooks.find(p => p.id === trade.playbook_id) : undefined);
 
-        // Detect session using broker time offset
-        const brokerOffset = trade.account?.broker_utc_offset ?? 0;
-        const detectedSession = detectSessionFromBrokerTime(trade.entry_time, brokerOffset);
+        // Detect session from the trade's UTC entry time
+        const detectedSession = detectSessionFromUtc(trade.entry_time);
 
         // Determine compliance status
         let complianceStatus: 'pending' | 'compliant' | 'violations' = 'pending';
