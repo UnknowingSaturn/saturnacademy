@@ -88,13 +88,12 @@ serve(async (req) => {
     const isReceiver = account.copier_role === 'receiver';
     const receiverAccountId = isReceiver ? account.id : null;
 
-    // Find the master account for this user (must have copier_role AND ea_type = master)
+    // Find the master account for this user (copier_role is the single source of truth)
     const { data: masterAccount, error: masterError } = await supabase
       .from('accounts')
       .select('id, name, broker, terminal_id')
       .eq('user_id', userId)
       .eq('copier_role', 'master')
-      .eq('ea_type', 'master')
       .eq('copier_enabled', true)
       .maybeSingle();
 
