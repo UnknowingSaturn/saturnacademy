@@ -515,8 +515,6 @@ pub enum TradeError {
     Timeout,
     #[error("Execution error: {0}")]
     ExecutionError(String),
-    #[error("Queue full")]
-    QueueFull,
 }
 
 
