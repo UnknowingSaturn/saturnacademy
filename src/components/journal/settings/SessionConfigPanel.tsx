@@ -29,13 +29,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { COLOR_PALETTE as COLOR_OPTIONS } from '@/lib/colorPalette';
 
-const COLOR_OPTIONS = [
-  '#EC4899', '#F43F5E', '#EF4444', '#F97316', '#F59E0B', 
-  '#EAB308', '#84CC16', '#22C55E', '#10B981', '#14B8A6',
-  '#06B6D4', '#0EA5E9', '#3B82F6', '#6366F1', '#8B5CF6',
-  '#A855F7', '#D946EF', '#6B7280'
-];
 
 const TIMEZONE_OPTIONS = [
   { value: 'America/New_York', label: 'Eastern (ET)' },
