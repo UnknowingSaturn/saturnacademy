@@ -73,6 +73,14 @@ export default function Copier() {
           <ExecutionHistory />
         </TabsContent>
       </Tabs>
+
+      <TutorialDialog
+        open={tutorialOpen}
+        onOpenChange={setTutorialOpen}
+        title="Copier setup & best practices"
+        description="Master vs receiver, chart placement, symbol mapping and prop-firm safety."
+        defaultTab="dedicated-chart"
+      />
     </div>
   );
 }
