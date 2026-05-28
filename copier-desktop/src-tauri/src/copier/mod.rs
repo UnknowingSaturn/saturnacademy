@@ -1,7 +1,7 @@
 pub mod commands;
 pub mod config_generator;
 pub mod event_processor;
-pub mod execution_queue;
+
 pub mod file_watcher;
 pub mod idempotency;
 pub mod lot_calculator;
