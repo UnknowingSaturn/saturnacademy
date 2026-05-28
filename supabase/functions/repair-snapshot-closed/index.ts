@@ -185,9 +185,9 @@ serve(async (req) => {
       await admin.from("trades").update(update).eq("id", trade.id);
 
       // Typed repair event
-      await admin.from("trade_repair_events").insert({
-        user_id: user.id,
-        trade_id: trade.id,
+      await insertRepairEvent(admin, {
+        userId: user.id,
+        tradeId: trade.id,
         action: "repaired_from_snapshot",
         source: "manual_repair_snapshot_closed",
         metadata: {
@@ -195,7 +195,6 @@ serve(async (req) => {
           ticket: trade.ticket ?? null,
           reassigned: exitEvent.account_id !== trade.account_id,
         },
-        applied_at: new Date().toISOString(),
       });
 
       repaired++;
