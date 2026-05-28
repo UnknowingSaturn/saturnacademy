@@ -142,7 +142,7 @@ serve(async (req) => {
       const grossPnl = Number(exitEvent.profit) || 0;
       const commission = Number(exitEvent.commission) || 0;
       const swap = Number(exitEvent.swap) || 0;
-      const netPnl = grossPnl - commission - Math.abs(swap);
+      const netPnl = computeNetPnl(grossPnl, commission, swap);
 
       const duration = Math.floor(
         (new Date(exitEvent.event_timestamp).getTime() -
