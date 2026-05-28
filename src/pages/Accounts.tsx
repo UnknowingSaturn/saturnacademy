@@ -163,6 +163,12 @@ export default function Accounts() {
 
       <MT5SetupDialog account={setupAccount} onOpenChange={(open) => !open && setSetupAccount(null)} />
       <QuickConnectDialog open={quickConnectOpen} onOpenChange={setQuickConnectOpen} />
+      <TutorialDialog
+        open={tutorialOpen}
+        onOpenChange={setTutorialOpen}
+        title="MT5 setup & best practices"
+        description="Everything you need to connect terminals, run several accounts, and avoid prop-firm pitfalls."
+      />
     </div>
   );
 }
