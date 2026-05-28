@@ -1,459 +1,79 @@
+// ingest-events — thin router.
+// Heavy lifting lives in ../_shared/{accountResolver,healthEvents,tradeEventProcessor}.
+// Behavior is byte-equivalent to the pre-split monolith.
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { computeRMultiple, getPipSize, getPipValue } from "../_shared/rMultiple.ts";
-import { classifySession, loadSessions } from "../_shared/session.ts";
 import { corsHeaders } from "../_shared/cors.ts";
-import { resolveUserFromApiKey } from "../_shared/apiKey.ts";
-import { isPendingRepair } from "../_shared/snapshotRepair.ts";
-import { computeNetPnl } from "../_shared/pnl.ts";
-import { insertRepairEvent } from "../_shared/repairEvent.ts";
+import type { EventPayload } from "../_shared/eventTypes.ts";
+import {
+  ResolveError,
+  applyPerEventSideEffects,
+  resolveAccount,
+} from "../_shared/accountResolver.ts";
+import { handleHeartbeat, handleSnapshot } from "../_shared/healthEvents.ts";
+import { processEvent } from "../_shared/tradeEventProcessor.ts";
 
-interface AccountInfo {
-  login: number;
-  broker: string;
-  server: string;
-  balance: number;
-  equity: number;
-  account_type: "demo" | "live" | "prop";
+function json(body: Record<string, unknown>, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
-
-interface EventPayload {
-  idempotency_key: string;
-  terminal_id: string;
-  install_id?: string;            // NEW v4: stable hash of MT5 install path
-  active_login?: string;          // NEW v4: currently active broker login on the install
-  account_id?: string;
-  ea_type?: "journal" | "master" | "receiver";
-  event_type: "entry" | "exit" | "history_sync" | "open" | "modify" | "partial_close" | "close" | "position_snapshot" | "heartbeat";
-  open_position_tickets?: number[];
-  original_event_type?: "entry" | "exit";
-  position_id: number;
-  deal_id: number;
-  order_id: number;
-  ticket?: number;
-  symbol: string;
-  direction: "buy" | "sell";
-  lot_size: number;
-  price: number;
-  sl?: number;
-  tp?: number;
-  commission?: number;
-  swap?: number;
-  profit?: number;
-  timestamp: string;
-  server_time?: string;
-  timezone_offset_seconds?: number;
-  equity_at_entry?: number;
-  entry_price?: number;
-  entry_time?: string;
-  spread?: number;
-  // Heartbeat fields
-  ea_version?: string;
-  open_positions_count?: number;
-  leverage?: number;
-  margin_free?: number;
-  margin_level?: number;
-  broker_utc_offset?: number;
-  account_info?: AccountInfo;
-  raw_payload?: Record<string, unknown>;
-}
-
-// computeRMultiple, getPipSize, getPipValue moved to ../_shared/rMultiple.ts
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const apiKey = req.headers.get("x-api-key");
     if (!apiKey) {
       console.error("Missing API key");
-      return new Response(
-        JSON.stringify({ status: "error", message: "Missing API key" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ status: "error", message: "Missing API key" }, 401);
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
 
     const payload: EventPayload = await req.json();
-    console.log("Received event:", payload.idempotency_key, payload.event_type, "position:", payload.position_id, "deal:", payload.deal_id);
+    console.log(
+      "Received event:",
+      payload.idempotency_key,
+      payload.event_type,
+      "position:",
+      payload.position_id,
+      "deal:",
+      payload.deal_id,
+    );
 
-    // ==========================================
-    // ACCOUNT RESOLUTION (multi-account aware)
-    // ==========================================
-    // Strategy: API key identifies the USER (terminal token).
-    // The actual account is resolved per-event by (user_id, account_info.login)
-    // so that one MT5 terminal switching between Hola Prime accounts routes
-    // each event to the correct journal account.
-
-    // Step 1: resolve the API key to a user (shared with sync-account-state)
-    const keyRes = await resolveUserFromApiKey(supabase, apiKey);
-    const anyAccountForKey = keyRes.accountForKey;
-    let setupTokenRow: any = keyRes.setupToken;
-    const userIdForKey: string | null = keyRes.userId;
-
-    if (!userIdForKey) {
-      console.error("Invalid API key — no account or active setup token");
-      return new Response(
-        JSON.stringify({ status: "error", message: "Invalid API key" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Step 2: resolve the target account by broker login (account_info.login)
-    const brokerLogin = payload.account_info?.login != null ? String(payload.account_info.login) : null;
-
-    let account: { id: string; user_id: string; terminal_id: string | null } | null = null;
-
-    if (brokerLogin) {
-      const { data: byLogin } = await supabase
-        .from("accounts")
-        .select("id, user_id, terminal_id")
-        .eq("user_id", userIdForKey)
-        .eq("account_number", brokerLogin)
-        .eq("is_active", true)
-        .maybeSingle();
-      account = byLogin ?? null;
-    }
-
-    // Sibling lookup on the same MT5 install — used as a TEMPLATE for auto-create
-    // when the broker login is new. NEVER overwrite account_number on the sibling;
-    // each broker login owns its own accounts row.
-    let installSibling: any = null;
-    if (!account && payload.install_id) {
-      const { data: byInstall } = await supabase
-        .from("accounts")
-        .select("id, user_id, terminal_id, api_key, copier_role, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile")
-        .eq("user_id", userIdForKey)
-        .eq("mt5_install_id", payload.install_id)
-        .eq("is_active", true)
-        .order("last_heartbeat_at", { ascending: false, nullsFirst: false })
-        .limit(1)
-        .maybeSingle();
-      installSibling = byInstall ?? null;
-      // Only adopt sibling as-is when this event carries NO broker login
-      // (legacy EA without account_info). Otherwise fall through to auto-create
-      // so the new login gets its own row.
-      if (installSibling && !brokerLogin) {
-        account = {
-          id: installSibling.id,
-          user_id: installSibling.user_id,
-          terminal_id: installSibling.terminal_id,
-        };
+    // ===== Account resolution (multi-account aware) =====
+    let resolved;
+    try {
+      resolved = await resolveAccount(supabase, apiKey, payload);
+    } catch (e) {
+      if (e instanceof ResolveError) {
+        console.error("Account resolution failed:", e.message);
+        return json({ status: "error", message: e.message }, e.status);
       }
+      throw e;
     }
+    const { account, brokerLogin } = resolved;
 
-    // Fallback: if no broker login (e.g. older EA), use the API-key account
-    if (!account && anyAccountForKey) {
-      account = {
-        id: anyAccountForKey.id,
-        user_id: anyAccountForKey.user_id,
-        terminal_id: anyAccountForKey.terminal_id,
-      };
-    }
+    // Per-event side effects (heartbeat bump, balance snapshot)
+    await applyPerEventSideEffects(supabase, account, payload);
 
-    // Auto-create when we have account_info but no matching account row
-    if (!account && payload.account_info) {
-      console.log("No account found for login", brokerLogin, "— auto-creating");
-
-      // setupTokenRow is already populated by resolveUserFromApiKey when the
-      // API key was an unused setup token; no need to refetch.
-
-      // For multi-account on same terminal, allow auto-create even without
-      // a setup token — as long as the API key is already linked to the user.
-      const allowAutoCreate = !!anyAccountForKey || (setupTokenRow && !setupTokenRow.used);
-      if (!allowAutoCreate) {
-        console.error("Cannot auto-create account: no setup token and API key not yet bound");
-        return new Response(
-          JSON.stringify({ status: "error", message: "Invalid API key" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Reuse existing setup-token branch by falling through with synthesised values
-      const setupToken = setupTokenRow ?? {
-        user_id: userIdForKey,
-        used: false,
-        sync_history_enabled: true,
-        sync_history_from: null,
-        copier_role: 'independent',
-        master_account_id: null,
-      };
-      // (auto-create flow)
-
-      // Only burn the setup token the first time it's used
-      const shouldConsumeToken = setupTokenRow && !setupTokenRow.used && !anyAccountForKey;
-
-      // Prefer the install sibling as a template (multi-account per terminal):
-      // a fresh broker login on a known install inherits firm/broker/role from
-      // its sibling, not a generic auto-create.
-      let propFirm: string | null = installSibling?.prop_firm ?? null;
-      if (!propFirm) {
-        const serverLower = (payload.account_info.server || "").toLowerCase();
-        if (serverLower.includes("ftmo")) propFirm = "ftmo";
-        else if (serverLower.includes("fundednext")) propFirm = "fundednext";
-      }
-
-      const copierRole = installSibling?.copier_role ?? (setupToken.copier_role || 'independent');
-      const isCopierAccount = copierRole !== 'independent';
-
-      const accountName = `${payload.account_info.broker} - ${payload.account_info.login}`;
-      const insertPayload: Record<string, unknown> = {
-        user_id: setupToken.user_id,
-        name: accountName,
-        broker: installSibling?.broker ?? payload.account_info.broker,
-        account_number: String(payload.account_info.login),
-        account_type: installSibling?.account_type ?? payload.account_info.account_type,
-        balance_start: payload.account_info.balance,
-        equity_current: payload.account_info.equity,
-        terminal_id: payload.terminal_id,
-        mt5_install_id: payload.install_id || null,
-        last_sync_at: new Date().toISOString(),
-        last_heartbeat_at: new Date().toISOString(),
-        live_state: 'live',
-        api_key: installSibling?.api_key ?? apiKey,
-        prop_firm: propFirm,
-        is_active: true,
-        sync_history_enabled: installSibling?.sync_history_enabled ?? (setupToken.sync_history_enabled ?? true),
-        sync_history_from: installSibling?.sync_history_from ?? setupToken.sync_history_from,
-        copier_role: copierRole,
-        copier_enabled: isCopierAccount,
-        master_account_id: installSibling?.master_account_id ?? (setupToken.master_account_id || null),
-      };
-      if (typeof installSibling?.broker_utc_offset === 'number') insertPayload.broker_utc_offset = installSibling.broker_utc_offset;
-      if (installSibling?.broker_dst_profile) insertPayload.broker_dst_profile = installSibling.broker_dst_profile;
-
-      let { data: newAccount, error: createError } = await supabase
-        .from("accounts")
-        .insert(insertPayload)
-        .select("id, user_id, terminal_id")
-        .single();
-
-      // Race: another concurrent event already created this (user_id, install_id, login)
-      // — the partial unique index makes the second insert a duplicate. Re-select.
-      if (createError && (createError.code === '23505' || /duplicate key/i.test(createError.message || ''))) {
-        const { data: existing } = await supabase
-          .from("accounts")
-          .select("id, user_id, terminal_id")
-          .eq("user_id", setupToken.user_id)
-          .eq("mt5_install_id", payload.install_id || "")
-          .eq("account_number", String(payload.account_info.login))
-          .maybeSingle();
-        if (existing) {
-          newAccount = existing;
-          createError = null as any;
-        }
-      }
-
-      if (createError) {
-        console.error("Failed to create account:", createError);
-        return new Response(
-          JSON.stringify({ status: "error", message: "Failed to create account: " + createError.message }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      if (shouldConsumeToken) {
-        await supabase
-          .from("setup_tokens")
-          .update({ used: true, used_at: new Date().toISOString() })
-          .eq("token", apiKey);
-      }
-
-      account = newAccount;
-      console.log("Auto-created account:", account.id, accountName,
-        "login:", brokerLogin, "from_sibling:", !!installSibling);
-    }
-
-    if (!account) {
-      console.error("No target account could be resolved (login missing?)");
-      return new Response(
-        JSON.stringify({ status: "error", message: "No matching account for broker login" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Backfill terminal_id and install_id on the account row when EA provides them
-    const accountBackfill: Record<string, unknown> = {};
-    if (!account.terminal_id && payload.terminal_id) accountBackfill.terminal_id = payload.terminal_id;
-    if (payload.install_id) accountBackfill.mt5_install_id = payload.install_id;
-    if (Object.keys(accountBackfill).length > 0) {
-      await supabase.from("accounts").update(accountBackfill).eq("id", account.id);
-    }
-
-
-    // Every event bumps the per-account heartbeat and flips state back to 'live'.
-    // The mark_dormant_accounts() pg_cron job flips it to 'dormant' if heartbeats stop.
-    {
-      const liveBump: Record<string, unknown> = {
-        last_heartbeat_at: new Date().toISOString(),
-        live_state: "live",
-      };
-      if (payload.account_info?.equity) liveBump.equity_current = payload.account_info.equity;
-      // ea_type payload field ignored — copier_role is the single source of truth.
-      await supabase.from("accounts").update(liveBump).eq("id", account.id);
-    }
-
-    // Per-account balance snapshot (deduped per minute via unique index).
-    // Captures balance/equity any time the EA sends account_info — heartbeats,
-    // position snapshots, and trade events alike. Powers the multi-account
-    // equity curve and includes deposits/withdrawals/payouts automatically.
-    if (payload.account_info?.balance != null) {
-      const nowMs = Date.now();
-      const recordedMinute = Math.floor(nowMs / 60000);
-      const { error: snapErr } = await supabase
-        .from("account_balance_snapshots")
-        .insert({
-          account_id: account.id,
-          user_id: account.user_id,
-          balance: payload.account_info.balance,
-          equity: payload.account_info.equity ?? null,
-          free_margin: payload.margin_free ?? null,
-          recorded_at: new Date(nowMs).toISOString(),
-          recorded_minute: recordedMinute,
-        });
-      if (snapErr && snapErr.code !== "23505") {
-        console.error("Failed to insert balance snapshot (non-fatal):", snapErr.message);
-      }
-    }
-
-    // ==========================================
-    // Handle heartbeat event — update account health, no event/trade processing
-    // ==========================================
+    // ===== Heartbeat =====
     if (payload.event_type === "heartbeat") {
-      console.log("Heartbeat received from terminal:", payload.terminal_id, 
-        "equity:", payload.account_info?.equity, "positions:", payload.open_positions_count,
-        "ea_version:", payload.ea_version);
-
-      const heartbeatUpdate: Record<string, unknown> = {
-        updated_at: new Date().toISOString(),
-      };
-      if (payload.account_info?.equity) heartbeatUpdate.equity_current = payload.account_info.equity;
-
-      // Auto-detect broker DST profile from observed offsets.
-      // Cache results on the account row: once we've classified, we no longer
-      // scan history on every heartbeat — only widen the cache when a new
-      // distinct offset arrives.
-      if (typeof payload.broker_utc_offset === 'number') {
-        try {
-          const { data: acc } = await supabase
-            .from("accounts")
-            .select("broker_dst_profile, broker_utc_offset")
-            .eq("id", account.id)
-            .single();
-
-          const onManual = !acc?.broker_dst_profile || acc.broker_dst_profile === 'MANUAL';
-          const offsetChanged = acc?.broker_utc_offset !== payload.broker_utc_offset;
-
-          // Only do the expensive historical scan when we're still on MANUAL
-          // AND we've just observed a new offset value (potential DST flip).
-          if (onManual && offsetChanged) {
-            const { data: recentHeartbeats } = await supabase
-              .from("events")
-              .select("raw_payload")
-              .eq("account_id", account.id)
-              .order("event_timestamp", { ascending: false })
-              .limit(200);
-
-            const offsets = new Set<number>();
-            (recentHeartbeats || []).forEach((e: any) => {
-              const o = e.raw_payload?.broker_utc_offset;
-              if (typeof o === 'number') offsets.add(o);
-            });
-            offsets.add(payload.broker_utc_offset);
-
-            let detectedProfile: string | null = null;
-            if (offsets.has(2) && offsets.has(3)) detectedProfile = 'EET_DST';
-            else if (offsets.has(0) && offsets.has(1)) detectedProfile = 'GMT_DST';
-            else if (offsets.size === 1) {
-              const only = [...offsets][0];
-              if (only === 0) detectedProfile = 'FIXED_PLUS_0';
-              else if (only === 2) detectedProfile = 'FIXED_PLUS_2';
-              else if (only === 3) detectedProfile = 'FIXED_PLUS_3';
-            }
-
-            if (detectedProfile) {
-              heartbeatUpdate.broker_dst_profile = detectedProfile;
-              console.log(`Auto-detected broker DST profile: ${detectedProfile} for account ${account.id} (offsets: ${[...offsets].join(',')})`);
-            }
-          }
-        } catch (err) {
-          console.error("DST profile auto-detect failed (non-fatal):", err);
-        }
-
-        // Always keep the static numeric offset fresh as a fallback.
-        heartbeatUpdate.broker_utc_offset = payload.broker_utc_offset;
-      }
-
-      heartbeatUpdate.last_sync_at = new Date().toISOString();
-      await supabase.from("accounts").update(heartbeatUpdate).eq("id", account.id);
-
-      // (active-login tracking now derived from accounts.last_heartbeat_at via terminal_accounts view)
-
-
-      return new Response(
-        JSON.stringify({
-          status: "accepted",
-          message: "Heartbeat received",
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return await handleHeartbeat(supabase, account, payload);
     }
 
-
-    // ==========================================
-    // Handle position_snapshot event — READ-ONLY drift signal
-    // Records what the EA currently sees on this (terminal_id, active_login).
-    // NEVER mutates trades. Drift is surfaced in the UI via the trades-drift function.
-    // ==========================================
+    // ===== Position snapshot (read-only) =====
     if (payload.event_type === "position_snapshot") {
-      const openTickets = payload.open_position_tickets || [];
-      const activeLogin = payload.account_info?.login != null
-        ? String(payload.account_info.login)
-        : null;
-
-      console.log("Position snapshot received (read-only):", openTickets.length,
-        "open positions from terminal:", payload.terminal_id,
-        "login:", activeLogin);
-
-      // Record the snapshot for drift detection.
-      await supabase.from("terminal_snapshots").insert({
-        user_id: account.user_id,
-        terminal_id: payload.terminal_id,
-        install_id: payload.install_id || null,
-        active_login: activeLogin,
-        account_id: account.id,
-        open_tickets: openTickets,
-        ea_version: payload.ea_version || null,
-        raw_payload: payload.raw_payload || null,
-      });
-
-      // Touch last_sync_at so the UI knows this account is fresh.
-      await supabase.from("accounts")
-        .update({ last_sync_at: new Date().toISOString() })
-        .eq("id", account.id);
-
-      // (active-login tracking now derived from accounts.last_heartbeat_at via terminal_accounts view)
-
-
-      return new Response(
-        JSON.stringify({
-          status: "accepted",
-          message: "Snapshot recorded (read-only)",
-          terminal_id: payload.terminal_id,
-          account_id: account.id,
-          open_in_mt5: openTickets.length,
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return await handleSnapshot(supabase, account, payload);
     }
 
-
-    // SERVER-SIDE FILTERING: Skip history_sync events older than sync_history_from
+    // ===== history_sync server-side filtering =====
     if (payload.event_type === "history_sync") {
       const { data: accountSettings } = await supabase
         .from("accounts")
@@ -463,10 +83,11 @@ serve(async (req) => {
 
       if (accountSettings && accountSettings.sync_history_enabled === false) {
         console.log("History sync disabled, skipping event:", payload.idempotency_key);
-        return new Response(
-          JSON.stringify({ status: "skipped", reason: "history_sync_disabled", message: "Historical sync is disabled for this account" }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return json({
+          status: "skipped",
+          reason: "history_sync_disabled",
+          message: "Historical sync is disabled for this account",
+        });
       }
 
       if (accountSettings?.sync_history_from) {
@@ -474,15 +95,16 @@ serve(async (req) => {
         const syncCutoff = new Date(accountSettings.sync_history_from);
         if (eventTime < syncCutoff) {
           console.log("Event before sync cutoff, skipping:", payload.idempotency_key);
-          return new Response(
-            JSON.stringify({ status: "skipped", reason: "before_sync_cutoff", message: "Event is older than configured sync date" }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+          return json({
+            status: "skipped",
+            reason: "before_sync_cutoff",
+            message: "Event is older than configured sync date",
+          });
         }
       }
     }
 
-    // Check for duplicate (idempotency)
+    // ===== Idempotency =====
     const { data: existingEvent } = await supabase
       .from("events")
       .select("id")
@@ -491,16 +113,16 @@ serve(async (req) => {
 
     if (existingEvent) {
       console.log("Duplicate event:", payload.idempotency_key);
-      return new Response(
-        JSON.stringify({ status: "duplicate", event_id: existingEvent.id, message: "Event already processed" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({
+        status: "duplicate",
+        event_id: existingEvent.id,
+        message: "Event already processed",
+      });
     }
 
-    // Map event types to database enum values
+    // Map event_type → db enum
     let dbEventType = payload.event_type;
     let effectiveEventType = payload.event_type;
-    
     if (payload.event_type === "history_sync") {
       effectiveEventType = payload.original_event_type || "entry";
       dbEventType = effectiveEventType === "entry" ? "open" : "close";
@@ -514,7 +136,6 @@ serve(async (req) => {
 
     const tradeTicket = payload.position_id || payload.ticket;
 
-    // Insert event
     const { data: newEvent, error: insertError } = await supabase
       .from("events")
       .insert({
@@ -522,7 +143,6 @@ serve(async (req) => {
         user_id: account.user_id,
         account_id: account.id,
         terminal_id: payload.terminal_id,
-        // Phase D dual-write: stable identity columns for read-time account resolution
         install_id: payload.install_id ?? null,
         broker_login: brokerLogin,
         event_type: dbEventType,
@@ -558,516 +178,29 @@ serve(async (req) => {
 
     if (insertError) {
       console.error("Insert error:", insertError);
-      return new Response(
-        JSON.stringify({ status: "error", message: insertError.message, retry_after: 5000 }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      return json(
+        { status: "error", message: insertError.message, retry_after: 5000 },
+        500,
       );
     }
 
-    // Process event into trades table
     await processEvent(supabase, newEvent, account.user_id, payload);
 
-    // Bump last_sync_at for this account so the UI freshness badge updates.
-    await supabase.from("accounts")
+    await supabase
+      .from("accounts")
       .update({ last_sync_at: new Date().toISOString() })
       .eq("id", account.id);
 
-    // (active-login tracking now derived from accounts.last_heartbeat_at via terminal_accounts view)
-
-
     console.log("Event processed:", newEvent.id);
-    return new Response(
-      JSON.stringify({ 
-        status: "accepted", 
-        event_id: newEvent.id,
-        account_id: account.id,
-        message: "Event processed successfully" 
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-
-
+    return json({
+      status: "accepted",
+      event_id: newEvent.id,
+      account_id: account.id,
+      message: "Event processed successfully",
+    });
   } catch (error) {
     console.error("Error processing event:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ status: "error", message, retry_after: 5000 }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ status: "error", message, retry_after: 5000 }, 500);
   }
 });
-
-// Detect if a trade was zeroed out by snapshot reconciliation and is awaiting repair.
-// Phase 3: sourced exclusively from `trade_repair_events`.
-async function isSnapshotClosed(supabase: any, tradeId: string, isOpen: boolean): Promise<boolean> {
-  if (isOpen) return false;
-  const { data } = await supabase
-    .from("trade_repair_events")
-    .select("action")
-    .eq("trade_id", tradeId);
-  return isPendingRepair(data as any);
-}
-
-// (markTerminalActiveAccount removed in R10: active-login state is now derived
-// from accounts.last_heartbeat_at via the terminal_accounts view.)
-
-/**
- * If a close/partial_close event arrives for a ticket that has no trade on
- * `currentAccountId`, check whether a sibling account on the same MT5 install
- * has a `snapshot_closed` trade for this ticket awaiting repair. If so, apply
- * the exit data in-place and reassign the trade to `currentAccountId` (the
- * login that actually streamed the deal). Returns true when a repair happened.
- */
-async function tryRepairSiblingSnapshotClosed(
-  supabase: any,
-  userId: string,
-  currentAccountId: string,
-  ticket: number | bigint,
-  event: any,
-): Promise<boolean> {
-  try {
-    const { data: currentAcc } = await supabase
-      .from("accounts")
-      .select("id, mt5_install_id")
-      .eq("id", currentAccountId)
-      .maybeSingle();
-    const installId = currentAcc?.mt5_install_id;
-    if (!installId) return false;
-
-    const { data: siblings } = await supabase
-      .from("accounts")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("mt5_install_id", installId);
-
-    const siblingIds = (siblings || []).map((s: any) => s.id);
-    if (siblingIds.length === 0) return false;
-
-    const { data: stuck } = await supabase
-      .from("trades")
-      .select("id, ticket, entry_time, entry_price, original_lots, equity_at_entry, balance_at_entry, sl_initial, account_id, symbol, direction")
-      .in("account_id", siblingIds)
-      .eq("ticket", ticket)
-      .eq("is_open", false)
-      .limit(5);
-
-    // Find the first candidate that has a snapshot_closed event without a repair.
-    let candidate: any = null;
-    for (const t of stuck || []) {
-      const { data: evs } = await supabase
-        .from("trade_repair_events")
-        .select("action")
-        .eq("trade_id", t.id);
-      if (isPendingRepair(evs as any)) { candidate = t; break; }
-    }
-    if (!candidate) return false;
-
-    const grossPnl = Number(event.profit) || 0;
-    const commission = Number(event.commission) || 0;
-    const swap = Number(event.swap) || 0;
-    const netPnl = computeNetPnl(grossPnl, commission, swap);
-    const duration = Math.floor(
-      (new Date(event.event_timestamp).getTime() -
-        new Date(candidate.entry_time).getTime()) / 1000
-    );
-
-    // Recompute R-multiple now that we have real exit data (was previously
-    // left null on repaired trades, permanently breaking R reporting).
-    const rMultiple = computeRMultiple({
-      entryPrice: Number(candidate.entry_price) || null,
-      exitPrice: Number(event.price) || null,
-      slPrice: Number(candidate.sl_initial) || null,
-      lots: Number(candidate.original_lots) || null,
-      grossPnl,
-      netPnl,
-      symbol: candidate.symbol,
-      equityAtEntry: Number(candidate.equity_at_entry) || Number(candidate.balance_at_entry) || null,
-      direction: candidate.direction,
-    });
-
-    await supabase.from("trades").update({
-      account_id: currentAccountId,
-      terminal_id: event.terminal_id,
-      exit_price: Number(event.price),
-      exit_time: event.event_timestamp,
-      gross_pnl: grossPnl,
-      commission,
-      swap,
-      net_pnl: netPnl,
-      r_multiple_actual: rMultiple,
-      duration_seconds: duration > 0 ? duration : null,
-      total_lots: 0,
-      awaiting_exit: false,
-    }).eq("id", candidate.id);
-
-    // Typed repair event (Phase 3 — no more JSONB markers).
-    await insertRepairEvent(supabase, {
-      userId,
-      tradeId: candidate.id,
-      action: "repaired_from_snapshot",
-      source: "ingest_sibling_repair",
-      metadata: { net_pnl: netPnl, ticket: Number(ticket), note: "Auto-repaired on ingest from sibling login on same MT5 install" },
-    });
-
-    console.log("AUTO-REPAIR: healed sibling snapshot_closed trade", candidate.id, "ticket:", ticket, "PnL:", netPnl);
-    return true;
-  } catch (err) {
-    console.error("tryRepairSiblingSnapshotClosed failed (non-fatal):", err);
-    return false;
-  }
-}
-
-
-
-
-
-async function processEvent(supabase: any, event: any, userId: string, originalPayload: EventPayload) {
-  const { event_type, ticket, account_id, lot_size } = event;
-  const effectiveEventType = originalPayload.event_type === "history_sync"
-    ? originalPayload.original_event_type
-    : originalPayload.event_type;
-
-  // Find existing trade for this position_id
-  const { data: existingTrade } = await supabase
-    .from("trades")
-    .select("*")
-    .eq("ticket", ticket)
-    .eq("account_id", account_id)
-    .single();
-
-  // Determine session from timestamp using user's session_definitions
-  const sessions = await loadSessions(supabase, userId);
-  const session = classifySession(event.event_timestamp, sessions);
-
-  // Fetch account data
-  const { data: accountData } = await supabase
-    .from("accounts")
-    .select("balance_start, equity_current")
-    .eq("id", account_id)
-    .single();
-  
-  const currentEquity = accountData?.equity_current || accountData?.balance_start || 0;
-
-  // ==========================================
-  // Handle MODIFY event — update SL/TP on existing trade
-  // ==========================================
-  if (effectiveEventType === "modify" || event_type === "modify") {
-    if (existingTrade) {
-      const updateData: Record<string, unknown> = {};
-      if (event.sl) updateData.sl_final = event.sl;
-      if (event.tp) updateData.tp_final = event.tp;
-
-      await supabase.from("trades").update(updateData).eq("id", existingTrade.id);
-
-      // Phase D dual-write: typed modification rows for SL/TP changes
-      const mods: Array<Record<string, unknown>> = [];
-      if (event.sl && Number(event.sl) !== Number(existingTrade.sl_final ?? NaN)) {
-        mods.push({
-          user_id: userId,
-          trade_id: existingTrade.id,
-          field: "sl",
-          old_value: existingTrade.sl_final ?? null,
-          new_value: event.sl,
-          occurred_at: event.event_timestamp,
-        });
-      }
-      if (event.tp && Number(event.tp) !== Number(existingTrade.tp_final ?? NaN)) {
-        mods.push({
-          user_id: userId,
-          trade_id: existingTrade.id,
-          field: "tp",
-          old_value: existingTrade.tp_final ?? null,
-          new_value: event.tp,
-          occurred_at: event.event_timestamp,
-        });
-      }
-      if (mods.length > 0) {
-        await supabase.from("trade_modifications").insert(mods);
-      }
-
-      console.log("Processed SL/TP modify for position:", ticket,
-        "SL:", event.sl, "TP:", event.tp,
-        "previous_sl:", originalPayload.raw_payload?.previous_sl,
-        "previous_tp:", originalPayload.raw_payload?.previous_tp);
-    } else {
-      console.log("Modify event for unknown position:", ticket, "- ignoring");
-    }
-    await supabase.from("events").update({ processed: true }).eq("id", event.id);
-    return;
-  }
-
-  // Handle entry event (open)
-  if (effectiveEventType === "entry" || event_type === "open") {
-    if (existingTrade) {
-      // REPAIR: if a snapshot reconciliation incorrectly closed this trade,
-      // and it's actually still open in MT5, reopen it.
-      if (await isSnapshotClosed(supabase, existingTrade.id, existingTrade.is_open)) {
-        console.log("REPAIR: reopening snapshot_closed trade:", existingTrade.id, "ticket:", ticket);
-        await supabase.from("trades").update({
-          is_open: true,
-          awaiting_exit: false,
-          exit_time: null,
-          exit_price: null,
-          gross_pnl: null,
-          net_pnl: null,
-          r_multiple_actual: null,
-          duration_seconds: null,
-          total_lots: existingTrade.original_lots || event.lot_size,
-          sl_final: event.sl || existingTrade.sl_final,
-          tp_final: event.tp || existingTrade.tp_final,
-        }).eq("id", existingTrade.id);
-
-        await insertRepairEvent(supabase, {
-          userId,
-          tradeId: existingTrade.id,
-          action: "repaired_reopened",
-          source: "ingest_entry_reopen",
-          metadata: { ticket, note: "Reopened after EA reconnect — trade is still live in MT5" },
-        });
-      } else {
-        console.log("Trade already exists for position:", ticket);
-      }
-    } else {
-      // Use equity_at_entry from payload if provided, otherwise use current equity
-      const equityAtEntry = originalPayload.equity_at_entry || currentEquity;
-
-      await supabase.from("trades").insert({
-        user_id: userId,
-        account_id: account_id,
-        terminal_id: event.terminal_id,
-        // Phase D dual-write: stable identity for read-time resolver
-        install_id: originalPayload.install_id ?? event.install_id ?? null,
-        broker_login: event.broker_login
-          ?? (originalPayload.account_info?.login != null ? String(originalPayload.account_info.login) : null),
-        ticket: ticket,
-        symbol: event.symbol,
-        direction: event.direction,
-        total_lots: event.lot_size,
-        original_lots: event.lot_size,
-        entry_price: event.price,
-        entry_time: event.event_timestamp,
-        sl_initial: event.sl,
-        tp_initial: event.tp,
-        sl_final: event.sl,
-        tp_final: event.tp,
-        session: session,
-        is_open: true,
-        balance_at_entry: currentEquity,
-        equity_at_entry: equityAtEntry,
-      });
-      console.log("Created new trade for position:", ticket, "equity_at_entry:", equityAtEntry);
-    }
-  }
-  // Handle exit event
-  else if (effectiveEventType === "exit" || event_type === "close" || event_type === "partial_close") {
-    if (!existingTrade) {
-      // Before creating an orphan, check if a sibling account on the SAME MT5
-      // install has a snapshot_closed trade with this ticket awaiting repair.
-      // This happens when the trade originally lived under a different login on
-      // the same MT5 install and the EA is now streaming history under a new
-      // login. Repairing it in-place avoids ghost orphans + duplicate trades.
-      const repairedSibling = await tryRepairSiblingSnapshotClosed(
-        supabase, userId, account_id, ticket, event
-      );
-      if (repairedSibling) {
-        await supabase.from("events").update({ processed: true }).eq("id", event.id);
-        return;
-      }
-
-      // ORPHAN EXIT: Create a closed trade from exit event data
-      console.log("Orphan exit event - creating closed trade for position:", ticket);
-
-      const rawPayload = event.raw_payload || {};
-      const entryPrice = rawPayload.entry_price || originalPayload.entry_price || event.price;
-      const entryTime = rawPayload.entry_time || originalPayload.entry_time || event.event_timestamp;
-      
-      const entryDate = new Date(entryTime);
-      const exitDate = new Date(event.event_timestamp);
-      const duration = Math.floor((exitDate.getTime() - entryDate.getTime()) / 1000);
-      
-      const grossPnl = event.profit || 0;
-      const commission = event.commission || 0;
-      const swap = event.swap || 0;
-      const netPnl = computeNetPnl(grossPnl, commission, swap);
-      
-      const equityAtEntry = rawPayload.equity_at_entry || originalPayload.equity_at_entry || currentEquity;
-      const rMultiple = computeRMultiple({
-        entryPrice,
-        exitPrice: event.price,
-        slPrice: event.sl,
-        lots: lot_size,
-        grossPnl,
-        netPnl,
-        symbol: event.symbol,
-        equityAtEntry,
-        direction: event.direction,
-      });
-      
-      await supabase.from("trades").insert({
-        user_id: userId,
-        account_id: account_id,
-        terminal_id: event.terminal_id,
-        // Phase D dual-write: stable identity for read-time resolver
-        install_id: originalPayload.install_id ?? event.install_id ?? null,
-        broker_login: event.broker_login
-          ?? (originalPayload.account_info?.login != null ? String(originalPayload.account_info.login) : null),
-        ticket: ticket,
-        symbol: event.symbol,
-        direction: event.direction,
-        total_lots: 0,
-        original_lots: lot_size,
-        entry_price: entryPrice,
-        entry_time: entryTime,
-        exit_price: event.price,
-        exit_time: event.event_timestamp,
-        // Orphan exit: we never saw the entry, so true SL/TP at entry is unknown.
-        // Only store the value if the exit event actually carries a non-zero level;
-        // otherwise leave NULL so r_multiple_actual isn't poisoned by a fake 0 stop.
-        sl_initial: event.sl && Number(event.sl) !== 0 ? event.sl : null,
-        tp_initial: event.tp && Number(event.tp) !== 0 ? event.tp : null,
-        sl_final: event.sl && Number(event.sl) !== 0 ? event.sl : null,
-        tp_final: event.tp && Number(event.tp) !== 0 ? event.tp : null,
-        gross_pnl: grossPnl,
-        commission: commission,
-        swap: swap,
-        net_pnl: netPnl,
-        r_multiple_actual: rMultiple,
-        duration_seconds: duration > 0 ? duration : null,
-        session: session,
-        is_open: false,
-        balance_at_entry: currentEquity,
-        equity_at_entry: equityAtEntry,
-      });
-      
-      console.log("Created closed trade from orphan exit:", ticket, "PnL:", netPnl);
-      await supabase.from("events").update({ processed: true }).eq("id", event.id);
-      return;
-    }
-
-    // REPAIR mode: existing trade was zeroed out by snapshot reconciliation
-    const isRepair = await isSnapshotClosed(supabase, existingTrade.id, existingTrade.is_open);
-    if (isRepair) {
-      console.log("REPAIR: overwriting snapshot_closed trade with real exit data:", existingTrade.id, "ticket:", ticket);
-    }
-
-    // Calculate remaining lots after this exit
-    // (when repairing, total_lots is 0 so this routes to the full-close branch)
-    const remainingLots = existingTrade.total_lots - lot_size;
-    const isPartialClose = !isRepair && remainingLots > 0.001;
-
-    if (isPartialClose) {
-      await supabase.from("trades").update({
-        total_lots: remainingLots,
-        sl_final: event.sl || existingTrade.sl_final,
-        tp_final: event.tp || existingTrade.tp_final,
-      }).eq("id", existingTrade.id);
-
-      // Typed partial fill row (unique on (trade_id, deal_id))
-      await supabase.from("trade_partial_fills").upsert({
-        user_id: userId,
-        trade_id: existingTrade.id,
-        ticket: ticket,
-        deal_id: originalPayload.deal_id ?? null,
-        lots: lot_size,
-        price: event.price,
-        profit: event.profit ?? null,
-        commission: event.commission ?? 0,
-        swap: event.swap ?? 0,
-        occurred_at: event.event_timestamp,
-      }, { onConflict: "trade_id,deal_id", ignoreDuplicates: true });
-
-      await supabase.from("events").update({ event_type: "partial_close" }).eq("id", event.id);
-      console.log("Processed partial close for position:", ticket, "remaining lots:", remainingLots);
-    } else {
-      // Full close
-      const duration = Math.floor(
-        (new Date(event.event_timestamp).getTime() - new Date(existingTrade.entry_time).getTime()) / 1000
-      );
-
-      let totalGrossPnl = event.profit || 0;
-      let totalCommission = event.commission || 0;
-      let totalSwap = event.swap || 0;
-
-      // Sum prior partial fills from typed table (skip on repair).
-      let priorFills: Array<{ lots: number; price: number; profit: number | null; commission: number | null; swap: number | null; occurred_at: string }> = [];
-      if (!isRepair) {
-        const { data: fillRows } = await supabase
-          .from("trade_partial_fills")
-          .select("lots, price, profit, commission, swap, occurred_at")
-          .eq("trade_id", existingTrade.id);
-        priorFills = (fillRows || []) as typeof priorFills;
-        for (const f of priorFills) {
-          totalGrossPnl += Number(f.profit) || 0;
-          totalCommission += Number(f.commission) || 0;
-          totalSwap += Number(f.swap) || 0;
-        }
-      }
-      totalCommission += existingTrade.commission || 0;
-      totalSwap += existingTrade.swap || 0;
-
-      const netPnl = computeNetPnl(totalGrossPnl, totalCommission, totalSwap);
-
-      const rMultiple = computeRMultiple({
-        entryPrice: existingTrade.entry_price,
-        exitPrice: event.price,
-        slPrice: existingTrade.sl_initial || existingTrade.sl_final,
-        lots: existingTrade.original_lots || existingTrade.total_lots || lot_size,
-        grossPnl: totalGrossPnl,
-        netPnl,
-        symbol: existingTrade.symbol,
-        equityAtEntry: existingTrade.equity_at_entry || existingTrade.balance_at_entry,
-        direction: existingTrade.direction,
-        fills: !isRepair
-          ? priorFills.map((f) => ({
-              time: f.occurred_at,
-              lots: Number(f.lots),
-              price: Number(f.price),
-              pnl: computeNetPnl(Number(f.profit) || 0, Number(f.commission) || 0, Number(f.swap) || 0),
-            }))
-          : null,
-      });
-
-      // Atomic equity delta — avoids the read/compute/write race on concurrent closes.
-      if (!isRepair) {
-        await supabase.rpc("apply_equity_delta", { _account_id: account_id, _delta: netPnl });
-      }
-
-
-      await supabase.from("trades").update({
-        exit_price: event.price,
-        exit_time: event.event_timestamp,
-        gross_pnl: totalGrossPnl,
-        commission: totalCommission,
-        swap: totalSwap,
-        net_pnl: netPnl,
-        r_multiple_actual: rMultiple,
-        duration_seconds: duration,
-        is_open: false,
-        total_lots: 0,
-        sl_final: event.sl || existingTrade.sl_final,
-        tp_final: event.tp || existingTrade.tp_final,
-        awaiting_exit: false,
-      }).eq("id", existingTrade.id);
-
-      // Typed repair event when this close was a snapshot repair
-      if (isRepair) {
-        await insertRepairEvent(supabase, {
-          userId,
-          tradeId: existingTrade.id,
-          action: "repaired_from_snapshot",
-          source: "ingest_full_close_repair",
-          metadata: { net_pnl: netPnl, ticket, note: "Real PnL recovered from MT5 deal history after EA reconnect" },
-        });
-      }
-
-
-      console.log(isRepair ? "REPAIRED full close" : "Processed full close", "for position:", ticket, "PnL:", netPnl, "R:", rMultiple);
-    }
-  }
-
-  // Mark event as processed
-  await supabase.from("events").update({ processed: true }).eq("id", event.id);
-}
-
-// Session classifier moved to ../_shared/session.ts
-// (classifySession + loadSessions + DEFAULT_SESSIONS).
