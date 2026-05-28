@@ -213,15 +213,27 @@ serve(async (req) => {
           })
           .eq("id", t.id);
 
-        // Idempotent marker — repair sweep filters on this exact action.
-        await supabase.from("trade_repair_events").insert({
-          user_id: account.user_id,
-          trade_id: t.id,
-          action: "snapshot_closed",
-          source: "sync_account_state_reaper",
-          metadata: { ticket: t.ticket, reason: "ticket_not_in_open_list" },
-          applied_at: new Date().toISOString(),
-        });
+        // Idempotent marker — only insert when no snapshot_closed already exists
+        // for this trade. Without this guard, every poll while force_resync is on
+        // would append another row and bloat trade_repair_events indefinitely.
+        const { data: existingMarker } = await supabase
+          .from("trade_repair_events")
+          .select("id")
+          .eq("trade_id", t.id)
+          .eq("action", "snapshot_closed")
+          .limit(1)
+          .maybeSingle();
+
+        if (!existingMarker) {
+          await supabase.from("trade_repair_events").insert({
+            user_id: account.user_id,
+            trade_id: t.id,
+            action: "snapshot_closed",
+            source: "sync_account_state_reaper",
+            metadata: { ticket: t.ticket, reason: "ticket_not_in_open_list" },
+            applied_at: new Date().toISOString(),
+          });
+        }
 
         autoClosedCount += 1;
       }
