@@ -110,7 +110,7 @@ export function useUserSettings() {
           column_order: DEFAULT_VISIBLE_COLUMNS,
           column_overrides: {},
           default_filters: [] as FilterCondition[],
-          live_trade_questions: DEFAULT_LIVE_TRADE_QUESTIONS,
+          // live_trade_questions moved to useLiveTradeQuestions()
           display_timezone: 'America/New_York',
           detail_visible_fields: [],
           detail_field_order: [],
