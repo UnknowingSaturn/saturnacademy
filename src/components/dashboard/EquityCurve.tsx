@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Trade } from "@/types/trading";
 import { format } from "date-fns";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+
 import type { BalanceSnapshot } from "@/hooks/useBalanceHistory";
 
 interface AccountSlim {
