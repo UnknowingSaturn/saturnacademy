@@ -88,30 +88,11 @@ serve(async (req) => {
     // so that one MT5 terminal switching between Hola Prime accounts routes
     // each event to the correct journal account.
 
-    // Step 1: find any account using this API key — that gives us the user_id
-    const { data: anyAccountForKey } = await supabase
-      .from("accounts")
-      .select("id, user_id, terminal_id, account_number")
-      .eq("api_key", apiKey)
-      .eq("is_active", true)
-      .limit(1)
-      .maybeSingle();
-
-    let userIdForKey: string | null = anyAccountForKey?.user_id ?? null;
-    let setupTokenRow: any = null;
-
-    if (!userIdForKey) {
-      const { data: tok } = await supabase
-        .from("setup_tokens")
-        .select("user_id, used, sync_history_enabled, sync_history_from, copier_role, master_account_id")
-        .eq("token", apiKey)
-        .gt("expires_at", new Date().toISOString())
-        .maybeSingle();
-      if (tok && !tok.used) {
-        userIdForKey = tok.user_id;
-        setupTokenRow = tok;
-      }
-    }
+    // Step 1: resolve the API key to a user (shared with sync-account-state)
+    const keyRes = await resolveUserFromApiKey(supabase, apiKey);
+    const anyAccountForKey = keyRes.accountForKey;
+    let setupTokenRow: any = keyRes.setupToken;
+    const userIdForKey: string | null = keyRes.userId;
 
     if (!userIdForKey) {
       console.error("Invalid API key — no account or active setup token");
