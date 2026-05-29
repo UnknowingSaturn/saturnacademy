@@ -8,8 +8,9 @@
 // All callers are authenticated React clients. We verify JWT and enforce ownership before any write.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { json, requireUser, requireOwnedAccount, AuthError } from "../_shared/edgeAuth.ts";
 import { computeRMultiple } from "../_shared/rMultiple.ts";
 import { classifySession, DEFAULT_SESSIONS, SessionDefinition } from "../_shared/session.ts";
 
@@ -26,12 +27,6 @@ interface RebuildRequest {
   broker_utc_offset?: number;
   broker_dst_profile?: BrokerDstProfile;
 }
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
 
 // --- helpers shared across modes ----------------------------------------------
 
