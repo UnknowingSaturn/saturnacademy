@@ -7,8 +7,9 @@
 // Both callers are authenticated React clients.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { json, requireUser, requireOwnedAccount, AuthError } from "../_shared/edgeAuth.ts";
 import { isPendingRepair, hasSnapshotClosed, isAlreadyRepaired } from "../_shared/snapshotRepair.ts";
 import { computeNetPnl } from "../_shared/pnl.ts";
 import { computeRMultiple } from "../_shared/rMultiple.ts";
@@ -21,12 +22,6 @@ interface RepairRequest {
   account_id?: string;
   all?: boolean;
 }
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
 
 async function runListDrift(admin: SupabaseClient, userId: string) {
   const { data: activeRows, error: taErr } = await admin
