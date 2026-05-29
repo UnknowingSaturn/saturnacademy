@@ -327,22 +327,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const jwt = authHeader.replace(/^Bearer\s+/i, "");
-    if (!jwt) return json({ error: "Missing Authorization header" }, 401);
-
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: `Bearer ${jwt}` } },
-    });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) return json({ error: "Invalid session" }, 401);
-    const userId = userData.user.id;
-
-    const admin = createClient(supabaseUrl, serviceKey);
+    const { userId, admin } = await requireUser(req);
     const body: RebuildRequest = await req.json().catch(() => ({} as RebuildRequest));
     if (!body.mode) return json({ error: "mode is required" }, 400);
 
@@ -353,6 +338,7 @@ serve(async (req) => {
       default:                    return json({ error: `Unknown mode: ${body.mode}` }, 400);
     }
   } catch (err) {
+    if (err instanceof AuthError) return json({ error: err.message }, err.status);
     console.error("trade-rebuild error:", err);
     return json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }
