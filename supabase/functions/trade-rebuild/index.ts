@@ -91,13 +91,12 @@ async function runReprocess(
   const accountId = body.account_id;
   if (!accountId) return json({ error: "account_id is required" }, 400);
 
-  const { data: account, error: accountErr } = await admin
-    .from("accounts")
-    .select("*")
-    .eq("id", accountId)
-    .single();
-  if (accountErr || !account) return json({ error: "Account not found" }, 404);
-  if (account.user_id !== userId) return json({ error: "Forbidden" }, 403);
+  let account: any;
+  try {
+    account = await requireOwnedAccount(admin, userId, accountId);
+  } catch (e: any) {
+    return json({ error: e.message ?? "Account not found" }, e.status ?? 404);
+  }
 
   const sessions = await loadUserSessions(admin, userId, body.use_custom_sessions !== false);
 
