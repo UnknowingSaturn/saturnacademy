@@ -7,8 +7,9 @@
 // Both callers are authenticated React clients.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { json, requireUser, requireOwnedAccount, AuthError } from "../_shared/edgeAuth.ts";
 import { isPendingRepair, hasSnapshotClosed, isAlreadyRepaired } from "../_shared/snapshotRepair.ts";
 import { computeNetPnl } from "../_shared/pnl.ts";
 import { computeRMultiple } from "../_shared/rMultiple.ts";
@@ -21,12 +22,6 @@ interface RepairRequest {
   account_id?: string;
   all?: boolean;
 }
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
 
 async function runListDrift(admin: SupabaseClient, userId: string) {
   const { data: activeRows, error: taErr } = await admin
@@ -139,13 +134,11 @@ async function runRepair(
       .eq("user_id", userId);
     targetAccountIds = (accs || []).map((a: any) => a.id);
   } else if (body.account_id) {
-    const { data: account } = await admin
-      .from("accounts")
-      .select("id, user_id")
-      .eq("id", body.account_id)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (!account) return json({ error: "Account not found" }, 404);
+    try {
+      await requireOwnedAccount(admin, userId, body.account_id, "id, user_id");
+    } catch (e: any) {
+      return json({ error: e.message ?? "Account not found" }, e.status ?? 404);
+    }
     targetAccountIds = [body.account_id];
   } else {
     return json({ error: "account_id or all required" }, 400);
@@ -289,29 +282,17 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-
-    const authHeader = req.headers.get("Authorization") ?? "";
-    if (!authHeader) return json({ error: "Not authenticated" }, 401);
-
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authErr } = await userClient.auth.getUser();
-    if (authErr || !user) return json({ error: "Not authenticated" }, 401);
-
-    const admin = createClient(supabaseUrl, serviceKey);
+    const { userId, admin } = await requireUser(req);
     const body: RepairRequest = await req.json().catch(() => ({ action: "list-drift" } as RepairRequest));
     const action: Action = body.action ?? "list-drift";
 
     switch (action) {
-      case "list-drift": return await runListDrift(admin, user.id);
-      case "repair":     return await runRepair(admin, user.id, body);
+      case "list-drift": return await runListDrift(admin, userId);
+      case "repair":     return await runRepair(admin, userId, body);
       default:           return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err) {
+    if (err instanceof AuthError) return json({ error: err.message }, err.status);
     console.error("trade-repair error:", err);
     return json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

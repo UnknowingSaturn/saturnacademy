@@ -8,8 +8,9 @@
 // All callers are authenticated React clients. We verify JWT and enforce ownership before any write.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { json, requireUser, requireOwnedAccount, AuthError } from "../_shared/edgeAuth.ts";
 import { computeRMultiple } from "../_shared/rMultiple.ts";
 import { classifySession, DEFAULT_SESSIONS, SessionDefinition } from "../_shared/session.ts";
 
@@ -26,12 +27,6 @@ interface RebuildRequest {
   broker_utc_offset?: number;
   broker_dst_profile?: BrokerDstProfile;
 }
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
 
 // --- helpers shared across modes ----------------------------------------------
 
@@ -96,13 +91,12 @@ async function runReprocess(
   const accountId = body.account_id;
   if (!accountId) return json({ error: "account_id is required" }, 400);
 
-  const { data: account, error: accountErr } = await admin
-    .from("accounts")
-    .select("*")
-    .eq("id", accountId)
-    .single();
-  if (accountErr || !account) return json({ error: "Account not found" }, 404);
-  if (account.user_id !== userId) return json({ error: "Forbidden" }, 403);
+  let account: any;
+  try {
+    account = await requireOwnedAccount(admin, userId, accountId);
+  } catch (e: any) {
+    return json({ error: e.message ?? "Account not found" }, e.status ?? 404);
+  }
 
   const sessions = await loadUserSessions(admin, userId, body.use_custom_sessions !== false);
 
@@ -234,13 +228,13 @@ async function runRestoreTimes(
   const accountId = body.account_id;
   if (!accountId) return json({ error: "account_id is required" }, 400);
 
-  const { data: account, error: accountErr } = await admin
-    .from("accounts")
-    .select("*")
-    .eq("id", accountId)
-    .single();
-  if (accountErr || !account) return json({ error: `Account ${accountId} not found` }, 404);
-  if (account.user_id !== userId) return json({ error: "Forbidden" }, 403);
+  let account: any;
+  try {
+    account = await requireOwnedAccount(admin, userId, accountId);
+  } catch (e: any) {
+    const msg = e?.status === 404 ? `Account ${accountId} not found` : e.message;
+    return json({ error: msg }, e.status ?? 404);
+  }
 
   const profile: BrokerDstProfile =
     (body.broker_dst_profile as BrokerDstProfile)
@@ -333,22 +327,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const jwt = authHeader.replace(/^Bearer\s+/i, "");
-    if (!jwt) return json({ error: "Missing Authorization header" }, 401);
-
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: `Bearer ${jwt}` } },
-    });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) return json({ error: "Invalid session" }, 401);
-    const userId = userData.user.id;
-
-    const admin = createClient(supabaseUrl, serviceKey);
+    const { userId, admin } = await requireUser(req);
     const body: RebuildRequest = await req.json().catch(() => ({} as RebuildRequest));
     if (!body.mode) return json({ error: "mode is required" }, 400);
 
@@ -359,6 +338,7 @@ serve(async (req) => {
       default:                    return json({ error: `Unknown mode: ${body.mode}` }, 400);
     }
   } catch (err) {
+    if (err instanceof AuthError) return json({ error: err.message }, err.status);
     console.error("trade-rebuild error:", err);
     return json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }
