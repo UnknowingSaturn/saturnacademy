@@ -228,13 +228,13 @@ async function runRestoreTimes(
   const accountId = body.account_id;
   if (!accountId) return json({ error: "account_id is required" }, 400);
 
-  const { data: account, error: accountErr } = await admin
-    .from("accounts")
-    .select("*")
-    .eq("id", accountId)
-    .single();
-  if (accountErr || !account) return json({ error: `Account ${accountId} not found` }, 404);
-  if (account.user_id !== userId) return json({ error: "Forbidden" }, 403);
+  let account: any;
+  try {
+    account = await requireOwnedAccount(admin, userId, accountId);
+  } catch (e: any) {
+    const msg = e?.status === 404 ? `Account ${accountId} not found` : e.message;
+    return json({ error: msg }, e.status ?? 404);
+  }
 
   const profile: BrokerDstProfile =
     (body.broker_dst_profile as BrokerDstProfile)
