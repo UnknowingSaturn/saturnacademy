@@ -53,3 +53,8 @@ The original audit overstated the dead-code surface in two places:
 
 ## Remaining
 - Tranche D — Tier 3 structural consolidations.
+
+## Tranche D — Tier 3 consolidations (Done)
+- Created `supabase/functions/_shared/edgeAuth.ts` with `requireUser`, `requireOwnedAccount`, `json`, `AuthError`.
+- Refactored `trade-repair` and `trade-rebuild` to use the shared auth + response helpers (eliminated 3 copies of the JWT bootstrap and 2 ad-hoc account-ownership checks).
+- Both functions deployed successfully.
