@@ -282,29 +282,17 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-
-    const authHeader = req.headers.get("Authorization") ?? "";
-    if (!authHeader) return json({ error: "Not authenticated" }, 401);
-
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authErr } = await userClient.auth.getUser();
-    if (authErr || !user) return json({ error: "Not authenticated" }, 401);
-
-    const admin = createClient(supabaseUrl, serviceKey);
+    const { userId, admin } = await requireUser(req);
     const body: RepairRequest = await req.json().catch(() => ({ action: "list-drift" } as RepairRequest));
     const action: Action = body.action ?? "list-drift";
 
     switch (action) {
-      case "list-drift": return await runListDrift(admin, user.id);
-      case "repair":     return await runRepair(admin, user.id, body);
+      case "list-drift": return await runListDrift(admin, userId);
+      case "repair":     return await runRepair(admin, userId, body);
       default:           return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err) {
+    if (err instanceof AuthError) return json({ error: err.message }, err.status);
     console.error("trade-repair error:", err);
     return json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }
