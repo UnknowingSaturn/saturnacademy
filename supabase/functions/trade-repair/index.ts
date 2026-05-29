@@ -134,13 +134,11 @@ async function runRepair(
       .eq("user_id", userId);
     targetAccountIds = (accs || []).map((a: any) => a.id);
   } else if (body.account_id) {
-    const { data: account } = await admin
-      .from("accounts")
-      .select("id, user_id")
-      .eq("id", body.account_id)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (!account) return json({ error: "Account not found" }, 404);
+    try {
+      await requireOwnedAccount(admin, userId, body.account_id, "id, user_id");
+    } catch (e: any) {
+      return json({ error: e.message ?? "Account not found" }, e.status ?? 404);
+    }
     targetAccountIds = [body.account_id];
   } else {
     return json({ error: "account_id or all required" }, 400);
