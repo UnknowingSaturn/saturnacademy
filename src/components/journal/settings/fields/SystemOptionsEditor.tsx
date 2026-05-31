@@ -127,7 +127,11 @@ function OptionRow({ option, onUpdate, onSoftDelete, onHardDelete }: OptionRowPr
       <button {...attributes} {...listeners} className="touch-none cursor-grab active:cursor-grabbing">
         <GripVertical className="w-3.5 h-3.5 text-muted-foreground" />
       </button>
-      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: option.color }} />
+      <ColorSwatchPicker
+        size="sm"
+        value={option.color}
+        onChange={(c) => onUpdate({ color: c })}
+      />
 
       <div className="flex-1 min-w-0">
         {editing ? (
@@ -156,20 +160,6 @@ function OptionRow({ option, onUpdate, onSoftDelete, onHardDelete }: OptionRowPr
             {!option.is_active && <span className="ml-1 opacity-60">(hidden)</span>}
           </button>
         )}
-      </div>
-
-      <div className="flex items-center gap-0.5">
-        {COLOR_PALETTE.slice(0, 8).map((c) => (
-          <button
-            key={c}
-            className={cn(
-              "w-3 h-3 rounded-full opacity-50 hover:opacity-100 transition-all",
-              option.color === c && "opacity-100 ring-1 ring-offset-1 ring-offset-background ring-foreground",
-            )}
-            style={{ backgroundColor: c }}
-            onClick={() => onUpdate({ color: c })}
-          />
-        ))}
       </div>
 
       <Button
