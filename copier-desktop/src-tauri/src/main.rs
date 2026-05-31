@@ -777,8 +777,19 @@ fn main() {
                 }
             });
 
+            // Start the agent telemetry + command loops if we have an API key.
+            // If not, `set_api_key` will start them right after pairing.
+            let state_ref = app.state::<AppState>();
+            let api_key = state_ref.copier.lock().api_key.clone();
+            if let Some(key) = api_key {
+                start_agent_sync(key, &state_ref);
+            } else {
+                warn!("Agent sync not started — no API key yet. Pair the desktop in the web Console.");
+            }
+
             Ok(())
         })
+
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
