@@ -28,10 +28,31 @@ use std::sync::Arc;
 use tauri::{
     CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem,
 };
+use std::sync::OnceLock;
+
+use sync::commands::CommandRouter;
+use sync::state::{AgentSnapshot, ReceiverStatus, Snapshotter, TerminalInfo as AgentTerminalInfo};
 
 pub struct AppState {
     pub copier: Arc<Mutex<CopierState>>,
+    pub install_id: String,
+    pub snapshotter: Snapshotter,
+    pub router: Arc<CommandRouter>,
 }
+
+/// Ensures the agent telemetry + command loops are only spawned once per
+/// process, regardless of whether they're started at boot or after pairing.
+static AGENT_SYNC_STARTED: OnceLock<()> = OnceLock::new();
+
+fn start_agent_sync(api_key: String, state: &AppState) {
+    if AGENT_SYNC_STARTED.set(()).is_err() {
+        return;
+    }
+    sync::state::spawn(api_key.clone(), state.snapshotter.clone());
+    sync::commands::spawn(api_key, state.install_id.clone(), state.router.clone());
+    tracing::info!("Agent sync loops started (install_id={})", state.install_id);
+}
+
 
 #[tauri::command]
 fn get_copier_status(state: tauri::State<AppState>) -> serde_json::Value {
@@ -50,16 +71,22 @@ fn get_copier_status(state: tauri::State<AppState>) -> serde_json::Value {
 
 #[tauri::command]
 async fn set_api_key(api_key: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut copier = state.copier.lock();
-    copier.api_key = Some(api_key.clone());
-    
+    {
+        let mut copier = state.copier.lock();
+        copier.api_key = Some(api_key.clone());
+    }
+
     // Save to config file
     if let Err(e) = sync::config::save_api_key(&api_key) {
         return Err(format!("Failed to save API key: {}", e));
     }
-    
+
+    // Start (or no-op if already running) the agent telemetry + command loops.
+    start_agent_sync(api_key, &state);
+
     Ok(())
 }
+
 
 #[tauri::command]
 async fn sync_config(state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -502,14 +529,117 @@ fn main() {
     // Initialize structured logging (keep guard alive for the app's lifetime)
     let _log_guard = logging::init_logging();
 
-    let app_state = AppState {
-        copier: Arc::new(Mutex::new(CopierState::default())),
-    };
+    let copier_state = Arc::new(Mutex::new(CopierState::default()));
 
     // Try to load saved API key
     if let Ok(api_key) = sync::config::load_api_key() {
-        app_state.copier.lock().api_key = Some(api_key);
+        copier_state.lock().api_key = Some(api_key);
     }
+
+    // Stable per-install id (created on first run, persisted to config dir).
+    let install_id = sync::config::load_or_create_install_id()
+        .unwrap_or_else(|e| {
+            warn!("Could not persist install_id: {} — using ephemeral", e);
+            uuid::Uuid::new_v4().to_string()
+        });
+
+    // Build the snapshotter closure used by `sync::state` each tick.
+    let copier_for_snap = copier_state.clone();
+    let install_id_for_snap = install_id.clone();
+    let snapshotter: Snapshotter = Arc::new(move || {
+        let copier = copier_for_snap.lock();
+        let terminals = mt5::discovery::discover_all_terminals()
+            .into_iter()
+            .map(|t| AgentTerminalInfo {
+                install_id: t.terminal_id.clone(),
+                data_path: Some(t.data_folder.clone()),
+                ea_attached: Some(t.ea_status != mt5::discovery::EaStatus::None),
+                active_login: t.login.map(|l| l.to_string()),
+                account_number: t.login.map(|l| l.to_string()),
+            })
+            .collect();
+        let receivers_status = copier
+            .config
+            .as_ref()
+            .map(|c| {
+                c.receivers
+                    .iter()
+                    .map(|r| ReceiverStatus {
+                        account_id: r.account_id.clone(),
+                        name: Some(format!("{} - {}", r.broker, r.account_number)),
+                        paused: Some(copier::safety::is_receiver_paused(&r.account_id)),
+                        last_execution_at: None,
+                        last_error: None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        AgentSnapshot {
+            install_id: install_id_for_snap.clone(),
+            status: if copier.is_running { "running".into() } else { "paused".into() },
+            version: env!("CARGO_PKG_VERSION").into(),
+            last_error: copier.last_error.clone(),
+            terminals,
+            receivers_status,
+        }
+    });
+
+    // Build the command router — thin adapters around existing copier fns.
+    let mut router = CommandRouter::new();
+    router.on("pause_receiver", |payload| async move {
+        let id = payload["receiver_terminal_id"]
+            .as_str()
+            .ok_or_else(|| "receiver_terminal_id required".to_string())?
+            .to_string();
+        copier::commands::pause_all_receivers(&[id]).map_err(|e| e.to_string())?;
+        Ok(serde_json::json!({}))
+    });
+    router.on("resume_receiver", |payload| async move {
+        let id = payload["receiver_terminal_id"]
+            .as_str()
+            .ok_or_else(|| "receiver_terminal_id required".to_string())?
+            .to_string();
+        copier::commands::resume_all_receivers(&[id]).map_err(|e| e.to_string())?;
+        Ok(serde_json::json!({}))
+    });
+    router.on("sync_positions", |payload| async move {
+        let master = payload["master_terminal_id"].as_str().unwrap_or("").to_string();
+        let receivers: Vec<String> = payload["receiver_terminal_ids"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let report = copier::position_sync::generate_sync_report(&master, &receivers)
+            .map_err(|e| e.to_string())?;
+        Ok(serde_json::to_value(report).unwrap_or(serde_json::json!({})))
+    });
+    router.on("rescan_terminals", |_payload| async move {
+        let terms = mt5::discovery::refresh_discovery_cache();
+        Ok(serde_json::json!({ "count": terms.len() }))
+    });
+    let copier_for_reload = copier_state.clone();
+    router.on("reload_config", move |_payload| {
+        let copier = copier_for_reload.clone();
+        async move {
+            let api_key = { copier.lock().api_key.clone() }
+                .ok_or_else(|| "no api key configured".to_string())?;
+            let cfg = sync::config::fetch_config(&api_key)
+                .await
+                .map_err(|e| e.to_string())?;
+            let mut c = copier.lock();
+            c.config = Some(cfg);
+            c.last_sync = Some(chrono::Utc::now().to_rfc3339());
+            Ok(serde_json::json!({}))
+        }
+    });
+    let router = Arc::new(router);
+
+    let app_state = AppState {
+        copier: copier_state,
+        install_id,
+        snapshotter,
+        router,
+    };
+
 
     tauri::Builder::default()
         .system_tray(create_system_tray())
@@ -647,8 +777,19 @@ fn main() {
                 }
             });
 
+            // Start the agent telemetry + command loops if we have an API key.
+            // If not, `set_api_key` will start them right after pairing.
+            let state_ref = app.state::<AppState>();
+            let api_key = state_ref.copier.lock().api_key.clone();
+            if let Some(key) = api_key {
+                start_agent_sync(key, &state_ref);
+            } else {
+                warn!("Agent sync not started — no API key yet. Pair the desktop in the web Console.");
+            }
+
             Ok(())
         })
+
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

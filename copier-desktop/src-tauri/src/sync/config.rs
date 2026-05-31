@@ -108,6 +108,27 @@ fn get_api_key_path() -> Option<PathBuf> {
         .map(|dirs| dirs.config_dir().join("api_key"))
 }
 
+/// Load (or create + persist) a stable per-install UUID used to key
+/// `agent_state` / `agent_commands` rows in the cloud.
+pub fn load_or_create_install_id() -> Result<String, ConfigError> {
+    let path = directories::ProjectDirs::from("com", "saturn", "tradecopier")
+        .map(|d| d.config_dir().join("install_id"))
+        .ok_or_else(|| ConfigError::StorageError("no config dir".into()))?;
+    if let Ok(s) = std::fs::read_to_string(&path) {
+        let id = s.trim().to_string();
+        if !id.is_empty() {
+            return Ok(id);
+        }
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    std::fs::write(&path, &id).map_err(|e| ConfigError::StorageError(e.to_string()))?;
+    Ok(id)
+}
+
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("Network error: {0}")]
