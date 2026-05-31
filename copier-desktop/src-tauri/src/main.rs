@@ -28,10 +28,31 @@ use std::sync::Arc;
 use tauri::{
     CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem,
 };
+use std::sync::OnceLock;
+
+use sync::commands::CommandRouter;
+use sync::state::{AgentSnapshot, ReceiverStatus, Snapshotter, TerminalInfo as AgentTerminalInfo};
 
 pub struct AppState {
     pub copier: Arc<Mutex<CopierState>>,
+    pub install_id: String,
+    pub snapshotter: Snapshotter,
+    pub router: Arc<CommandRouter>,
 }
+
+/// Ensures the agent telemetry + command loops are only spawned once per
+/// process, regardless of whether they're started at boot or after pairing.
+static AGENT_SYNC_STARTED: OnceLock<()> = OnceLock::new();
+
+fn start_agent_sync(api_key: String, state: &AppState) {
+    if AGENT_SYNC_STARTED.set(()).is_err() {
+        return;
+    }
+    sync::state::spawn(api_key.clone(), state.snapshotter.clone());
+    sync::commands::spawn(api_key, state.install_id.clone(), state.router.clone());
+    tracing::info!("Agent sync loops started (install_id={})", state.install_id);
+}
+
 
 #[tauri::command]
 fn get_copier_status(state: tauri::State<AppState>) -> serde_json::Value {
