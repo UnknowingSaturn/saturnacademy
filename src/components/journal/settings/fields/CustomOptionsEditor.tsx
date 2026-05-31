@@ -30,7 +30,15 @@ export function CustomOptionsEditor({ field }: { field: CustomFieldDefinition })
       <div className="space-y-1.5">
         {options.map((o, idx) => (
           <div key={`${o.value}_${idx}`} className="flex items-center gap-2 p-1.5 rounded border border-border/50 bg-background">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: o.color || "#6B7280" }} />
+            <ColorSwatchPicker
+              size="sm"
+              value={o.color}
+              onChange={(c) => {
+                const next = [...options];
+                next[idx] = { ...next[idx], color: c };
+                setOptions(next);
+              }}
+            />
             <Input
               value={o.label}
               onChange={(e) => {
@@ -40,23 +48,6 @@ export function CustomOptionsEditor({ field }: { field: CustomFieldDefinition })
               }}
               className="h-6 text-xs flex-1"
             />
-            <div className="flex items-center gap-0.5">
-              {COLOR_PALETTE.slice(0, 8).map((c) => (
-                <button
-                  key={c}
-                  className={cn(
-                    "w-3 h-3 rounded-full opacity-50 hover:opacity-100 transition-all",
-                    o.color === c && "opacity-100 ring-1 ring-offset-1 ring-offset-background ring-foreground",
-                  )}
-                  style={{ backgroundColor: c }}
-                  onClick={() => {
-                    const next = [...options];
-                    next[idx] = { ...next[idx], color: c };
-                    setOptions(next);
-                  }}
-                />
-              ))}
-            </div>
             <Button
               size="icon"
               variant="ghost"
