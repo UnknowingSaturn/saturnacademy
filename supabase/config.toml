@@ -45,5 +45,12 @@ verify_jwt = false
 [functions.sync-account-state]
 verify_jwt = false
 
+[functions.agent-state]
+verify_jwt = false
+
+[functions.agent-commands]
+verify_jwt = false
+
+
 
 

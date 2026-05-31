@@ -1,60 +1,82 @@
-# Robust Path — Completion Report
+# Phase 1 — Web Copier Console (unblock iteration loop)
 
-## Tranche 1 — `read_quality` persistence ✅ DONE
-- Migration added `reports.read_quality JSONB DEFAULT '{}'`.
-- `generate-report/index.ts` now persists the computed block.
-- `Report` type gained `read_quality: ReadQualityBlock | null` + new `ReadQualityBlock` interface.
-- `ReportView.tsx` renders a new "Read quality" card with match/partial/misread counts, win-rates per bucket, and top misread pairs.
+Goal: stop rebuilding/reinstalling the desktop app to fix UI bugs. After Phase 1, the **Setup Wizard** and **Dashboard/Receivers** live in the web app with hot-reload. Trade execution stays 100% local and unchanged.
 
-## Tranche 2 — TradeComments wired ✅ DONE
-- Added `comments` to `DetailSectionKey` + `DETAIL_SECTION_CATALOG` (default-visible).
-- `TradeDetailPanel.tsx` imports and renders `<TradeComments tradeId={trade.id} />` inside the section switch — so users can show/hide/reorder it from the journal settings dialog like any other section.
+## Architecture
 
-## Tranche 3 — Schema suggestions UI ✅ ALREADY DONE
-- `ReportView.tsx` already mounts `<SchemaSuggestionCard>` for each suggestion at lines 476-484. Audit was wrong about this being missing. No work needed.
+```text
+┌──────────────────┐   commands (poll 1-2s)   ┌──────────────────┐
+│   Web Console    │ ───────────────────────► │  Desktop Agent   │
+│  (Lovable app)   │ ◄─────────────────────── │  (Rust, headless)│
+└──────────────────┘   state (push 5-10s)     └────────┬─────────┘
+                                                       │ file IPC <100ms
+                                              ┌────────▼─────────┐
+                                              │ Master + Receiver│
+                                              │   MT5 + EAs      │
+                                              └──────────────────┘
+```
 
-## Tranche 4 — PositionsPanel / PositionSyncDialog ✅ ALREADY DONE
-- `copier-desktop/src/App.tsx` already mounts both: `PositionsPanel` on the "positions" nav route, `PositionSyncDialog` as a header-button modal. Audit was wrong. No work needed.
+- Hot path (trade copying): unchanged. Master EA → desktop file-watcher → receiver EA. No cloud hop.
+- Control path (clicks, config): web → edge fn → `agent_commands` → desktop poll → ack. ~1–3s.
+- Observability: desktop pushes telemetry to `agent_state`; web subscribes via realtime.
 
-## Tranche 5 — `partial_closes` recovery ✅ DONE
-- Investigation: only **4 partial_close events** exist in the entire events log.
-- Migration replays them into `trade_partial_fills` via JOIN on (account_id, ticket), idempotent (`NOT EXISTS` guard). Re-runnable safely.
+## Backend changes
 
-## Tier 1 latent bugs folded in
-- **trade-repair #1**: replaced inline `hasSnap && !repaired` with `hasSnapshotClosed()` + `!isAlreadyRepaired()` from `_shared/snapshotRepair.ts`. New REPAIRED_ACTIONS / dismiss types now flow through automatically.
-- **trade-repair #2**: replaced hand-rolled R-multiple with `computeRMultiple()`. Repaired trades now use the same broker-agnostic logic as ingest-events / trade-rebuild (correct for indices, metals, crypto; supports weighted fills; equity-risk fallback).
-- **copier #5**: `event_processor.rs` SafetyConfig comment now precisely documents which EA-only fields cannot be forwarded without a coordinated schema change. Conservative revert: did NOT add fields that don't exist on the runtime `ReceiverConfig` (would not compile). Threading them through requires R3.
+**New tables:**
+- `agent_state` — one row per `(user_id, install_id)`. Fields: `status` (running/paused/error), `version`, `last_heartbeat_at`, `terminals` (jsonb: discovered MT5 installs + EA status), `receivers_status` (jsonb: per-receiver paused/active, last execution).
+- `agent_commands` — queue. Fields: `user_id`, `install_id`, `command` (enum: `pause_receiver`, `resume_receiver`, `sync_positions`, `rescan_terminals`, `reload_config`), `payload` jsonb, `status` (pending/acked/done/error), `created_at`, `acked_at`, `result` jsonb.
 
-## Audit corrections
-The original audit overstated the dead-code surface in two places:
-- `SchemaSuggestionCard` IS rendered.
-- `PositionsPanel` + `PositionSyncDialog` ARE mounted.
+Both with RLS scoped to `auth.uid()`, GRANTs for `authenticated` + `service_role`, realtime enabled.
 
-## Not in this pass (genuine Redesigns, need their own sessions)
-- A — Split `ingest-events`
-- B — Frontend hook architecture refactor
-- C — EA single-source-of-truth
-- Tier 3 structural consolidations (account resolver, N+1 collapses, etc.)
+**New edge functions:**
+- `agent-state` — desktop POSTs telemetry here (existing setup-token auth pattern).
+- `agent-commands` — desktop GETs pending commands and PATCHes their status; web POSTs new commands.
 
----
+## Desktop changes (small, stable)
 
-## Tranche C — EA single-source-of-truth ✅ DONE
-- New canonical directory `mql5/` holds the latest version of every EA:
-  - `TradeJournalBridge.mq5`, `TradeCopierMaster.mq5`, `TradeCopierReceiver.mq5`
-- New `scripts/sync-mql5.mjs` propagates canonical → all distribution targets:
-  - `public/` (web download buttons), `mt5-bridge/` (docs reference), `copier-desktop/src-tauri/resources/` (Tauri bundle).
-- Drift guard: script asserts EDGE_FUNCTION_URL, SYNC_STATE_URL and Supabase project ref are identical across every distributed copy. Fails non-zero on drift.
-- Wired into npm lifecycle:
-  - `predev` runs check, auto-syncs on first divergence.
-  - `prebuild` always runs sync so Vite output and bundle ship matching files.
-  - `mql5:sync` / `mql5:check` exposed for manual use.
-- Initial sync resolved a real drift: previously the desktop installer shipped a newer Receiver (3038 lines) while web downloads served an older one (2125 lines) with a different `InpBrokerUTCOffset` default. All three copies are now byte-equal at the newest version.
-- Single-file deployment preserved (no `.mqh` includes that would break end-user installs).
+Two new Rust modules in `copier-desktop/src-tauri/src/sync/`:
+- `state.rs` — every 5–10s, push agent state (terminals discovered, receivers status, version, errors) to `agent-state`.
+- `commands.rs` — every 1–2s, poll `agent-commands` for pending items. Handlers wrap **existing** functions (`copier::pause_receiver`, `position_sync::sync_now`, `mt5::discovery::rescan`, `sync::config::reload`). Ack on receipt, mark done on completion.
 
-## Remaining
-- Tranche D — Tier 3 structural consolidations.
+No new business logic — just thin adapters. Existing Tauri UI continues to work as fallback.
 
-## Tranche D — Tier 3 consolidations (Done)
-- Created `supabase/functions/_shared/edgeAuth.ts` with `requireUser`, `requireOwnedAccount`, `json`, `AuthError`.
-- Refactored `trade-repair` and `trade-rebuild` to use the shared auth + response helpers (eliminated 3 copies of the JWT bootstrap and 2 ad-hoc account-ownership checks).
-- Both functions deployed successfully.
+## Web changes
+
+**New page:** `src/pages/CopierConsole.tsx` mounted at `/copier/console`.
+
+**New components under `src/components/copier/console/`:**
+- `WizardView.tsx` — port the 5-step wizard. Reuse the existing step components' logic; rewrite to read terminals from `agent_state` instead of Tauri `invoke`, and submit final config to existing `copier-config` edge function (already exists).
+- `WizardSteps/` — `TerminalScan`, `MasterSelection`, `ReceiverSelection`, `RiskConfig`, `SymbolMapping`, `Confirmation`. Direct ports of `copier-desktop/src/components/wizard/*`.
+- `ReceiversPanel.tsx` — grid showing each receiver from `agent_state.receivers_status`. Pause/resume buttons dispatch commands via `agent-commands`.
+- `AgentStatusBadge.tsx` — heartbeat freshness indicator (green <30s, amber <2min, red otherwise).
+
+**New hook:** `src/hooks/useAgentState.tsx` — fetch + realtime subscription on `agent_state`.
+**New hook:** `src/hooks/useAgentCommand.tsx` — `dispatch(command, payload)` → insert into `agent_commands`, wait for `done` status with timeout.
+
+**Nav:** add "Copier Console" entry in `AppSidebar.tsx`.
+
+## What stays in the desktop app (this phase)
+
+Existing Tauri UI is kept as fallback. Nothing deleted yet. Slim-down happens in Phase 3 once web parity is confirmed.
+
+## Pairing UX
+
+Web shows a one-time pairing code on first console visit (reuse `setup_tokens` table + `copier-setup-token` edge function — already built). User pastes into desktop's existing setup screen. Desktop stores `install_id` + auth token, starts pushing state.
+
+## Out of scope (later phases)
+
+- Phase 2: Terminal Manager, Positions Panel, Position Sync dialog, Diagnostics, Settings → web.
+- Phase 3: delete unused React screens + Tauri `invoke` handlers; shrink desktop binary.
+
+## Acceptance
+
+- Open `/copier/console` in web, see live agent status + receivers, pause/resume a receiver within 3s.
+- Run the full wizard in web, save config, confirm desktop reloads and trades copy at unchanged latency.
+- Fix a UI bug in the wizard with `npm run dev` hot-reload — no desktop rebuild.
+
+## Deliverables
+
+- 1 migration (2 tables + RLS + GRANTs + realtime).
+- 2 edge functions (`agent-state`, `agent-commands`).
+- 2 Rust modules (`sync/state.rs`, `sync/commands.rs`) + wire-up in `main.rs`.
+- ~8 web files (1 page, 6 components, 2 hooks) + sidebar entry.

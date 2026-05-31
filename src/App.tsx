@@ -20,6 +20,7 @@ import Playbooks from "./pages/Playbooks";
 import Accounts from "./pages/Accounts";
 import LiveTrades from "./pages/LiveTrades";
 import Copier from "./pages/Copier";
+import CopierConsole from "./pages/CopierConsole";
 
 import SharedReports from "./pages/SharedReports";
 import SharedReportEditor from "./pages/SharedReportEditor";
@@ -81,6 +82,7 @@ function AppRoutes() {
       <Route path="/live-trades" element={<ProtectedRoute><LiveTradesProvider><LiveTrades /></LiveTradesProvider></ProtectedRoute>} />
       <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
       <Route path="/copier" element={<ProtectedRoute><Copier /></ProtectedRoute>} />
+      <Route path="/copier/console" element={<ProtectedRoute><CopierConsole /></ProtectedRoute>} />
       
       <Route path="/shared-reports" element={<ProtectedRoute><SharedReports /></ProtectedRoute>} />
       <Route path="/shared-reports/:id" element={<ProtectedRoute><SharedReportEditor /></ProtectedRoute>} />
