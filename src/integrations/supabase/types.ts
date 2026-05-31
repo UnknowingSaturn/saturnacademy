@@ -177,6 +177,90 @@ export type Database = {
           },
         ]
       }
+      agent_commands: {
+        Row: {
+          acked_at: string | null
+          command: string
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          install_id: string
+          payload: Json
+          result: Json | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          acked_at?: string | null
+          command: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          install_id: string
+          payload?: Json
+          result?: Json | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          acked_at?: string | null
+          command?: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          install_id?: string
+          payload?: Json
+          result?: Json | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_state: {
+        Row: {
+          created_at: string
+          id: string
+          install_id: string
+          last_error: string | null
+          last_heartbeat_at: string | null
+          receivers_status: Json
+          status: string
+          terminals: Json
+          updated_at: string
+          user_id: string
+          version: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          install_id: string
+          last_error?: string | null
+          last_heartbeat_at?: string | null
+          receivers_status?: Json
+          status?: string
+          terminals?: Json
+          updated_at?: string
+          user_id: string
+          version?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          install_id?: string
+          last_error?: string | null
+          last_heartbeat_at?: string | null
+          receivers_status?: Json
+          status?: string
+          terminals?: Json
+          updated_at?: string
+          user_id?: string
+          version?: string | null
+        }
+        Relationships: []
+      }
       ai_reviews: {
         Row: {
           actionable_guidance: Json | null
