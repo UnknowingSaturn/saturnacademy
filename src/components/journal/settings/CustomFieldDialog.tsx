@@ -121,6 +121,10 @@ export function CustomFieldDialog({ open, onOpenChange, initial, onSubmit }: Cus
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                 {options.map((opt, idx) => (
                   <div key={idx} className="flex items-center gap-2">
+                    <ColorSwatchPicker
+                      value={opt.color}
+                      onChange={(c) => updateOption(idx, { color: c })}
+                    />
                     <Input
                       value={opt.label}
                       onChange={(e) =>
@@ -132,20 +136,6 @@ export function CustomFieldDialog({ open, onOpenChange, initial, onSubmit }: Cus
                       className="flex-1 h-8"
                       placeholder="Option label"
                     />
-                    <div className="flex items-center gap-1">
-                      {COLOR_PALETTE.map((c) => (
-                        <button
-                          key={c}
-                          type="button"
-                          className={cn(
-                            "w-4 h-4 rounded-full transition-all opacity-50 hover:opacity-100",
-                            opt.color === c && "opacity-100 ring-1 ring-offset-1 ring-offset-background ring-foreground"
-                          )}
-                          style={{ backgroundColor: c }}
-                          onClick={() => updateOption(idx, { color: c })}
-                        />
-                      ))}
-                    </div>
                     <Button
                       type="button"
                       size="icon"
