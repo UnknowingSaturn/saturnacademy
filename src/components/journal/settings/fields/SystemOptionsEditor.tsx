@@ -19,6 +19,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { COLOR_PALETTE } from "./constants";
+import { ColorSwatchPicker } from "./ColorSwatchPicker";
 
 export function SystemOptionsEditor({ propertyName }: { propertyName: string }) {
   const { data: options = [] } = usePropertyOptions(propertyName);
