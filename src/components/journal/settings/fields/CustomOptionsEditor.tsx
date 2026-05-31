@@ -4,8 +4,8 @@ import { CustomFieldDefinition } from "@/types/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { COLOR_PALETTE } from "./constants";
+import { ColorSwatchPicker } from "./ColorSwatchPicker";
 
 export function CustomOptionsEditor({ field }: { field: CustomFieldDefinition }) {
   const update = useUpdateCustomField();
