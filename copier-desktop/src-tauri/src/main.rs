@@ -71,16 +71,22 @@ fn get_copier_status(state: tauri::State<AppState>) -> serde_json::Value {
 
 #[tauri::command]
 async fn set_api_key(api_key: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut copier = state.copier.lock();
-    copier.api_key = Some(api_key.clone());
-    
+    {
+        let mut copier = state.copier.lock();
+        copier.api_key = Some(api_key.clone());
+    }
+
     // Save to config file
     if let Err(e) = sync::config::save_api_key(&api_key) {
         return Err(format!("Failed to save API key: {}", e));
     }
-    
+
+    // Start (or no-op if already running) the agent telemetry + command loops.
+    start_agent_sync(api_key, &state);
+
     Ok(())
 }
+
 
 #[tauri::command]
 async fn sync_config(state: tauri::State<'_, AppState>) -> Result<(), String> {
