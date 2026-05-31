@@ -61,6 +61,7 @@ const mainItems = [
 
 const toolItems = [
   { title: "Trade Copier", url: "/copier", icon: Copy },
+  { title: "Copier Console", url: "/copier/console", icon: Activity },
   { title: "Import Trades", url: "/import", icon: Upload },
   { title: "Accounts", url: "/accounts", icon: Wallet },
 ];
