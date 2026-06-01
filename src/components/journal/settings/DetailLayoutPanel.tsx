@@ -260,6 +260,7 @@ export function DetailLayoutPanel() {
                     sublabel={sub}
                     isVisible={visibleFields.has(key)}
                     onToggle={() => handleFieldToggle(key)}
+                    onDelete={() => handleFieldDelete(key)}
                   />
                 );
               })}
