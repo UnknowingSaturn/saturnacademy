@@ -162,6 +162,26 @@ export function DetailLayoutPanel() {
     await updateSettings.mutateAsync({ detail_field_order: next });
   };
 
+  // Soft-delete a property row. Mirrors FieldsPanel.confirmDelete:
+  //  - system fields → add to deleted_system_fields (restore from Fields tab)
+  //  - custom fields → mark is_active = false
+  const handleFieldDelete = async (key: string) => {
+    const custom = customFields.find((f) => f.key === key);
+    if (custom) {
+      await updateCustomField.mutateAsync({ id: custom.id, is_active: false });
+      return;
+    }
+    const nextDeleted = Array.from(
+      new Set([...(settings?.deleted_system_fields || []), key]),
+    );
+    const currentVisible = Array.from(visibleFields).filter((k) => k !== key);
+    await updateSettings.mutateAsync({
+      deleted_system_fields: nextDeleted,
+      detail_visible_fields: currentVisible,
+      detail_field_order: fieldOrder.filter((k) => k !== key),
+    });
+  };
+
   // Sections (review blocks)
   const sectionOrder = useMemo(() => {
     const userOrder = settings?.detail_section_order?.length ? settings.detail_section_order : DEFAULT_DETAIL_SECTION_ORDER;
