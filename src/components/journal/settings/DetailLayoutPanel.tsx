@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
-import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
+import { useCustomFieldDefinitions, useUpdateCustomField } from "@/hooks/useCustomFields";
 import {
   DETAIL_FIELD_CATALOG,
   DETAIL_SECTION_CATALOG,
@@ -11,7 +11,8 @@ import {
 } from "@/types/settings";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { Eye, EyeOff, GripVertical, RotateCcw } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Eye, EyeOff, GripVertical, RotateCcw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DndContext,
