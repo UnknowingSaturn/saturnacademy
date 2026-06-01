@@ -165,7 +165,7 @@ export function PlaybookScreenshotGallery({
 
       {/* Expanded Image Dialog */}
       <Dialog open={!!expandedImage} onOpenChange={() => setExpandedImage(null)}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-[95vw] w-[95vw] max-h-[95vh] p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <Badge
@@ -181,11 +181,11 @@ export function PlaybookScreenshotGallery({
             </DialogTitle>
           </DialogHeader>
           {expandedImage && (
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto max-h-[calc(95vh-8rem)]">
               <img
                 src={expandedImage.url}
                 alt={`${expandedImage.timeframe} chart`}
-                className="w-full rounded-lg"
+                className="w-full max-h-[75vh] object-contain rounded-lg"
               />
               {expandedImage.description && (
                 <p className="text-sm text-muted-foreground">
