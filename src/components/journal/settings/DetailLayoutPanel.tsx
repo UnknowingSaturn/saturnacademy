@@ -106,6 +106,7 @@ export function DetailLayoutPanel() {
   const { data: settings, isLoading } = useUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
   const updateSettings = useUpdateUserSettings();
+  const updateCustomField = useUpdateCustomField();
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
