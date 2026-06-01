@@ -30,6 +30,15 @@ async function runListDrift(admin: SupabaseClient, userId: string) {
     .eq("user_id", userId);
   if (taErr) return json({ error: taErr.message }, 500);
 
+  // Load all of the user's accounts once so we can resolve account_number /
+  // name when classifying drift reasons (login_switched etc.).
+  const { data: allAccounts } = await admin
+    .from("accounts")
+    .select("id, name, account_number")
+    .eq("user_id", userId);
+  const acctById = new Map<string, { id: string; name: string; account_number: string | null }>();
+  for (const a of allAccounts || []) acctById.set(a.id, a as any);
+
   const driftTrades: any[] = [];
   const dormantAccountIds = new Set<string>();
 
@@ -73,15 +82,30 @@ async function runListDrift(admin: SupabaseClient, userId: string) {
       .eq("terminal_id", ta.terminal_id)
       .eq("is_open", true);
 
+    const acct = acctById.get(ta.account_id);
+    const expectedLogin = acct?.account_number ? String(acct.account_number) : null;
+    const activeLogin = snap.active_login ? String(snap.active_login) : null;
+    const loginMatches = !expectedLogin || !activeLogin || expectedLogin === activeLogin;
+
     for (const t of openTrades || []) {
       if (!t.ticket) continue;
       const tradeAge = Date.now() - new Date(t.entry_time).getTime();
-      if (tradeAge < 60 * 1000) continue;
+      // Grace period: don't surface trades < 2 min old. Snapshots can lag
+      // briefly behind a freshly opened position.
+      if (tradeAge < 2 * 60 * 1000) continue;
       if (!openSet.has(Number(t.ticket))) {
+        // Classify why the trade dropped out of the snapshot. Used by the UI
+        // to choose calm vs. urgent messaging and whether to show Repair.
+        const reason: "login_switched" | "likely_broker_closed" = loginMatches
+          ? "likely_broker_closed"
+          : "login_switched";
         driftTrades.push({
           ...t,
           snapshot_received_at: snap.received_at,
-          active_login: snap.active_login,
+          active_login: activeLogin,
+          expected_login: expectedLogin,
+          account_name: acct?.name ?? null,
+          reason,
         });
       }
     }

@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
-import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
+import { useCustomFieldDefinitions, useUpdateCustomField } from "@/hooks/useCustomFields";
 import {
   DETAIL_FIELD_CATALOG,
   DETAIL_SECTION_CATALOG,
@@ -11,7 +11,8 @@ import {
 } from "@/types/settings";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { Eye, EyeOff, GripVertical, RotateCcw } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Eye, EyeOff, GripVertical, RotateCcw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DndContext,
@@ -35,11 +36,13 @@ interface RowProps {
   sublabel?: string;
   isVisible: boolean;
   onToggle: () => void;
+  onDelete?: () => void;
 }
 
-function SortableRow({ id, label, sublabel, isVisible, onToggle }: RowProps) {
+function SortableRow({ id, label, sublabel, isVisible, onToggle, onDelete }: RowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id });
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const style = { transform: CSS.Transform.toString(transform), transition };
   return (
     <div
@@ -60,6 +63,41 @@ function SortableRow({ id, label, sublabel, isVisible, onToggle }: RowProps) {
       </div>
       {isVisible ? <Eye className="w-4 h-4 text-muted-foreground" /> : <EyeOff className="w-4 h-4 text-muted-foreground" />}
       <Switch checked={isVisible} onCheckedChange={onToggle} />
+      {onDelete && (
+        <Popover open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              aria-label={`Remove ${label}`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-3" align="end">
+            <p className="text-sm font-medium mb-1">Remove “{label}”?</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              It will disappear from journal entries. You can restore it from the Fields tab.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  setConfirmOpen(false);
+                  onDelete();
+                }}
+              >
+                Remove
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
     </div>
   );
 }
@@ -68,6 +106,7 @@ export function DetailLayoutPanel() {
   const { data: settings, isLoading } = useUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
   const updateSettings = useUpdateUserSettings();
+  const updateCustomField = useUpdateCustomField();
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -121,6 +160,26 @@ export function DetailLayoutPanel() {
     if (oldIdx < 0 || newIdx < 0) return;
     const next = arrayMove(fieldOrder, oldIdx, newIdx);
     await updateSettings.mutateAsync({ detail_field_order: next });
+  };
+
+  // Soft-delete a property row. Mirrors FieldsPanel.confirmDelete:
+  //  - system fields → add to deleted_system_fields (restore from Fields tab)
+  //  - custom fields → mark is_active = false
+  const handleFieldDelete = async (key: string) => {
+    const custom = customFields.find((f) => f.key === key);
+    if (custom) {
+      await updateCustomField.mutateAsync({ id: custom.id, is_active: false });
+      return;
+    }
+    const nextDeleted = Array.from(
+      new Set([...(settings?.deleted_system_fields || []), key]),
+    );
+    const currentVisible = Array.from(visibleFields).filter((k) => k !== key);
+    await updateSettings.mutateAsync({
+      deleted_system_fields: nextDeleted,
+      detail_visible_fields: currentVisible,
+      detail_field_order: fieldOrder.filter((k) => k !== key),
+    });
   };
 
   // Sections (review blocks)
@@ -201,6 +260,7 @@ export function DetailLayoutPanel() {
                     sublabel={sub}
                     isVisible={visibleFields.has(key)}
                     onToggle={() => handleFieldToggle(key)}
+                    onDelete={() => handleFieldDelete(key)}
                   />
                 );
               })}

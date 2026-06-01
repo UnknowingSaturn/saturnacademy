@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, RefreshCw, Wrench, MoonStar } from "lucide-react";
+import { RefreshCw, Wrench, MoonStar, Info, LogIn } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
+
+type DriftReason = "likely_broker_closed" | "login_switched";
 
 interface DriftTrade {
   id: string;
@@ -18,6 +20,9 @@ interface DriftTrade {
   account_id: string;
   snapshot_received_at: string;
   active_login: string | null;
+  expected_login: string | null;
+  account_name: string | null;
+  reason: DriftReason;
 }
 
 interface DormantAccount {
@@ -98,23 +103,64 @@ export function DriftTray() {
   if (loading && drift.length === 0 && dormant.length === 0) return null;
   if (drift.length === 0 && dormant.length === 0) return null;
 
+  // Group drift trades by reason — most cases are benign (user switched
+  // login, broker closed during off-hours). Only `likely_broker_closed`
+  // warrants the wrench / Repair CTA.
+  const switched = drift.filter((t) => t.reason === "login_switched");
+  const brokerClosed = drift.filter((t) => t.reason === "likely_broker_closed");
+
   return (
     <div className="space-y-3">
-      {drift.length > 0 && (
-        <Alert variant="default" className="border-amber-500/40 bg-amber-500/5">
-          <AlertTriangle className="h-4 w-4 text-amber-600" />
-          <AlertTitle className="text-amber-700 dark:text-amber-400">
-            {drift.length} trade{drift.length === 1 ? "" : "s"} need attention
+      {switched.length > 0 && (
+        <Alert variant="default" className="border-slate-400/40 bg-muted/30">
+          <LogIn className="h-4 w-4 text-muted-foreground" />
+          <AlertTitle>
+            {switched.length} trade{switched.length === 1 ? "" : "s"} waiting for the right MT5 login
           </AlertTitle>
           <AlertDescription>
             <p className="text-xs text-muted-foreground mt-1 mb-3">
-              The active MT5 terminal no longer reports these positions as open. They were likely closed at the broker — click Repair to pull the real close from MT5 deal history.
+              You're logged into a different account on this MT5 terminal. Log back into the original account and we'll sync these automatically — no action needed here.
             </p>
             <div className="space-y-2">
-              {drift.map((t) => (
+              {switched.map((t) => (
                 <div
                   key={t.id}
-                  className="flex items-center justify-between gap-3 rounded border border-amber-500/20 bg-background/60 px-3 py-2 text-sm"
+                  className="flex items-center justify-between gap-3 rounded border border-border bg-background/60 px-3 py-2 text-sm"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-wrap">
+                    <span className="font-medium">{t.symbol}</span>
+                    <span className="text-muted-foreground">#{t.ticket}</span>
+                    <span className="text-xs text-muted-foreground capitalize">{t.direction}</span>
+                    <span className="text-xs text-muted-foreground">{t.total_lots} lots</span>
+                    {t.expected_login && (
+                      <span className="text-xs text-muted-foreground">
+                        log into #{t.expected_login}
+                        {t.active_login ? ` (currently #${t.active_login})` : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {brokerClosed.length > 0 && (
+        <Alert variant="default" className="border-border bg-muted/30">
+          <Info className="h-4 w-4 text-muted-foreground" />
+          <AlertTitle>
+            {brokerClosed.length} trade{brokerClosed.length === 1 ? "" : "s"} may have closed at the broker
+          </AlertTitle>
+          <AlertDescription>
+            <p className="text-xs text-muted-foreground mt-1 mb-3">
+              MT5 is connected but no longer reports these positions as open. This usually means the broker closed them (SL/TP hit, weekend rollover, or manual close from another device). Use Repair to pull the real close from deal history.
+            </p>
+            <div className="space-y-2">
+              {brokerClosed.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between gap-3 rounded border border-border bg-background/60 px-3 py-2 text-sm"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="font-medium">{t.symbol}</span>
@@ -122,13 +168,12 @@ export function DriftTray() {
                     <span className="text-xs text-muted-foreground capitalize">{t.direction}</span>
                     <span className="text-xs text-muted-foreground">{t.total_lots} lots</span>
                     <span className="text-xs text-muted-foreground hidden md:inline">
-                      drift seen {formatDistanceToNow(new Date(t.snapshot_received_at), { addSuffix: true })}
+                      since {formatDistanceToNow(new Date(t.snapshot_received_at), { addSuffix: true })}
                     </span>
                   </div>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
                     onClick={() => repair(t)}
                     disabled={repairing === t.id}
                   >
