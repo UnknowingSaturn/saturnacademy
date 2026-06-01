@@ -36,11 +36,13 @@ interface RowProps {
   sublabel?: string;
   isVisible: boolean;
   onToggle: () => void;
+  onDelete?: () => void;
 }
 
-function SortableRow({ id, label, sublabel, isVisible, onToggle }: RowProps) {
+function SortableRow({ id, label, sublabel, isVisible, onToggle, onDelete }: RowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id });
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const style = { transform: CSS.Transform.toString(transform), transition };
   return (
     <div
@@ -61,6 +63,41 @@ function SortableRow({ id, label, sublabel, isVisible, onToggle }: RowProps) {
       </div>
       {isVisible ? <Eye className="w-4 h-4 text-muted-foreground" /> : <EyeOff className="w-4 h-4 text-muted-foreground" />}
       <Switch checked={isVisible} onCheckedChange={onToggle} />
+      {onDelete && (
+        <Popover open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              aria-label={`Remove ${label}`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-3" align="end">
+            <p className="text-sm font-medium mb-1">Remove “{label}”?</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              It will disappear from journal entries. You can restore it from the Fields tab.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  setConfirmOpen(false);
+                  onDelete();
+                }}
+              >
+                Remove
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
     </div>
   );
 }
