@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History, Activity, AlertTriangle, Crown, Radio, Minus, RefreshCw, Square } from 'lucide-react';
+import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History, Activity, AlertTriangle, Crown, Radio, Minus, RefreshCw, Square, Wrench } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useDeleteAccount, useStopResync } from '@/hooks/useAccounts';
 import { useAccountStatus } from '@/hooks/useAccountStatus';
+import { usePendingRepairs } from '@/hooks/usePendingRepairs';
+import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
 import { Account } from '@/types/trading';
 import { formatDistanceToNow } from 'date-fns';
 import {
@@ -39,9 +42,30 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
   const deleteAccount = useDeleteAccount();
   const stopResync = useStopResync();
   const { data: status } = useAccountStatus(account.id);
+  const { data: pendingRepairsMap } = usePendingRepairs();
+  const queryClient = useQueryClient();
+  const pendingRepairs = pendingRepairsMap?.get(account.id) ?? 0;
   const [showApiKey, setShowApiKey] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+
+  const runRepair = async () => {
+    try {
+      setRepairing(true);
+      const { data, error } = await supabase.functions.invoke('trade-repair', {
+        body: { action: 'repair', account_id: account.id },
+      });
+      if (error) throw error;
+      toast({ title: (data as any)?.message || 'Repair complete' });
+      queryClient.invalidateQueries({ queryKey: ['pending-repairs'] });
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+    } catch (err: any) {
+      toast({ title: 'Repair failed', description: err?.message, variant: 'destructive' });
+    } finally {
+      setRepairing(false);
+    }
+  };
 
   // Determine connection status
   const isConnected = status?.lastEventAt && 
@@ -109,6 +133,22 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
                 </Badge>
               )}
               <LiveStateBadge state={account.live_state} lastHeartbeatAt={account.last_heartbeat_at} accountName={account.name} />
+              {pendingRepairs > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                  onClick={runRepair}
+                  disabled={repairing}
+                >
+                  {repairing ? (
+                    <RefreshCw className="h-3 w-3 mr-1.5 animate-spin" />
+                  ) : (
+                    <Wrench className="h-3 w-3 mr-1.5" />
+                  )}
+                  Repair {pendingRepairs}
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
