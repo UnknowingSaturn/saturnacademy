@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, RefreshCw, Wrench, MoonStar } from "lucide-react";
+import { AlertTriangle, RefreshCw, Wrench, MoonStar, Info, LogIn } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
+
+type DriftReason = "likely_broker_closed" | "login_switched";
 
 interface DriftTrade {
   id: string;
@@ -18,6 +20,9 @@ interface DriftTrade {
   account_id: string;
   snapshot_received_at: string;
   active_login: string | null;
+  expected_login: string | null;
+  account_name: string | null;
+  reason: DriftReason;
 }
 
 interface DormantAccount {
