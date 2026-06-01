@@ -133,6 +133,22 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
                 </Badge>
               )}
               <LiveStateBadge state={account.live_state} lastHeartbeatAt={account.last_heartbeat_at} accountName={account.name} />
+              {pendingRepairs > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                  onClick={runRepair}
+                  disabled={repairing}
+                >
+                  {repairing ? (
+                    <RefreshCw className="h-3 w-3 mr-1.5 animate-spin" />
+                  ) : (
+                    <Wrench className="h-3 w-3 mr-1.5" />
+                  )}
+                  Repair {pendingRepairs}
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
