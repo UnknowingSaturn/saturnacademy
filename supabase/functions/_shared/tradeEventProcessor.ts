@@ -374,37 +374,64 @@ export async function processEvent(
       await supabase.from("events").update({ event_type: "partial_close" }).eq("id", event.id);
       console.log("Processed partial close for position:", ticket, "remaining lots:", remainingLots);
     } else {
-      // Full close
+      // Full close (or late-arriving close for an already-closed trade — we re-aggregate
+      // from the `events` table so we never overwrite a prior partial's PnL).
       const duration = Math.floor(
         (new Date(event.event_timestamp).getTime() - new Date(existingTrade.entry_time).getTime()) / 1000,
       );
 
-      let totalGrossPnl = event.profit || 0;
-      let totalCommission = event.commission || 0;
-      let totalSwap = event.swap || 0;
+      // Build the authoritative set of close fills from `events`, deduped by deal_id
+      // (falling back to a (price, lot_size, timestamp) signature when deal_id is missing).
+      const { data: closeEventRows } = await supabase
+        .from("events")
+        .select("id, event_type, event_timestamp, price, lot_size, profit, commission, swap, raw_payload")
+        .eq("ticket", ticket)
+        .eq("account_id", account_id)
+        .in("event_type", ["close", "partial_close"]);
 
-      let priorFills: Array<{
-        lots: number;
-        price: number;
-        profit: number | null;
-        commission: number | null;
-        swap: number | null;
-        occurred_at: string;
-      }> = [];
-      if (!isRepair) {
-        const { data: fillRows } = await supabase
-          .from("trade_partial_fills")
-          .select("lots, price, profit, commission, swap, occurred_at")
-          .eq("trade_id", existingTrade.id);
-        priorFills = (fillRows || []) as typeof priorFills;
-        for (const f of priorFills) {
-          totalGrossPnl += Number(f.profit) || 0;
-          totalCommission += Number(f.commission) || 0;
-          totalSwap += Number(f.swap) || 0;
-        }
+      const fillsByKey = new Map<string, {
+        price: number; lots: number; profit: number; commission: number; swap: number; occurred_at: string;
+      }>();
+      const collect = (row: any) => {
+        const dealId = row?.raw_payload?.deal_id;
+        const key = dealId && Number(dealId) !== 0
+          ? `d:${dealId}`
+          : `s:${row.price}|${row.lot_size}|${row.event_timestamp}`;
+        if (fillsByKey.has(key)) return;
+        fillsByKey.set(key, {
+          price: Number(row.price) || 0,
+          lots: Number(row.lot_size) || 0,
+          profit: Number(row.profit) || 0,
+          commission: Number(row.commission) || 0,
+          swap: Number(row.swap) || 0,
+          occurred_at: row.event_timestamp,
+        });
+      };
+      for (const row of closeEventRows || []) collect(row);
+      // Include the in-flight event itself (it may not yet be visible above if it's the very row
+      // currently being processed in a parallel transaction).
+      collect({
+        raw_payload: { deal_id: originalPayload.deal_id },
+        price: event.price,
+        lot_size: lot_size,
+        event_timestamp: event.event_timestamp,
+        profit: event.profit,
+        commission: event.commission,
+        swap: event.swap,
+      });
+
+      const allFills = Array.from(fillsByKey.values()).sort(
+        (a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime(),
+      );
+
+      let totalGrossPnl = 0;
+      let totalCommission = existingTrade.commission || 0;
+      let totalSwap = existingTrade.swap || 0;
+      for (const f of allFills) {
+        totalGrossPnl += f.profit;
+        totalCommission += f.commission;
+        totalSwap += f.swap;
       }
-      totalCommission += existingTrade.commission || 0;
-      totalSwap += existingTrade.swap || 0;
 
       const netPnl = computeNetPnl(totalGrossPnl, totalCommission, totalSwap);
 
@@ -418,18 +445,23 @@ export async function processEvent(
         symbol: existingTrade.symbol,
         equityAtEntry: existingTrade.equity_at_entry || existingTrade.balance_at_entry,
         direction: existingTrade.direction,
-        fills: !isRepair
-          ? priorFills.map((f) => ({
-              time: f.occurred_at,
-              lots: Number(f.lots),
-              price: Number(f.price),
-              pnl: computeNetPnl(Number(f.profit) || 0, Number(f.commission) || 0, Number(f.swap) || 0),
-            }))
-          : null,
+        fills: allFills.map((f) => ({
+          time: f.occurred_at,
+          lots: f.lots,
+          price: f.price,
+          pnl: computeNetPnl(f.profit, f.commission, f.swap),
+        })),
       });
 
+      // Equity delta: only credit the *new* PnL relative to whatever was previously recorded.
+      // For first-time full-close on an open trade, `existingTrade.net_pnl` is null → delta = netPnl.
+      // For re-close repair, we credit the difference so we don't double-count.
       if (!isRepair) {
-        await supabase.rpc("apply_equity_delta", { _account_id: account_id, _delta: netPnl });
+        const priorNet = Number(existingTrade.net_pnl) || 0;
+        const delta = netPnl - priorNet;
+        if (Math.abs(delta) > 1e-9) {
+          await supabase.rpc("apply_equity_delta", { _account_id: account_id, _delta: delta });
+        }
       }
 
       await supabase.from("trades").update({
@@ -457,6 +489,7 @@ export async function processEvent(
           metadata: { net_pnl: netPnl, ticket, note: "Real PnL recovered from MT5 deal history after EA reconnect" },
         });
       }
+
 
       console.log(isRepair ? "REPAIRED full close" : "Processed full close", "for position:", ticket, "PnL:", netPnl, "R:", rMultiple);
     }
