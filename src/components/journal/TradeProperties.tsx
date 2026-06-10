@@ -226,22 +226,34 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             </span>
           </PropertyRow>
         );
-      case 'r_multiple_actual':
+      case 'r_multiple_actual': {
+        const tradeAccount = accounts?.find(a => a.id === trade.account_id);
+        const equityBase =
+          (trade as any).equity_at_entry ??
+          (trade as any).balance_at_entry ??
+          tradeAccount?.equity_current ??
+          (tradeAccount as any)?.balance_current ??
+          null;
+        const accountPct =
+          trade.net_pnl != null && equityBase && Number(equityBase) > 0
+            ? (Number(trade.net_pnl) / Number(equityBase)) * 100
+            : null;
         return (
-          <PropertyRow key="r_multiple_actual" icon={<Target className="w-3.5 h-3.5" />} label={labelFor('r_multiple_actual', 'R%')}>
+          <PropertyRow key="r_multiple_actual" icon={<Target className="w-3.5 h-3.5" />} label={labelFor('r_multiple_actual', '% of Account')}>
             <span
               className={cn(
                 "font-mono-numbers font-bold",
-                trade.r_multiple_actual && trade.r_multiple_actual >= 0 && "text-profit",
-                trade.r_multiple_actual && trade.r_multiple_actual < 0 && "text-loss"
+                accountPct != null && accountPct >= 0 && "text-profit",
+                accountPct != null && accountPct < 0 && "text-loss"
               )}
             >
-              {trade.r_multiple_actual !== null
-                ? `${trade.r_multiple_actual >= 0 ? "+" : ""}${trade.r_multiple_actual.toFixed(1)}%`
+              {accountPct != null
+                ? `${accountPct >= 0 ? "+" : ""}${accountPct.toFixed(2)}%`
                 : "—"}
             </span>
           </PropertyRow>
         );
+      }
       case 'emotional_state_before':
         return (
           <PropertyRow key="emotional_state_before" label={labelFor('emotional_state_before', 'Emotion')}>
