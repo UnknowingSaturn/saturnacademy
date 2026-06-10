@@ -120,6 +120,38 @@ serve(async (req) => {
       });
     }
 
+    // ===== Deal-level dedup for close/partial_close =====
+    // EAs sometimes emit BOTH a `partial_close` and a `close` event for the
+    // same MT5 deal (different idempotency keys). Without this guard the
+    // processor double-aggregates and can overwrite a prior partial's PnL.
+    const tradeTicketEarly = payload.position_id || payload.ticket;
+    const dealId = payload.deal_id;
+    const closeLikeTypes = new Set(["close", "partial_close", "exit"]);
+    if (
+      dealId &&
+      Number(dealId) !== 0 &&
+      tradeTicketEarly &&
+      closeLikeTypes.has(payload.event_type)
+    ) {
+      const { data: dupDeal } = await supabase
+        .from("events")
+        .select("id, event_type")
+        .eq("ticket", tradeTicketEarly)
+        .eq("account_id", account.id)
+        .filter("raw_payload->>deal_id", "eq", String(dealId))
+        .in("event_type", ["close", "partial_close"])
+        .limit(1)
+        .maybeSingle();
+      if (dupDeal) {
+        console.log("Duplicate deal-level close event:", { ticket: tradeTicketEarly, deal_id: dealId });
+        return json({
+          status: "duplicate",
+          event_id: dupDeal.id,
+          message: "Close event already recorded for this deal_id",
+        });
+      }
+    }
+
     // Map event_type → db enum
     let dbEventType = payload.event_type;
     let effectiveEventType = payload.event_type;
