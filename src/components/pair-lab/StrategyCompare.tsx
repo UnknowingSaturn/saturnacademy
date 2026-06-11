@@ -85,15 +85,16 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
   const [stratA, setStratA] = useState<Strategy>(getPreset("current")!);
   const [stratB, setStratB] = useState<Strategy>(getPreset("scale-out")!);
   const [simBalance, setSimBalance] = useState<number>(balance);
+  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(false);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const resA = useMemo(
-    () => replayBucket(trades, fieldKeys, stratA, { balance: simBalance, propFirm }),
-    [trades, fieldKeys, stratA, simBalance, propFirm],
+    () => replayBucket(trades, fieldKeys, stratA, { balance: simBalance, propFirm, highFidelityOnly }),
+    [trades, fieldKeys, stratA, simBalance, propFirm, highFidelityOnly],
   );
   const resB = useMemo(
-    () => replayBucket(trades, fieldKeys, stratB, { balance: simBalance, propFirm }),
-    [trades, fieldKeys, stratB, simBalance, propFirm],
+    () => replayBucket(trades, fieldKeys, stratB, { balance: simBalance, propFirm, highFidelityOnly }),
+    [trades, fieldKeys, stratB, simBalance, propFirm, highFidelityOnly],
   );
 
   if (trades.length === 0) {
@@ -126,17 +127,25 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
             Replays {trades.length} trades in <span className="font-medium">{scopeLabel}</span> under each strategy. Deterministic — same trades, same numbers.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Label htmlFor="cmp-balance" className="text-xs whitespace-nowrap">Sim $</Label>
-          <Input
-            id="cmp-balance"
-            type="number"
-            value={simBalance}
-            onChange={(e) => setSimBalance(Math.max(0, Number(e.target.value) || 0))}
-            className="h-8 w-28 font-mono-numbers text-xs"
-            min={0}
-            step={1000}
-          />
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="cmp-balance" className="text-xs whitespace-nowrap">Sim $</Label>
+            <Input
+              id="cmp-balance"
+              type="number"
+              value={simBalance}
+              onChange={(e) => setSimBalance(Math.max(0, Number(e.target.value) || 0))}
+              className="h-8 w-28 font-mono-numbers text-xs"
+              min={0}
+              step={1000}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch id="cmp-fidelity" checked={highFidelityOnly} onCheckedChange={setHighFidelityOnly} />
+            <Label htmlFor="cmp-fidelity" className="text-xs flex items-center gap-1 cursor-pointer">
+              <ShieldCheck className="w-3 h-3" /> High-fidelity only
+            </Label>
+          </div>
         </div>
       </div>
 
