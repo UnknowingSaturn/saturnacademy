@@ -13,6 +13,7 @@ import { RecommendationCard } from "@/components/pair-lab/RecommendationCard";
 import { QuantNotePanel } from "@/components/pair-lab/QuantNotePanel";
 import { SymbolAliasManager } from "@/components/pair-lab/SymbolAliasManager";
 import { StrategyCompare } from "@/components/pair-lab/StrategyCompare";
+import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
 import { normalizeSession } from "@/lib/pairLabMath";
 
 export default function PairLab() {
@@ -203,13 +204,22 @@ export default function PairLab() {
                   </span>
                 </Card>
                 {data.accountBalance > 0 ? (
-                  <StrategyCompare
-                    trades={scopedTrades}
-                    fieldKeys={data.fieldKeys}
-                    balance={data.accountBalance}
-                    propFirm={propFirmMode ? data.propFirm : null}
-                    scopeLabel={scopeLabel}
-                  />
+                  <>
+                    <StrategyRanker
+                      trades={scopedTrades}
+                      fieldKeys={data.fieldKeys}
+                      balance={data.accountBalance}
+                      propFirm={propFirmMode ? data.propFirm : null}
+                      scopeLabel={scopeLabel}
+                    />
+                    <StrategyCompare
+                      trades={scopedTrades}
+                      fieldKeys={data.fieldKeys}
+                      balance={data.accountBalance}
+                      propFirm={propFirmMode ? data.propFirm : null}
+                      scopeLabel={scopeLabel}
+                    />
+                  </>
                 ) : (
                   <Card className="p-6 text-sm text-muted-foreground text-center">
                     Pick a single account in the top filter — the simulator needs a balance to convert R into dollars.
