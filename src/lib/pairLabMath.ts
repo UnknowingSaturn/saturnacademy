@@ -62,6 +62,8 @@ export interface BucketStats {
   worstLosingStreak: number;
   /** Number of (closed) trades in this bucket that have an explicit MFE custom-field value. */
   loggedMfeCount: number;
+  /** Number of (closed) trades in this bucket that have an explicit MAE custom-field value AND convertible SL. */
+  loggedMaeCount: number;
 }
 
 export interface Tp1Star {
