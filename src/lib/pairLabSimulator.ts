@@ -341,9 +341,8 @@ function replayOneTrade(
         // trail_to_mfe: runner gets trailed, then stopped out somewhere
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
         const mfeNewR = proof.loggedMfe / slScale;
-        // 80% capture of the trailed move, floored at the trail stop (= -1 from MFE peak isn't modeled
-        // — we use the same 80%-of-MFE convention as the deterministic case).
-        booked += Math.max(-1, 0.8 * mfeNewR) * remainingFrac;
+        // Documented trail-capture assumption (default 80%). Floored at -1R.
+        booked += Math.max(-1, TRAIL_CAPTURE_FRAC * mfeNewR) * remainingFrac;
       }
     } else {
       // Not stopped — runner exits on its rule
@@ -355,9 +354,10 @@ function replayOneTrade(
         // trail_to_mfe needs MFE
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
         const mfeNewR = proof.loggedMfe / slScale;
-        booked += 0.8 * mfeNewR * remainingFrac;
+        booked += TRAIL_CAPTURE_FRAC * mfeNewR * remainingFrac;
       }
     }
+
   }
 
   return { r: booked };
