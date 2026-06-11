@@ -253,6 +253,10 @@ export interface BuildBucketsOpts {
   actualProfile?: string | null;
   /** Closed trades only when true (default). */
   closedOnly?: boolean;
+  /** Map a raw broker symbol to its canonical name. Default = identity. */
+  symbolResolver?: (raw: string) => string;
+  /** When supplied, recommendation includes a prop-firm-aware risk cap. */
+  propFirm?: PropFirmContext | null;
 }
 
 export function buildBuckets(
@@ -261,6 +265,7 @@ export function buildBuckets(
   opts: BuildBucketsOpts = {},
 ): { perCell: BucketReport[]; perRow: BucketReport[]; baseline: BucketReport } {
   const closedOnly = opts.closedOnly !== false;
+  const resolveSym = opts.symbolResolver ?? ((s: string) => s);
   const filtered = trades.filter((t) => {
     if (closedOnly && t.is_open) return false;
     if (t.is_archived) return false;
@@ -270,34 +275,92 @@ export function buildBuckets(
   });
 
   // Baseline = all symbols, all sessions (used for edge deltas).
-  const baseline = computeBucket({ symbol: "All", session: "All sessions" }, filtered, keys, null);
+  const baseline = computeBucket(
+    { symbol: "All", session: "All sessions" },
+    filtered,
+    keys,
+    null,
+    opts.propFirm ?? null,
+  );
 
-  // Per-cell (symbol × session) and per-row (symbol × "All sessions").
+  // Per-cell (canonicalSymbol × session) and per-row (canonicalSymbol × "All sessions").
   const cellMap = new Map<string, Trade[]>();
   const rowMap = new Map<string, Trade[]>();
+  const cellRawSymbols = new Map<string, Set<string>>();
+  const rowRawSymbols = new Map<string, Set<string>>();
   for (const t of filtered) {
     if (!t.symbol) continue;
+    const canonical = resolveSym(t.symbol);
     const sess = normalizeSession(t.session);
-    const cellKey = `${t.symbol}__${sess}`;
-    if (!cellMap.has(cellKey)) cellMap.set(cellKey, []);
+    const cellKey = `${canonical}__${sess}`;
+    if (!cellMap.has(cellKey)) { cellMap.set(cellKey, []); cellRawSymbols.set(cellKey, new Set()); }
     cellMap.get(cellKey)!.push(t);
-    if (!rowMap.has(t.symbol)) rowMap.set(t.symbol, []);
-    rowMap.get(t.symbol)!.push(t);
+    cellRawSymbols.get(cellKey)!.add(t.symbol);
+    if (!rowMap.has(canonical)) { rowMap.set(canonical, []); rowRawSymbols.set(canonical, new Set()); }
+    rowMap.get(canonical)!.push(t);
+    rowRawSymbols.get(canonical)!.add(t.symbol);
   }
 
   const perCell: BucketReport[] = [];
   cellMap.forEach((rows, cellKey) => {
     const [symbol, session] = cellKey.split("__");
-    perCell.push(computeBucket({ symbol, session }, rows, keys, baseline));
+    const report = computeBucket({ symbol, session }, rows, keys, baseline, opts.propFirm ?? null);
+    report.rawSymbols = Array.from(cellRawSymbols.get(cellKey) ?? []).sort();
+    perCell.push(report);
   });
   const perRow: BucketReport[] = [];
   rowMap.forEach((rows, symbol) => {
-    perRow.push(computeBucket({ symbol, session: "All sessions" }, rows, keys, baseline));
+    const report = computeBucket(
+      { symbol, session: "All sessions" },
+      rows,
+      keys,
+      baseline,
+      opts.propFirm ?? null,
+    );
+    report.rawSymbols = Array.from(rowRawSymbols.get(symbol) ?? []).sort();
+    perRow.push(report);
   });
 
   perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
   perRow.sort((a, b) => b.n - a.n);
   return { perCell, perRow, baseline };
+}
+
+/** Longest run of consecutive losing trades (net_pnl < 0), ordered by entry_time. */
+function longestLossStreak(rows: Trade[]): number {
+  const sorted = [...rows]
+    .filter((t) => t.net_pnl != null && t.entry_time)
+    .sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)));
+  let run = 0;
+  let worst = 0;
+  for (const t of sorted) {
+    if ((t.net_pnl ?? 0) < 0) {
+      run += 1;
+      if (run > worst) worst = run;
+    } else {
+      run = 0;
+    }
+  }
+  return worst;
+}
+
+/** Empirical hit rate of MFE ≥ r for trades that have MFE recorded. */
+function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
+  if (mfes.length < 5) return null;
+  const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
+  let best: Tp1Star | null = null;
+  for (const r of candidates) {
+    const hits = mfes.filter((v) => v >= r).length;
+    const hitRate = hits / mfes.length;
+    if (hitRate < 0.4) continue; // need a real chance of being hit
+    // log scaling avoids 0.25R always winning the "win rate" race.
+    const score = hitRate * Math.log(1 + r);
+    const expectancyR = hitRate * r - (1 - hitRate) * avgLossR;
+    if (!best || score > best.hitRate * Math.log(1 + best.r)) {
+      best = { r, hitRate, expectancyR };
+    }
+  }
+  return best;
 }
 
 function computeBucket(
