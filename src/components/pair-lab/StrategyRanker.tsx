@@ -17,7 +17,7 @@ import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Trophy, AlertTriangle, CheckCircle2, ShieldCheck } from "lucide-react";
-import { replayBucket, type ReplayResult } from "@/lib/pairLabSimulator";
+import { replayBucket, MIN_HIGH_FIDELITY_SAMPLE, type ReplayResult } from "@/lib/pairLabSimulator";
 import { STRATEGY_PRESETS } from "@/lib/pairLabPresets";
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
@@ -42,7 +42,7 @@ function busted(r: ReplayResult) {
 export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabel }: Props) {
   const [riskPct, setRiskPct] = useState<number>(1);
   const [simBalance, setSimBalance] = useState<number>(balance);
-  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(false);
+  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(true);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const ranked = useMemo(() => {
