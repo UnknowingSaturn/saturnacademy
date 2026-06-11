@@ -293,8 +293,12 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
             Proof-only replay: a trade is eligible for a preset when MFE,
             {" "}<code className="text-[10px]">tp_reached</code>, or
             {" "}<code className="text-[10px]">r_actual</code> proves the rule's targets were reached
-            (or the trade stopped out). No heuristic guessing. ±CI is the bootstrap 95% interval on per-trade R —
-            when the two CIs overlap, the difference isn't statistically meaningful.
+            (or the trade stopped out). MAE and Ideal-SL are logged in broker ticks and converted to R
+            using each trade's initial-SL distance — trades missing
+            {" "}<code className="text-[10px]">sl_initial</code> or
+            {" "}<code className="text-[10px]">entry_price</code> are ineligible for MAE/ideal-SL-based presets.
+            ±CI is the bootstrap 95% interval on per-trade R — when the two CIs overlap, the difference
+            isn't statistically meaningful. Trail runners assume 80% MFE capture (estimate, not proof).
           </span>
         </p>
       </Card>
