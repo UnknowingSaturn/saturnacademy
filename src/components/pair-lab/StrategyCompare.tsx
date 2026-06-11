@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { AlertTriangle, CheckCircle2, TrendingUp, TrendingDown, ShieldCheck } from "lucide-react";
 import { StrategyPresetPicker } from "./StrategyPresetPicker";
 import { EquityCurveOverlay } from "./EquityCurveOverlay";
-import { replayBucket, type Strategy, type ReplayResult } from "@/lib/pairLabSimulator";
+import { replayBucket, MIN_HIGH_FIDELITY_SAMPLE, type Strategy, type ReplayResult } from "@/lib/pairLabSimulator";
 import { getPreset } from "@/lib/pairLabPresets";
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
@@ -85,7 +85,7 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
   const [stratA, setStratA] = useState<Strategy>(getPreset("current")!);
   const [stratB, setStratB] = useState<Strategy>(getPreset("scale-out")!);
   const [simBalance, setSimBalance] = useState<number>(balance);
-  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(false);
+  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(true);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const resA = useMemo(
@@ -104,6 +104,14 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
       </Card>
     );
   }
+
+
+  const loggedCount = Math.max(resA.loggedTradeCount, resB.loggedTradeCount);
+  const totalCount = Math.max(resA.totalTradeCount, resB.totalTradeCount);
+  const stratAneedsMfe = !stratA.useActualOutcome;
+  const stratBneedsMfe = !stratB.useActualOutcome;
+  const insufficient =
+    highFidelityOnly && (stratAneedsMfe || stratBneedsMfe) && loggedCount < MIN_HIGH_FIDELITY_SAMPLE;
 
   const winnerA = resA.totalDollars > resB.totalDollars;
   const verdict = (() => {
@@ -143,13 +151,36 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
           <div className="flex items-center gap-2">
             <Switch id="cmp-fidelity" checked={highFidelityOnly} onCheckedChange={setHighFidelityOnly} />
             <Label htmlFor="cmp-fidelity" className="text-xs flex items-center gap-1 cursor-pointer">
-              <ShieldCheck className="w-3 h-3" /> High-fidelity only
+              <ShieldCheck className="w-3 h-3" /> Honest mode (logged MFE only)
             </Label>
           </div>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-5">
+
+      {insufficient && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+          <div className="space-y-1">
+            <div className="font-medium">Preset comparison muted — not enough logged MFE.</div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              This scope has <span className="font-mono-numbers font-semibold text-foreground">{loggedCount}</span> of {totalCount} trades with MFE recorded.
+              Honest mode needs ≥ {MIN_HIGH_FIDELITY_SAMPLE} before non-actual presets are trustworthy.
+              {" "}
+              <button
+                type="button"
+                onClick={() => setHighFidelityOnly(false)}
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                Show inferred data anyway
+              </button>.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className={`grid md:grid-cols-2 gap-5 ${insufficient ? "opacity-40 pointer-events-none" : ""}`}>
+
         <div className="space-y-4">
           <StrategyPresetPicker value={stratA} onChange={setStratA} label="Strategy A" />
           <div className="rounded-md border border-border/60 p-3 bg-muted/20">
@@ -185,7 +216,10 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
             </span>
           </div>
         </div>
-        <EquityCurveOverlay results={[resA, resB]} />
+        <EquityCurveOverlay
+          results={insufficient ? [resA, resB].filter((r) => r.strategy.useActualOutcome) : [resA, resB]}
+        />
+
       </div>
 
       <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed">

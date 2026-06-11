@@ -58,6 +58,8 @@ export interface BucketStats {
   expectedRCi: [number, number] | null;
   // Longest run of consecutive losing trades observed in this bucket.
   worstLosingStreak: number;
+  /** Number of (closed) trades in this bucket that have an explicit MFE custom-field value. */
+  loggedMfeCount: number;
 }
 
 export interface Tp1Star {
@@ -438,6 +440,7 @@ function computeBucket(
     confidence: confidenceFor(n),
     expectedRCi: bootstrapMeanCi(rActuals),
     worstLosingStreak: longestLossStreak(rows),
+    loggedMfeCount: closed.filter((t) => numericCf(t as any, keys.mfe) != null).length,
   };
 
   const recommendation = buildRecommendation(stats, winR, lossR, mfes, baseline, propFirm);

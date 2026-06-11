@@ -1,45 +1,61 @@
-## What's in place (Phase 1 + Phase 2 review)
+## Goal
 
-Verified the simulator stack:
+Make the Strategy Simulator math trustworthy by default. Stop replaying presets against inferred MFE data, and make it obvious which buckets have enough logged data to be statistically meaningful.
 
-- `src/lib/pairLabSimulator.ts` — deterministic replay engine (R-multiples → $, DD, prop-firm verdict).
-- `src/lib/pairLabPresets.ts` — 6 presets including "Your current behavior" baseline.
-- `src/components/pair-lab/StrategyPresetPicker.tsx`, `EquityCurveOverlay.tsx`, `StrategyCompare.tsx` — head-to-head compare.
-- `src/components/pair-lab/StrategyRanker.tsx` — runs all presets at one risk %, demotes busters, picks a winner with $ uplift vs current behavior.
-- `src/pages/PairLab.tsx` — Simulator tab renders Ranker + Compare; scope follows the bucket selected in Grid, otherwise "All trades in scope".
+## Behavior changes
 
-**Gap you spotted:** the Simulator hard-blocks with "Pick a single account…" because `accountBalance` only comes from `useAccount(selectedAccountId)`, which is `undefined` whenever the global Account filter is "all". With 278 closed trades aggregated across accounts, the simulator should still run — we just need a balance to convert R into $.
+1. **High-fidelity is ON by default** across Ranker and Compare. The toggle stays (users can flip it off to see inferred data), but the default is honest-math-only.
+2. **Min sample = 10 logged trades.** If a bucket has fewer than 10 trades with both MFE and MAE recorded, preset comparisons are suppressed and the cell shows an "insufficient logged data" state instead of misleading stats.
+3. **Every bucket cell in the grid shows MFE coverage** — e.g. `1/30 logged` — color-coded so users see data quality at a glance before clicking in.
+4. **"Actual behavior" preset is unaffected** by the filter (it only needs `r_multiple_actual`, not MFE). It still appears in rankings even on low-coverage buckets, but other presets are hidden/grayed.
 
-## Plan — let the Simulator work across all accounts
+## Coverage badge color rules (on each cell in `BucketGrid`)
 
-### 1. Aggregate balance when filter = "all"
-In `src/hooks/usePairLab.tsx`:
-- Call `useAccounts()` unconditionally.
-- New derived field `aggregateBalance` = sum of `balance_start` across all the user's accounts.
-- `accountBalance` returned by the hook becomes: single account's `balance_start` when one is picked, else the aggregate sum.
-- Expose `isAllAccounts: boolean` so the UI can label the mode.
-- Prop-firm context stays `null` in all-accounts mode (mixing firms' DD caps would be meaningless) — the verdict column simply renders as "—".
+- Green: ≥70% of trades have logged MFE
+- Amber: 30–69%
+- Red: <30% (or <10 absolute)
+- Format: `12/30 MFE` under the existing MFE/MAE p75 line
 
-### 2. Manual balance override in the Simulator
-In `StrategyRanker.tsx` and `StrategyCompare.tsx`:
-- Add a small "Sim balance $" numeric input (defaults to the hook's `accountBalance`, persists in component state only).
-- Lets the user model "what if this were a $50k account" without changing their global filter.
-- Both components already accept `balance` as a prop; just lift it into local state initialised from the prop.
+## Insufficient-data state
 
-### 3. Drop the hard block in `PairLab.tsx`
-Replace the "Pick a single account" empty-state with the Simulator panels as long as `accountBalance > 0` (now true in both modes). If `accountBalance === 0` (no accounts at all), keep a softer message: "Add an account in Settings, or enter a sim balance below" plus a balance input.
+When `highFidelityOnly` is on and `loggedTrades < 10` for a bucket:
 
-### 4. Banner copy
-Update the scope banner in the Simulator tab to read e.g. *"Simulating All trades in scope across all accounts · sim balance $X (aggregate, edit below). Prop-firm verdict disabled in all-accounts mode."* when in all-accounts mode.
+- **Ranker**: show "Need 10+ trades with logged MFE to compare presets. This bucket has N. Showing actual behavior only." instead of the preset leaderboard.
+- **Compare**: gray both preset cards, same message, with a "Show inferred data anyway" link that flips the toggle locally.
+- **EquityCurveOverlay**: hide preset curves except "actual behavior".
 
-## Out of scope
-- Per-account replay (running the ranker once per account and aggregating). Possible later, but the single-pooled-balance approach matches how the user is already viewing the data.
-- Persisting the sim-balance override to the DB. Local state is enough; the user just wants quick what-ifs.
+## Technical changes
 
-## Files touched
-- `src/hooks/usePairLab.tsx` — aggregate balance + flag.
-- `src/pages/PairLab.tsx` — drop hard block, update banner.
-- `src/components/pair-lab/StrategyRanker.tsx` — local balance override.
-- `src/components/pair-lab/StrategyCompare.tsx` — local balance override.
+### `src/lib/pairLabSimulator.ts`
+- Add `loggedTradeCount` and `totalTradeCount` to `ReplayResult` so the UI can render coverage without recomputing.
+- Add a helper `getBucketCoverage(trades, fieldKeys)` returning `{ logged, total, pct }` for use by `BucketGrid` (cheap — just counts MFE-present trades).
+- Export a constant `MIN_HIGH_FIDELITY_SAMPLE = 10`.
 
-No DB or edge-function changes.
+### `src/components/pair-lab/StrategyRanker.tsx`
+- Default `highFidelityOnly` state to `true`.
+- After computing results, if `winner.loggedTradeCount < MIN_HIGH_FIDELITY_SAMPLE` and `highFidelityOnly` is true, render the insufficient-data panel instead of the leaderboard. Keep "actual behavior" row visible.
+- Add a one-line caption near the toggle: "Honest mode: only trades with logged MFE/MAE are replayed."
+
+### `src/components/pair-lab/StrategyCompare.tsx`
+- Default `highFidelityOnly` to `true`.
+- Same insufficient-data guard. Add a "Show inferred data anyway" inline button that calls `setHighFidelityOnly(false)` and shows a subtle warning banner above the cards explaining the numbers are estimates.
+
+### `src/components/pair-lab/BucketGrid.tsx`
+- Compute coverage per cell via `getBucketCoverage`.
+- Append a coverage badge under the existing `MFE x · MAE y` line, with the color rule above.
+- Add a small legend chip to the grid header explaining the coverage colors.
+
+### `src/components/pair-lab/EquityCurveOverlay.tsx`
+- When the active bucket is low-coverage in high-fidelity mode, render only the "actual behavior" curve plus an empty-state message for preset curves.
+
+## What this does NOT change
+
+- Inference math itself stays exactly as it is — we are not making it more optimistic. Users who flip the toggle off get the same conservative inferred replay they have today.
+- No DB or backend changes. This is presentation + default-state only.
+- "Actual behavior" preset math is unchanged.
+
+## Is this actually better?
+
+For users with well-logged data: yes, immediately — the default view becomes trustworthy without any opt-in.
+
+For your current EURUSD-Tokyo bucket (1/30 logged): the simulator will *correctly* refuse to compare presets and tell you to log more MFE data. That is the honest answer. The escape hatch ("Show inferred data anyway") preserves the existing capability for users who explicitly accept the uncertainty.
