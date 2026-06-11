@@ -26,6 +26,7 @@ import SharedReports from "./pages/SharedReports";
 import SharedReportEditor from "./pages/SharedReportEditor";
 import PublicReport from "./pages/PublicReport";
 import Knowledge from "./pages/Knowledge";
+import PairLab from "./pages/PairLab";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -81,6 +82,7 @@ function AppRoutes() {
       <Route path="/journal" element={<ProtectedRoute><LiveTradesProvider><Journal /></LiveTradesProvider></ProtectedRoute>} />
       <Route path="/live-trades" element={<ProtectedRoute><LiveTradesProvider><LiveTrades /></LiveTradesProvider></ProtectedRoute>} />
       <Route path="/playbooks" element={<ProtectedRoute><Playbooks /></ProtectedRoute>} />
+      <Route path="/pair-lab" element={<ProtectedRoute><PairLab /></ProtectedRoute>} />
       <Route path="/copier" element={<ProtectedRoute><Copier /></ProtectedRoute>} />
       <Route path="/copier/console" element={<ProtectedRoute><CopierConsole /></ProtectedRoute>} />
       
