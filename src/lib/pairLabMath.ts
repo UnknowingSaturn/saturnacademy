@@ -485,6 +485,10 @@ function computeBucket(
     expectedRCi: bootstrapMeanCi(rActuals),
     worstLosingStreak: longestLossStreak(rows),
     loggedMfeCount: closed.filter((t) => numericCf(t as any, keys.mfe) != null).length,
+    loggedMaeCount: closed.filter((t) => {
+      const v = numericCf(t as any, keys.mae);
+      return v != null && t.sl_initial != null && t.entry_price != null;
+    }).length,
   };
 
 
