@@ -58,6 +58,8 @@ export interface BucketStats {
   expectedRCi: [number, number] | null;
   // Longest run of consecutive losing trades observed in this bucket.
   worstLosingStreak: number;
+  /** Number of (closed) trades in this bucket that have an explicit MFE custom-field value. */
+  loggedMfeCount: number;
 }
 
 export interface Tp1Star {
