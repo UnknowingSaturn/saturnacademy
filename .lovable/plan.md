@@ -1,61 +1,103 @@
 ## Goal
 
-Make the Strategy Simulator math trustworthy by default. Stop replaying presets against inferred MFE data, and make it obvious which buckets have enough logged data to be statistically meaningful.
+Replace the binary "honest mode" gate with **per-trade, per-preset eligibility**. Each preset declares what data it needs; we replay only trades that *prove* (via recorded MFE, `tp_reached`, MAE, or `r_actual`) that the preset's rules would have triggered. No heuristic guessing. Quant-style transparency: every preset reports its own N, and the Compare view uses a matched intersection sample for fair diffs.
 
-## Behavior changes
+## Core principle
 
-1. **High-fidelity is ON by default** across Ranker and Compare. The toggle stays (users can flip it off to see inferred data), but the default is honest-math-only.
-2. **Min sample = 10 logged trades.** If a bucket has fewer than 10 trades with both MFE and MAE recorded, preset comparisons are suppressed and the cell shows an "insufficient logged data" state instead of misleading stats.
-3. **Every bucket cell in the grid shows MFE coverage** — e.g. `1/30 logged` — color-coded so users see data quality at a glance before clicking in.
-4. **"Actual behavior" preset is unaffected** by the filter (it only needs `r_multiple_actual`, not MFE). It still appears in rankings even on low-coverage buckets, but other presets are hidden/grayed.
+**A trade contributes proof, not approximation.**
 
-## Coverage badge color rules (on each cell in `BucketGrid`)
+- Logged MFE ≥ X → price reached X. ✓
+- `tp_reached` contains a label parsing to ≥ X → price reached X. ✓
+- `r_actual` ≥ X → price reached at least X (close happened there). ✓
+- Logged MAE ≥ 1 → trade stopped out. ✓
+- Anything else for a target the trade didn't *prove* it reached → excluded from that preset (not inferred).
 
-- Green: ≥70% of trades have logged MFE
-- Amber: 30–69%
-- Red: <30% (or <10 absolute)
-- Format: `12/30 MFE` under the existing MFE/MAE p75 line
+A trade can be eligible for "Quick-flip @1R" (because `r_actual` = 1.2) while being ineligible for "All-out @2R" (no proof of 2R). That is correct — we just don't know.
 
-## Insufficient-data state
+## Per-preset data contracts
 
-When `highFidelityOnly` is on and `loggedTrades < 10` for a bucket:
+Each preset gets a typed `Eligibility` function:
 
-- **Ranker**: show "Need 10+ trades with logged MFE to compare presets. This bucket has N. Showing actual behavior only." instead of the preset leaderboard.
-- **Compare**: gray both preset cards, same message, with a "Show inferred data anyway" link that flips the toggle locally.
-- **EquityCurveOverlay**: hide preset curves except "actual behavior".
+```ts
+type Proof = { reachedR: number; stoppedOut: boolean; loggedMfe: number | null; loggedMae: number | null };
+
+interface PresetContract {
+  /** Returns null if the trade can't be replayed honestly under this preset. */
+  evaluate(proof: Proof, trade: Trade): { r: number } | null;
+  /** Plain-english data needs, surfaced in the UI. */
+  requires: string;
+}
+```
+
+Examples:
+
+| Preset | Eligible iff | Booked R |
+|---|---|---|
+| Actual behavior | `r_actual` exists | `r_actual` |
+| Quick-flip @1R | `reachedR ≥ 1` OR (stoppedOut AND reachedR < 1) | +1 if reached, −1 if stopped |
+| Scale-out 50/50 @1R,@2R | proof for BOTH 1R and 2R (or proof of stop-out before 1R) | 0.5·1 + 0.5·2 = 1.5; or −1; or partial @1R + BE if proof for 1R but not 2R AND not stopped out |
+| All-out @2R | `reachedR ≥ 2` OR stoppedOut | +2 or −1 |
+| Runner / trail-to-MFE | logged MFE only (no proxy) | 0.8 · loggedMfe (or −1 if loggedMae≥1) |
+| Widen SL to MAE p75 | logged MAE only | computed using actual MAE vs widened SL |
+
+Trades that can't prove the preset's full path but also can't prove a stop-out are **excluded** from that preset's N. We never assume "must have hit BE" or "must have stopped" without evidence.
+
+## Reporting modes
+
+### Ranker — native N per preset
+- Each preset row shows its own `N_eligible / N_total` (e.g. "All-out @2R · N 18/30").
+- Sort key becomes **expectancy R** rather than total $, because total-$ favors presets with larger N.
+- Add a tiny eligibility badge: green if ≥70% of bucket eligible, amber 30–69%, red <30% or <10.
+- Replace the "Honest mode" toggle with a single line: "Quant mode: proof-only replay, no guessing."
+
+### Compare — matched-sample (intersection)
+- Compute the set of trades eligible for BOTH selected strategies.
+- Both replays use the same matched subset → totals, win-rate, expectancy are directly comparable.
+- Header shows `Matched N: 14 of 30 (47%)` with a tooltip listing which trades dropped out and why (per-strategy ineligibility breakdown).
+- If matched N < 5, show "Not enough trades pass both data contracts to compare. Pick presets with looser data needs, or log more MFE/MAE."
+
+### Confidence intervals
+- Add bootstrap 95% CI to expectancy R and total $ on every preset (reuse existing `bootstrapMeanCi`). Render as `+0.42R ± 0.31`. Quants instantly know whether the gap is real.
 
 ## Technical changes
 
-### `src/lib/pairLabSimulator.ts`
-- Add `loggedTradeCount` and `totalTradeCount` to `ReplayResult` so the UI can render coverage without recomputing.
-- Add a helper `getBucketCoverage(trades, fieldKeys)` returning `{ logged, total, pct }` for use by `BucketGrid` (cheap — just counts MFE-present trades).
-- Export a constant `MIN_HIGH_FIDELITY_SAMPLE = 10`.
+### `src/lib/pairLabSimulator.ts` (rewrite the core)
+- Add `extractProof(trade, keys)` → `{ reachedR, stoppedOut, loggedMfe, loggedMae }`. `reachedR = max(loggedMfe ?? 0, maxTpReached, max(r_actual, 0))`.
+- Replace `replayOneTrade` with per-preset `evaluate` functions. Return `null` for ineligible.
+- Remove all `bucket.mfeMedianWinners` / fallback logic. Delete `BucketConstants` MFE medians (keep `maeP75` for the widen-SL preset since that one *needs* MAE anyway and is gated on it).
+- Replace `Fidelity` enum / `FidelityBreakdown` with a simpler `Eligibility` shape: `{ eligible: number; ineligible: number; reasons: Record<string, number> }`.
+- `ReplayResult` gains: `eligibleCount`, `ineligibleCount`, `ineligibleReasons`, `expectancyCi: [lo, hi] | null`, `totalDollarsCi: [lo, hi] | null`.
+- Add `replayBucketMatched(trades, keys, strategies[], opts)` → returns one `ReplayResult` per strategy, all using the matched subset, plus the matched subset itself.
+
+### `src/lib/pairLabPresets.ts`
+- Each preset declares its `requires` string (for UI) and references its evaluate function. The `ExitRule` shape stays for display, but execution goes through the new contracts.
 
 ### `src/components/pair-lab/StrategyRanker.tsx`
-- Default `highFidelityOnly` state to `true`.
-- After computing results, if `winner.loggedTradeCount < MIN_HIGH_FIDELITY_SAMPLE` and `highFidelityOnly` is true, render the insufficient-data panel instead of the leaderboard. Keep "actual behavior" row visible.
-- Add a one-line caption near the toggle: "Honest mode: only trades with logged MFE/MAE are replayed."
+- Drop the high-fidelity toggle and insufficient-data banner.
+- New columns: `N elig`, `Expectancy ± CI`.
+- Sort by expectancy R, tiebreak by total $, busted strategies still demoted.
+- Per-row eligibility chip + tooltip listing top exclusion reasons.
 
 ### `src/components/pair-lab/StrategyCompare.tsx`
-- Default `highFidelityOnly` to `true`.
-- Same insufficient-data guard. Add a "Show inferred data anyway" inline button that calls `setHighFidelityOnly(false)` and shows a subtle warning banner above the cards explaining the numbers are estimates.
+- Use `replayBucketMatched` for the two selected strategies.
+- Header card: "Matched sample: 14 / 30 trades · 47% — direct comparison".
+- Per-strategy "if we used your full eligible set" footnote with native N for context, but the headline numbers are matched.
+- Equity overlay uses the matched curves so they share an x-axis.
 
 ### `src/components/pair-lab/BucketGrid.tsx`
-- Compute coverage per cell via `getBucketCoverage`.
-- Append a coverage badge under the existing `MFE x · MAE y` line, with the color rule above.
-- Add a small legend chip to the grid header explaining the coverage colors.
-
-### `src/components/pair-lab/EquityCurveOverlay.tsx`
-- When the active bucket is low-coverage in high-fidelity mode, render only the "actual behavior" curve plus an empty-state message for preset curves.
+- Keep the MFE coverage badge (still useful as a glance metric).
+- Add a second tiny row: `MAE Y/N` so users see MAE coverage too (needed for widen-SL preset and runner stop detection).
 
 ## What this does NOT change
 
-- Inference math itself stays exactly as it is — we are not making it more optimistic. Users who flip the toggle off get the same conservative inferred replay they have today.
-- No DB or backend changes. This is presentation + default-state only.
-- "Actual behavior" preset math is unchanged.
+- `BucketReport` shape stays (only `loggedMfeCount` already added; no breaking change).
+- "Actual behavior" math is unchanged.
+- The grid heatmap continues to use real `r_actual` for cell stats.
+- No DB / schema changes.
 
-## Is this actually better?
+## Why this is better
 
-For users with well-logged data: yes, immediately — the default view becomes trustworthy without any opt-in.
-
-For your current EURUSD-Tokyo bucket (1/30 logged): the simulator will *correctly* refuse to compare presets and tell you to log more MFE data. That is the honest answer. The escape hatch ("Show inferred data anyway") preserves the existing capability for users who explicitly accept the uncertainty.
+1. **Salvages partial information.** Your EURUSD-Tokyo bucket has 1 logged MFE but likely 8–12 trades with `tp_reached` or `r_actual ≥ 2` — those become *proven* eligible for "All-out @2R", not silenced.
+2. **No more lying.** A preset's expectancy reflects only trades where the rules would have demonstrably fired. No bucket-median guesses inflating or deflating.
+3. **Quant-grade comparison.** Matched-sample diffs in Compare + bootstrap CIs make "is preset A actually better than B?" a real statistical question, not vibes.
+4. **Self-improving data UX.** When users see "All-out @2R: N 4/30 — log MFE on more trades to unlock", they get a concrete reason to log.
