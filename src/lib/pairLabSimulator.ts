@@ -21,6 +21,10 @@
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile } from "@/lib/pairLabMath";
+import { tickSizeForSymbol } from "@/lib/symbolMapping";
+
+/** Default fraction of MFE captured by a trailing stop. */
+export const TRAIL_CAPTURE_FRAC = 0.8;
 
 // ----------------------------------------------------------------------------
 // Strategy types (unchanged shape for picker/preset back-compat)
