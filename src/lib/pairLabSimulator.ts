@@ -142,13 +142,37 @@ function maxTpReached(trade: Trade, keys: PairLabFieldKeys): number | null {
   return Math.max(...rs);
 }
 
-function slPipsFor(t: Trade): number | null {
-  if (t.sl_initial == null || t.entry_price == null) return null;
+/**
+ * Distance from entry to initial stop, expressed in broker ticks
+ * (`|entry - sl_initial| / tickSize(symbol)`). Returns null when SL or
+ * entry are missing so callers can mark the trade ineligible rather than
+ * silently treating it as 0.
+ */
+export function slDistanceTicks(t: Trade): number | null {
+  if (t.sl_initial == null || t.entry_price == null || !t.symbol) return null;
+  const tick = tickSizeForSymbol(t.symbol);
+  if (!(tick > 0)) return null;
   const distance = Math.abs(t.entry_price - t.sl_initial);
-  const digits = String(t.entry_price).split(".")[1]?.length ?? 4;
-  const pipMultiplier = digits >= 4 ? 10_000 : 100;
-  return distance * pipMultiplier;
+  if (!(distance > 0)) return null;
+  return distance / tick;
 }
+
+/** MAE-ticks → MAE in R-multiples of the original SL. Null when SL/entry missing. */
+export function tradeMaeR(t: Trade, maeTicks: number | null): number | null {
+  if (maeTicks == null) return null;
+  const sl = slDistanceTicks(t);
+  if (sl == null || sl <= 0) return null;
+  return Math.abs(maeTicks) / sl;
+}
+
+/** Ideal-SL ticks → scale multiplier against original SL distance (clamped 0.2..2). */
+export function idealSlScaleFor(t: Trade, idealTicks: number | null): number | null {
+  if (idealTicks == null) return null;
+  const sl = slDistanceTicks(t);
+  if (sl == null || sl <= 0) return null;
+  return Math.max(0.2, Math.min(2, idealTicks / sl));
+}
+
 
 // ----------------------------------------------------------------------------
 // Per-trade proof extraction
