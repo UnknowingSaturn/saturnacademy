@@ -226,6 +226,14 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
         All presets are tested at the same risk %, so the ranking isolates exit-strategy edge. Survival
         beats P&L: a strategy that busts the prop-firm is ranked below every survivor, even if its raw
         $ would be higher.
+        {winner && winner.inferredCount > 0 && !winner.strategy.useActualOutcome && (
+          <>
+            {" "}
+            <span className="text-amber-600 dark:text-amber-400">
+              MFE/MAE inferred from tp_reached + r-multiple for {winner.inferredCount} of {winner.n} trades — log MFE/MAE on more trades for higher fidelity.
+            </span>
+          </>
+        )}
       </p>
     </Card>
   );
