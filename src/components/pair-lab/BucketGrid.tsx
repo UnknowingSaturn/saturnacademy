@@ -77,7 +77,7 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
   return (
     <Card className="p-0 overflow-x-auto">
       <div className="flex items-center justify-end gap-3 px-3 py-1.5 text-[10px] text-muted-foreground border-b border-border/60 bg-muted/10">
-        <span className="uppercase tracking-wider">MFE coverage</span>
+        <span className="uppercase tracking-wider">MFE/MAE coverage</span>
         <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" /> ≥70%</span>
         <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" /> 30–69%</span>
         <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block" /> &lt;30% or &lt;10 trades</span>
