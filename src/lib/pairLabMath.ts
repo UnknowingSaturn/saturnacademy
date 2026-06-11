@@ -511,20 +511,21 @@ function buildRecommendation(
   baseline: BucketReport | null,
   propFirm: PropFirmContext | null,
 ): BucketRecommendation {
-  // SL: max of (p75(MAE) × 1.15, median(ideal SL)). Both are in pips.
+  // SL: max of (p75(MAE pips) × 1.15, median(ideal SL pips)). Both in pips.
   let suggestedSlPips: number | null = null;
-  const maeCandidate = s.maeP75 != null ? s.maeP75 * 1.15 : null;
+  const maeCandidate = s.maeP75Pips != null ? s.maeP75Pips * 1.15 : null;
   if (maeCandidate != null || s.idealSlMedian != null) {
     suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
   }
 
   // Expected-R TP ladder, capped by the most-common TP hit so we never
-  // recommend a target the user has never reached in practice.
+  // recommend a target the user has never reached in practice. Reuses the
+  // simulator's full TP-label parser ("1:2", "TP2", "2R", …).
   const ladder: number[] = [];
   const cap = (() => {
     if (!s.mostCommonTpHit) return Infinity;
-    const m = /1\s*:\s*(\d+(?:\.\d+)?)/.exec(s.mostCommonTpHit);
-    return m ? Number(m[1]) : Infinity;
+    const parsed = parseTpLabelLocal(s.mostCommonTpHit);
+    return parsed != null && parsed > 0 ? parsed : Infinity;
   })();
   const p70 = quantile(winR, 0.3);
   const p50 = quantile(winR, 0.5);
@@ -534,6 +535,7 @@ function buildRecommendation(
     ladder.push(Math.min(v, cap));
   }
   const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
+
 
   // Kelly sizing.
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
