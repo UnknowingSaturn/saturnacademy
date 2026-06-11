@@ -133,7 +133,7 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
           <StatLine label="MFE median" value={fmt(b.mfeP50, 2, "R")} />
           <StatLine label="MFE p75" value={fmt(b.mfeP75, 2, "R")} />
           <StatLine label="MAE median" value={fmt(b.maeP50, 1)} sub="user-entered units" />
-          <StatLine label="MAE p75" value={fmt(b.maeP75, 1)} sub="user-entered units" />
+          <StatLine label="MAE p75" value={fmt(b.maeP75, 2)} sub="R-multiple" />
         </div>
         <div>
           <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
