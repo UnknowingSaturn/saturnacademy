@@ -21,6 +21,10 @@
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile } from "@/lib/pairLabMath";
+import { tickSizeForSymbol } from "@/lib/symbolMapping";
+
+/** Default fraction of MFE captured by a trailing stop. */
+export const TRAIL_CAPTURE_FRAC = 0.8;
 
 // ----------------------------------------------------------------------------
 // Strategy types (unchanged shape for picker/preset back-compat)
@@ -79,6 +83,8 @@ export interface ReplayResult {
   maxDrawdownDollars: number;
   maxDrawdownPct: number;
   worstLosingStreak: number;
+  /** Mean of proven `reachedR` across this preset's eligible sample (self-selection diagnostic). */
+  meanReachedR: number | null;
   equityCurve: Array<{ i: number; equity: number; at: string | null }>;
   perTrade: ReplayPerTrade[];
   propFirmVerdict: "pass" | "bust_daily" | "bust_total" | "n/a";
@@ -138,13 +144,37 @@ function maxTpReached(trade: Trade, keys: PairLabFieldKeys): number | null {
   return Math.max(...rs);
 }
 
-function slPipsFor(t: Trade): number | null {
-  if (t.sl_initial == null || t.entry_price == null) return null;
+/**
+ * Distance from entry to initial stop, expressed in broker ticks
+ * (`|entry - sl_initial| / tickSize(symbol)`). Returns null when SL or
+ * entry are missing so callers can mark the trade ineligible rather than
+ * silently treating it as 0.
+ */
+export function slDistanceTicks(t: Trade): number | null {
+  if (t.sl_initial == null || t.entry_price == null || !t.symbol) return null;
+  const tick = tickSizeForSymbol(t.symbol);
+  if (!(tick > 0)) return null;
   const distance = Math.abs(t.entry_price - t.sl_initial);
-  const digits = String(t.entry_price).split(".")[1]?.length ?? 4;
-  const pipMultiplier = digits >= 4 ? 10_000 : 100;
-  return distance * pipMultiplier;
+  if (!(distance > 0)) return null;
+  return distance / tick;
 }
+
+/** MAE-ticks → MAE in R-multiples of the original SL. Null when SL/entry missing. */
+export function tradeMaeR(t: Trade, maeTicks: number | null): number | null {
+  if (maeTicks == null) return null;
+  const sl = slDistanceTicks(t);
+  if (sl == null || sl <= 0) return null;
+  return Math.abs(maeTicks) / sl;
+}
+
+/** Ideal-SL ticks → scale multiplier against original SL distance (clamped 0.2..2). */
+export function idealSlScaleFor(t: Trade, idealTicks: number | null): number | null {
+  if (idealTicks == null) return null;
+  const sl = slDistanceTicks(t);
+  if (sl == null || sl <= 0) return null;
+  return Math.max(0.2, Math.min(2, idealTicks / sl));
+}
+
 
 // ----------------------------------------------------------------------------
 // Per-trade proof extraction
@@ -169,9 +199,15 @@ interface TradeProof {
 
 function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
   const loggedMfeRaw = numericCf(trade as any, keys.mfe);
+  // MFE is logged in R-multiple by the user.
   const loggedMfe = loggedMfeRaw != null ? Math.max(0, loggedMfeRaw) : null;
-  const loggedMaeRaw = numericCf(trade as any, keys.mae);
-  const loggedMae = loggedMaeRaw != null ? Math.abs(loggedMaeRaw) : null;
+
+  // MAE is logged in broker TICKS (TradingView position-calc). Convert to R
+  // using each trade's own SL distance so all downstream comparisons are in
+  // the same unit as MFE / r_actual / slScale.
+  const loggedMaeRawTicks = numericCf(trade as any, keys.mae);
+  const loggedMae = tradeMaeR(trade, loggedMaeRawTicks);
+
   const tpHit = maxTpReached(trade, keys);
   const rActual = trade.r_multiple_actual;
   const hasActualR = rActual != null;
@@ -183,22 +219,22 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
   const reachedR = proofs.length ? Math.max(...proofs) : 0;
   const hasReachProof = proofs.length > 0;
 
+  // Stop-out detection. Prefer the converted MAE; only fall back to r_actual
+  // when MAE is unavailable, and treat the ambiguous band [-1.05, -0.95] as
+  // unknown (can't prove the stop fired vs. a discretionary close near -1R).
   let stoppedOut: boolean | null = null;
   if (loggedMae != null) {
     stoppedOut = loggedMae >= 1;
-  } else if (hasActualR && (rActual as number) <= -0.95) {
-    stoppedOut = true;
   } else if (hasActualR) {
-    // Closed manually (positive or small loss / BE) → did not hit full stop.
-    stoppedOut = false;
+    const r = rActual as number;
+    if (r <= -1.05) stoppedOut = true;
+    else if (r >= -0.95) stoppedOut = false;
+    else stoppedOut = null; // ambiguous
   }
 
-  const ideal = numericCf(trade as any, keys.idealStopLoss);
-  const actualPips = slPipsFor(trade);
-  const idealSlScale =
-    ideal != null && actualPips != null && actualPips > 0
-      ? Math.max(0.2, Math.min(2, ideal / actualPips))
-      : null;
+  // Ideal SL is logged in TICKS — convert to scale vs original SL.
+  const idealTicks = numericCf(trade as any, keys.idealStopLoss);
+  const idealSlScale = idealSlScaleFor(trade, idealTicks);
 
   return {
     reachedR,
@@ -219,16 +255,17 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
 type ReplayOutcome = { r: number } | { ineligible: string };
 
 interface BucketConstants {
-  maeP75: number | null; // original-R units, used only by the widen-SL rule
+  maeP75: number | null; // in R-multiple, used only by the widen-SL rule
 }
 
 function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketConstants {
+  // p75 of MAE in R (per-trade conversion). Trades without SL/entry are skipped.
   const maes = trades
-    .map((t) => numericCf(t as any, keys.mae))
-    .filter((v): v is number => v != null)
-    .map((v) => Math.abs(v));
+    .map((t) => tradeMaeR(t, numericCf(t as any, keys.mae)))
+    .filter((v): v is number => v != null && Number.isFinite(v));
   return { maeP75: quantile(maes, 0.75) };
 }
+
 
 function replayOneTrade(
   strategy: Strategy,
@@ -246,7 +283,7 @@ function replayOneTrade(
   if (strategy.slRule === "original") {
     slScale = 1;
   } else if (strategy.slRule === "tighten_to_ideal") {
-    if (proof.idealSlScale == null) return { ineligible: "no ideal SL recorded" };
+    if (proof.idealSlScale == null) return { ineligible: "missing SL/entry or ideal-SL — can't convert ticks to R" };
     slScale = proof.idealSlScale;
   } else {
     // widen_to_mae_p75_x_1_15
@@ -268,7 +305,8 @@ function replayOneTrade(
     if (proof.stoppedOut === false) stoppedUnderNewSl = false;
     else stoppedUnderNewSl = null;
   }
-  if (stoppedUnderNewSl === null) return { ineligible: "no MAE recorded" };
+  if (stoppedUnderNewSl === null) return { ineligible: "missing SL/entry — can't convert MAE ticks to R" };
+
 
   // ---- Walk partials in ascending atR ----
   const partials = [...strategy.exitRule.partials].sort((a, b) => a.atR - b.atR);
@@ -305,9 +343,8 @@ function replayOneTrade(
         // trail_to_mfe: runner gets trailed, then stopped out somewhere
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
         const mfeNewR = proof.loggedMfe / slScale;
-        // 80% capture of the trailed move, floored at the trail stop (= -1 from MFE peak isn't modeled
-        // — we use the same 80%-of-MFE convention as the deterministic case).
-        booked += Math.max(-1, 0.8 * mfeNewR) * remainingFrac;
+        // Documented trail-capture assumption (default 80%). Floored at -1R.
+        booked += Math.max(-1, TRAIL_CAPTURE_FRAC * mfeNewR) * remainingFrac;
       }
     } else {
       // Not stopped — runner exits on its rule
@@ -319,9 +356,10 @@ function replayOneTrade(
         // trail_to_mfe needs MFE
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
         const mfeNewR = proof.loggedMfe / slScale;
-        booked += 0.8 * mfeNewR * remainingFrac;
+        booked += TRAIL_CAPTURE_FRAC * mfeNewR * remainingFrac;
       }
     }
+
   }
 
   return { r: booked };
@@ -343,7 +381,7 @@ export const MIN_MATCHED_SAMPLE = 5;
 
 function buildResult(
   strategy: Strategy,
-  replayed: Array<{ trade: Trade; r: number }>,
+  replayed: Array<{ trade: Trade; r: number; reachedR?: number }>,
   ineligibleReasons: Record<string, number>,
   totalTradeCount: number,
   opts: ReplayOpts,
@@ -358,14 +396,20 @@ function buildResult(
   let wins = 0;
   let losses = 0;
   let totalR = 0;
+  let reachedSum = 0;
+  let reachedCount = 0;
   const dailyDollars = new Map<string, number>();
   const rs: number[] = [];
 
-  for (const { trade, r } of replayed) {
+  for (const { trade, r, reachedR } of replayed) {
     const dollars = r * dollarRisk;
     equity += dollars;
     totalR += r;
     rs.push(r);
+    if (reachedR != null && Number.isFinite(reachedR)) {
+      reachedSum += reachedR;
+      reachedCount += 1;
+    }
     if (r > 0) { wins += 1; streak = 0; }
     else if (r < 0) { losses += 1; streak += 1; if (streak > worstStreak) worstStreak = streak; }
     else { streak = 0; }
@@ -386,6 +430,7 @@ function buildResult(
   const n = replayed.length;
   const winRate = n > 0 ? wins / n : 0;
   const expectancyR = n > 0 ? totalR / n : 0;
+  const meanReachedR = reachedCount > 0 ? reachedSum / reachedCount : null;
 
   // Prop-firm verdict
   let verdict: ReplayResult["propFirmVerdict"] = "n/a";
@@ -439,6 +484,7 @@ function buildResult(
     maxDrawdownDollars: maxDD,
     maxDrawdownPct: opts.balance > 0 ? (maxDD / opts.balance) * 100 : 0,
     worstLosingStreak: worstStreak,
+    meanReachedR,
     equityCurve,
     perTrade,
     propFirmVerdict: verdict,
@@ -447,6 +493,7 @@ function buildResult(
     totalDollarsCi,
   };
 }
+
 
 /** Closed, non-archived, chronologically sorted closed trades. */
 function preparedTrades(trades: Trade[]): Trade[] {
@@ -464,15 +511,16 @@ export function replayBucket(
 ): ReplayResult {
   const all = preparedTrades(trades);
   const bucket = buildBucketConstants(all, keys);
-  const replayed: Array<{ trade: Trade; r: number }> = [];
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number }> = [];
   const reasons: Record<string, number> = {};
 
   for (const t of all) {
     const proof = extractProof(t, keys);
     const out = replayOneTrade(strategy, t, proof, bucket);
-    if ("r" in out) replayed.push({ trade: t, r: out.r });
+    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR });
     else reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
   }
+
 
   return buildResult(strategy, replayed, reasons, all.length, opts);
 }
@@ -495,10 +543,12 @@ export function replayBucketMatched(
   const all = preparedTrades(trades);
   const bucket = buildBucketConstants(all, keys);
 
-  // Per-strategy outcomes per trade
+  // Per-strategy outcomes per trade, plus per-trade proof for reachedR diagnostics.
   const perStrategy: Array<Map<string, ReplayOutcome>> = strategies.map(() => new Map());
+  const proofs = new Map<string, TradeProof>();
   for (const t of all) {
     const proof = extractProof(t, keys);
+    proofs.set(t.id, proof);
     strategies.forEach((s, idx) => {
       perStrategy[idx].set(t.id, replayOneTrade(s, t, proof, bucket));
     });
@@ -514,7 +564,11 @@ export function replayBucketMatched(
   const matchedIds = matched.map((t) => t.id);
 
   const results: ReplayResult[] = strategies.map((strategy, idx) => {
-    const replayed = matched.map((t) => ({ trade: t, r: (perStrategy[idx].get(t.id) as { r: number }).r }));
+    const replayed = matched.map((t) => ({
+      trade: t,
+      r: (perStrategy[idx].get(t.id) as { r: number }).r,
+      reachedR: proofs.get(t.id)?.reachedR ?? 0,
+    }));
     // For matched mode, ineligible reasons are aggregated across the strategy's full set
     // (not just the matched sample) so the user sees why the intersection shrank.
     const reasons: Record<string, number> = {};
@@ -523,6 +577,7 @@ export function replayBucketMatched(
     });
     return buildResult(strategy, replayed, reasons, all.length, opts);
   });
+
 
   return {
     results,

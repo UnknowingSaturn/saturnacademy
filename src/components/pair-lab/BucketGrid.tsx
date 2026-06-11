@@ -29,7 +29,8 @@ function CellInner({ b }: { b: BucketReport | null }) {
   }
   const winRatePct = (b.winRate * 100).toFixed(0);
   const expR = (b.expectedR >= 0 ? "+" : "") + b.expectedR.toFixed(2) + "R";
-  const covColor = coverageColor(b.loggedMfeCount, b.n);
+  const mfeCovColor = coverageColor(b.loggedMfeCount, b.n);
+  const maeCovColor = coverageColor(b.loggedMaeCount, b.n);
   return (
     <div className="space-y-0.5 text-left">
       <div className="flex items-center gap-1 text-[11px]">
@@ -41,13 +42,19 @@ function CellInner({ b }: { b: BucketReport | null }) {
         {expR}
       </div>
       <div className="text-[10px] text-muted-foreground font-mono-numbers">
-        MFE {b.mfeP75?.toFixed(1) ?? "–"} · MAE {b.maeP75?.toFixed(0) ?? "–"}
+        MFE {b.mfeP75 != null ? `${b.mfeP75.toFixed(2)}R` : "–"} · MAE {b.maeP75 != null ? `${b.maeP75.toFixed(2)}R` : "–"}
       </div>
       <div
-        className={cn("text-[10px] font-mono-numbers", covColor)}
+        className={cn("text-[10px] font-mono-numbers", mfeCovColor)}
         title={`${b.loggedMfeCount} of ${b.n} trades have an MFE value recorded. Preset simulations need ≥10 logged trades to be meaningful.`}
       >
         {b.loggedMfeCount}/{b.n} MFE
+      </div>
+      <div
+        className={cn("text-[10px] font-mono-numbers", maeCovColor)}
+        title={`${b.loggedMaeCount} of ${b.n} trades have an MAE value AND initial-SL + entry-price recorded (needed to convert ticks → R).`}
+      >
+        {b.loggedMaeCount}/{b.n} MAE
       </div>
     </div>
   );
@@ -70,7 +77,7 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
   return (
     <Card className="p-0 overflow-x-auto">
       <div className="flex items-center justify-end gap-3 px-3 py-1.5 text-[10px] text-muted-foreground border-b border-border/60 bg-muted/10">
-        <span className="uppercase tracking-wider">MFE coverage</span>
+        <span className="uppercase tracking-wider">MFE/MAE coverage</span>
         <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" /> ≥70%</span>
         <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" /> 30–69%</span>
         <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block" /> &lt;30% or &lt;10 trades</span>

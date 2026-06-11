@@ -17,6 +17,7 @@
 // ============================================================================
 
 import type { Trade } from "@/types/trading";
+import { tickSizeForSymbol, pipSizeForSymbol } from "@/lib/symbolMapping";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
@@ -44,12 +45,13 @@ export interface BucketStats {
   winRate: number;            // 0–1
   expectedR: number;          // average R-multiple, mean of r_multiple_actual
   expectedRMedian: number;    // median R-multiple
-  mfeP50: number | null;
-  mfeP75: number | null;
-  maeP50: number | null;
-  maeP75: number | null;
-  idealSlMedian: number | null;
-  slInitialMedian: number | null;
+  mfeP50: number | null;          // R-multiple
+  mfeP75: number | null;          // R-multiple
+  maeP50: number | null;          // R-multiple (per-trade ticks→R)
+  maeP75: number | null;          // R-multiple
+  maeP75Pips: number | null;      // pips, used for SL recommendation
+  idealSlMedian: number | null;   // pips
+  slInitialMedian: number | null; // pips
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   tpHitDistribution: Record<string, number>; // "1:1" -> count
   mostCommonTpHit: string | null;
@@ -60,6 +62,8 @@ export interface BucketStats {
   worstLosingStreak: number;
   /** Number of (closed) trades in this bucket that have an explicit MFE custom-field value. */
   loggedMfeCount: number;
+  /** Number of (closed) trades in this bucket that have an explicit MAE custom-field value AND convertible SL. */
+  loggedMaeCount: number;
 }
 
 export interface Tp1Star {
@@ -242,6 +246,22 @@ function multiSelectCf(trade: any, key: string | null): string[] {
   return [];
 }
 
+/** Parse strings like "1:2", "1R", "2", "TP2" → R-multiple. Mirrors simulator. */
+function parseTpLabelLocal(s: string): number | null {
+  if (!s) return null;
+  const clean = s.trim().toUpperCase();
+  const ratio = clean.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
+  if (ratio) {
+    const a = Number(ratio[1]), b = Number(ratio[2]);
+    if (a > 0) return b / a;
+  }
+  const tp = clean.match(/^TP\s*(\d+(?:\.\d+)?)$/);
+  if (tp) return Number(tp[1]);
+  const num = clean.match(/^(\d+(?:\.\d+)?)R?$/);
+  if (num) return Number(num[1]);
+  return null;
+}
+
 function confidenceFor(n: number): ConfidenceLevel {
   if (n >= 30) return "high";
   if (n >= 10) return "medium";
@@ -373,8 +393,21 @@ function computeBucket(
   propFirm: PropFirmContext | null,
 ): BucketReport {
   const closed = rows.filter((t) => t.net_pnl != null);
-  const wins = closed.filter((t) => (t.net_pnl ?? 0) > 0);
-  const losses = closed.filter((t) => (t.net_pnl ?? 0) < 0);
+
+  // Normalize win/loss using r_multiple_actual when available, falling back
+  // to sign(net_pnl) only when r_actual is missing. Keeps grid + simulator
+  // consistent.
+  const sideOf = (t: Trade): 1 | -1 | 0 => {
+    if (t.r_multiple_actual != null) {
+      if (t.r_multiple_actual > 0) return 1;
+      if (t.r_multiple_actual < 0) return -1;
+      return 0;
+    }
+    const p = t.net_pnl ?? 0;
+    return p > 0 ? 1 : p < 0 ? -1 : 0;
+  };
+  const wins = closed.filter((t) => sideOf(t) === 1);
+  const losses = closed.filter((t) => sideOf(t) === -1);
 
   const rActuals = closed.map((t) => t.r_multiple_actual).filter((v): v is number => v != null);
   const winR = wins.map((t) => t.r_multiple_actual).filter((v): v is number => v != null && v > 0);
@@ -384,16 +417,42 @@ function computeBucket(
     .map((v) => Math.abs(v));
 
   const mfes = rows.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
-  const maes = rows.map((t) => numericCf(t as any, keys.mae)).filter((v): v is number => v != null);
-  const idealSls = rows.map((t) => numericCf(t as any, keys.idealStopLoss)).filter((v): v is number => v != null);
 
+  // MAE is logged in TICKS — convert per-trade to (a) R-multiple for display
+  // and (b) pips for the SL-pip recommendation.
+  const maesR: number[] = [];
+  const maesPips: number[] = [];
+  for (const t of rows) {
+    const ticks = numericCf(t as any, keys.mae);
+    if (ticks == null || !t.symbol) continue;
+    const tick = tickSizeForSymbol(t.symbol);
+    const pip = pipSizeForSymbol(t.symbol);
+    if (!(pip > 0)) continue;
+    maesPips.push((Math.abs(ticks) * tick) / pip);
+    if (t.sl_initial != null && t.entry_price != null) {
+      const slDistTicks = Math.abs(t.entry_price - t.sl_initial) / tick;
+      if (slDistTicks > 0) maesR.push(Math.abs(ticks) / slDistTicks);
+    }
+  }
+
+  // Ideal SL is logged in TICKS — convert to pips for SL recommendation.
+  const idealSls: number[] = [];
+  for (const t of rows) {
+    const ticks = numericCf(t as any, keys.idealStopLoss);
+    if (ticks == null || !t.symbol) continue;
+    const tick = tickSizeForSymbol(t.symbol);
+    const pip = pipSizeForSymbol(t.symbol);
+    if (!(pip > 0)) continue;
+    idealSls.push((Math.abs(ticks) * tick) / pip);
+  }
+
+  // SL initial distance in pips per trade (symbol-aware).
   const slInitials: number[] = [];
   for (const t of rows) {
-    if (t.sl_initial == null || t.entry_price == null) continue;
-    const distance = Math.abs(t.entry_price - t.sl_initial);
-    const digits = String(t.entry_price).split(".")[1]?.length ?? 4;
-    const pipMultiplier = digits >= 4 ? 10_000 : 100;
-    slInitials.push(distance * pipMultiplier);
+    if (t.sl_initial == null || t.entry_price == null || !t.symbol) continue;
+    const pip = pipSizeForSymbol(t.symbol);
+    if (!(pip > 0)) continue;
+    slInitials.push(Math.abs(t.entry_price - t.sl_initial) / pip);
   }
 
   const tpDist: Record<string, number> = {};
@@ -430,8 +489,9 @@ function computeBucket(
     expectedRMedian,
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),
-    maeP50: median(maes),
-    maeP75: quantile(maes, 0.75),
+    maeP50: median(maesR),
+    maeP75: quantile(maesR, 0.75),
+    maeP75Pips: quantile(maesPips, 0.75),
     idealSlMedian: idealMed,
     slInitialMedian: slInitMed,
     slDrift,
@@ -441,7 +501,12 @@ function computeBucket(
     expectedRCi: bootstrapMeanCi(rActuals),
     worstLosingStreak: longestLossStreak(rows),
     loggedMfeCount: closed.filter((t) => numericCf(t as any, keys.mfe) != null).length,
+    loggedMaeCount: closed.filter((t) => {
+      const v = numericCf(t as any, keys.mae);
+      return v != null && t.sl_initial != null && t.entry_price != null;
+    }).length,
   };
+
 
   const recommendation = buildRecommendation(stats, winR, lossR, mfes, baseline, propFirm);
 
@@ -462,20 +527,21 @@ function buildRecommendation(
   baseline: BucketReport | null,
   propFirm: PropFirmContext | null,
 ): BucketRecommendation {
-  // SL: max of (p75(MAE) × 1.15, median(ideal SL)). Both are in pips.
+  // SL: max of (p75(MAE pips) × 1.15, median(ideal SL pips)). Both in pips.
   let suggestedSlPips: number | null = null;
-  const maeCandidate = s.maeP75 != null ? s.maeP75 * 1.15 : null;
+  const maeCandidate = s.maeP75Pips != null ? s.maeP75Pips * 1.15 : null;
   if (maeCandidate != null || s.idealSlMedian != null) {
     suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
   }
 
   // Expected-R TP ladder, capped by the most-common TP hit so we never
-  // recommend a target the user has never reached in practice.
+  // recommend a target the user has never reached in practice. Reuses the
+  // simulator's full TP-label parser ("1:2", "TP2", "2R", …).
   const ladder: number[] = [];
   const cap = (() => {
     if (!s.mostCommonTpHit) return Infinity;
-    const m = /1\s*:\s*(\d+(?:\.\d+)?)/.exec(s.mostCommonTpHit);
-    return m ? Number(m[1]) : Infinity;
+    const parsed = parseTpLabelLocal(s.mostCommonTpHit);
+    return parsed != null && parsed > 0 ? parsed : Infinity;
   })();
   const p70 = quantile(winR, 0.3);
   const p50 = quantile(winR, 0.5);
@@ -485,6 +551,7 @@ function buildRecommendation(
     ladder.push(Math.min(v, cap));
   }
   const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
+
 
   // Kelly sizing.
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
