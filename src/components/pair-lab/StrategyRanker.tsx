@@ -57,12 +57,20 @@ function topReasons(reasons: Record<string, number>, k = 3): Array<[string, numb
 export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabel }: Props) {
   const [riskPct, setRiskPct] = useState<number>(1);
   const [simBalance, setSimBalance] = useState<number>(balance);
+  const [strictMode, setStrictMode] = useState<boolean>(false);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const ranked = useMemo(() => {
-    const results: ReplayResult[] = STRATEGY_PRESETS.map((p) =>
-      replayBucket(trades, fieldKeys, { ...p, riskPct }, { balance: simBalance, propFirm }),
-    );
+    const presets = STRATEGY_PRESETS.map((p) => ({ ...p, riskPct }));
+    let results: ReplayResult[];
+    if (strictMode) {
+      // Strict: score every preset on the intersection of trades eligible
+      // under ALL presets — fully apples-to-apples leaderboard.
+      const matched = replayBucketMatched(trades, fieldKeys, presets, { balance: simBalance, propFirm });
+      results = matched.results;
+    } else {
+      results = presets.map((p) => replayBucket(trades, fieldKeys, p, { balance: simBalance, propFirm }));
+    }
     return results.sort((a, b) => {
       const aBust = busted(a);
       const bBust = busted(b);
@@ -74,7 +82,7 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
       if (b.expectancyR !== a.expectancyR) return b.expectancyR - a.expectancyR;
       return b.totalDollars - a.totalDollars;
     });
-  }, [trades, fieldKeys, riskPct, simBalance, propFirm]);
+  }, [trades, fieldKeys, riskPct, simBalance, propFirm, strictMode]);
 
   if (trades.length === 0) {
     return (
