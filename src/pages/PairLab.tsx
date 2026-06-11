@@ -12,6 +12,8 @@ import { BucketGrid } from "@/components/pair-lab/BucketGrid";
 import { RecommendationCard } from "@/components/pair-lab/RecommendationCard";
 import { QuantNotePanel } from "@/components/pair-lab/QuantNotePanel";
 import { SymbolAliasManager } from "@/components/pair-lab/SymbolAliasManager";
+import { StrategyCompare } from "@/components/pair-lab/StrategyCompare";
+import { normalizeSession } from "@/lib/pairLabMath";
 
 export default function PairLab() {
   const [profile, setProfile] = useState<string>("any");
