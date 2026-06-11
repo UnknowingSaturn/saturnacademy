@@ -511,15 +511,16 @@ export function replayBucket(
 ): ReplayResult {
   const all = preparedTrades(trades);
   const bucket = buildBucketConstants(all, keys);
-  const replayed: Array<{ trade: Trade; r: number }> = [];
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number }> = [];
   const reasons: Record<string, number> = {};
 
   for (const t of all) {
     const proof = extractProof(t, keys);
     const out = replayOneTrade(strategy, t, proof, bucket);
-    if ("r" in out) replayed.push({ trade: t, r: out.r });
+    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR });
     else reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
   }
+
 
   return buildResult(strategy, replayed, reasons, all.length, opts);
 }
