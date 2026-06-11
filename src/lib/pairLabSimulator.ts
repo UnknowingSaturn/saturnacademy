@@ -266,7 +266,7 @@ function applySlRule(
 
 interface OneResult {
   r: number;
-  inferred: boolean;
+  fidelity: Fidelity;
 }
 
 function replayOneTrade(
@@ -276,21 +276,19 @@ function replayOneTrade(
   bucket: BucketConstants,
 ): OneResult {
   if (strategy.useActualOutcome) {
-    return { r: trade.r_multiple_actual ?? 0, inferred: false };
+    return { r: trade.r_multiple_actual ?? 0, fidelity: "full" };
   }
 
-  const { mfe: mfeOrig, mae: maeOrig, inferred } = inferMfeMae(trade, keys, bucket);
+  const { mfe: mfeOrig, mae: maeOrig, fidelity } = inferMfeMae(trade, keys, bucket);
 
-  const slScale = applySlRule(trade, keys, strategy.slRule, bucket); // new SL / original SL
-  if (slScale <= 0) return { r: 0, inferred };
+  const slScale = applySlRule(trade, keys, strategy.slRule, bucket);
+  if (slScale <= 0) return { r: 0, fidelity };
 
-  // Re-express in new-R units.
   const mfeR = mfeOrig / slScale;
   const maeR = maeOrig / slScale;
 
-  if (maeR >= 1) return { r: -1, inferred };
+  if (maeR >= 1) return { r: -1, fidelity };
 
-  // Apply partials in ascending order.
   const partials = [...strategy.exitRule.partials].sort((a, b) => a.atR - b.atR);
   let booked = 0;
   let remainingFrac = 1;
@@ -306,24 +304,21 @@ function replayOneTrade(
     }
   }
 
-  // Runner portion.
   let runner = 0;
   if (remainingFrac > 0) {
     if (!anyFilled) {
-      // Nothing hit, didn't stop — assume BE close.
       runner = 0;
     } else if (strategy.exitRule.runner === "be_after_first_tp") {
       runner = 0;
     } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
       runner = lastFilledAtR;
     } else {
-      // trail_to_mfe — capture 80% of MFE.
       runner = mfeR * 0.8;
     }
     booked += runner * remainingFrac;
   }
 
-  return { r: booked, inferred };
+  return { r: booked, fidelity };
 }
 
 // ----------------------------------------------------------------------------
