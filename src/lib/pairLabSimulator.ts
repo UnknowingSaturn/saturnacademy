@@ -281,7 +281,7 @@ function replayOneTrade(
   if (strategy.slRule === "original") {
     slScale = 1;
   } else if (strategy.slRule === "tighten_to_ideal") {
-    if (proof.idealSlScale == null) return { ineligible: "no ideal SL recorded" };
+    if (proof.idealSlScale == null) return { ineligible: "missing SL/entry or ideal-SL — can't convert ticks to R" };
     slScale = proof.idealSlScale;
   } else {
     // widen_to_mae_p75_x_1_15
@@ -303,7 +303,8 @@ function replayOneTrade(
     if (proof.stoppedOut === false) stoppedUnderNewSl = false;
     else stoppedUnderNewSl = null;
   }
-  if (stoppedUnderNewSl === null) return { ineligible: "no MAE recorded" };
+  if (stoppedUnderNewSl === null) return { ineligible: "missing SL/entry — can't convert MAE ticks to R" };
+
 
   // ---- Walk partials in ascending atR ----
   const partials = [...strategy.exitRule.partials].sort((a, b) => a.atR - b.atR);
