@@ -126,7 +126,6 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
                 </button>
               </td>
             </tr>
-            </tr>
             );
           })}
         </tbody>
