@@ -9,9 +9,10 @@
 //   3. Tiebreak by expectancy R.
 // ============================================================================
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Trophy, AlertTriangle, CheckCircle2 } from "lucide-react";
@@ -39,10 +40,12 @@ function busted(r: ReplayResult) {
 
 export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabel }: Props) {
   const [riskPct, setRiskPct] = useState<number>(1);
+  const [simBalance, setSimBalance] = useState<number>(balance);
+  useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const ranked = useMemo(() => {
     const results: ReplayResult[] = STRATEGY_PRESETS.map((p) =>
-      replayBucket(trades, fieldKeys, { ...p, riskPct }, { balance, propFirm }),
+      replayBucket(trades, fieldKeys, { ...p, riskPct }, { balance: simBalance, propFirm }),
     );
     return results.sort((a, b) => {
       const aBust = busted(a);
@@ -51,7 +54,7 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
       if (b.totalDollars !== a.totalDollars) return b.totalDollars - a.totalDollars;
       return b.expectancyR - a.expectancyR;
     });
-  }, [trades, fieldKeys, riskPct, balance, propFirm]);
+  }, [trades, fieldKeys, riskPct, simBalance, propFirm]);
 
   if (trades.length === 0) {
     return (
