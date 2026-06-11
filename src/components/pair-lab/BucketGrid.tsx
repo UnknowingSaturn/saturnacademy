@@ -15,12 +15,21 @@ function confidenceDot(level: BucketReport["confidence"]) {
   return level === "high" ? "🟢" : level === "medium" ? "🟡" : "🔴";
 }
 
+function coverageColor(logged: number, total: number) {
+  if (total === 0) return "text-muted-foreground";
+  const pct = logged / total;
+  if (logged < 10 || pct < 0.3) return "text-destructive";
+  if (pct < 0.7) return "text-amber-600 dark:text-amber-400";
+  return "text-emerald-600 dark:text-emerald-400";
+}
+
 function CellInner({ b }: { b: BucketReport | null }) {
   if (!b || b.n === 0) {
     return <span className="text-xs text-muted-foreground">—</span>;
   }
   const winRatePct = (b.winRate * 100).toFixed(0);
   const expR = (b.expectedR >= 0 ? "+" : "") + b.expectedR.toFixed(2) + "R";
+  const covColor = coverageColor(b.loggedMfeCount, b.n);
   return (
     <div className="space-y-0.5 text-left">
       <div className="flex items-center gap-1 text-[11px]">
@@ -33,6 +42,12 @@ function CellInner({ b }: { b: BucketReport | null }) {
       </div>
       <div className="text-[10px] text-muted-foreground font-mono-numbers">
         MFE {b.mfeP75?.toFixed(1) ?? "–"} · MAE {b.maeP75?.toFixed(0) ?? "–"}
+      </div>
+      <div
+        className={cn("text-[10px] font-mono-numbers", covColor)}
+        title={`${b.loggedMfeCount} of ${b.n} trades have an MFE value recorded. Preset simulations need ≥10 logged trades to be meaningful.`}
+      >
+        {b.loggedMfeCount}/{b.n} MFE
       </div>
     </div>
   );
