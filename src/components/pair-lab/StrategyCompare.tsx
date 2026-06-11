@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { AlertTriangle, CheckCircle2, TrendingUp, TrendingDown, ShieldCheck } from "lucide-react";
 import { StrategyPresetPicker } from "./StrategyPresetPicker";
 import { EquityCurveOverlay } from "./EquityCurveOverlay";
-import { replayBucket, type Strategy, type ReplayResult } from "@/lib/pairLabSimulator";
+import { replayBucket, MIN_HIGH_FIDELITY_SAMPLE, type Strategy, type ReplayResult } from "@/lib/pairLabSimulator";
 import { getPreset } from "@/lib/pairLabPresets";
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
@@ -85,7 +85,7 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
   const [stratA, setStratA] = useState<Strategy>(getPreset("current")!);
   const [stratB, setStratB] = useState<Strategy>(getPreset("scale-out")!);
   const [simBalance, setSimBalance] = useState<number>(balance);
-  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(false);
+  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(true);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const resA = useMemo(
