@@ -36,6 +36,8 @@ export interface BucketKey {
 
 export interface BucketStats {
   key: BucketKey;
+  /** Raw broker symbols rolled up into this canonical key (for display). */
+  rawSymbols: string[];
   n: number;
   wins: number;
   losses: number;
@@ -54,12 +56,37 @@ export interface BucketStats {
   confidence: ConfidenceLevel;
   // Two-sided bootstrap CI on expectedR — null when n < 5.
   expectedRCi: [number, number] | null;
+  // Longest run of consecutive losing trades observed in this bucket.
+  worstLosingStreak: number;
+}
+
+export interface Tp1Star {
+  r: number;          // R-multiple target
+  hitRate: number;    // 0–1, fraction of trades whose MFE ≥ r
+  expectancyR: number;
+}
+
+export interface PropFirmContext {
+  /** Account balance in money — used to translate DD limits to R. */
+  balance: number;
+  /** Daily loss limit as $ (already converted from % if needed). */
+  dailyLossDollars: number | null;
+  /** Max drawdown limit as $. */
+  maxDrawdownDollars: number | null;
+  /** User's planned risk per trade as a fraction (e.g. 0.01 for 1%). */
+  riskPerTradeFrac: number;
+  /** Hard cap on suggested risk %, e.g. account.risk_per_trade_cap or 2. */
+  hardCapPct: number;
+  firmName: string | null;
 }
 
 export interface BucketRecommendation {
   suggestedSlPips: number | null;
-  tpLadderR: number[];           // ascending R targets, 1-3 entries
-  suggestedRiskPct: number | null; // % of account
+  tpLadderR: number[];            // ascending R targets, 1-3 entries (expected-R)
+  tp1Star: Tp1Star | null;        // win-rate-maximizing TP target
+  suggestedRiskPct: number | null;  // % of account, edge-only (Kelly)
+  suggestedRiskPctPropFirm: number | null; // % of account, prop-firm-capped
+  bindingConstraint: "kelly" | "prop_firm_dd" | "hard_cap" | null;
   edgeVsBaseline: {
     winRateDelta: number;        // percentage points
     expectedRDelta: number;
