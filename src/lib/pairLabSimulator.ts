@@ -388,6 +388,8 @@ export function replayBucket(
     ? allClosed.filter((t) => numericCf(t as any, keys.mfe) != null)
     : allClosed;
   const skippedLowFidelity = allClosed.length - closed.length;
+  const loggedTradeCount = allClosed.filter((t) => numericCf(t as any, keys.mfe) != null).length;
+  const totalTradeCount = allClosed.length;
 
   const bucket = buildBucketConstants(closed, keys);
 
@@ -485,5 +487,7 @@ export function replayBucket(
     inferredCount,
     fidelity: fidelityCounts,
     skippedLowFidelity,
+    loggedTradeCount,
+    totalTradeCount,
   };
 }
