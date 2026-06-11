@@ -8,6 +8,7 @@ import type { BucketReport } from "@/lib/pairLabMath";
 interface Props {
   bucket: BucketReport;
   baseline: BucketReport;
+  propFirmMode?: boolean;
 }
 
 function StatLine({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
@@ -28,9 +29,16 @@ const fmt = (v: number | null | undefined, digits = 2, suffix = "") =>
 const fmtR = (v: number | null | undefined) =>
   v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "R";
 
-export function RecommendationCard({ bucket, baseline }: Props) {
+export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
   const b = bucket;
   const lowSample = b.confidence === "low";
+  const pfRisk = b.recommendation.suggestedRiskPctPropFirm;
+  const kellyRisk = b.recommendation.suggestedRiskPct;
+  const effectiveRisk = propFirmMode && pfRisk != null
+    ? (kellyRisk != null ? Math.min(kellyRisk, pfRisk) : pfRisk)
+    : kellyRisk;
+  const binding = b.recommendation.bindingConstraint;
+  const tp1 = b.recommendation.tp1Star;
 
   const driftBadge =
     b.slDrift === "too_wide" ? (
