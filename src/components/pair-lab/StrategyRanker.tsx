@@ -42,11 +42,12 @@ function busted(r: ReplayResult) {
 export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabel }: Props) {
   const [riskPct, setRiskPct] = useState<number>(1);
   const [simBalance, setSimBalance] = useState<number>(balance);
+  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(false);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const ranked = useMemo(() => {
     const results: ReplayResult[] = STRATEGY_PRESETS.map((p) =>
-      replayBucket(trades, fieldKeys, { ...p, riskPct }, { balance: simBalance, propFirm }),
+      replayBucket(trades, fieldKeys, { ...p, riskPct }, { balance: simBalance, propFirm, highFidelityOnly }),
     );
     return results.sort((a, b) => {
       const aBust = busted(a);
@@ -55,7 +56,8 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
       if (b.totalDollars !== a.totalDollars) return b.totalDollars - a.totalDollars;
       return b.expectancyR - a.expectancyR;
     });
-  }, [trades, fieldKeys, riskPct, simBalance, propFirm]);
+  }, [trades, fieldKeys, riskPct, simBalance, propFirm, highFidelityOnly]);
+
 
   if (trades.length === 0) {
     return (
