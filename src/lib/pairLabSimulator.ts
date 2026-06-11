@@ -50,7 +50,14 @@ export interface ReplayPerTrade {
   resultR: number;
   dollars: number;
   cumulativeEquity: number;
-  inferred: boolean;
+  fidelity: Fidelity;
+}
+
+export interface FidelityBreakdown {
+  full: number;
+  tp_reached: number;
+  r_only: number;
+  fallback: number;
 }
 
 export interface ReplayResult {
@@ -69,8 +76,12 @@ export interface ReplayResult {
   perTrade: ReplayPerTrade[];
   propFirmVerdict: "pass" | "bust_daily" | "bust_total" | "n/a";
   bustNote: string | null;
-  /** How many trades used inferred MFE/MAE (no recorded field). */
+  /** How many trades used any inferred MFE/MAE (sum of tp_reached + r_only + fallback). */
   inferredCount: number;
+  /** Per-fidelity-tier counts for transparency. */
+  fidelity: FidelityBreakdown;
+  /** Trades skipped because highFidelityOnly was set and MFE wasn't recorded. */
+  skippedLowFidelity: number;
 }
 
 // ----------------------------------------------------------------------------
@@ -160,10 +171,13 @@ interface BucketConstants {
   maeMedianAll: number | null;
 }
 
+/** Fidelity tag — strongest signal used to produce this trade's MFE/MAE. */
+export type Fidelity = "full" | "tp_reached" | "r_only" | "fallback";
+
 interface TradeMfeMae {
   mfe: number;   // in original-R units (always ≥ 0)
   mae: number;   // in original-R units, magnitude (always ≥ 0)
-  inferred: boolean;
+  fidelity: Fidelity;
 }
 
 function inferMfeMae(
@@ -178,41 +192,50 @@ function inferMfeMae(
     return {
       mfe: Math.max(0, recordedMfe),
       mae: recordedMae != null ? Math.abs(recordedMae) : Math.max(0, -(trade.r_multiple_actual ?? 0)),
-      inferred: false,
+      fidelity: "full",
     };
   }
 
-  // No recorded MFE — infer.
   const rActual = trade.r_multiple_actual ?? 0;
   const tpHit = maxTpReached(trade, keys);
-
   let mfe: number;
+  let fidelity: Fidelity;
+
   if (tpHit != null) {
-    // Trader marked a TP as reached → MFE was at least that. Use max(tpHit, rActual).
+    // Strongest signal short of recorded MFE: trader marked TP as reached.
     mfe = Math.max(tpHit, rActual);
+    fidelity = "tp_reached";
   } else if (rActual > 0) {
-    // Winner closed at +rActual → MFE ≥ rActual. If small profit, MFE may have been higher; we conservatively use rActual.
-    mfe = Math.max(rActual, 0.5);
+    // Winner closed at +rActual — MFE was AT LEAST that, and almost certainly
+    // higher (trader took profit before the peak). Use the bucket's winner-MFE
+    // median as an extension estimate, capped so we don't claim a small winner
+    // ran 5R. Floor at rActual so we never under-count a real win.
+    const winnerExtension = bucket.mfeMedianWinners ?? rActual;
+    const extended = Math.max(rActual, winnerExtension);
+    mfe = Math.min(extended, Math.max(rActual * 1.75, rActual + 0.5));
+    fidelity = "r_only";
   } else if (rActual <= -0.95) {
-    // Full stop-out → use bucket loser median (price never recovered).
+    // Full stop-out — price never recovered far. Use bucket loser median.
     mfe = bucket.mfeMedianLosers ?? 0.3;
+    fidelity = "r_only";
   } else {
-    // BE or small loss → modest MFE.
+    // BE or small loss with no signal at all — pure fallback.
     mfe = bucket.mfeMedianLosers ?? bucket.mfeMedianAll ?? 0.3;
+    fidelity = "fallback";
   }
 
   let mae: number;
   if (recordedMae != null) {
     mae = Math.abs(recordedMae);
   } else if (rActual <= -0.95) {
-    mae = 1; // full stop
+    mae = 1;
   } else if (rActual < 0) {
     mae = Math.max(Math.abs(rActual), bucket.maeMedianAll ?? 0.3);
   } else {
     mae = bucket.maeMedianAll ?? 0.3;
   }
 
-  return { mfe, mae, inferred: true };
+  return { mfe, mae, fidelity };
 }
 
 // ----------------------------------------------------------------------------
@@ -243,7 +266,7 @@ function applySlRule(
 
 interface OneResult {
   r: number;
-  inferred: boolean;
+  fidelity: Fidelity;
 }
 
 function replayOneTrade(
@@ -253,21 +276,19 @@ function replayOneTrade(
   bucket: BucketConstants,
 ): OneResult {
   if (strategy.useActualOutcome) {
-    return { r: trade.r_multiple_actual ?? 0, inferred: false };
+    return { r: trade.r_multiple_actual ?? 0, fidelity: "full" };
   }
 
-  const { mfe: mfeOrig, mae: maeOrig, inferred } = inferMfeMae(trade, keys, bucket);
+  const { mfe: mfeOrig, mae: maeOrig, fidelity } = inferMfeMae(trade, keys, bucket);
 
-  const slScale = applySlRule(trade, keys, strategy.slRule, bucket); // new SL / original SL
-  if (slScale <= 0) return { r: 0, inferred };
+  const slScale = applySlRule(trade, keys, strategy.slRule, bucket);
+  if (slScale <= 0) return { r: 0, fidelity };
 
-  // Re-express in new-R units.
   const mfeR = mfeOrig / slScale;
   const maeR = maeOrig / slScale;
 
-  if (maeR >= 1) return { r: -1, inferred };
+  if (maeR >= 1) return { r: -1, fidelity };
 
-  // Apply partials in ascending order.
   const partials = [...strategy.exitRule.partials].sort((a, b) => a.atR - b.atR);
   let booked = 0;
   let remainingFrac = 1;
@@ -283,24 +304,21 @@ function replayOneTrade(
     }
   }
 
-  // Runner portion.
   let runner = 0;
   if (remainingFrac > 0) {
     if (!anyFilled) {
-      // Nothing hit, didn't stop — assume BE close.
       runner = 0;
     } else if (strategy.exitRule.runner === "be_after_first_tp") {
       runner = 0;
     } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
       runner = lastFilledAtR;
     } else {
-      // trail_to_mfe — capture 80% of MFE.
       runner = mfeR * 0.8;
     }
     booked += runner * remainingFrac;
   }
 
-  return { r: booked, inferred };
+  return { r: booked, fidelity };
 }
 
 // ----------------------------------------------------------------------------
@@ -310,6 +328,8 @@ function replayOneTrade(
 export interface ReplayOpts {
   balance: number;
   propFirm: PropFirmContext | null;
+  /** When true, only replay trades whose MFE was explicitly recorded. */
+  highFidelityOnly?: boolean;
 }
 
 function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketConstants {
@@ -341,9 +361,16 @@ export function replayBucket(
   strategy: Strategy,
   opts: ReplayOpts,
 ): ReplayResult {
-  const closed = trades
+  const allClosed = trades
     .filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null)
     .sort((a, b) => String(a.entry_time ?? "").localeCompare(String(b.entry_time ?? "")));
+
+  // High-fidelity filter: only keep trades with recorded MFE (unless this is
+  // the actual-outcome preset, which doesn't depend on MFE at all).
+  const closed = opts.highFidelityOnly && !strategy.useActualOutcome
+    ? allClosed.filter((t) => numericCf(t as any, keys.mfe) != null)
+    : allClosed;
+  const skippedLowFidelity = allClosed.length - closed.length;
 
   const bucket = buildBucketConstants(closed, keys);
 
@@ -358,13 +385,13 @@ export function replayBucket(
   let wins = 0;
   let losses = 0;
   let totalR = 0;
-  let inferredCount = 0;
+  const fidelityCounts: FidelityBreakdown = { full: 0, tp_reached: 0, r_only: 0, fallback: 0 };
 
   const dailyDollars = new Map<string, number>();
 
   for (const t of closed) {
-    const { r, inferred } = replayOneTrade(t, keys, strategy, bucket);
-    if (inferred && !strategy.useActualOutcome) inferredCount += 1;
+    const { r, fidelity } = replayOneTrade(t, keys, strategy, bucket);
+    fidelityCounts[fidelity] += 1;
     const dollars = r * dollarRisk;
     equity += dollars;
     totalR += r;
@@ -384,13 +411,14 @@ export function replayBucket(
       resultR: r,
       dollars,
       cumulativeEquity: equity,
-      inferred,
+      fidelity,
     });
   }
 
   const n = closed.length;
   const winRate = n > 0 ? wins / n : 0;
   const expectancyR = n > 0 ? totalR / n : 0;
+  const inferredCount = fidelityCounts.tp_reached + fidelityCounts.r_only + fidelityCounts.fallback;
 
   // Prop-firm verdict.
   let verdict: ReplayResult["propFirmVerdict"] = "n/a";
@@ -438,5 +466,7 @@ export function replayBucket(
     propFirmVerdict: verdict,
     bustNote,
     inferredCount,
+    fidelity: fidelityCounts,
+    skippedLowFidelity,
   };
 }

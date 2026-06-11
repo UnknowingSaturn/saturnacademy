@@ -3,7 +3,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertTriangle, CheckCircle2, TrendingUp, TrendingDown } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { AlertTriangle, CheckCircle2, TrendingUp, TrendingDown, ShieldCheck } from "lucide-react";
 import { StrategyPresetPicker } from "./StrategyPresetPicker";
 import { EquityCurveOverlay } from "./EquityCurveOverlay";
 import { replayBucket, type Strategy, type ReplayResult } from "@/lib/pairLabSimulator";
@@ -84,15 +85,16 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
   const [stratA, setStratA] = useState<Strategy>(getPreset("current")!);
   const [stratB, setStratB] = useState<Strategy>(getPreset("scale-out")!);
   const [simBalance, setSimBalance] = useState<number>(balance);
+  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(false);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const resA = useMemo(
-    () => replayBucket(trades, fieldKeys, stratA, { balance: simBalance, propFirm }),
-    [trades, fieldKeys, stratA, simBalance, propFirm],
+    () => replayBucket(trades, fieldKeys, stratA, { balance: simBalance, propFirm, highFidelityOnly }),
+    [trades, fieldKeys, stratA, simBalance, propFirm, highFidelityOnly],
   );
   const resB = useMemo(
-    () => replayBucket(trades, fieldKeys, stratB, { balance: simBalance, propFirm }),
-    [trades, fieldKeys, stratB, simBalance, propFirm],
+    () => replayBucket(trades, fieldKeys, stratB, { balance: simBalance, propFirm, highFidelityOnly }),
+    [trades, fieldKeys, stratB, simBalance, propFirm, highFidelityOnly],
   );
 
   if (trades.length === 0) {
@@ -125,17 +127,25 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
             Replays {trades.length} trades in <span className="font-medium">{scopeLabel}</span> under each strategy. Deterministic — same trades, same numbers.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Label htmlFor="cmp-balance" className="text-xs whitespace-nowrap">Sim $</Label>
-          <Input
-            id="cmp-balance"
-            type="number"
-            value={simBalance}
-            onChange={(e) => setSimBalance(Math.max(0, Number(e.target.value) || 0))}
-            className="h-8 w-28 font-mono-numbers text-xs"
-            min={0}
-            step={1000}
-          />
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="cmp-balance" className="text-xs whitespace-nowrap">Sim $</Label>
+            <Input
+              id="cmp-balance"
+              type="number"
+              value={simBalance}
+              onChange={(e) => setSimBalance(Math.max(0, Number(e.target.value) || 0))}
+              className="h-8 w-28 font-mono-numbers text-xs"
+              min={0}
+              step={1000}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch id="cmp-fidelity" checked={highFidelityOnly} onCheckedChange={setHighFidelityOnly} />
+            <Label htmlFor="cmp-fidelity" className="text-xs flex items-center gap-1 cursor-pointer">
+              <ShieldCheck className="w-3 h-3" /> High-fidelity only
+            </Label>
+          </div>
         </div>
       </div>
 
@@ -180,16 +190,23 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
 
       <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed">
         <AlertTriangle className="w-3 h-3 inline mr-1" />
-        Caveats: replay assumes MFE/MAE were reachable as fills (no slippage on partials).
-        Trail-to-MFE captures 80% of MFE on the runner. When MFE isn't recorded, it's
-        inferred from <code className="text-[10px]">tp_reached</code> and{" "}
-        <code className="text-[10px]">r-multiple</code> (a +1.8R close implies MFE ≥ 1.8R, a
-        marked TP2 implies MFE ≥ 2R).
-        {(resA.inferredCount > 0 || resB.inferredCount > 0) && (
-          <span className="text-amber-600 dark:text-amber-400">
-            {" "}A: {resA.inferredCount}/{resA.n} inferred · B: {resB.inferredCount}/{resB.n} inferred.
-          </span>
-        )}
+        Replay assumes MFE/MAE were reachable as fills (no slippage on partials). Trail-to-MFE captures 80% of MFE
+        on the runner. When MFE isn't recorded, it's inferred from <code className="text-[10px]">tp_reached</code>{" "}
+        first, then from <code className="text-[10px]">r-multiple</code> (winners are extended to the bucket's
+        median MFE to avoid scoring partial-profit exits as BE).
+        {" "}<span>
+          A: <span className="text-emerald-600 dark:text-emerald-400">{resA.fidelity.full} logged</span>
+          {resA.fidelity.tp_reached > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resA.fidelity.tp_reached} tp</span></>}
+          {resA.fidelity.r_only > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resA.fidelity.r_only} r-only</span></>}
+          {resA.fidelity.fallback > 0 && <> · <span className="text-destructive">{resA.fidelity.fallback} fallback</span></>}
+          {resA.skippedLowFidelity > 0 && <> · {resA.skippedLowFidelity} skipped</>}
+          {" — B: "}
+          <span className="text-emerald-600 dark:text-emerald-400">{resB.fidelity.full} logged</span>
+          {resB.fidelity.tp_reached > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resB.fidelity.tp_reached} tp</span></>}
+          {resB.fidelity.r_only > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resB.fidelity.r_only} r-only</span></>}
+          {resB.fidelity.fallback > 0 && <> · <span className="text-destructive">{resB.fidelity.fallback} fallback</span></>}
+          {resB.skippedLowFidelity > 0 && <> · {resB.skippedLowFidelity} skipped</>}.
+        </span>
       </p>
     </Card>
   );

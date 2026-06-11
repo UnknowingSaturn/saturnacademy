@@ -15,7 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { Trophy, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Trophy, AlertTriangle, CheckCircle2, ShieldCheck } from "lucide-react";
 import { replayBucket, type ReplayResult } from "@/lib/pairLabSimulator";
 import { STRATEGY_PRESETS } from "@/lib/pairLabPresets";
 import type { Trade } from "@/types/trading";
@@ -41,11 +42,12 @@ function busted(r: ReplayResult) {
 export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabel }: Props) {
   const [riskPct, setRiskPct] = useState<number>(1);
   const [simBalance, setSimBalance] = useState<number>(balance);
+  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(false);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const ranked = useMemo(() => {
     const results: ReplayResult[] = STRATEGY_PRESETS.map((p) =>
-      replayBucket(trades, fieldKeys, { ...p, riskPct }, { balance: simBalance, propFirm }),
+      replayBucket(trades, fieldKeys, { ...p, riskPct }, { balance: simBalance, propFirm, highFidelityOnly }),
     );
     return results.sort((a, b) => {
       const aBust = busted(a);
@@ -54,7 +56,8 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
       if (b.totalDollars !== a.totalDollars) return b.totalDollars - a.totalDollars;
       return b.expectancyR - a.expectancyR;
     });
-  }, [trades, fieldKeys, riskPct, simBalance, propFirm]);
+  }, [trades, fieldKeys, riskPct, simBalance, propFirm, highFidelityOnly]);
+
 
   if (trades.length === 0) {
     return (
@@ -115,6 +118,16 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
               onValueChange={(v) => setRiskPct(v[0])}
               className="w-40"
             />
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="rank-fidelity"
+              checked={highFidelityOnly}
+              onCheckedChange={setHighFidelityOnly}
+            />
+            <Label htmlFor="rank-fidelity" className="text-xs flex items-center gap-1 cursor-pointer">
+              <ShieldCheck className="w-3 h-3" /> High-fidelity only
+            </Label>
           </div>
         </div>
       </div>
@@ -226,11 +239,16 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
         All presets are tested at the same risk %, so the ranking isolates exit-strategy edge. Survival
         beats P&L: a strategy that busts the prop-firm is ranked below every survivor, even if its raw
         $ would be higher.
-        {winner && winner.inferredCount > 0 && !winner.strategy.useActualOutcome && (
+        {winner && !winner.strategy.useActualOutcome && (
           <>
             {" "}
-            <span className="text-amber-600 dark:text-amber-400">
-              MFE/MAE inferred from tp_reached + r-multiple for {winner.inferredCount} of {winner.n} trades — log MFE/MAE on more trades for higher fidelity.
+            <span className="text-muted-foreground">
+              Data fidelity: <span className="text-emerald-600 dark:text-emerald-400">{winner.fidelity.full} logged</span>
+              {winner.fidelity.tp_reached > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{winner.fidelity.tp_reached} from tp_reached</span></>}
+              {winner.fidelity.r_only > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{winner.fidelity.r_only} from r-multiple</span></>}
+              {winner.fidelity.fallback > 0 && <> · <span className="text-destructive">{winner.fidelity.fallback} fallback</span></>}
+              {winner.skippedLowFidelity > 0 && <> · <span className="text-muted-foreground">{winner.skippedLowFidelity} skipped</span></>}
+              {". "}Winners with no MFE are extended to the bucket median to avoid under-counting partial-profit exits.
             </span>
           </>
         )}
