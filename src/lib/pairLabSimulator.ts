@@ -543,10 +543,12 @@ export function replayBucketMatched(
   const all = preparedTrades(trades);
   const bucket = buildBucketConstants(all, keys);
 
-  // Per-strategy outcomes per trade
+  // Per-strategy outcomes per trade, plus per-trade proof for reachedR diagnostics.
   const perStrategy: Array<Map<string, ReplayOutcome>> = strategies.map(() => new Map());
+  const proofs = new Map<string, TradeProof>();
   for (const t of all) {
     const proof = extractProof(t, keys);
+    proofs.set(t.id, proof);
     strategies.forEach((s, idx) => {
       perStrategy[idx].set(t.id, replayOneTrade(s, t, proof, bucket));
     });
@@ -562,7 +564,11 @@ export function replayBucketMatched(
   const matchedIds = matched.map((t) => t.id);
 
   const results: ReplayResult[] = strategies.map((strategy, idx) => {
-    const replayed = matched.map((t) => ({ trade: t, r: (perStrategy[idx].get(t.id) as { r: number }).r }));
+    const replayed = matched.map((t) => ({
+      trade: t,
+      r: (perStrategy[idx].get(t.id) as { r: number }).r,
+      reachedR: proofs.get(t.id)?.reachedR ?? 0,
+    }));
     // For matched mode, ineligible reasons are aggregated across the strategy's full set
     // (not just the matched sample) so the user sees why the intersection shrank.
     const reasons: Record<string, number> = {};
@@ -571,6 +577,7 @@ export function replayBucketMatched(
     });
     return buildResult(strategy, replayed, reasons, all.length, opts);
   });
+
 
   return {
     results,
