@@ -21,6 +21,8 @@ export interface PairLabFilters {
   propFirmMode?: boolean;
 }
 
+import type { Trade } from "@/types/trading";
+
 export interface PairLabData {
   isLoading: boolean;
   fieldKeys: PairLabFieldKeys;
@@ -32,6 +34,12 @@ export interface PairLabData {
   totalTrades: number;
   missingFields: boolean;
   propFirm: PropFirmContext | null;
+  /** Filtered trades (closed-only, non-archived, profile-filtered). */
+  trades: Trade[];
+  /** Resolver from raw broker symbol → canonical. */
+  symbolResolver: (raw: string) => string;
+  /** Active account balance for $ replay (0 when unknown / "all" view). */
+  accountBalance: number;
 }
 
 const SESSION_ORDER = ["Tokyo", "London", "NY AM", "NY PM"];
