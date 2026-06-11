@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Sparkles, AlertTriangle, ArrowRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import type { BucketReport } from "@/lib/pairLabMath";
+import type { BucketReport, PropFirmContext } from "@/lib/pairLabMath";
 import { Link } from "react-router-dom";
 
 interface QuantNote {
@@ -26,9 +26,10 @@ interface QuantNote {
 interface QuantNotePanelProps {
   bucket: BucketReport;
   baseline: BucketReport;
+  propFirm?: PropFirmContext | null;
 }
 
-export function QuantNotePanel({ bucket, baseline }: QuantNotePanelProps) {
+export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelProps) {
   const [note, setNote] = useState<QuantNote | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +44,7 @@ export function QuantNotePanel({ bucket, baseline }: QuantNotePanelProps) {
           bucket: {
             symbol: bucket.key.symbol,
             session: bucket.key.session,
+            rawSymbols: bucket.rawSymbols,
             n: bucket.n,
             wins: bucket.wins,
             losses: bucket.losses,
@@ -60,9 +62,13 @@ export function QuantNotePanel({ bucket, baseline }: QuantNotePanelProps) {
             mostCommonTpHit: bucket.mostCommonTpHit,
             confidence: bucket.confidence,
             expectedRCi: bucket.expectedRCi,
+            worstLosingStreak: bucket.worstLosingStreak,
             suggestedSlPips: bucket.recommendation.suggestedSlPips,
             tpLadderR: bucket.recommendation.tpLadderR,
+            tp1Star: bucket.recommendation.tp1Star,
             suggestedRiskPct: bucket.recommendation.suggestedRiskPct,
+            suggestedRiskPctPropFirm: bucket.recommendation.suggestedRiskPctPropFirm,
+            bindingConstraint: bucket.recommendation.bindingConstraint,
             edgeVsBaseline: bucket.recommendation.edgeVsBaseline,
             topTradeIds: bucket.topTradeIds,
             bottomTradeIds: bucket.bottomTradeIds,
@@ -74,6 +80,15 @@ export function QuantNotePanel({ bucket, baseline }: QuantNotePanelProps) {
             mfeP75: baseline.mfeP75,
             maeP75: baseline.maeP75,
           },
+          propFirm: propFirm
+            ? {
+                firmName: propFirm.firmName,
+                balance: propFirm.balance,
+                dailyLossDollars: propFirm.dailyLossDollars,
+                maxDrawdownDollars: propFirm.maxDrawdownDollars,
+                hardCapPct: propFirm.hardCapPct,
+              }
+            : null,
         },
       });
       if (invokeErr) throw invokeErr;
