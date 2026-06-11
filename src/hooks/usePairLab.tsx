@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useTrades } from "@/hooks/useTrades";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
-import { useAccount } from "@/hooks/useAccounts";
+import { useAccount, useAccounts } from "@/hooks/useAccounts";
 import { useSymbolAliases } from "@/hooks/useSymbolAliases";
 import { buildSymbolResolver } from "@/lib/symbolAliasing";
 import {
@@ -38,8 +38,10 @@ export interface PairLabData {
   trades: Trade[];
   /** Resolver from raw broker symbol → canonical. */
   symbolResolver: (raw: string) => string;
-  /** Active account balance for $ replay (0 when unknown / "all" view). */
+  /** Balance used to convert R into $: single-account balance, else aggregate of all accounts. */
   accountBalance: number;
+  /** True when the global filter is "all accounts" (or none selected). */
+  isAllAccounts: boolean;
 }
 
 const SESSION_ORDER = ["Tokyo", "London", "NY AM", "NY PM"];
@@ -63,14 +65,13 @@ function usePropFirmRules(firmId: string | null | undefined) {
 
 export function usePairLab(filters: PairLabFilters = {}): PairLabData {
   const { selectedAccountId } = useAccountFilter();
-  const accountFilter =
-    selectedAccountId && selectedAccountId !== "all" ? { accountId: selectedAccountId } : undefined;
+  const isAllAccounts = !selectedAccountId || selectedAccountId === "all";
+  const accountFilter = !isAllAccounts ? { accountId: selectedAccountId } : undefined;
   const tradesQuery = useTrades(accountFilter);
   const defsQuery = useCustomFieldDefinitions();
   const aliasesQuery = useSymbolAliases();
-  const accountQuery = useAccount(
-    selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined,
-  );
+  const accountQuery = useAccount(!isAllAccounts ? selectedAccountId : undefined);
+  const accountsQuery = useAccounts();
   const rulesQuery = usePropFirmRules(accountQuery.data?.prop_firm ?? null);
 
   return useMemo(() => {
@@ -83,11 +84,12 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
 
     const symbolResolver = buildSymbolResolver(aliases);
 
-    // Build prop firm context from account + rules.
+    // Build prop firm context from account + rules. Disabled in all-accounts mode
+    // (mixing different firms' DD caps would be meaningless).
     let propFirm: PropFirmContext | null = null;
     const acct = accountQuery.data;
     const rules = rulesQuery.data ?? [];
-    if (filters.propFirmMode && acct && acct.balance_start) {
+    if (!isAllAccounts && filters.propFirmMode && acct && acct.balance_start) {
       const balance = Number(acct.balance_start ?? 0);
       const dailyRule = rules.find((r) => r.rule_type === "daily_loss");
       const maxDdRule = rules.find((r) => r.rule_type === "max_drawdown");
@@ -104,6 +106,15 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
         firmName: acct.prop_firm ?? null,
       };
     }
+
+    // Balance for $ replay: single account when picked, else aggregate of all active accounts.
+    const aggregateBalance = (accountsQuery.data ?? []).reduce(
+      (sum, a) => sum + Number(a.balance_start ?? 0),
+      0,
+    );
+    const accountBalance = isAllAccounts
+      ? aggregateBalance
+      : Number(accountQuery.data?.balance_start ?? 0);
 
     const { perCell, perRow, baseline } = buildBuckets(trades, fieldKeys, {
       profile: filters.profile ?? null,
@@ -135,7 +146,8 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       propFirm,
       trades,
       symbolResolver,
-      accountBalance: Number(accountQuery.data?.balance_start ?? 0),
+      accountBalance,
+      isAllAccounts,
     };
   }, [
     tradesQuery.data,
@@ -146,9 +158,11 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     aliasesQuery.isLoading,
     accountQuery.data,
     accountQuery.isLoading,
+    accountsQuery.data,
     rulesQuery.data,
     filters.profile,
     filters.actualProfile,
     filters.propFirmMode,
+    isAllAccounts,
   ]);
 }

@@ -9,9 +9,10 @@
 //   3. Tiebreak by expectancy R.
 // ============================================================================
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Trophy, AlertTriangle, CheckCircle2 } from "lucide-react";
@@ -39,10 +40,12 @@ function busted(r: ReplayResult) {
 
 export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabel }: Props) {
   const [riskPct, setRiskPct] = useState<number>(1);
+  const [simBalance, setSimBalance] = useState<number>(balance);
+  useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const ranked = useMemo(() => {
     const results: ReplayResult[] = STRATEGY_PRESETS.map((p) =>
-      replayBucket(trades, fieldKeys, { ...p, riskPct }, { balance, propFirm }),
+      replayBucket(trades, fieldKeys, { ...p, riskPct }, { balance: simBalance, propFirm }),
     );
     return results.sort((a, b) => {
       const aBust = busted(a);
@@ -51,7 +54,7 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
       if (b.totalDollars !== a.totalDollars) return b.totalDollars - a.totalDollars;
       return b.expectancyR - a.expectancyR;
     });
-  }, [trades, fieldKeys, riskPct, balance, propFirm]);
+  }, [trades, fieldKeys, riskPct, simBalance, propFirm]);
 
   if (trades.length === 0) {
     return (
@@ -86,19 +89,33 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
             Replays {trades.length} trades through every preset at a fixed risk %, then ranks. Busted strategies are demoted.
           </p>
         </div>
-        <div className="flex items-center gap-3 min-w-[240px]">
-          <Label htmlFor="rank-risk" className="text-xs whitespace-nowrap">
-            Risk <span className="font-mono-numbers font-semibold">{riskPct.toFixed(2)}%</span>
-          </Label>
-          <Slider
-            id="rank-risk"
-            value={[riskPct]}
-            min={0.25}
-            max={3}
-            step={0.25}
-            onValueChange={(v) => setRiskPct(v[0])}
-            className="w-40"
-          />
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="rank-balance" className="text-xs whitespace-nowrap">Sim $</Label>
+            <Input
+              id="rank-balance"
+              type="number"
+              value={simBalance}
+              onChange={(e) => setSimBalance(Math.max(0, Number(e.target.value) || 0))}
+              className="h-8 w-28 font-mono-numbers text-xs"
+              min={0}
+              step={1000}
+            />
+          </div>
+          <div className="flex items-center gap-2 min-w-[220px]">
+            <Label htmlFor="rank-risk" className="text-xs whitespace-nowrap">
+              Risk <span className="font-mono-numbers font-semibold">{riskPct.toFixed(2)}%</span>
+            </Label>
+            <Slider
+              id="rank-risk"
+              value={[riskPct]}
+              min={0.25}
+              max={3}
+              step={0.25}
+              onValueChange={(v) => setRiskPct(v[0])}
+              className="w-40"
+            />
+          </div>
         </div>
       </div>
 
