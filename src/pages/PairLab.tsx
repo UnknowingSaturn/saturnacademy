@@ -7,6 +7,7 @@ import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 import { usePairLab } from "@/hooks/usePairLab";
 import { BucketGrid } from "@/components/pair-lab/BucketGrid";
 import { RecommendationCard } from "@/components/pair-lab/RecommendationCard";
+import { QuantNotePanel } from "@/components/pair-lab/QuantNotePanel";
 
 export default function PairLab() {
   const [profile, setProfile] = useState<string>("any");
@@ -129,9 +130,12 @@ export default function PairLab() {
         onSelect={setSelected}
       />
 
-      {/* Recommendation */}
+      {/* Recommendation + AI note */}
       {selectedBucket ? (
-        <RecommendationCard bucket={selectedBucket} baseline={data.baseline} />
+        <div className="grid lg:grid-cols-2 gap-4">
+          <RecommendationCard bucket={selectedBucket} baseline={data.baseline} />
+          <QuantNotePanel bucket={selectedBucket} baseline={data.baseline} />
+        </div>
       ) : (
         <Card className="p-6 text-sm text-muted-foreground text-center">
           Select a cell in the grid to see the recommended SL, TP ladder, and risk sizing for that bucket.
