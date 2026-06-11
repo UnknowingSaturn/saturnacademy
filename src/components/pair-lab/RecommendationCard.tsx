@@ -8,6 +8,7 @@ import type { BucketReport } from "@/lib/pairLabMath";
 interface Props {
   bucket: BucketReport;
   baseline: BucketReport;
+  propFirmMode?: boolean;
 }
 
 function StatLine({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
@@ -28,9 +29,16 @@ const fmt = (v: number | null | undefined, digits = 2, suffix = "") =>
 const fmtR = (v: number | null | undefined) =>
   v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "R";
 
-export function RecommendationCard({ bucket, baseline }: Props) {
+export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
   const b = bucket;
   const lowSample = b.confidence === "low";
+  const pfRisk = b.recommendation.suggestedRiskPctPropFirm;
+  const kellyRisk = b.recommendation.suggestedRiskPct;
+  const effectiveRisk = propFirmMode && pfRisk != null
+    ? (kellyRisk != null ? Math.min(kellyRisk, pfRisk) : pfRisk)
+    : kellyRisk;
+  const binding = b.recommendation.bindingConstraint;
+  const tp1 = b.recommendation.tp1Star;
 
   const driftBadge =
     b.slDrift === "too_wide" ? (
@@ -85,23 +93,31 @@ export function RecommendationCard({ bucket, baseline }: Props) {
               ? b.recommendation.tpLadderR.map((r) => `${r}R`).join(" · ")
               : "—"}
           </div>
-          <div className="text-[10px] text-muted-foreground">
-            Capped at most-common TP hit: {b.mostCommonTpHit ?? "n/a"}
-          </div>
+          {tp1 ? (
+            <div className="text-[10px] text-primary">
+              TP1* (win-rate maxing): {tp1.r}R · hits {(tp1.hitRate * 100).toFixed(0)}% of trades
+            </div>
+          ) : (
+            <div className="text-[10px] text-muted-foreground">
+              Capped at most-common TP hit: {b.mostCommonTpHit ?? "n/a"}
+            </div>
+          )}
         </div>
 
         <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1">
           <div className="flex items-center gap-2 text-xs text-muted-foreground"><Percent className="w-3.5 h-3.5" /> Suggested risk</div>
           <div className={cn(
             "text-2xl font-mono-numbers font-semibold",
-            !b.recommendation.suggestedRiskPct && "text-muted-foreground",
+            effectiveRisk == null && "text-muted-foreground",
           )}>
-            {b.recommendation.suggestedRiskPct != null
-              ? `${b.recommendation.suggestedRiskPct.toFixed(2)}%`
-              : "—"}
+            {effectiveRisk != null ? `${effectiveRisk.toFixed(2)}%` : "—"}
           </div>
           <div className="text-[10px] text-muted-foreground">
-            Quarter-Kelly, clamped 0.25 – 1.5 %
+            {propFirmMode && binding === "prop_firm_dd"
+              ? `Capped by prop-firm DD budget (worst streak ${b.worstLosingStreak || "≤3"})`
+              : propFirmMode && binding === "hard_cap"
+                ? "Capped by account hard-cap"
+                : "Quarter-Kelly, clamped 0.25 – 1.5 %"}
           </div>
         </div>
       </div>

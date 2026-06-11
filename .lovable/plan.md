@@ -1,130 +1,102 @@
+## Goal
 
-## Recommended approach
+Lift win rate against prop-firm constraints by giving Pair Lab two things it's missing:
 
-Don't ask AI to "find the best parameters" from the raw trade list — small samples + free-text reasoning produce garbage. Use a **two-layer system**:
+1. **Symbol aliasing** — collapse `EURUSD / EURUSD+`, `NAS100 / NASUSD / NDX100 / US100.cash`, `SP500 / SPX500 / SPXUSD / US500.cash`, `XAUUSD / XAUUSD+`, etc. into one canonical symbol per user. Today these are split into tiny low-confidence buckets (visible in your screenshot — N=1, N=2 cells everywhere).
+2. **Prop-firm-aware recommendations** — the engine already suggests SL / TP-ladder / risk %, but it optimizes expected R, not win rate, and it ignores prop-firm DD budgets. We add a win-rate-first target and a prop-firm safety layer.
 
-1. **Quant layer (deterministic):** compute per-bucket distributions of MFE/MAE/ideal-SL/TP-hit and derive parameter recommendations from those distributions. Fully reproducible, no LLM needed for the numbers.
-2. **AI layer (narrative):** feed the *aggregates* (not individual trades) plus a handful of cited example trades to Lovable AI to explain *why* and turn it into actionable changes for your playbooks.
+## What you'll see when this ships
 
-This matches how prop-firm risk desks actually do it, and it works at low sample sizes because it leans on robust statistics (medians, quantiles) instead of means.
+- **Pair Lab grid** shows one row per canonical pair (one `EURUSD` row aggregating 85 + 27 = 112 trades, one `NAS100-family` row aggregating ~34 trades). Sample sizes jump, confidence badges flip from low → medium/high, the noisy N=1 cells disappear.
+- **Symbol Aliases manager** (new tab inside Pair Lab) auto-detects duplicates and proposes a canonical name. One click confirms.
+- **Recommendation card** gains a "Prop-firm mode" toggle. When on:
+  - Suggested risk % is the smaller of ¼-Kelly and `(daily_loss_budget / max_consecutive_losses_p95)` for that bucket.
+  - TP ladder gains a **TP1 = "win-rate maximizing"** target — the R level where cumulative win-rate × R is highest in the MFE distribution. This is the lever for raising win rate without giving back edge.
+  - A red flag appears if the bucket's worst observed losing streak would breach the account's daily/total DD at the suggested risk.
+- **AI quant note** receives the prop-firm context and writes its parameter changes against that constraint instead of pure expected-R.
 
----
+## Approach
 
-## Data we already have
+### 1. Symbol aliasing (new `symbol_aliases` table)
 
-In `trades.custom_fields` (per-trade, user-editable today):
+User-scoped table mapping raw broker symbol → canonical symbol. Pair Lab reads it and groups by canonical. No backfill, no edit to existing trade rows — purely a presentation/aggregation layer.
 
-| Key | Meaning | Use in math |
-|---|---|---|
-| `cf_mfe_envl` | Max favourable excursion, in R | TP placement, partial ladder |
-| `cf_mae_rpvr` | Max adverse excursion (pips or R) | SL placement, "near-miss" SL hits |
-| `cf_tp_reached_qqwi` | Which TPs filled (`1:1`, `1:2`, …) | Expected R per setup, partial sizing |
-| `cf_ideal_stop_loss_rnv7` | Ideal SL after the fact | SL drift vs planned |
-| `cf_ideal_stop_loss_position_z6qu` | initial / last leg | Structural SL rule |
-| `cf_ideal_entry_window_jdl1` | first_30min / last_30min | Entry timing rule |
-
-Plus on the trade row itself: `symbol`, `session`, `direction`, `r_multiple_actual`, `r_multiple_planned`, `sl_initial`, `tp_initial`, `risk_percent`, `equity_at_entry`, `profile` (planned), `actual_profile` (hindsight), `actual_regime`.
-
-23 trades currently have MFE filled — small but workable for descriptive stats; we surface a "confidence" badge so you don't over-fit.
-
----
-
-## The "Pair Lab" — proposed page
-
-New route `/pair-lab` under the existing Strategy Lab umbrella (sidebar: "Pair Lab"). Three panels:
-
-### Panel 1 — Bucket grid (the quant view)
-
-Pivot table you can re-slice on the fly:
-
-```text
-                EURUSD   GBPUSD   XAUUSD   ...
-  Tokyo          •         •        •
-  London         •         •        •
-  NY AM          •         •        •
-  NY PM          •         •        •
-  All sessions   •         •        •
+```
+symbol_aliases(user_id, raw_symbol, canonical_symbol, source, created_at)
+unique(user_id, raw_symbol)
 ```
 
-Each cell links to the **Recommendation card** (Panel 2). Cell shows: trades N, win rate, expected R, MFE p75 in R, MAE p75 in R, sample-size badge (🟢 ≥30, 🟡 10–29, 🔴 <10).
+`source` = `'auto'` (suggested by the detector) or `'manual'` (user confirmed/edited). Auto rules cover the common cases:
 
-Filter chips above the grid: planned profile, actual profile, ideal-entry-window, ideal-SL-position, regime — so you can compare e.g. "NY AM × XAUUSD × Continuation × first_30min" against the cumulative baseline.
+- Strip trailing `+`, `.`, `.cash`, `.pro`, `.r`, `.m`, `_i`, `-pro`.
+- Family map for indices: `{NAS100, NASUSD, NDX100, US100, US100.cash} → NAS100`; `{SP500, SPX500, SPXUSD, US500, US500.cash} → SP500`; `{US30, DJ30, US30.cash, DOW} → US30`; `{GER40, DE40, DAX40} → GER40`; etc.
+- Anything ambiguous stays unaliased and surfaces in the manager for the user to resolve.
 
-### Panel 2 — Recommendation card (per cell)
+The detector runs on the user's own `trades.symbol` distinct list — no global hard-coding beyond the family map.
 
-Computed deterministically from that bucket's sample:
+### 2. Pair Lab grouping uses canonical symbol
 
-| Output | How it's derived |
-|---|---|
-| **Suggested SL (pips)** | `max(p75(MAE) × 1.15, median(cf_ideal_stop_loss))` — covers 75 % of historical adverse moves with a small buffer, then takes whichever is wider between MAE-driven and your own hindsight ideal. |
-| **TP ladder (R)** | From the empirical CDF of MFE: TP1 at the R level reached by ≥70 % of trades, TP2 at p50, TP3 at p25. Caps each at the most-common `cf_tp_reached` value so we don't recommend a TP you've never actually hit. |
-| **Suggested risk % of account** | Kelly-fraction-of-Kelly: `0.25 × (W × avgWinR − L) / avgWinR`, clamped to [0.25 %, 1.5 %]. Quarter-Kelly because samples are small. |
-| **Expected R per trade** | `W × p50(MFE_winners) − L × p50(MAE_losers)/avgPlannedSL`. |
-| **Edge vs cumulative** | Same metrics vs the all-symbol/all-session baseline, with a color delta. |
-| **SL-drift flag** | If `median(cf_ideal_stop_loss) < median(sl_initial)` you're setting stops too wide; opposite = too tight. |
-| **Confidence** | Bootstrap 90 % CI on expected R + sample-size badge. Hide numeric recommendations when N < 10, show distributions only. |
+`buildBuckets` in `src/lib/pairLabMath.ts` gets a `symbolResolver: (raw) => canonical` argument. `usePairLab` fetches the alias table once and passes the resolver in. Grid rows, recommendation card, and AI note all key off canonical names. Raw broker names show as a small subtitle ("EURUSD · across EURUSD, EURUSD+") so nothing is hidden.
 
-Card shows the underlying distribution as a small histogram (MFE, MAE) and lists the 3 best and 3 worst trades in the bucket as `CitedTradeChip` links into the journal.
+### 3. Win-rate-first TP target
 
-### Panel 3 — AI report ("Quant note")
+Today's TP ladder uses MFE quartiles (p70/p50/p25 of winners → 3 R targets). That's optimal for expected R but not for win rate.
 
-One-click **"Generate quant note"** button calls a new edge function `pair-lab-report`. It receives the *aggregates and recommendations* for the currently-selected slice (never the raw trade table) and a small set of cited trade IDs. Lovable AI returns a structured note:
+Add a fourth derived value, **TP1\***, computed from the empirical MFE distribution of *all* trades in the bucket (not just winners):
 
-```text
-1. What's working (cite specific bucket)
-2. What's leaking (cite specific bucket + trades)
-3. Parameter changes to test next week (SL/TP/risk, per bucket)
-4. Playbook rule edits to consider (optional — opens Playbook Assistant prefilled)
+```
+For r in [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0]:
+  hit_rate(r)   = fraction of trades whose MFE ≥ r
+  win_rate(r)   = hit_rate(r)  // a trade that reaches r before stop is bookable as a partial win
+  expectancy(r) = hit_rate(r) × r − (1 − hit_rate(r)) × avg_MAE_R
+
+TP1* = argmax over r of  (hit_rate(r) × log(r))   // win-rate-weighted, log-scaled to avoid 0.25 always winning
 ```
 
-The note is saved to the existing `reports` table with `report_type='custom'` and `sensei_notes.kind='pair_lab'` so it shows up alongside weekly reports.
+Display: "TP1 (win-rate maxing) = 0.6R · hits 72% of trades" alongside the existing expected-R ladder. The user can pick which target the playbook should adopt.
 
----
+### 4. Prop-firm safety layer (account-aware)
 
-## Why this beats "ask AI to optimise"
+Reuse `accounts` + `prop_firm_rules` already in the database. For the active account:
 
-- Deterministic recommendations are auditable and don't change between runs.
-- Quantile-based SL/TP is robust to outliers — important when N is tiny.
-- Quarter-Kelly bounds risk-sizing so a single hot bucket can't blow the account.
-- LLM cost stays low: one structured note per slice, not per trade.
-- Plays nicely with what already exists: `reports.edge_clusters`/`leak_clusters`, `playbook-assistant`, `CitedTradeChip`, `useReports`.
+```
+daily_loss_budget_R    = account.daily_drawdown_limit / planned_R_dollar_value
+total_dd_budget_R      = account.max_drawdown / planned_R_dollar_value
+worst_losing_streak    = longest run of consecutive losses observed in the bucket
+suggested_risk_pct_pf  = daily_loss_budget_R / max(3, worst_losing_streak_p95) × 100
+```
 
----
+Final suggested risk = `min(¼-Kelly, suggested_risk_pct_pf)`, clamped to `[0.1%, account.risk_per_trade_cap]`. If the cap binds, the card says "limited by prop-firm DD budget, not edge".
 
-## Technical sketch
+### 5. AI quant note context
 
-### Files to add
-- `src/pages/PairLab.tsx` — route + layout
-- `src/components/pair-lab/BucketGrid.tsx` — pivot grid
-- `src/components/pair-lab/RecommendationCard.tsx` — Panel 2
-- `src/components/pair-lab/DistributionChart.tsx` — MFE/MAE histogram (recharts)
-- `src/components/pair-lab/QuantNotePanel.tsx` — Panel 3
-- `src/hooks/usePairLab.tsx` — pulls trades + custom fields, builds buckets client-side
-- `src/lib/pairLabMath.ts` — pure functions: `bucketize`, `quantile`, `bootstrapCI`, `kellyFraction`, `recommendSL`, `recommendTPLadder`
-- `supabase/functions/pair-lab-report/index.ts` — Lovable AI call, `google/gemini-3-flash-preview`, structured `Output` schema. Persists to `reports`.
-- `src/integrations/lovable/index.ts` — add invoke helper
+Pass `propFirm: { name, dailyDDR, totalDDR, currentEquityR, observedWorstStreak }` into the existing `pair-lab-report` edge function. The system prompt gains one rule: *"If propFirm is set, your parameter changes must respect dailyDDR. Prefer raising win rate via TP1\* over chasing expected R."* No model swap.
 
-### Files to touch
-- `src/components/layout/AppSidebar.tsx` — add "Pair Lab" link
-- `src/App.tsx` — register `/pair-lab` route
+### Out of scope (for this plan)
 
-### Math runs client-side
-All bucketing/quantiles run in the browser on the existing `useTrades` payload — no schema or backend changes needed for Panel 1 & 2. The edge function is only for the AI narrative.
+- Backtesting / forward-walk validation of the new TP1\* on held-out trades — useful later, separate plan.
+- Editing existing `trades.symbol` rows. Aliasing is a view, not a rewrite.
+- Multi-account aggregation across different prop firms — Pair Lab still respects the account filter.
 
-### Field-key resolution
-`pairLabMath.ts` resolves the user's custom-field keys at runtime via `useCustomFields()` (they're per-user — `cf_mfe_envl` etc. are this user's keys but other users will differ). We match by `label === 'MFE (RR)'`, `'MAE'`, `'TP Reached'`, `'Ideal Stop-Loss'`, `'Ideal Stop-Loss Position'`, `'Ideal Entry Window'`, falling back to key prefixes.
+## Files
 
----
+**New**
+- `supabase/migrations/<ts>_symbol_aliases.sql` — table + GRANTs + RLS.
+- `src/hooks/useSymbolAliases.tsx` — read/upsert aliases.
+- `src/lib/symbolAliasing.ts` — auto-detect rules + family map + `applyAliases(rawList, aliases)`.
+- `src/components/pair-lab/SymbolAliasManager.tsx` — list of detected raw symbols, suggested canonical, accept/edit/reject.
+- `src/components/pair-lab/PropFirmGuard.tsx` — small card on the recommendation showing DD-budget math and the binding constraint.
 
-## Phased delivery
+**Edited**
+- `src/lib/pairLabMath.ts` — accept `symbolResolver` and `propFirmContext`; compute `tp1Star`; expose `worstLosingStreak`.
+- `src/hooks/usePairLab.tsx` — load aliases + active account + prop firm rules; pass into `buildBuckets`.
+- `src/pages/PairLab.tsx` — tabs (`Grid` | `Aliases`), prop-firm toggle, raw-symbol subtitle.
+- `src/components/pair-lab/RecommendationCard.tsx` — render TP1\* and prop-firm constraint.
+- `supabase/functions/pair-lab-report/index.ts` — accept `propFirm` and `tp1Star`, update system prompt.
 
-1. **Phase 1 (this PR):** Pair Lab page with Panel 1 (bucket grid) + Panel 2 (recommendation card), no AI. Validates the math against trades you already have.
-2. **Phase 2:** Panel 3 — `pair-lab-report` edge function + AI quant note saved to `reports`.
-3. **Phase 3:** "Apply to playbook" hand-off — opens the existing Playbook Assistant prefilled with the recommended SL/TP/risk for that symbol×session, so changes flow into your rules instead of staying in a report.
+## Phasing
 
-I'd ship Phase 1 first so we can sanity-check the recommendations against real trades before wiring the AI.
+- **Phase A (small):** symbol aliases table + auto-detect + manager UI + grid grouping. This alone fixes the screenshot.
+- **Phase B:** TP1\* + prop-firm safety layer + AI note context.
 
-## Out of scope
-- Capturing MFE/MAE automatically from M1/tick data (currently manual via custom fields — separate effort if you want it auto-filled).
-- Backtesting recommended parameters against historical data — different module (Strategy Lab already covers MT5 backtest HTML parsing).
-- Per-user-fixed schema for the excursion fields (they stay in `custom_fields` for now).
+Ship A first so the grid is usable, then B.

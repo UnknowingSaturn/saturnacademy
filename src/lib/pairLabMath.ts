@@ -36,6 +36,8 @@ export interface BucketKey {
 
 export interface BucketStats {
   key: BucketKey;
+  /** Raw broker symbols rolled up into this canonical key (for display). */
+  rawSymbols: string[];
   n: number;
   wins: number;
   losses: number;
@@ -54,12 +56,37 @@ export interface BucketStats {
   confidence: ConfidenceLevel;
   // Two-sided bootstrap CI on expectedR — null when n < 5.
   expectedRCi: [number, number] | null;
+  // Longest run of consecutive losing trades observed in this bucket.
+  worstLosingStreak: number;
+}
+
+export interface Tp1Star {
+  r: number;          // R-multiple target
+  hitRate: number;    // 0–1, fraction of trades whose MFE ≥ r
+  expectancyR: number;
+}
+
+export interface PropFirmContext {
+  /** Account balance in money — used to translate DD limits to R. */
+  balance: number;
+  /** Daily loss limit as $ (already converted from % if needed). */
+  dailyLossDollars: number | null;
+  /** Max drawdown limit as $. */
+  maxDrawdownDollars: number | null;
+  /** User's planned risk per trade as a fraction (e.g. 0.01 for 1%). */
+  riskPerTradeFrac: number;
+  /** Hard cap on suggested risk %, e.g. account.risk_per_trade_cap or 2. */
+  hardCapPct: number;
+  firmName: string | null;
 }
 
 export interface BucketRecommendation {
   suggestedSlPips: number | null;
-  tpLadderR: number[];           // ascending R targets, 1-3 entries
-  suggestedRiskPct: number | null; // % of account
+  tpLadderR: number[];            // ascending R targets, 1-3 entries (expected-R)
+  tp1Star: Tp1Star | null;        // win-rate-maximizing TP target
+  suggestedRiskPct: number | null;  // % of account, edge-only (Kelly)
+  suggestedRiskPctPropFirm: number | null; // % of account, prop-firm-capped
+  bindingConstraint: "kelly" | "prop_firm_dd" | "hard_cap" | null;
   edgeVsBaseline: {
     winRateDelta: number;        // percentage points
     expectedRDelta: number;
@@ -226,6 +253,10 @@ export interface BuildBucketsOpts {
   actualProfile?: string | null;
   /** Closed trades only when true (default). */
   closedOnly?: boolean;
+  /** Map a raw broker symbol to its canonical name. Default = identity. */
+  symbolResolver?: (raw: string) => string;
+  /** When supplied, recommendation includes a prop-firm-aware risk cap. */
+  propFirm?: PropFirmContext | null;
 }
 
 export function buildBuckets(
@@ -234,6 +265,7 @@ export function buildBuckets(
   opts: BuildBucketsOpts = {},
 ): { perCell: BucketReport[]; perRow: BucketReport[]; baseline: BucketReport } {
   const closedOnly = opts.closedOnly !== false;
+  const resolveSym = opts.symbolResolver ?? ((s: string) => s);
   const filtered = trades.filter((t) => {
     if (closedOnly && t.is_open) return false;
     if (t.is_archived) return false;
@@ -243,29 +275,50 @@ export function buildBuckets(
   });
 
   // Baseline = all symbols, all sessions (used for edge deltas).
-  const baseline = computeBucket({ symbol: "All", session: "All sessions" }, filtered, keys, null);
+  const baseline = computeBucket(
+    { symbol: "All", session: "All sessions" },
+    filtered,
+    keys,
+    null,
+    opts.propFirm ?? null,
+  );
 
-  // Per-cell (symbol × session) and per-row (symbol × "All sessions").
+  // Per-cell (canonicalSymbol × session) and per-row (canonicalSymbol × "All sessions").
   const cellMap = new Map<string, Trade[]>();
   const rowMap = new Map<string, Trade[]>();
+  const cellRawSymbols = new Map<string, Set<string>>();
+  const rowRawSymbols = new Map<string, Set<string>>();
   for (const t of filtered) {
     if (!t.symbol) continue;
+    const canonical = resolveSym(t.symbol);
     const sess = normalizeSession(t.session);
-    const cellKey = `${t.symbol}__${sess}`;
-    if (!cellMap.has(cellKey)) cellMap.set(cellKey, []);
+    const cellKey = `${canonical}__${sess}`;
+    if (!cellMap.has(cellKey)) { cellMap.set(cellKey, []); cellRawSymbols.set(cellKey, new Set()); }
     cellMap.get(cellKey)!.push(t);
-    if (!rowMap.has(t.symbol)) rowMap.set(t.symbol, []);
-    rowMap.get(t.symbol)!.push(t);
+    cellRawSymbols.get(cellKey)!.add(t.symbol);
+    if (!rowMap.has(canonical)) { rowMap.set(canonical, []); rowRawSymbols.set(canonical, new Set()); }
+    rowMap.get(canonical)!.push(t);
+    rowRawSymbols.get(canonical)!.add(t.symbol);
   }
 
   const perCell: BucketReport[] = [];
   cellMap.forEach((rows, cellKey) => {
     const [symbol, session] = cellKey.split("__");
-    perCell.push(computeBucket({ symbol, session }, rows, keys, baseline));
+    const report = computeBucket({ symbol, session }, rows, keys, baseline, opts.propFirm ?? null);
+    report.rawSymbols = Array.from(cellRawSymbols.get(cellKey) ?? []).sort();
+    perCell.push(report);
   });
   const perRow: BucketReport[] = [];
   rowMap.forEach((rows, symbol) => {
-    perRow.push(computeBucket({ symbol, session: "All sessions" }, rows, keys, baseline));
+    const report = computeBucket(
+      { symbol, session: "All sessions" },
+      rows,
+      keys,
+      baseline,
+      opts.propFirm ?? null,
+    );
+    report.rawSymbols = Array.from(rowRawSymbols.get(symbol) ?? []).sort();
+    perRow.push(report);
   });
 
   perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
@@ -273,11 +326,49 @@ export function buildBuckets(
   return { perCell, perRow, baseline };
 }
 
+/** Longest run of consecutive losing trades (net_pnl < 0), ordered by entry_time. */
+function longestLossStreak(rows: Trade[]): number {
+  const sorted = [...rows]
+    .filter((t) => t.net_pnl != null && t.entry_time)
+    .sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)));
+  let run = 0;
+  let worst = 0;
+  for (const t of sorted) {
+    if ((t.net_pnl ?? 0) < 0) {
+      run += 1;
+      if (run > worst) worst = run;
+    } else {
+      run = 0;
+    }
+  }
+  return worst;
+}
+
+/** Empirical hit rate of MFE ≥ r for trades that have MFE recorded. */
+function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
+  if (mfes.length < 5) return null;
+  const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
+  let best: Tp1Star | null = null;
+  for (const r of candidates) {
+    const hits = mfes.filter((v) => v >= r).length;
+    const hitRate = hits / mfes.length;
+    if (hitRate < 0.4) continue; // need a real chance of being hit
+    // log scaling avoids 0.25R always winning the "win rate" race.
+    const score = hitRate * Math.log(1 + r);
+    const expectancyR = hitRate * r - (1 - hitRate) * avgLossR;
+    if (!best || score > best.hitRate * Math.log(1 + best.r)) {
+      best = { r, hitRate, expectancyR };
+    }
+  }
+  return best;
+}
+
 function computeBucket(
   key: BucketKey,
   rows: Trade[],
   keys: PairLabFieldKeys,
   baseline: BucketReport | null,
+  propFirm: PropFirmContext | null,
 ): BucketReport {
   const closed = rows.filter((t) => t.net_pnl != null);
   const wins = closed.filter((t) => (t.net_pnl ?? 0) > 0);
@@ -297,16 +388,12 @@ function computeBucket(
   const slInitials: number[] = [];
   for (const t of rows) {
     if (t.sl_initial == null || t.entry_price == null) continue;
-    // Convert SL distance to pips using a coarse 4-digit assumption — same
-    // unit the user enters cf_ideal_stop_loss in. JPY/index handling left
-    // to the user's existing journal conventions.
     const distance = Math.abs(t.entry_price - t.sl_initial);
     const digits = String(t.entry_price).split(".")[1]?.length ?? 4;
     const pipMultiplier = digits >= 4 ? 10_000 : 100;
     slInitials.push(distance * pipMultiplier);
   }
 
-  // TP-hit distribution.
   const tpDist: Record<string, number> = {};
   for (const t of rows) {
     for (const v of multiSelectCf(t as any, keys.tpReached)) {
@@ -332,6 +419,7 @@ function computeBucket(
 
   const stats: BucketStats = {
     key,
+    rawSymbols: [],
     n,
     wins: wins.length,
     losses: losses.length,
@@ -349,9 +437,10 @@ function computeBucket(
     mostCommonTpHit,
     confidence: confidenceFor(n),
     expectedRCi: bootstrapMeanCi(rActuals),
+    worstLosingStreak: longestLossStreak(rows),
   };
 
-  const recommendation = buildRecommendation(stats, winR, lossR, baseline);
+  const recommendation = buildRecommendation(stats, winR, lossR, mfes, baseline, propFirm);
 
   const sorted = [...closed].sort(
     (a, b) => (b.r_multiple_actual ?? 0) - (a.r_multiple_actual ?? 0),
@@ -366,7 +455,9 @@ function buildRecommendation(
   s: BucketStats,
   winR: number[],
   lossR: number[],
+  mfes: number[],
   baseline: BucketReport | null,
+  propFirm: PropFirmContext | null,
 ): BucketRecommendation {
   // SL: max of (p75(MAE) × 1.15, median(ideal SL)). Both are in pips.
   let suggestedSlPips: number | null = null;
@@ -375,28 +466,56 @@ function buildRecommendation(
     suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
   }
 
-  // TP ladder from MFE percentiles, capped by the most-common TP hit so we
-  // never recommend a target the user has never reached in practice.
+  // Expected-R TP ladder, capped by the most-common TP hit so we never
+  // recommend a target the user has never reached in practice.
   const ladder: number[] = [];
   const cap = (() => {
     if (!s.mostCommonTpHit) return Infinity;
     const m = /1\s*:\s*(\d+(?:\.\d+)?)/.exec(s.mostCommonTpHit);
     return m ? Number(m[1]) : Infinity;
   })();
-  const p70 = quantile(winR, 0.3); // R reached by ≥70 % of winners
+  const p70 = quantile(winR, 0.3);
   const p50 = quantile(winR, 0.5);
   const p25 = quantile(winR, 0.75);
   for (const v of [p70, p50, p25]) {
     if (v == null || v <= 0) continue;
     ladder.push(Math.min(v, cap));
   }
-  // Deduplicate near-equal targets and round to 0.25R.
   const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
 
   // Kelly sizing.
-  const avgWinR = winR.length > 0 ? winR.reduce((s, v) => s + v, 0) / winR.length : 0;
-  const avgLossR = lossR.length > 0 ? lossR.reduce((s, v) => s + v, 0) / lossR.length : 1;
+  const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
+  const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
   const suggestedRiskPct = s.n >= 10 ? quarterKellyPct(s.winRate, avgWinR, avgLossR) : null;
+
+  // TP1* — win-rate-maximizing target from MFE distribution.
+  const tp1Star = computeTp1Star(mfes, avgLossR || 1);
+
+  // Prop-firm-aware risk cap.
+  let suggestedRiskPctPropFirm: number | null = null;
+  let bindingConstraint: BucketRecommendation["bindingConstraint"] = null;
+  if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null) {
+    // Worst plausible losing streak: use observed worst, but assume at
+    // least 3 to avoid sizing off a single trade's history.
+    const streak = Math.max(3, s.worstLosingStreak || 0);
+    // Daily loss budget translated to % of account.
+    const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
+    // Distribute the budget across `streak` consecutive full-stop losses.
+    const ddCappedPct = dailyBudgetPct / streak;
+    suggestedRiskPctPropFirm = Math.max(0.1, Math.min(propFirm.hardCapPct, ddCappedPct));
+
+    if (suggestedRiskPct == null) {
+      bindingConstraint = "prop_firm_dd";
+    } else if (suggestedRiskPctPropFirm < suggestedRiskPct) {
+      bindingConstraint = suggestedRiskPctPropFirm >= propFirm.hardCapPct - 0.001
+        ? "hard_cap"
+        : "prop_firm_dd";
+    } else {
+      bindingConstraint = "kelly";
+    }
+  } else if (suggestedRiskPct != null) {
+    bindingConstraint = "kelly";
+  }
 
   let edgeVsBaseline: BucketRecommendation["edgeVsBaseline"] = null;
   if (baseline && baseline.n > 0 && s.key.symbol !== "All") {
@@ -406,5 +525,13 @@ function buildRecommendation(
     };
   }
 
-  return { suggestedSlPips, tpLadderR, suggestedRiskPct, edgeVsBaseline };
+  return {
+    suggestedSlPips,
+    tpLadderR,
+    tp1Star,
+    suggestedRiskPct,
+    suggestedRiskPctPropFirm,
+    bindingConstraint,
+    edgeVsBaseline,
+  };
 }
