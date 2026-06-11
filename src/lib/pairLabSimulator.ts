@@ -82,6 +82,23 @@ export interface ReplayResult {
   fidelity: FidelityBreakdown;
   /** Trades skipped because highFidelityOnly was set and MFE wasn't recorded. */
   skippedLowFidelity: number;
+  /** Count of (closed) trades in the bucket that have explicit MFE custom-field values. */
+  loggedTradeCount: number;
+  /** Count of (closed) trades in the bucket, ignoring the high-fidelity filter. */
+  totalTradeCount: number;
+}
+
+/** Minimum logged-MFE trades required before preset comparisons are trustworthy. */
+export const MIN_HIGH_FIDELITY_SAMPLE = 10;
+
+/** Cheap coverage probe for the BucketGrid — counts MFE-logged trades among closed/non-archived. */
+export function getBucketCoverage(
+  trades: Trade[],
+  keys: PairLabFieldKeys,
+): { logged: number; total: number; pct: number } {
+  const closed = trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
+  const logged = closed.filter((t) => numericCf(t as any, keys.mfe) != null).length;
+  return { logged, total: closed.length, pct: closed.length > 0 ? logged / closed.length : 0 };
 }
 
 // ----------------------------------------------------------------------------
