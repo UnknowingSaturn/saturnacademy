@@ -133,6 +133,9 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       totalTrades: trades.length,
       missingFields,
       propFirm,
+      trades,
+      symbolResolver,
+      accountBalance: Number(accountQuery.data?.balance_start ?? 0),
     };
   }, [
     tradesQuery.data,
