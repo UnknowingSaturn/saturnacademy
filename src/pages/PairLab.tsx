@@ -127,6 +127,30 @@ export default function PairLab() {
         </TabsList>
 
         <TabsContent value="grid" className="space-y-6 mt-4">
+          {(() => {
+            const closed = data.trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
+            const withSl = closed.filter((t) => t.sl_initial != null && t.entry_price != null).length;
+            const coverage = closed.length > 0 ? withSl / closed.length : 1;
+            if (closed.length >= 10 && coverage < 0.7) {
+              return (
+                <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">
+                  <Info className="w-4 h-4 text-amber-500 mt-0.5" />
+                  <div className="text-sm">
+                    <div className="font-medium mb-1">
+                      Only {withSl} of {closed.length} closed trades have <code className="text-xs">sl_initial</code> + <code className="text-xs">entry_price</code> recorded.
+                    </div>
+                    <div className="text-muted-foreground text-xs leading-relaxed">
+                      MAE and Ideal-SL are logged in broker ticks; they need each trade's initial-SL distance to convert into R.
+                      Trades without it are ineligible for MAE-based stop-out detection and for the "Tighten SL → ideal" preset.
+                      Fill SL in the journal to unlock those rows.
+                    </div>
+                  </div>
+                </Card>
+              );
+            }
+            return null;
+          })()}
+
           {/* Baseline summary */}
           <Card className="p-4">
             <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-sm">
