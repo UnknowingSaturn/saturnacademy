@@ -151,20 +151,12 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
           <div className="flex items-center gap-2">
             <Switch id="cmp-fidelity" checked={highFidelityOnly} onCheckedChange={setHighFidelityOnly} />
             <Label htmlFor="cmp-fidelity" className="text-xs flex items-center gap-1 cursor-pointer">
-              <ShieldCheck className="w-3 h-3" /> High-fidelity only
-            </Label>
-          </div>
-        </div>
-      </div>
-
-          <div className="flex items-center gap-2">
-            <Switch id="cmp-fidelity" checked={highFidelityOnly} onCheckedChange={setHighFidelityOnly} />
-            <Label htmlFor="cmp-fidelity" className="text-xs flex items-center gap-1 cursor-pointer">
               <ShieldCheck className="w-3 h-3" /> Honest mode (logged MFE only)
             </Label>
           </div>
         </div>
       </div>
+
 
       {insufficient && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm flex items-start gap-2">
