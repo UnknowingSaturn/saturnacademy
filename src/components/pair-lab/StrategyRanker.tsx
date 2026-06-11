@@ -119,6 +119,16 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
               className="w-40"
             />
           </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="rank-fidelity"
+              checked={highFidelityOnly}
+              onCheckedChange={setHighFidelityOnly}
+            />
+            <Label htmlFor="rank-fidelity" className="text-xs flex items-center gap-1 cursor-pointer">
+              <ShieldCheck className="w-3 h-3" /> High-fidelity only
+            </Label>
+          </div>
         </div>
       </div>
 
