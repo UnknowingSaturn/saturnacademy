@@ -239,11 +239,16 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
         All presets are tested at the same risk %, so the ranking isolates exit-strategy edge. Survival
         beats P&L: a strategy that busts the prop-firm is ranked below every survivor, even if its raw
         $ would be higher.
-        {winner && winner.inferredCount > 0 && !winner.strategy.useActualOutcome && (
+        {winner && !winner.strategy.useActualOutcome && (
           <>
             {" "}
-            <span className="text-amber-600 dark:text-amber-400">
-              MFE/MAE inferred from tp_reached + r-multiple for {winner.inferredCount} of {winner.n} trades — log MFE/MAE on more trades for higher fidelity.
+            <span className="text-muted-foreground">
+              Data fidelity: <span className="text-emerald-600 dark:text-emerald-400">{winner.fidelity.full} logged</span>
+              {winner.fidelity.tp_reached > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{winner.fidelity.tp_reached} from tp_reached</span></>}
+              {winner.fidelity.r_only > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{winner.fidelity.r_only} from r-multiple</span></>}
+              {winner.fidelity.fallback > 0 && <> · <span className="text-destructive">{winner.fidelity.fallback} fallback</span></>}
+              {winner.skippedLowFidelity > 0 && <> · <span className="text-muted-foreground">{winner.skippedLowFidelity} skipped</span></>}
+              {". "}Winners with no MFE are extended to the bucket median to avoid under-counting partial-profit exits.
             </span>
           </>
         )}
