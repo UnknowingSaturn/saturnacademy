@@ -4,15 +4,23 @@
 // concrete parameter changes. Trade IDs in the input are echoed as citations.
 //
 // We do NOT recompute math here — the client already did that. This function
-// only adds the narrative layer.
+// only adds the narrative layer, grounded in the deterministic numbers and
+// (when supplied) the user's prop-firm DD budget.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, corsPreflight, jsonResponse } from "../_shared/cors.ts";
 
+interface Tp1Star {
+  r: number;
+  hitRate: number;
+  expectancyR: number;
+}
+
 interface BucketInput {
   symbol: string;
   session: string;
+  rawSymbols?: string[];
   n: number;
   wins: number;
   losses: number;
@@ -30,12 +38,24 @@ interface BucketInput {
   mostCommonTpHit: string | null;
   confidence: "high" | "medium" | "low";
   expectedRCi: [number, number] | null;
+  worstLosingStreak: number;
   suggestedSlPips: number | null;
   tpLadderR: number[];
+  tp1Star: Tp1Star | null;
   suggestedRiskPct: number | null;
+  suggestedRiskPctPropFirm: number | null;
+  bindingConstraint: "kelly" | "prop_firm_dd" | "hard_cap" | null;
   edgeVsBaseline: { winRateDelta: number; expectedRDelta: number } | null;
   topTradeIds: string[];
   bottomTradeIds: string[];
+}
+
+interface PropFirmInput {
+  firmName: string | null;
+  balance: number;
+  dailyLossDollars: number | null;
+  maxDrawdownDollars: number | null;
+  hardCapPct: number;
 }
 
 interface RequestBody {
@@ -47,6 +67,7 @@ interface RequestBody {
     mfeP75: number | null;
     maeP75: number | null;
   };
+  propFirm?: PropFirmInput | null;
 }
 
 serve(async (req) => {
@@ -74,10 +95,12 @@ serve(async (req) => {
 
     const b = body.bucket;
     const base = body.baseline;
+    const pf = body.propFirm ?? null;
 
     const facts = {
       bucket: `${b.symbol} · ${b.session}`,
-      sample: { n: b.n, wins: b.wins, losses: b.losses, confidence: b.confidence },
+      raw_symbols_merged: b.rawSymbols ?? [],
+      sample: { n: b.n, wins: b.wins, losses: b.losses, confidence: b.confidence, worst_losing_streak: b.worstLosingStreak },
       outcome: {
         win_rate_pct: +(b.winRate * 100).toFixed(1),
         expected_r: +b.expectedR.toFixed(2),
@@ -101,8 +124,17 @@ serve(async (req) => {
       most_common_tp_hit: b.mostCommonTpHit,
       recommended_parameters: {
         suggested_sl_pips: b.suggestedSlPips,
-        tp_ladder_R: b.tpLadderR,
-        suggested_risk_pct: b.suggestedRiskPct,
+        tp_ladder_R_expected_r: b.tpLadderR,
+        tp1_star_win_rate_maxing: b.tp1Star
+          ? {
+              r: b.tp1Star.r,
+              hit_rate_pct: +(b.tp1Star.hitRate * 100).toFixed(1),
+              expectancy_r: +b.tp1Star.expectancyR.toFixed(2),
+            }
+          : null,
+        suggested_risk_pct_edge_only: b.suggestedRiskPct,
+        suggested_risk_pct_prop_firm: b.suggestedRiskPctPropFirm,
+        binding_constraint: b.bindingConstraint,
       },
       edge_vs_baseline: b.edgeVsBaseline,
       baseline: {
@@ -112,13 +144,22 @@ serve(async (req) => {
         mfe_p75_R: base.mfeP75,
         mae_p75: base.maeP75,
       },
+      prop_firm: pf
+        ? {
+            firm_name: pf.firmName,
+            balance: pf.balance,
+            daily_loss_dollars: pf.dailyLossDollars,
+            max_drawdown_dollars: pf.maxDrawdownDollars,
+            hard_cap_pct: pf.hardCapPct,
+          }
+        : null,
       example_trades: {
         best: b.topTradeIds,
         worst: b.bottomTradeIds,
       },
     };
 
-    const systemPrompt = `You are a quant trading analyst writing a concise parameter-optimization note for a single SYMBOL × SESSION bucket.
+    const systemPrompt = `You are a quant trading analyst writing a concise parameter-optimization note for a single SYMBOL × SESSION bucket, targeting prop-firm survival and win-rate uplift.
 
 You receive pre-computed deterministic statistics. DO NOT recompute or contradict the numbers. Cite trade IDs from example_trades when illustrating a point.
 
@@ -143,6 +184,10 @@ Rules:
 - If expected_r is negative and CI doesn't cross zero, the leak is real — say so.
 - If slDrift is "too_wide" → suggest tightening to ideal_sl_median. If "too_tight" → suggest widening to mae_p75 × 1.15.
 - If most_common_tp_hit is far below mfe_p75 → suggest trailing or partial-out higher.
+- If tp1_star_win_rate_maxing is present, treat it as the "raise win rate" lever. Recommend it as TP1 (book partial / move to BE) when the goal is win-rate uplift — even if its expectancy_r is lower than the expected-R ladder. State the win-rate it locks in (hit_rate_pct).
+- If prop_firm is set, your "Risk size" suggestion MUST equal suggested_risk_pct_prop_firm, not suggested_risk_pct_edge_only. If binding_constraint is "prop_firm_dd", say plainly: "risk is capped by daily DD budget, not by edge" and reference worst_losing_streak. If "hard_cap", say "capped by per-trade hard cap".
+- If worst_losing_streak × suggested_risk_pct_prop_firm would breach the daily DD budget, raise a red flag in whats_leaking.
+- If raw_symbols_merged has >1 entry, note in caveats that this bucket aggregates broker variants (list them).
 - No platitudes ("stay disciplined", "trust the process"). No filler. Plain numbers.
 - cited_trade_ids must be a subset of example_trades.best + example_trades.worst.`;
 
