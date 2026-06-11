@@ -190,16 +190,23 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
 
       <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed">
         <AlertTriangle className="w-3 h-3 inline mr-1" />
-        Caveats: replay assumes MFE/MAE were reachable as fills (no slippage on partials).
-        Trail-to-MFE captures 80% of MFE on the runner. When MFE isn't recorded, it's
-        inferred from <code className="text-[10px]">tp_reached</code> and{" "}
-        <code className="text-[10px]">r-multiple</code> (a +1.8R close implies MFE ≥ 1.8R, a
-        marked TP2 implies MFE ≥ 2R).
-        {(resA.inferredCount > 0 || resB.inferredCount > 0) && (
-          <span className="text-amber-600 dark:text-amber-400">
-            {" "}A: {resA.inferredCount}/{resA.n} inferred · B: {resB.inferredCount}/{resB.n} inferred.
-          </span>
-        )}
+        Replay assumes MFE/MAE were reachable as fills (no slippage on partials). Trail-to-MFE captures 80% of MFE
+        on the runner. When MFE isn't recorded, it's inferred from <code className="text-[10px]">tp_reached</code>{" "}
+        first, then from <code className="text-[10px]">r-multiple</code> (winners are extended to the bucket's
+        median MFE to avoid scoring partial-profit exits as BE).
+        {" "}<span>
+          A: <span className="text-emerald-600 dark:text-emerald-400">{resA.fidelity.full} logged</span>
+          {resA.fidelity.tp_reached > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resA.fidelity.tp_reached} tp</span></>}
+          {resA.fidelity.r_only > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resA.fidelity.r_only} r-only</span></>}
+          {resA.fidelity.fallback > 0 && <> · <span className="text-destructive">{resA.fidelity.fallback} fallback</span></>}
+          {resA.skippedLowFidelity > 0 && <> · {resA.skippedLowFidelity} skipped</>}
+          {" — B: "}
+          <span className="text-emerald-600 dark:text-emerald-400">{resB.fidelity.full} logged</span>
+          {resB.fidelity.tp_reached > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resB.fidelity.tp_reached} tp</span></>}
+          {resB.fidelity.r_only > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resB.fidelity.r_only} r-only</span></>}
+          {resB.fidelity.fallback > 0 && <> · <span className="text-destructive">{resB.fidelity.fallback} fallback</span></>}
+          {resB.skippedLowFidelity > 0 && <> · {resB.skippedLowFidelity} skipped</>}.
+        </span>
       </p>
     </Card>
   );
