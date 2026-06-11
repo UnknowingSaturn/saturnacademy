@@ -175,6 +175,51 @@ export default function PairLab() {
           )}
         </TabsContent>
 
+        <TabsContent value="simulator" className="space-y-4 mt-4">
+          {(() => {
+            // Scope trades for the simulator: selected bucket if any, else all.
+            const scopedTrades = selected
+              ? data.trades.filter((t) => {
+                  if (!t.symbol) return false;
+                  const canonical = data.symbolResolver(t.symbol);
+                  if (canonical !== selected.symbol) return false;
+                  if (selected.session !== "All sessions") {
+                    return normalizeSession(t.session) === selected.session;
+                  }
+                  return true;
+                })
+              : data.trades;
+            const scopeLabel = selected
+              ? `${selected.symbol} · ${selected.session}`
+              : "All trades in scope";
+            return (
+              <>
+                <Card className="p-3 text-xs text-muted-foreground flex items-center justify-between gap-3">
+                  <span>
+                    Simulating <span className="text-foreground font-medium">{scopeLabel}</span>.
+                    {selected
+                      ? " Click another cell in the Grid tab to switch scope, or clear selection there."
+                      : " Select a cell in the Grid tab to narrow to one pair × session."}
+                  </span>
+                </Card>
+                {data.accountBalance > 0 ? (
+                  <StrategyCompare
+                    trades={scopedTrades}
+                    fieldKeys={data.fieldKeys}
+                    balance={data.accountBalance}
+                    propFirm={propFirmMode ? data.propFirm : null}
+                    scopeLabel={scopeLabel}
+                  />
+                ) : (
+                  <Card className="p-6 text-sm text-muted-foreground text-center">
+                    Pick a single account in the top filter — the simulator needs a balance to convert R into dollars.
+                  </Card>
+                )}
+              </>
+            );
+          })()}
+        </TabsContent>
+
         <TabsContent value="aliases" className="mt-4">
           <SymbolAliasManager />
         </TabsContent>
