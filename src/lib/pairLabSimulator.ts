@@ -5,11 +5,20 @@
 // rule } and produces deterministic P&L, win-rate, DD and prop-firm verdict.
 // Pure functions — no randomness, no network.
 //
+// Smart MFE/MAE inference (in priority order, per trade):
+//   1. mfe / mae custom fields if recorded.
+//   2. tp_reached multi-select: "1:2" → MFE was at least 2R.
+//   3. r_multiple_actual: a +1.8R close means MFE was at least 1.8R; a -1R
+//      close means MAE was at least 1R. Winners infer MFE = max(r, 1).
+//   4. Bucket-median fallback as last resort.
+// Each inferred trade is counted in `inferredCount` so the UI can flag low
+// fidelity.
+//
 // Honest caveats (surfaced in UI):
-//   * Assumes MFE / MAE are reachable as fills (standard journal-replay
-//     assumption; slightly optimistic for partial scale-outs).
-//   * If a trade neither hits SL nor any partial TP we assume BE close.
+//   * Assumes MFE / MAE are reachable as fills (slightly optimistic for
+//     partial scale-outs).
 //   * Trail-to-MFE captures 80% of MFE on the runner (slippage allowance).
+//   * Trades with no signals at all fall back to bucket medians.
 // ============================================================================
 
 import type { Trade } from "@/types/trading";
@@ -41,6 +50,7 @@ export interface ReplayPerTrade {
   resultR: number;
   dollars: number;
   cumulativeEquity: number;
+  inferred: boolean;
 }
 
 export interface ReplayResult {
@@ -59,10 +69,12 @@ export interface ReplayResult {
   perTrade: ReplayPerTrade[];
   propFirmVerdict: "pass" | "bust_daily" | "bust_total" | "n/a";
   bustNote: string | null;
+  /** How many trades used inferred MFE/MAE (no recorded field). */
+  inferredCount: number;
 }
 
 // ----------------------------------------------------------------------------
-// Field readers (kept tiny to avoid pulling pairLabMath into client bundle)
+// Field readers
 // ----------------------------------------------------------------------------
 
 function getCf(trade: any, key: string | null): unknown {
@@ -79,6 +91,40 @@ function numericCf(trade: any, key: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function multiSelectCf(trade: any, key: string | null): string[] {
+  const v = getCf(trade, key);
+  if (Array.isArray(v)) return v.map(String);
+  if (typeof v === "string" && v) return [v];
+  return [];
+}
+
+/** Parse strings like "1:2", "1R", "2", "TP2" → R-multiple. */
+function parseTpLabel(s: string): number | null {
+  if (!s) return null;
+  const clean = s.trim().toUpperCase();
+  // "1:2" or "1:1.5"
+  const ratio = clean.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
+  if (ratio) {
+    const a = Number(ratio[1]), b = Number(ratio[2]);
+    if (a > 0) return b / a;
+  }
+  // "TP2" → assume 2R
+  const tp = clean.match(/^TP\s*(\d+(?:\.\d+)?)$/);
+  if (tp) return Number(tp[1]);
+  // "2R" or bare number
+  const num = clean.match(/^(\d+(?:\.\d+)?)R?$/);
+  if (num) return Number(num[1]);
+  return null;
+}
+
+function maxTpReached(trade: Trade, keys: PairLabFieldKeys): number | null {
+  const labels = multiSelectCf(trade as any, keys.tpReached);
+  if (labels.length === 0) return null;
+  const rs = labels.map(parseTpLabel).filter((v): v is number => v != null && v > 0);
+  if (rs.length === 0) return null;
+  return Math.max(...rs);
+}
+
 function slPipsFor(t: Trade): number | null {
   if (t.sl_initial == null || t.entry_price == null) return null;
   const distance = Math.abs(t.entry_price - t.sl_initial);
@@ -87,13 +133,91 @@ function slPipsFor(t: Trade): number | null {
   return distance * pipMultiplier;
 }
 
+function quantile(values: number[], q: number): number | null {
+  const xs = values.filter((v) => Number.isFinite(v)).slice().sort((a, b) => a - b);
+  if (xs.length === 0) return null;
+  if (xs.length === 1) return xs[0];
+  const pos = (xs.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  const w = pos - lo;
+  return xs[lo] * (1 - w) + xs[hi] * w;
+}
+
+function median(values: number[]): number | null {
+  return quantile(values, 0.5);
+}
+
 // ----------------------------------------------------------------------------
-// Single-trade replay
+// Bucket-level inference constants
 // ----------------------------------------------------------------------------
 
 interface BucketConstants {
-  maeP75: number | null; // in trade's original-R units
+  maeP75: number | null;            // |MAE| p75 in original-R units (for widen rule)
+  mfeMedianWinners: number | null;  // MFE median across winners (for inference)
+  mfeMedianLosers: number | null;   // MFE median across losers (typically 0.3–0.6R)
+  mfeMedianAll: number | null;
+  maeMedianAll: number | null;
 }
+
+interface TradeMfeMae {
+  mfe: number;   // in original-R units (always ≥ 0)
+  mae: number;   // in original-R units, magnitude (always ≥ 0)
+  inferred: boolean;
+}
+
+function inferMfeMae(
+  trade: Trade,
+  keys: PairLabFieldKeys,
+  bucket: BucketConstants,
+): TradeMfeMae {
+  const recordedMfe = numericCf(trade as any, keys.mfe);
+  const recordedMae = numericCf(trade as any, keys.mae);
+
+  if (recordedMfe != null) {
+    return {
+      mfe: Math.max(0, recordedMfe),
+      mae: recordedMae != null ? Math.abs(recordedMae) : Math.max(0, -(trade.r_multiple_actual ?? 0)),
+      inferred: false,
+    };
+  }
+
+  // No recorded MFE — infer.
+  const rActual = trade.r_multiple_actual ?? 0;
+  const tpHit = maxTpReached(trade, keys);
+
+  let mfe: number;
+  if (tpHit != null) {
+    // Trader marked a TP as reached → MFE was at least that. Use max(tpHit, rActual).
+    mfe = Math.max(tpHit, rActual);
+  } else if (rActual > 0) {
+    // Winner closed at +rActual → MFE ≥ rActual. If small profit, MFE may have been higher; we conservatively use rActual.
+    mfe = Math.max(rActual, 0.5);
+  } else if (rActual <= -0.95) {
+    // Full stop-out → use bucket loser median (price never recovered).
+    mfe = bucket.mfeMedianLosers ?? 0.3;
+  } else {
+    // BE or small loss → modest MFE.
+    mfe = bucket.mfeMedianLosers ?? bucket.mfeMedianAll ?? 0.3;
+  }
+
+  let mae: number;
+  if (recordedMae != null) {
+    mae = Math.abs(recordedMae);
+  } else if (rActual <= -0.95) {
+    mae = 1; // full stop
+  } else if (rActual < 0) {
+    mae = Math.max(Math.abs(rActual), bucket.maeMedianAll ?? 0.3);
+  } else {
+    mae = bucket.maeMedianAll ?? 0.3;
+  }
+
+  return { mfe, mae, inferred: true };
+}
+
+// ----------------------------------------------------------------------------
+// Single-trade replay
+// ----------------------------------------------------------------------------
 
 function applySlRule(
   trade: Trade,
@@ -102,8 +226,7 @@ function applySlRule(
   bucket: BucketConstants,
 ): number {
   // Returns the new SL distance expressed as a multiple of the trade's
-  // ORIGINAL R. 1.0 = unchanged. <1 = tighter (smaller stop, MFE/MAE in
-  // new-R units gets larger). >1 = wider.
+  // ORIGINAL R. 1.0 = unchanged. <1 = tighter, >1 = wider.
   if (rule === "original") return 1;
   if (rule === "tighten_to_ideal") {
     const ideal = numericCf(trade as any, keys.idealStopLoss);
@@ -113,10 +236,14 @@ function applySlRule(
   }
   if (rule === "widen_to_mae_p75_x_1_15") {
     if (bucket.maeP75 == null) return 1;
-    // bucket.maeP75 is already in original-R units.
     return Math.max(1, bucket.maeP75 * 1.15);
   }
   return 1;
+}
+
+interface OneResult {
+  r: number;
+  inferred: boolean;
 }
 
 function replayOneTrade(
@@ -124,25 +251,21 @@ function replayOneTrade(
   keys: PairLabFieldKeys,
   strategy: Strategy,
   bucket: BucketConstants,
-): number {
-  // Returns trade result in R-multiples (of the strategy's risked amount).
+): OneResult {
   if (strategy.useActualOutcome) {
-    return trade.r_multiple_actual ?? 0;
+    return { r: trade.r_multiple_actual ?? 0, inferred: false };
   }
 
-  const mfeOrig = numericCf(trade as any, keys.mfe);
-  const maeOrig = numericCf(trade as any, keys.mae);
-  if (mfeOrig == null) return trade.r_multiple_actual ?? 0; // can't replay without MFE
+  const { mfe: mfeOrig, mae: maeOrig, inferred } = inferMfeMae(trade, keys, bucket);
 
   const slScale = applySlRule(trade, keys, strategy.slRule, bucket); // new SL / original SL
-  if (slScale <= 0) return 0;
+  if (slScale <= 0) return { r: 0, inferred };
 
-  // Re-express in new-R units. New 1R = original slScale R.
+  // Re-express in new-R units.
   const mfeR = mfeOrig / slScale;
-  const maeR = maeOrig != null ? Math.abs(maeOrig) / slScale : 0;
+  const maeR = maeOrig / slScale;
 
-  // Stop check first — if MAE exceeded new SL, trade is -1R regardless of MFE.
-  if (maeR >= 1) return -1;
+  if (maeR >= 1) return { r: -1, inferred };
 
   // Apply partials in ascending order.
   const partials = [...strategy.exitRule.partials].sort((a, b) => a.atR - b.atR);
@@ -171,13 +294,13 @@ function replayOneTrade(
     } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
       runner = lastFilledAtR;
     } else {
-      // trail_to_mfe — capture 80% of MFE (slippage allowance).
+      // trail_to_mfe — capture 80% of MFE.
       runner = mfeR * 0.8;
     }
     booked += runner * remainingFrac;
   }
 
-  return booked;
+  return { r: booked, inferred };
 }
 
 // ----------------------------------------------------------------------------
@@ -185,21 +308,31 @@ function replayOneTrade(
 // ----------------------------------------------------------------------------
 
 export interface ReplayOpts {
-  /** Account balance in $ at start of replay. */
   balance: number;
-  /** Optional prop-firm caps for pass/fail verdict. */
   propFirm: PropFirmContext | null;
 }
 
-function quantile(values: number[], q: number): number | null {
-  const xs = values.filter((v) => Number.isFinite(v)).slice().sort((a, b) => a - b);
-  if (xs.length === 0) return null;
-  if (xs.length === 1) return xs[0];
-  const pos = (xs.length - 1) * q;
-  const lo = Math.floor(pos);
-  const hi = Math.ceil(pos);
-  const w = pos - lo;
-  return xs[lo] * (1 - w) + xs[hi] * w;
+function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketConstants {
+  const mfes = trades.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
+  const maes = trades.map((t) => numericCf(t as any, keys.mae)).filter((v): v is number => v != null).map((v) => Math.abs(v));
+
+  const winnerMfes: number[] = [];
+  const loserMfes: number[] = [];
+  for (const t of trades) {
+    const m = numericCf(t as any, keys.mfe);
+    if (m == null) continue;
+    const r = t.r_multiple_actual ?? 0;
+    if (r > 0) winnerMfes.push(m);
+    else loserMfes.push(m);
+  }
+
+  return {
+    maeP75: quantile(maes, 0.75),
+    mfeMedianWinners: median(winnerMfes),
+    mfeMedianLosers: median(loserMfes),
+    mfeMedianAll: median(mfes),
+    maeMedianAll: median(maes),
+  };
 }
 
 export function replayBucket(
@@ -212,12 +345,7 @@ export function replayBucket(
     .filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null)
     .sort((a, b) => String(a.entry_time ?? "").localeCompare(String(b.entry_time ?? "")));
 
-  // Bucket constants for slRule (MAE p75 in original-R units).
-  const maes = closed
-    .map((t) => numericCf(t as any, keys.mae))
-    .filter((v): v is number => v != null)
-    .map((v) => Math.abs(v));
-  const bucket: BucketConstants = { maeP75: quantile(maes, 0.75) };
+  const bucket = buildBucketConstants(closed, keys);
 
   const dollarRisk = (opts.balance * strategy.riskPct) / 100;
   const perTrade: ReplayPerTrade[] = [];
@@ -230,12 +358,13 @@ export function replayBucket(
   let wins = 0;
   let losses = 0;
   let totalR = 0;
+  let inferredCount = 0;
 
-  // Daily totals for prop-firm daily-loss check.
   const dailyDollars = new Map<string, number>();
 
   for (const t of closed) {
-    const r = replayOneTrade(t, keys, strategy, bucket);
+    const { r, inferred } = replayOneTrade(t, keys, strategy, bucket);
+    if (inferred && !strategy.useActualOutcome) inferredCount += 1;
     const dollars = r * dollarRisk;
     equity += dollars;
     totalR += r;
@@ -255,6 +384,7 @@ export function replayBucket(
       resultR: r,
       dollars,
       cumulativeEquity: equity,
+      inferred,
     });
   }
 
@@ -307,5 +437,6 @@ export function replayBucket(
     perTrade,
     propFirmVerdict: verdict,
     bustNote,
+    inferredCount,
   };
 }
