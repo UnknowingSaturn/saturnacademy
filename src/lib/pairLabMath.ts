@@ -45,12 +45,13 @@ export interface BucketStats {
   winRate: number;            // 0–1
   expectedR: number;          // average R-multiple, mean of r_multiple_actual
   expectedRMedian: number;    // median R-multiple
-  mfeP50: number | null;
-  mfeP75: number | null;
-  maeP50: number | null;
-  maeP75: number | null;
-  idealSlMedian: number | null;
-  slInitialMedian: number | null;
+  mfeP50: number | null;          // R-multiple
+  mfeP75: number | null;          // R-multiple
+  maeP50: number | null;          // R-multiple (per-trade ticks→R)
+  maeP75: number | null;          // R-multiple
+  maeP75Pips: number | null;      // pips, used for SL recommendation
+  idealSlMedian: number | null;   // pips
+  slInitialMedian: number | null; // pips
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   tpHitDistribution: Record<string, number>; // "1:1" -> count
   mostCommonTpHit: string | null;
