@@ -181,8 +181,15 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
       <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed">
         <AlertTriangle className="w-3 h-3 inline mr-1" />
         Caveats: replay assumes MFE/MAE were reachable as fills (no slippage on partials).
-        Trades that neither hit a partial TP nor the new SL are scored as break-even.
-        Trail-to-MFE captures 80% of MFE on the runner.
+        Trail-to-MFE captures 80% of MFE on the runner. When MFE isn't recorded, it's
+        inferred from <code className="text-[10px]">tp_reached</code> and{" "}
+        <code className="text-[10px]">r-multiple</code> (a +1.8R close implies MFE ≥ 1.8R, a
+        marked TP2 implies MFE ≥ 2R).
+        {(resA.inferredCount > 0 || resB.inferredCount > 0) && (
+          <span className="text-amber-600 dark:text-amber-400">
+            {" "}A: {resA.inferredCount}/{resA.n} inferred · B: {resB.inferredCount}/{resB.n} inferred.
+          </span>
+        )}
       </p>
     </Card>
   );
