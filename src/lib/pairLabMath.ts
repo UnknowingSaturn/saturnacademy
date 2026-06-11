@@ -375,8 +375,21 @@ function computeBucket(
   propFirm: PropFirmContext | null,
 ): BucketReport {
   const closed = rows.filter((t) => t.net_pnl != null);
-  const wins = closed.filter((t) => (t.net_pnl ?? 0) > 0);
-  const losses = closed.filter((t) => (t.net_pnl ?? 0) < 0);
+
+  // Normalize win/loss using r_multiple_actual when available, falling back
+  // to sign(net_pnl) only when r_actual is missing. Keeps grid + simulator
+  // consistent.
+  const sideOf = (t: Trade): 1 | -1 | 0 => {
+    if (t.r_multiple_actual != null) {
+      if (t.r_multiple_actual > 0) return 1;
+      if (t.r_multiple_actual < 0) return -1;
+      return 0;
+    }
+    const p = t.net_pnl ?? 0;
+    return p > 0 ? 1 : p < 0 ? -1 : 0;
+  };
+  const wins = closed.filter((t) => sideOf(t) === 1);
+  const losses = closed.filter((t) => sideOf(t) === -1);
 
   const rActuals = closed.map((t) => t.r_multiple_actual).filter((v): v is number => v != null);
   const winR = wins.map((t) => t.r_multiple_actual).filter((v): v is number => v != null && v > 0);
@@ -386,16 +399,42 @@ function computeBucket(
     .map((v) => Math.abs(v));
 
   const mfes = rows.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
-  const maes = rows.map((t) => numericCf(t as any, keys.mae)).filter((v): v is number => v != null);
-  const idealSls = rows.map((t) => numericCf(t as any, keys.idealStopLoss)).filter((v): v is number => v != null);
 
+  // MAE is logged in TICKS — convert per-trade to (a) R-multiple for display
+  // and (b) pips for the SL-pip recommendation.
+  const maesR: number[] = [];
+  const maesPips: number[] = [];
+  for (const t of rows) {
+    const ticks = numericCf(t as any, keys.mae);
+    if (ticks == null || !t.symbol) continue;
+    const tick = tickSizeForSymbol(t.symbol);
+    const pip = pipSizeForSymbol(t.symbol);
+    if (!(pip > 0)) continue;
+    maesPips.push((Math.abs(ticks) * tick) / pip);
+    if (t.sl_initial != null && t.entry_price != null) {
+      const slDistTicks = Math.abs(t.entry_price - t.sl_initial) / tick;
+      if (slDistTicks > 0) maesR.push(Math.abs(ticks) / slDistTicks);
+    }
+  }
+
+  // Ideal SL is logged in TICKS — convert to pips for SL recommendation.
+  const idealSls: number[] = [];
+  for (const t of rows) {
+    const ticks = numericCf(t as any, keys.idealStopLoss);
+    if (ticks == null || !t.symbol) continue;
+    const tick = tickSizeForSymbol(t.symbol);
+    const pip = pipSizeForSymbol(t.symbol);
+    if (!(pip > 0)) continue;
+    idealSls.push((Math.abs(ticks) * tick) / pip);
+  }
+
+  // SL initial distance in pips per trade (symbol-aware).
   const slInitials: number[] = [];
   for (const t of rows) {
-    if (t.sl_initial == null || t.entry_price == null) continue;
-    const distance = Math.abs(t.entry_price - t.sl_initial);
-    const digits = String(t.entry_price).split(".")[1]?.length ?? 4;
-    const pipMultiplier = digits >= 4 ? 10_000 : 100;
-    slInitials.push(distance * pipMultiplier);
+    if (t.sl_initial == null || t.entry_price == null || !t.symbol) continue;
+    const pip = pipSizeForSymbol(t.symbol);
+    if (!(pip > 0)) continue;
+    slInitials.push(Math.abs(t.entry_price - t.sl_initial) / pip);
   }
 
   const tpDist: Record<string, number> = {};
@@ -432,8 +471,9 @@ function computeBucket(
     expectedRMedian,
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),
-    maeP50: median(maes),
-    maeP75: quantile(maes, 0.75),
+    maeP50: median(maesR),
+    maeP75: quantile(maesR, 0.75),
+    maeP75Pips: quantile(maesPips, 0.75),
     idealSlMedian: idealMed,
     slInitialMedian: slInitMed,
     slDrift,
@@ -444,6 +484,7 @@ function computeBucket(
     worstLosingStreak: longestLossStreak(rows),
     loggedMfeCount: closed.filter((t) => numericCf(t as any, keys.mfe) != null).length,
   };
+
 
   const recommendation = buildRecommendation(stats, winR, lossR, mfes, baseline, propFirm);
 
