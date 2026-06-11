@@ -440,6 +440,7 @@ function computeBucket(
     confidence: confidenceFor(n),
     expectedRCi: bootstrapMeanCi(rActuals),
     worstLosingStreak: longestLossStreak(rows),
+    loggedMfeCount: closed.filter((t) => numericCf(t as any, keys.mfe) != null).length,
   };
 
   const recommendation = buildRecommendation(stats, winR, lossR, mfes, baseline, propFirm);
