@@ -197,9 +197,15 @@ interface TradeProof {
 
 function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
   const loggedMfeRaw = numericCf(trade as any, keys.mfe);
+  // MFE is logged in R-multiple by the user.
   const loggedMfe = loggedMfeRaw != null ? Math.max(0, loggedMfeRaw) : null;
-  const loggedMaeRaw = numericCf(trade as any, keys.mae);
-  const loggedMae = loggedMaeRaw != null ? Math.abs(loggedMaeRaw) : null;
+
+  // MAE is logged in broker TICKS (TradingView position-calc). Convert to R
+  // using each trade's own SL distance so all downstream comparisons are in
+  // the same unit as MFE / r_actual / slScale.
+  const loggedMaeRawTicks = numericCf(trade as any, keys.mae);
+  const loggedMae = tradeMaeR(trade, loggedMaeRawTicks);
+
   const tpHit = maxTpReached(trade, keys);
   const rActual = trade.r_multiple_actual;
   const hasActualR = rActual != null;
@@ -211,22 +217,22 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
   const reachedR = proofs.length ? Math.max(...proofs) : 0;
   const hasReachProof = proofs.length > 0;
 
+  // Stop-out detection. Prefer the converted MAE; only fall back to r_actual
+  // when MAE is unavailable, and treat the ambiguous band [-1.05, -0.95] as
+  // unknown (can't prove the stop fired vs. a discretionary close near -1R).
   let stoppedOut: boolean | null = null;
   if (loggedMae != null) {
     stoppedOut = loggedMae >= 1;
-  } else if (hasActualR && (rActual as number) <= -0.95) {
-    stoppedOut = true;
   } else if (hasActualR) {
-    // Closed manually (positive or small loss / BE) → did not hit full stop.
-    stoppedOut = false;
+    const r = rActual as number;
+    if (r <= -1.05) stoppedOut = true;
+    else if (r >= -0.95) stoppedOut = false;
+    else stoppedOut = null; // ambiguous
   }
 
-  const ideal = numericCf(trade as any, keys.idealStopLoss);
-  const actualPips = slPipsFor(trade);
-  const idealSlScale =
-    ideal != null && actualPips != null && actualPips > 0
-      ? Math.max(0.2, Math.min(2, ideal / actualPips))
-      : null;
+  // Ideal SL is logged in TICKS — convert to scale vs original SL.
+  const idealTicks = numericCf(trade as any, keys.idealStopLoss);
+  const idealSlScale = idealSlScaleFor(trade, idealTicks);
 
   return {
     reachedR,
@@ -247,16 +253,17 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
 type ReplayOutcome = { r: number } | { ineligible: string };
 
 interface BucketConstants {
-  maeP75: number | null; // original-R units, used only by the widen-SL rule
+  maeP75: number | null; // in R-multiple, used only by the widen-SL rule
 }
 
 function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketConstants {
+  // p75 of MAE in R (per-trade conversion). Trades without SL/entry are skipped.
   const maes = trades
-    .map((t) => numericCf(t as any, keys.mae))
-    .filter((v): v is number => v != null)
-    .map((v) => Math.abs(v));
+    .map((t) => tradeMaeR(t, numericCf(t as any, keys.mae)))
+    .filter((v): v is number => v != null && Number.isFinite(v));
   return { maeP75: quantile(maes, 0.75) };
 }
+
 
 function replayOneTrade(
   strategy: Strategy,
