@@ -71,9 +71,20 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
           </tr>
         </thead>
         <tbody>
-          {symbols.map((symbol) => (
+          {symbols.map((symbol) => {
+            const row = rowLookup.get(symbol);
+            const raws = row?.rawSymbols ?? [];
+            const showRaws = raws.length > 1 || (raws.length === 1 && raws[0] !== symbol);
+            return (
             <tr key={symbol} className="border-b border-border/50 hover:bg-muted/10">
-              <td className="px-3 py-2 font-medium sticky left-0 bg-background z-10">{symbol}</td>
+              <td className="px-3 py-2 font-medium sticky left-0 bg-background z-10">
+                <div>{symbol}</div>
+                {showRaws && (
+                  <div className="text-[10px] text-muted-foreground font-mono-numbers font-normal">
+                    {raws.join(" · ")}
+                  </div>
+                )}
+              </td>
               {sessions.map((session) => {
                 const b = cellLookup.get(`${symbol}__${session}`) ?? null;
                 const isSelected = selected?.symbol === symbol && selected?.session === session;
