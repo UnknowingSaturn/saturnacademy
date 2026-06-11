@@ -381,7 +381,7 @@ export const MIN_MATCHED_SAMPLE = 5;
 
 function buildResult(
   strategy: Strategy,
-  replayed: Array<{ trade: Trade; r: number }>,
+  replayed: Array<{ trade: Trade; r: number; reachedR?: number }>,
   ineligibleReasons: Record<string, number>,
   totalTradeCount: number,
   opts: ReplayOpts,
@@ -396,14 +396,20 @@ function buildResult(
   let wins = 0;
   let losses = 0;
   let totalR = 0;
+  let reachedSum = 0;
+  let reachedCount = 0;
   const dailyDollars = new Map<string, number>();
   const rs: number[] = [];
 
-  for (const { trade, r } of replayed) {
+  for (const { trade, r, reachedR } of replayed) {
     const dollars = r * dollarRisk;
     equity += dollars;
     totalR += r;
     rs.push(r);
+    if (reachedR != null && Number.isFinite(reachedR)) {
+      reachedSum += reachedR;
+      reachedCount += 1;
+    }
     if (r > 0) { wins += 1; streak = 0; }
     else if (r < 0) { losses += 1; streak += 1; if (streak > worstStreak) worstStreak = streak; }
     else { streak = 0; }
@@ -424,6 +430,7 @@ function buildResult(
   const n = replayed.length;
   const winRate = n > 0 ? wins / n : 0;
   const expectancyR = n > 0 ? totalR / n : 0;
+  const meanReachedR = reachedCount > 0 ? reachedSum / reachedCount : null;
 
   // Prop-firm verdict
   let verdict: ReplayResult["propFirmVerdict"] = "n/a";
@@ -477,6 +484,7 @@ function buildResult(
     maxDrawdownDollars: maxDD,
     maxDrawdownPct: opts.balance > 0 ? (maxDD / opts.balance) * 100 : 0,
     worstLosingStreak: worstStreak,
+    meanReachedR,
     equityCurve,
     perTrade,
     propFirmVerdict: verdict,
@@ -485,6 +493,7 @@ function buildResult(
     totalDollarsCi,
   };
 }
+
 
 /** Closed, non-archived, chronologically sorted closed trades. */
 function preparedTrades(trades: Trade[]): Trade[] {
