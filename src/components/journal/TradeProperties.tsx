@@ -227,12 +227,16 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
           </PropertyRow>
         );
       case 'r_multiple_actual': {
+        // Always resolve the equity base from the trade's OWN account — never
+        // from a globally-selected or aggregate balance. Prefer the snapshot
+        // captured at entry time; fall back to that same account's current
+        // equity, then its static starting balance.
         const tradeAccount = accounts?.find(a => a.id === trade.account_id);
         const equityBase =
-          (trade as any).equity_at_entry ??
-          (trade as any).balance_at_entry ??
+          trade.equity_at_entry ??
+          trade.balance_at_entry ??
           tradeAccount?.equity_current ??
-          (tradeAccount as any)?.balance_current ??
+          tradeAccount?.balance_start ??
           null;
         const accountPct =
           trade.net_pnl != null && equityBase && Number(equityBase) > 0
