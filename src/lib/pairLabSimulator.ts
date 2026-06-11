@@ -83,6 +83,8 @@ export interface ReplayResult {
   maxDrawdownDollars: number;
   maxDrawdownPct: number;
   worstLosingStreak: number;
+  /** Mean of proven `reachedR` across this preset's eligible sample (self-selection diagnostic). */
+  meanReachedR: number | null;
   equityCurve: Array<{ i: number; equity: number; at: string | null }>;
   perTrade: ReplayPerTrade[];
   propFirmVerdict: "pass" | "bust_daily" | "bust_total" | "n/a";
