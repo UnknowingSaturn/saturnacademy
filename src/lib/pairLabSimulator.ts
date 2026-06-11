@@ -328,6 +328,8 @@ function replayOneTrade(
 export interface ReplayOpts {
   balance: number;
   propFirm: PropFirmContext | null;
+  /** When true, only replay trades whose MFE was explicitly recorded. */
+  highFidelityOnly?: boolean;
 }
 
 function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketConstants {
@@ -359,9 +361,16 @@ export function replayBucket(
   strategy: Strategy,
   opts: ReplayOpts,
 ): ReplayResult {
-  const closed = trades
+  const allClosed = trades
     .filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null)
     .sort((a, b) => String(a.entry_time ?? "").localeCompare(String(b.entry_time ?? "")));
+
+  // High-fidelity filter: only keep trades with recorded MFE (unless this is
+  // the actual-outcome preset, which doesn't depend on MFE at all).
+  const closed = opts.highFidelityOnly && !strategy.useActualOutcome
+    ? allClosed.filter((t) => numericCf(t as any, keys.mfe) != null)
+    : allClosed;
+  const skippedLowFidelity = allClosed.length - closed.length;
 
   const bucket = buildBucketConstants(closed, keys);
 
@@ -376,13 +385,13 @@ export function replayBucket(
   let wins = 0;
   let losses = 0;
   let totalR = 0;
-  let inferredCount = 0;
+  const fidelityCounts: FidelityBreakdown = { full: 0, tp_reached: 0, r_only: 0, fallback: 0 };
 
   const dailyDollars = new Map<string, number>();
 
   for (const t of closed) {
-    const { r, inferred } = replayOneTrade(t, keys, strategy, bucket);
-    if (inferred && !strategy.useActualOutcome) inferredCount += 1;
+    const { r, fidelity } = replayOneTrade(t, keys, strategy, bucket);
+    fidelityCounts[fidelity] += 1;
     const dollars = r * dollarRisk;
     equity += dollars;
     totalR += r;
@@ -402,13 +411,14 @@ export function replayBucket(
       resultR: r,
       dollars,
       cumulativeEquity: equity,
-      inferred,
+      fidelity,
     });
   }
 
   const n = closed.length;
   const winRate = n > 0 ? wins / n : 0;
   const expectancyR = n > 0 ? totalR / n : 0;
+  const inferredCount = fidelityCounts.tp_reached + fidelityCounts.r_only + fidelityCounts.fallback;
 
   // Prop-firm verdict.
   let verdict: ReplayResult["propFirmVerdict"] = "n/a";
@@ -456,5 +466,7 @@ export function replayBucket(
     propFirmVerdict: verdict,
     bustNote,
     inferredCount,
+    fidelity: fidelityCounts,
+    skippedLowFidelity,
   };
 }
