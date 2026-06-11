@@ -69,6 +69,14 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
 
   const winner = ranked[0];
   const baselineCurrent = ranked.find((r) => r.strategy.id === "current");
+  const coverage = ranked[0] ?? null;
+  const loggedCount = coverage?.loggedTradeCount ?? 0;
+  const totalCount = coverage?.totalTradeCount ?? trades.length;
+  const insufficient = highFidelityOnly && loggedCount < MIN_HIGH_FIDELITY_SAMPLE;
+  // When insufficient, only show the "Actual behavior" preset (which doesn't need MFE).
+  const visibleRanked = insufficient
+    ? ranked.filter((r) => r.strategy.useActualOutcome)
+    : ranked;
 
   const upliftDollars =
     winner && baselineCurrent && winner.strategy.id !== "current"
