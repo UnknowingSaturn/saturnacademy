@@ -1,13 +1,27 @@
+// ============================================================================
+// Strategy Compare — matched-sample (intersection) replay.
+//
+// Both selected strategies are scored on EXACTLY the same trades — the
+// intersection of their eligibility sets. Apples-to-apples. Footnote shows
+// each strategy's native eligible N for context.
+// ============================================================================
+
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { AlertTriangle, CheckCircle2, TrendingUp, TrendingDown, ShieldCheck } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { AlertTriangle, CheckCircle2, TrendingUp, TrendingDown, Info } from "lucide-react";
 import { StrategyPresetPicker } from "./StrategyPresetPicker";
 import { EquityCurveOverlay } from "./EquityCurveOverlay";
-import { replayBucket, MIN_HIGH_FIDELITY_SAMPLE, type Strategy, type ReplayResult } from "@/lib/pairLabSimulator";
+import {
+  replayBucket,
+  replayBucketMatched,
+  MIN_MATCHED_SAMPLE,
+  type Strategy,
+  type ReplayResult,
+} from "@/lib/pairLabSimulator";
 import { getPreset } from "@/lib/pairLabPresets";
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
@@ -17,7 +31,6 @@ interface Props {
   fieldKeys: PairLabFieldKeys;
   balance: number;
   propFirm: PropFirmContext | null;
-  /** Label of the current scope (e.g. "EURUSD · London"). */
   scopeLabel: string;
 }
 
@@ -42,7 +55,9 @@ function VerdictBadge({ r }: { r: ReplayResult }) {
   );
 }
 
-function StrategyMetrics({ r, winner }: { r: ReplayResult; winner: boolean }) {
+function StrategyMetrics({ r, winner, nativeN }: { r: ReplayResult; winner: boolean; nativeN: number }) {
+  const ci = r.expectancyRCi;
+  const halfCi = ci ? (ci[1] - ci[0]) / 2 : null;
   return (
     <div className="space-y-1.5 text-sm">
       <div className="flex items-baseline justify-between">
@@ -57,7 +72,10 @@ function StrategyMetrics({ r, winner }: { r: ReplayResult; winner: boolean }) {
       </div>
       <div className="flex items-baseline justify-between">
         <span className="text-muted-foreground">Expectancy</span>
-        <span className="font-mono-numbers">{r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R</span>
+        <span className="font-mono-numbers">
+          {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
+          {halfCi != null && <span className="text-muted-foreground"> ±{halfCi.toFixed(2)}</span>}
+        </span>
       </div>
       <div className="flex items-baseline justify-between">
         <span className="text-muted-foreground">Total R</span>
@@ -73,6 +91,10 @@ function StrategyMetrics({ r, winner }: { r: ReplayResult; winner: boolean }) {
         <span className="text-muted-foreground">Worst streak</span>
         <span className="font-mono-numbers">{r.worstLosingStreak} losses</span>
       </div>
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="text-muted-foreground">Native eligible</span>
+        <span className="font-mono-numbers text-muted-foreground">{nativeN}/{r.totalTradeCount}</span>
+      </div>
       <div className="pt-2">
         <VerdictBadge r={r} />
         {r.bustNote && <p className="text-xs text-destructive mt-1">{r.bustNote}</p>}
@@ -85,16 +107,23 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
   const [stratA, setStratA] = useState<Strategy>(getPreset("current")!);
   const [stratB, setStratB] = useState<Strategy>(getPreset("scale-out")!);
   const [simBalance, setSimBalance] = useState<number>(balance);
-  const [highFidelityOnly, setHighFidelityOnly] = useState<boolean>(true);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
-  const resA = useMemo(
-    () => replayBucket(trades, fieldKeys, stratA, { balance: simBalance, propFirm, highFidelityOnly }),
-    [trades, fieldKeys, stratA, simBalance, propFirm, highFidelityOnly],
+  // Matched-sample replay: both strategies scored on the intersection of eligible trades.
+  const matched = useMemo(
+    () => replayBucketMatched(trades, fieldKeys, [stratA, stratB], { balance: simBalance, propFirm }),
+    [trades, fieldKeys, stratA, stratB, simBalance, propFirm],
   );
-  const resB = useMemo(
-    () => replayBucket(trades, fieldKeys, stratB, { balance: simBalance, propFirm, highFidelityOnly }),
-    [trades, fieldKeys, stratB, simBalance, propFirm, highFidelityOnly],
+  const [resA, resB] = matched.results;
+
+  // Native eligible counts (each preset's own eligible sample, for context).
+  const nativeA = useMemo(
+    () => replayBucket(trades, fieldKeys, stratA, { balance: simBalance, propFirm }).eligibleCount,
+    [trades, fieldKeys, stratA, simBalance, propFirm],
+  );
+  const nativeB = useMemo(
+    () => replayBucket(trades, fieldKeys, stratB, { balance: simBalance, propFirm }).eligibleCount,
+    [trades, fieldKeys, stratB, simBalance, propFirm],
   );
 
   if (trades.length === 0) {
@@ -105,16 +134,14 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
     );
   }
 
+  const insufficient = matched.matchedCount < MIN_MATCHED_SAMPLE;
+  const matchedPct = matched.totalTradeCount > 0
+    ? (matched.matchedCount / matched.totalTradeCount) * 100
+    : 0;
 
-  const loggedCount = Math.max(resA.loggedTradeCount, resB.loggedTradeCount);
-  const totalCount = Math.max(resA.totalTradeCount, resB.totalTradeCount);
-  const stratAneedsMfe = !stratA.useActualOutcome;
-  const stratBneedsMfe = !stratB.useActualOutcome;
-  const insufficient =
-    highFidelityOnly && (stratAneedsMfe || stratBneedsMfe) && loggedCount < MIN_HIGH_FIDELITY_SAMPLE;
-
-  const winnerA = resA.totalDollars > resB.totalDollars;
+  const winnerA = !insufficient && resA.totalDollars > resB.totalDollars;
   const verdict = (() => {
+    if (insufficient) return "Not enough overlap to compare honestly.";
     const aBust = resA.propFirmVerdict === "bust_daily" || resA.propFirmVerdict === "bust_total";
     const bBust = resB.propFirmVerdict === "bust_daily" || resB.propFirmVerdict === "bust_total";
     if (aBust && !bBust) return `B wins: A busts the prop-firm, B survives.`;
@@ -122,20 +149,26 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
     const diff = resA.totalDollars - resB.totalDollars;
     const wrDiff = (resA.winRate - resB.winRate) * 100;
     const sign = diff >= 0 ? "A" : "B";
+    // CI overlap check: if either CI straddles 0, call it inconclusive.
+    const ciA = resA.expectancyRCi;
+    const ciB = resB.expectancyRCi;
+    const overlap = ciA && ciB && !(ciA[1] < ciB[0] || ciB[1] < ciA[0]);
+    const overlapNote = overlap ? " CIs overlap — gap may not be statistically meaningful." : "";
     return `${sign} wins on total $ by ${fmtMoney(Math.abs(diff))}. ` +
-      `Win-rate gap ${wrDiff >= 0 ? "+" : ""}${wrDiff.toFixed(0)}pp toward A.`;
+      `Win-rate gap ${wrDiff >= 0 ? "+" : ""}${wrDiff.toFixed(0)}pp toward A.` + overlapNote;
   })();
 
   return (
-    <Card className="p-5 space-y-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h3 className="font-semibold">Strategy simulator</h3>
-          <p className="text-xs text-muted-foreground">
-            Replays {trades.length} trades in <span className="font-medium">{scopeLabel}</span> under each strategy. Deterministic — same trades, same numbers.
-          </p>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
+    <TooltipProvider delayDuration={150}>
+      <Card className="p-5 space-y-5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="font-semibold">Strategy simulator</h3>
+            <p className="text-xs text-muted-foreground">
+              Matched-sample comparison in <span className="font-medium">{scopeLabel}</span>. Both
+              strategies are scored on the same trades — the intersection of their eligibility sets.
+            </p>
+          </div>
           <div className="flex items-center gap-2">
             <Label htmlFor="cmp-balance" className="text-xs whitespace-nowrap">Sim $</Label>
             <Input
@@ -148,100 +181,123 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
               step={1000}
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Switch id="cmp-fidelity" checked={highFidelityOnly} onCheckedChange={setHighFidelityOnly} />
-            <Label htmlFor="cmp-fidelity" className="text-xs flex items-center gap-1 cursor-pointer">
-              <ShieldCheck className="w-3 h-3" /> Honest mode (logged MFE only)
-            </Label>
+        </div>
+
+        <div className={`rounded-md border p-3 text-sm flex items-start gap-2 ${
+          insufficient
+            ? "border-amber-500/40 bg-amber-500/5"
+            : "border-border bg-muted/20"
+        }`}>
+          {insufficient ? (
+            <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+          ) : (
+            <Info className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+          )}
+          <div className="space-y-0.5 flex-1">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="font-medium">
+                Matched sample: {matched.matchedCount}/{matched.totalTradeCount} trades
+                <span className="text-muted-foreground font-normal"> ({matchedPct.toFixed(0)}%)</span>
+              </span>
+              <Tooltip>
+                <TooltipTrigger className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+                  why dropped?
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-sm text-xs space-y-2">
+                  <div>
+                    <div className="font-medium mb-0.5">A · {stratA.label}</div>
+                    {Object.entries(resA.ineligibleReasons).length === 0 ? (
+                      <div className="text-muted-foreground">eligible everywhere</div>
+                    ) : (
+                      <ul>
+                        {Object.entries(resA.ineligibleReasons).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => (
+                          <li key={k} className="font-mono-numbers">· {k} ×{v}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div>
+                    <div className="font-medium mb-0.5">B · {stratB.label}</div>
+                    {Object.entries(resB.ineligibleReasons).length === 0 ? (
+                      <div className="text-muted-foreground">eligible everywhere</div>
+                    ) : (
+                      <ul>
+                        {Object.entries(resB.ineligibleReasons).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => (
+                          <li key={k} className="font-mono-numbers">· {k} ×{v}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            {insufficient ? (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Need at least {MIN_MATCHED_SAMPLE} trades eligible under BOTH strategies for an honest
+                comparison. Pick presets with looser data requirements (e.g. Actual behavior, Quick-flip @1R),
+                or log more MFE/MAE.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Native eligible: A {nativeA}/{matched.totalTradeCount} · B {nativeB}/{matched.totalTradeCount}.
+                Headline numbers below use the matched intersection only.
+              </p>
+            )}
           </div>
         </div>
-      </div>
 
-
-      {insufficient && (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-          <div className="space-y-1">
-            <div className="font-medium">Preset comparison muted — not enough logged MFE.</div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              This scope has <span className="font-mono-numbers font-semibold text-foreground">{loggedCount}</span> of {totalCount} trades with MFE recorded.
-              Honest mode needs ≥ {MIN_HIGH_FIDELITY_SAMPLE} before non-actual presets are trustworthy.
-              {" "}
-              <button
-                type="button"
-                onClick={() => setHighFidelityOnly(false)}
-                className="underline underline-offset-2 hover:text-foreground"
-              >
-                Show inferred data anyway
-              </button>.
-            </p>
+        <div className={`grid md:grid-cols-2 gap-5 ${insufficient ? "opacity-50 pointer-events-none" : ""}`}>
+          <div className="space-y-4">
+            <StrategyPresetPicker value={stratA} onChange={setStratA} label="Strategy A" />
+            <div className="rounded-md border border-border/60 p-3 bg-muted/20">
+              <StrategyMetrics r={resA} winner={winnerA} nativeN={nativeA} />
+            </div>
+          </div>
+          <div className="space-y-4">
+            <StrategyPresetPicker value={stratB} onChange={setStratB} label="Strategy B" />
+            <div className="rounded-md border border-border/60 p-3 bg-muted/20">
+              <StrategyMetrics r={resB} winner={!winnerA && !insufficient} nativeN={nativeB} />
+            </div>
           </div>
         </div>
-      )}
 
-      <div className={`grid md:grid-cols-2 gap-5 ${insufficient ? "opacity-40 pointer-events-none" : ""}`}>
-
-        <div className="space-y-4">
-          <StrategyPresetPicker value={stratA} onChange={setStratA} label="Strategy A" />
-          <div className="rounded-md border border-border/60 p-3 bg-muted/20">
-            <StrategyMetrics r={resA} winner={winnerA} />
-          </div>
+        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm flex items-start gap-2">
+          {winnerA ? (
+            <TrendingUp className="w-4 h-4 text-primary mt-0.5" />
+          ) : (
+            <TrendingDown className="w-4 h-4 text-primary mt-0.5" />
+          )}
+          <p className="leading-relaxed">{verdict}</p>
         </div>
-        <div className="space-y-4">
-          <StrategyPresetPicker value={stratB} onChange={setStratB} label="Strategy B" />
-          <div className="rounded-md border border-border/60 p-3 bg-muted/20">
-            <StrategyMetrics r={resB} winner={!winnerA} />
-          </div>
-        </div>
-      </div>
 
-      <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm flex items-start gap-2">
-        {winnerA ? (
-          <TrendingUp className="w-4 h-4 text-primary mt-0.5" />
-        ) : (
-          <TrendingDown className="w-4 h-4 text-primary mt-0.5" />
+        {!insufficient && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs uppercase tracking-wider text-muted-foreground">Equity curves (matched sample)</h4>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-0.5 bg-primary inline-block" /> A
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-0.5 bg-destructive inline-block" /> B
+                </span>
+              </div>
+            </div>
+            <EquityCurveOverlay results={[resA, resB]} />
+          </div>
         )}
-        <p className="leading-relaxed">{verdict}</p>
-      </div>
 
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="text-xs uppercase tracking-wider text-muted-foreground">Equity curves</h4>
-          <div className="flex items-center gap-3 text-xs">
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-primary inline-block" /> A
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-destructive inline-block" /> B
-            </span>
-          </div>
-        </div>
-        <EquityCurveOverlay
-          results={insufficient ? [resA, resB].filter((r) => r.strategy.useActualOutcome) : [resA, resB]}
-        />
-
-      </div>
-
-      <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed">
-        <AlertTriangle className="w-3 h-3 inline mr-1" />
-        Replay assumes MFE/MAE were reachable as fills (no slippage on partials). Trail-to-MFE captures 80% of MFE
-        on the runner. When MFE isn't recorded, it's inferred from <code className="text-[10px]">tp_reached</code>{" "}
-        first, then from <code className="text-[10px]">r-multiple</code> (winners are extended to the bucket's
-        median MFE to avoid scoring partial-profit exits as BE).
-        {" "}<span>
-          A: <span className="text-emerald-600 dark:text-emerald-400">{resA.fidelity.full} logged</span>
-          {resA.fidelity.tp_reached > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resA.fidelity.tp_reached} tp</span></>}
-          {resA.fidelity.r_only > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resA.fidelity.r_only} r-only</span></>}
-          {resA.fidelity.fallback > 0 && <> · <span className="text-destructive">{resA.fidelity.fallback} fallback</span></>}
-          {resA.skippedLowFidelity > 0 && <> · {resA.skippedLowFidelity} skipped</>}
-          {" — B: "}
-          <span className="text-emerald-600 dark:text-emerald-400">{resB.fidelity.full} logged</span>
-          {resB.fidelity.tp_reached > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resB.fidelity.tp_reached} tp</span></>}
-          {resB.fidelity.r_only > 0 && <> · <span className="text-amber-600 dark:text-amber-400">{resB.fidelity.r_only} r-only</span></>}
-          {resB.fidelity.fallback > 0 && <> · <span className="text-destructive">{resB.fidelity.fallback} fallback</span></>}
-          {resB.skippedLowFidelity > 0 && <> · {resB.skippedLowFidelity} skipped</>}.
-        </span>
-      </p>
-    </Card>
+        <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed flex items-start gap-1.5">
+          <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+          <span>
+            Proof-only replay: a trade is eligible for a preset when MFE,
+            {" "}<code className="text-[10px]">tp_reached</code>, or
+            {" "}<code className="text-[10px]">r_actual</code> proves the rule's targets were reached
+            (or the trade stopped out). No heuristic guessing. ±CI is the bootstrap 95% interval on per-trade R —
+            when the two CIs overlap, the difference isn't statistically meaningful.
+          </span>
+        </p>
+      </Card>
+    </TooltipProvider>
   );
 }
