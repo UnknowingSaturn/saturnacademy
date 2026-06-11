@@ -274,6 +274,9 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
                         </>
                       )}
                     </td>
+                    <td className="py-2 px-2 text-right font-mono-numbers text-muted-foreground">
+                      {insufficient || r.meanReachedR == null ? "—" : `${r.meanReachedR.toFixed(2)}R`}
+                    </td>
                     <td className="py-2 px-2 text-right font-mono-numbers text-destructive">
                       {insufficient ? "—" : fmtMoney(r.maxDrawdownDollars)}
                     </td>
