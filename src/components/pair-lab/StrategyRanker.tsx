@@ -134,11 +134,34 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
               onCheckedChange={setHighFidelityOnly}
             />
             <Label htmlFor="rank-fidelity" className="text-xs flex items-center gap-1 cursor-pointer">
-              <ShieldCheck className="w-3 h-3" /> High-fidelity only
+              <ShieldCheck className="w-3 h-3" /> Honest mode (logged MFE only)
             </Label>
           </div>
         </div>
       </div>
+
+      {insufficient && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+          <div className="space-y-1">
+            <div className="font-medium">Not enough logged MFE to compare presets.</div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              This bucket has <span className="font-mono-numbers font-semibold text-foreground">{loggedCount}</span> of {totalCount} trades with an MFE value recorded.
+              Honest mode needs at least {MIN_HIGH_FIDELITY_SAMPLE}. Only <span className="font-medium">Actual behavior</span> is shown — it doesn't need MFE.
+              Log MFE on more trades to unlock preset comparisons, or
+              {" "}
+              <button
+                type="button"
+                onClick={() => setHighFidelityOnly(false)}
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                show inferred data anyway
+              </button>.
+            </p>
+          </div>
+        </div>
+      )}
+
 
       {winner && (
         <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
