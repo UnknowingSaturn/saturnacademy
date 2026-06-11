@@ -246,6 +246,22 @@ function multiSelectCf(trade: any, key: string | null): string[] {
   return [];
 }
 
+/** Parse strings like "1:2", "1R", "2", "TP2" → R-multiple. Mirrors simulator. */
+function parseTpLabelLocal(s: string): number | null {
+  if (!s) return null;
+  const clean = s.trim().toUpperCase();
+  const ratio = clean.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
+  if (ratio) {
+    const a = Number(ratio[1]), b = Number(ratio[2]);
+    if (a > 0) return b / a;
+  }
+  const tp = clean.match(/^TP\s*(\d+(?:\.\d+)?)$/);
+  if (tp) return Number(tp[1]);
+  const num = clean.match(/^(\d+(?:\.\d+)?)R?$/);
+  if (num) return Number(num[1]);
+  return null;
+}
+
 function confidenceFor(n: number): ConfidenceLevel {
   if (n >= 30) return "high";
   if (n >= 10) return "medium";
