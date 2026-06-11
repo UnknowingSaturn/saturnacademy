@@ -12,10 +12,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Trophy, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import {
   replayBucket,
+  replayBucketMatched,
   MIN_ELIGIBLE_SAMPLE,
   type ReplayResult,
 } from "@/lib/pairLabSimulator";
