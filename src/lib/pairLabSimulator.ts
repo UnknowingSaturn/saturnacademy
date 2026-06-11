@@ -50,7 +50,14 @@ export interface ReplayPerTrade {
   resultR: number;
   dollars: number;
   cumulativeEquity: number;
-  inferred: boolean;
+  fidelity: Fidelity;
+}
+
+export interface FidelityBreakdown {
+  full: number;
+  tp_reached: number;
+  r_only: number;
+  fallback: number;
 }
 
 export interface ReplayResult {
@@ -69,8 +76,12 @@ export interface ReplayResult {
   perTrade: ReplayPerTrade[];
   propFirmVerdict: "pass" | "bust_daily" | "bust_total" | "n/a";
   bustNote: string | null;
-  /** How many trades used inferred MFE/MAE (no recorded field). */
+  /** How many trades used any inferred MFE/MAE (sum of tp_reached + r_only + fallback). */
   inferredCount: number;
+  /** Per-fidelity-tier counts for transparency. */
+  fidelity: FidelityBreakdown;
+  /** Trades skipped because highFidelityOnly was set and MFE wasn't recorded. */
+  skippedLowFidelity: number;
 }
 
 // ----------------------------------------------------------------------------
