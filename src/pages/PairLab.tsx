@@ -121,6 +121,7 @@ export default function PairLab() {
       <Tabs defaultValue="grid">
         <TabsList>
           <TabsTrigger value="grid">Grid</TabsTrigger>
+          <TabsTrigger value="simulator">Simulator</TabsTrigger>
           <TabsTrigger value="aliases">Symbol aliases</TabsTrigger>
         </TabsList>
 
