@@ -216,7 +216,10 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
             </span>
           </div>
         </div>
-        <EquityCurveOverlay results={[resA, resB]} />
+        <EquityCurveOverlay
+          results={insufficient ? [resA, resB].filter((r) => r.strategy.useActualOutcome) : [resA, resB]}
+        />
+
       </div>
 
       <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed">
