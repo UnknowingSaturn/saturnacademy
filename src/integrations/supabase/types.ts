@@ -1406,6 +1406,36 @@ export type Database = {
         }
         Relationships: []
       }
+      symbol_aliases: {
+        Row: {
+          canonical_symbol: string
+          created_at: string
+          id: string
+          raw_symbol: string
+          source: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          canonical_symbol: string
+          created_at?: string
+          id?: string
+          raw_symbol: string
+          source?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          canonical_symbol?: string
+          created_at?: string
+          id?: string
+          raw_symbol?: string
+          source?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       terminal_snapshots: {
         Row: {
           account_id: string | null
