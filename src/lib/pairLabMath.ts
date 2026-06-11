@@ -17,6 +17,7 @@
 // ============================================================================
 
 import type { Trade } from "@/types/trading";
+import { tickSizeForSymbol, pipSizeForSymbol } from "@/lib/symbolMapping";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
