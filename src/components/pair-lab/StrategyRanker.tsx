@@ -163,7 +163,7 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
       )}
 
 
-      {winner && (
+      {winner && !insufficient && (
         <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
           <div className="flex items-center gap-2 mb-1">
             <Trophy className="w-3.5 h-3.5 text-primary" />
@@ -218,7 +218,7 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
             </tr>
           </thead>
           <tbody>
-            {ranked.map((r, i) => {
+            {visibleRanked.map((r, i) => {
               const isWinner = i === 0;
               const isBust = busted(r);
               return (
