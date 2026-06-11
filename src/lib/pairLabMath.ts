@@ -368,6 +368,7 @@ function computeBucket(
   rows: Trade[],
   keys: PairLabFieldKeys,
   baseline: BucketReport | null,
+  propFirm: PropFirmContext | null,
 ): BucketReport {
   const closed = rows.filter((t) => t.net_pnl != null);
   const wins = closed.filter((t) => (t.net_pnl ?? 0) > 0);
@@ -387,16 +388,12 @@ function computeBucket(
   const slInitials: number[] = [];
   for (const t of rows) {
     if (t.sl_initial == null || t.entry_price == null) continue;
-    // Convert SL distance to pips using a coarse 4-digit assumption — same
-    // unit the user enters cf_ideal_stop_loss in. JPY/index handling left
-    // to the user's existing journal conventions.
     const distance = Math.abs(t.entry_price - t.sl_initial);
     const digits = String(t.entry_price).split(".")[1]?.length ?? 4;
     const pipMultiplier = digits >= 4 ? 10_000 : 100;
     slInitials.push(distance * pipMultiplier);
   }
 
-  // TP-hit distribution.
   const tpDist: Record<string, number> = {};
   for (const t of rows) {
     for (const v of multiSelectCf(t as any, keys.tpReached)) {
@@ -422,6 +419,7 @@ function computeBucket(
 
   const stats: BucketStats = {
     key,
+    rawSymbols: [],
     n,
     wins: wins.length,
     losses: losses.length,
@@ -439,9 +437,10 @@ function computeBucket(
     mostCommonTpHit,
     confidence: confidenceFor(n),
     expectedRCi: bootstrapMeanCi(rActuals),
+    worstLosingStreak: longestLossStreak(rows),
   };
 
-  const recommendation = buildRecommendation(stats, winR, lossR, baseline);
+  const recommendation = buildRecommendation(stats, winR, lossR, mfes, baseline, propFirm);
 
   const sorted = [...closed].sort(
     (a, b) => (b.r_multiple_actual ?? 0) - (a.r_multiple_actual ?? 0),
@@ -456,7 +455,9 @@ function buildRecommendation(
   s: BucketStats,
   winR: number[],
   lossR: number[],
+  mfes: number[],
   baseline: BucketReport | null,
+  propFirm: PropFirmContext | null,
 ): BucketRecommendation {
   // SL: max of (p75(MAE) × 1.15, median(ideal SL)). Both are in pips.
   let suggestedSlPips: number | null = null;
@@ -465,28 +466,56 @@ function buildRecommendation(
     suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
   }
 
-  // TP ladder from MFE percentiles, capped by the most-common TP hit so we
-  // never recommend a target the user has never reached in practice.
+  // Expected-R TP ladder, capped by the most-common TP hit so we never
+  // recommend a target the user has never reached in practice.
   const ladder: number[] = [];
   const cap = (() => {
     if (!s.mostCommonTpHit) return Infinity;
     const m = /1\s*:\s*(\d+(?:\.\d+)?)/.exec(s.mostCommonTpHit);
     return m ? Number(m[1]) : Infinity;
   })();
-  const p70 = quantile(winR, 0.3); // R reached by ≥70 % of winners
+  const p70 = quantile(winR, 0.3);
   const p50 = quantile(winR, 0.5);
   const p25 = quantile(winR, 0.75);
   for (const v of [p70, p50, p25]) {
     if (v == null || v <= 0) continue;
     ladder.push(Math.min(v, cap));
   }
-  // Deduplicate near-equal targets and round to 0.25R.
   const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
 
   // Kelly sizing.
-  const avgWinR = winR.length > 0 ? winR.reduce((s, v) => s + v, 0) / winR.length : 0;
-  const avgLossR = lossR.length > 0 ? lossR.reduce((s, v) => s + v, 0) / lossR.length : 1;
+  const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
+  const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
   const suggestedRiskPct = s.n >= 10 ? quarterKellyPct(s.winRate, avgWinR, avgLossR) : null;
+
+  // TP1* — win-rate-maximizing target from MFE distribution.
+  const tp1Star = computeTp1Star(mfes, avgLossR || 1);
+
+  // Prop-firm-aware risk cap.
+  let suggestedRiskPctPropFirm: number | null = null;
+  let bindingConstraint: BucketRecommendation["bindingConstraint"] = null;
+  if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null) {
+    // Worst plausible losing streak: use observed worst, but assume at
+    // least 3 to avoid sizing off a single trade's history.
+    const streak = Math.max(3, s.worstLosingStreak || 0);
+    // Daily loss budget translated to % of account.
+    const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
+    // Distribute the budget across `streak` consecutive full-stop losses.
+    const ddCappedPct = dailyBudgetPct / streak;
+    suggestedRiskPctPropFirm = Math.max(0.1, Math.min(propFirm.hardCapPct, ddCappedPct));
+
+    if (suggestedRiskPct == null) {
+      bindingConstraint = "prop_firm_dd";
+    } else if (suggestedRiskPctPropFirm < suggestedRiskPct) {
+      bindingConstraint = suggestedRiskPctPropFirm >= propFirm.hardCapPct - 0.001
+        ? "hard_cap"
+        : "prop_firm_dd";
+    } else {
+      bindingConstraint = "kelly";
+    }
+  } else if (suggestedRiskPct != null) {
+    bindingConstraint = "kelly";
+  }
 
   let edgeVsBaseline: BucketRecommendation["edgeVsBaseline"] = null;
   if (baseline && baseline.n > 0 && s.key.symbol !== "All") {
@@ -496,5 +525,13 @@ function buildRecommendation(
     };
   }
 
-  return { suggestedSlPips, tpLadderR, suggestedRiskPct, edgeVsBaseline };
+  return {
+    suggestedSlPips,
+    tpLadderR,
+    tp1Star,
+    suggestedRiskPct,
+    suggestedRiskPctPropFirm,
+    bindingConstraint,
+    edgeVsBaseline,
+  };
 }
