@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { AlertTriangle, CheckCircle2, TrendingUp, TrendingDown } from "lucide-react";
 import { StrategyPresetPicker } from "./StrategyPresetPicker";
 import { EquityCurveOverlay } from "./EquityCurveOverlay";
@@ -81,14 +83,16 @@ function StrategyMetrics({ r, winner }: { r: ReplayResult; winner: boolean }) {
 export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLabel }: Props) {
   const [stratA, setStratA] = useState<Strategy>(getPreset("current")!);
   const [stratB, setStratB] = useState<Strategy>(getPreset("scale-out")!);
+  const [simBalance, setSimBalance] = useState<number>(balance);
+  useEffect(() => { setSimBalance(balance); }, [balance]);
 
   const resA = useMemo(
-    () => replayBucket(trades, fieldKeys, stratA, { balance, propFirm }),
-    [trades, fieldKeys, stratA, balance, propFirm],
+    () => replayBucket(trades, fieldKeys, stratA, { balance: simBalance, propFirm }),
+    [trades, fieldKeys, stratA, simBalance, propFirm],
   );
   const resB = useMemo(
-    () => replayBucket(trades, fieldKeys, stratB, { balance, propFirm }),
-    [trades, fieldKeys, stratB, balance, propFirm],
+    () => replayBucket(trades, fieldKeys, stratB, { balance: simBalance, propFirm }),
+    [trades, fieldKeys, stratB, simBalance, propFirm],
   );
 
   if (trades.length === 0) {
@@ -121,7 +125,18 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
             Replays {trades.length} trades in <span className="font-medium">{scopeLabel}</span> under each strategy. Deterministic — same trades, same numbers.
           </p>
         </div>
-        <Badge variant="outline" className="text-xs">Balance ${balance.toLocaleString()}</Badge>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="cmp-balance" className="text-xs whitespace-nowrap">Sim $</Label>
+          <Input
+            id="cmp-balance"
+            type="number"
+            value={simBalance}
+            onChange={(e) => setSimBalance(Math.max(0, Number(e.target.value) || 0))}
+            className="h-8 w-28 font-mono-numbers text-xs"
+            min={0}
+            step={1000}
+          />
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-5">
