@@ -303,11 +303,18 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
         <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed flex items-start gap-1.5">
           <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
           <span>
-            Each preset is scored on its own eligible sample — a trade is eligible only when MFE,
-            <code className="text-[10px] mx-0.5">tp_reached</code>, or <code className="text-[10px] mx-0.5">r_actual</code>
-            prove the rule's targets were reached (or that the trade stopped out). Presets with fewer than
-            {" "}{MIN_ELIGIBLE_SAMPLE} eligible trades are demoted. ±CI is the bootstrap 95% interval on per-trade R.
-            Log more MFE / MAE on closed trades to widen each preset's eligible set.
+            {strictMode ? (
+              <>Strict mode — every preset is scored on the intersection of trades eligible under ALL presets (apples-to-apples).</>
+            ) : (
+              <>Native mode — each preset is scored on its own eligible sample. The <span className="font-medium">Reached R</span> column
+              exposes self-selection bias: a higher value means the preset's eligible trades happened to be easier than another preset's.</>
+            )}
+            {" "}A trade is eligible only when MFE, <code className="text-[10px] mx-0.5">tp_reached</code>, or
+            <code className="text-[10px] mx-0.5">r_actual</code> proves the rule's targets were reached (or that the trade stopped out).
+            MAE and Ideal-SL are logged in broker ticks and converted to R via each trade's initial-SL distance — trades missing
+            <code className="text-[10px] mx-0.5">sl_initial</code> or <code className="text-[10px] mx-0.5">entry_price</code> become ineligible for MAE/ideal-SL presets.
+            Presets with fewer than {MIN_ELIGIBLE_SAMPLE} eligible trades are demoted. ±CI is the bootstrap 95% interval on per-trade R.
+            Trail runners use an 80% MFE-capture assumption (estimate, not proof).
           </span>
         </p>
       </Card>
