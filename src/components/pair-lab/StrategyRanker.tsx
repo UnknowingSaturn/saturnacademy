@@ -115,6 +115,18 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2 rounded-md border border-border/60 px-2 py-1">
+                  <Label htmlFor="rank-strict" className="text-xs cursor-pointer">Strict</Label>
+                  <Switch id="rank-strict" checked={strictMode} onCheckedChange={setStrictMode} />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                Score every preset on the intersection of trades eligible under ALL presets — apples-to-apples
+                leaderboard. Sample shrinks; turn off for per-preset native samples.
+              </TooltipContent>
+            </Tooltip>
             <div className="flex items-center gap-2">
               <Label htmlFor="rank-balance" className="text-xs whitespace-nowrap">Sim $</Label>
               <Input
@@ -143,6 +155,7 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
             </div>
           </div>
         </div>
+
 
         {winner && winner.eligibleCount >= MIN_ELIGIBLE_SAMPLE && (
           <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
