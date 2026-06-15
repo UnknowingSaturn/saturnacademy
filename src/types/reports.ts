@@ -175,9 +175,13 @@ export interface QuantBucketSummary {
   sl_drift: "too_wide" | "too_tight" | "aligned" | null;
   most_common_tp_hit: string | null;
   suggested_sl_pips: number | null;
+  /** "pips" for FX/metals/crypto/oil, "points" for indices. */
+  sl_unit: "pips" | "points";
   tp_ladder_r: number[];
   tp1_star: { r: number; hit_rate_pct: number; expectancy_r: number } | null;
   suggested_risk_pct: number | null;
+  /** Prop-firm-aware cap; null when no prop firm linked. */
+  suggested_risk_pct_propfirm_cap: number | null;
   confidence: "high" | "medium" | "low";
   top_trade_ids: string[];
   bottom_trade_ids: string[];
@@ -191,7 +195,24 @@ export interface QuantAdvice {
   suggested_value: string;
   expected_uplift_r: number;
   confidence: "high" | "medium" | "low";
+  unit?: "pips" | "points" | "R" | "%";
+  n_eligible?: number;
+  bias_warning?: boolean;
   cited_trade_ids: string[];
+}
+
+export interface PropFirmContext {
+  firm: string;
+  balance: number;
+  daily_loss_dollars: number | null;
+  max_drawdown_dollars: number | null;
+  profit_target_dollars: number | null;
+}
+
+export interface SenseiQuality {
+  /** Numbers cited in Sensei prose that don't match any deterministic fact (±5%). */
+  ungrounded_numbers: Array<{ section: string; value: number }>;
+  warnings: string[];
 }
 
 export interface QuantBlock {
@@ -203,14 +224,21 @@ export interface QuantBlock {
     preset_id: string;
     label: string;
     n_eligible: number;
+    total_considered: number;
     win_rate: number;
     expectancy_r: number;
     delta_vs_current: number;
+    /** Bias-adjusted delta, computed on the trade intersection with `current`. */
+    delta_vs_current_intersection: number | null;
+    n_comparable: number;
+    bias_warning: boolean;
     mean_reached_r: number | null;
     ci: [number, number] | null;
   }>;
   min_eligible_sample: number;
+  prop_firm_context: PropFirmContext | null;
   advice?: QuantAdvice[];
+  sensei_quality?: SenseiQuality;
 }
 
 export interface Report {
