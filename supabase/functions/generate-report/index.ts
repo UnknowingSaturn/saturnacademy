@@ -974,6 +974,91 @@ Write the ${hasQuant ? 6 : 5} sections, the headline verdict, the letter grade, 
 // ------------------------------ LLM context builder (shared) ------------------------------
 // Builds the rich worst-trade narrative + tilt narrative + symbol expectancy + review excerpts
 // from raw trades/reviews. Used by both initial generation and rerun-sensei.
+async function computeQuantBlock(
+  admin: any,
+  targetUserId: string,
+  period_start: string,
+  period_end: string,
+  account_id: string | null,
+): Promise<any> {
+  try {
+    let qQ = admin.from('trades')
+      .select('id, symbol, session, entry_time, net_pnl, r_multiple_actual, sl_initial, entry_price, custom_fields, is_open, is_archived, trade_type')
+      .eq('user_id', targetUserId)
+      .gte('entry_time', period_start)
+      .lt('entry_time', period_end)
+      .eq('trade_type', 'executed');
+    if (account_id) qQ = qQ.eq('account_id', account_id);
+    const { data: qTrades } = await qQ;
+
+    const { data: cfDefs } = await admin
+      .from('custom_field_definitions')
+      .select('key,label')
+      .eq('user_id', targetUserId)
+      .eq('is_active', true);
+
+    const keys = resolvePairLabFieldKeys((cfDefs as any[]) || []);
+    const usableTrades = ((qTrades as any[]) || []).filter((t: any) => !t.is_open && !t.is_archived);
+    if (usableTrades.length === 0) return null;
+
+    const { perCell, baseline } = buildBuckets(usableTrades, keys);
+    const total = usableTrades.length || 1;
+    const slCov = usableTrades.filter((t: any) => t.sl_initial != null && t.entry_price != null).length / total;
+    const mfeCov = baseline.loggedMfeCount / total;
+    const maeCov = baseline.loggedMaeCount / total;
+
+    const ranked = perCell.filter((b: BucketReport) => b.n >= 3)
+      .sort((a, b) => b.expectedR * b.n - a.expectedR * a.n);
+    const top = ranked.slice(0, 3);
+    const bottom = ranked.slice(-3).reverse();
+
+    const presetResults: PresetReplayResult[] = replayAllPresets(usableTrades, keys);
+    const current = presetResults.find(p => p.presetId === 'current');
+    const baselineR = current ? current.expectancyR : 0;
+    const replay = presetResults.map(p => ({
+      preset_id: p.presetId,
+      label: p.label,
+      n_eligible: p.nEligible,
+      win_rate: +(p.winRate * 100).toFixed(1),
+      expectancy_r: +p.expectancyR.toFixed(3),
+      delta_vs_current: +(p.expectancyR - baselineR).toFixed(3),
+      mean_reached_r: p.meanReachedR != null ? +p.meanReachedR.toFixed(2) : null,
+      ci: p.expectancyRCi ? [+p.expectancyRCi[0].toFixed(2), +p.expectancyRCi[1].toFixed(2)] : null,
+    }));
+
+    const summarizeBucket = (b: BucketReport) => ({
+      label: `${b.key.symbol} / ${b.key.session}`,
+      n: b.n,
+      win_rate_pct: +(b.winRate * 100).toFixed(1),
+      expected_r: +b.expectedR.toFixed(2),
+      expected_r_ci: b.expectedRCi ? [+b.expectedRCi[0].toFixed(2), +b.expectedRCi[1].toFixed(2)] : null,
+      mfe_p75_r: b.mfeP75 != null ? +b.mfeP75.toFixed(2) : null,
+      mae_p75_r: b.maeP75 != null ? +b.maeP75.toFixed(2) : null,
+      sl_drift: b.slDrift,
+      most_common_tp_hit: b.mostCommonTpHit,
+      suggested_sl_pips: b.suggestedSlPips != null ? +b.suggestedSlPips.toFixed(1) : null,
+      tp_ladder_r: b.tpLadderR,
+      tp1_star: b.tp1Star ? { r: b.tp1Star.r, hit_rate_pct: +(b.tp1Star.hitRate * 100).toFixed(1), expectancy_r: +b.tp1Star.expectancyR.toFixed(2) } : null,
+      suggested_risk_pct: b.suggestedRiskPct != null ? +b.suggestedRiskPct.toFixed(2) : null,
+      confidence: b.confidence,
+      top_trade_ids: b.topTradeIds,
+      bottom_trade_ids: b.bottomTradeIds,
+    });
+
+    return {
+      coverage: { sl: +slCov.toFixed(2), mfe: +mfeCov.toFixed(2), mae: +maeCov.toFixed(2), total },
+      baseline: summarizeBucket(baseline),
+      buckets_top: top.map(summarizeBucket),
+      buckets_bottom: bottom.map(summarizeBucket),
+      strategy_replay: replay,
+      min_eligible_sample: MIN_ELIGIBLE_SAMPLE,
+    };
+  } catch (e) {
+    console.error('quant compute failed:', e);
+    return null;
+  }
+}
+
 async function buildLlmContext(
   admin: any,
   targetUserId: string,
@@ -1169,6 +1254,12 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "no trades found in period" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // Recompute quant block (uses live trade data) so rerun gets the elite "The Math" section.
+      const quant = await computeQuantBlock(
+        admin, existing.user_id, existing.period_start, existing.period_end, existing.account_id,
+      );
+      (llmPayload as any).quant = quant;
+
       // Reruns default to gemini-3-pro-preview with automatic fallback to flash inside callSensei.
       const model = body.model || 'google/gemini-3-pro-preview';
 
@@ -1180,6 +1271,7 @@ serve(async (req) => {
         updatePayload.grade = result.grade;
         updatePayload.goals = result.goals;
         updatePayload.sensei_model = result.modelUsed;
+        updatePayload.quant = quant ? { ...quant, advice: result.quant_advice || [] } : null;
         updatePayload.status = 'completed';
         updatePayload.error_message = null;
       } catch (e) {
@@ -1475,85 +1567,7 @@ serve(async (req) => {
       .reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
 
     // ---- QUANT BLOCK (Pair-Lab math + strategy replay) ----
-    let quant: any = null;
-    try {
-      // Refetch with the extra fields needed for tick→R conversion
-      let qQ = admin.from('trades')
-        .select('id, symbol, session, entry_time, net_pnl, r_multiple_actual, sl_initial, entry_price, custom_fields, is_open, is_archived, trade_type')
-        .eq('user_id', targetUserId)
-        .gte('entry_time', period_start)
-        .lt('entry_time', period_end)
-        .eq('trade_type', 'executed');
-      if (account_id) qQ = qQ.eq('account_id', account_id);
-      const { data: qTrades } = await qQ;
-
-      const { data: cfDefs } = await admin
-        .from('custom_field_definitions')
-        .select('key,label')
-        .eq('user_id', targetUserId)
-        .eq('is_active', true);
-
-      const keys = resolvePairLabFieldKeys((cfDefs as any[]) || []);
-      const usableTrades = (qTrades || []).filter((t: any) => !t.is_open && !t.is_archived);
-      const { perCell, baseline } = buildBuckets(usableTrades, keys);
-
-      // Coverage gauges
-      const total = usableTrades.length || 1;
-      const slCov = usableTrades.filter((t: any) => t.sl_initial != null && t.entry_price != null).length / total;
-      const mfeCov = baseline.loggedMfeCount / total;
-      const maeCov = baseline.loggedMaeCount / total;
-
-      // Top/bottom 3 buckets by expectedR × n (only with n≥3)
-      const ranked = perCell.filter((b: BucketReport) => b.n >= 3)
-        .sort((a, b) => b.expectedR * b.n - a.expectedR * a.n);
-      const top = ranked.slice(0, 3);
-      const bottom = ranked.slice(-3).reverse();
-
-      // Strategy replay (Hybrid)
-      const presetResults: PresetReplayResult[] = replayAllPresets(usableTrades, keys);
-      const current = presetResults.find(p => p.presetId === 'current');
-      const baselineR = current ? current.expectancyR : 0;
-      const replay = presetResults.map(p => ({
-        preset_id: p.presetId,
-        label: p.label,
-        n_eligible: p.nEligible,
-        win_rate: +(p.winRate * 100).toFixed(1),
-        expectancy_r: +p.expectancyR.toFixed(3),
-        delta_vs_current: +(p.expectancyR - baselineR).toFixed(3),
-        mean_reached_r: p.meanReachedR != null ? +p.meanReachedR.toFixed(2) : null,
-        ci: p.expectancyRCi ? [+p.expectancyRCi[0].toFixed(2), +p.expectancyRCi[1].toFixed(2)] : null,
-      }));
-
-      const summarizeBucket = (b: BucketReport) => ({
-        label: `${b.key.symbol} / ${b.key.session}`,
-        n: b.n,
-        win_rate_pct: +(b.winRate * 100).toFixed(1),
-        expected_r: +b.expectedR.toFixed(2),
-        expected_r_ci: b.expectedRCi ? [+b.expectedRCi[0].toFixed(2), +b.expectedRCi[1].toFixed(2)] : null,
-        mfe_p75_r: b.mfeP75 != null ? +b.mfeP75.toFixed(2) : null,
-        mae_p75_r: b.maeP75 != null ? +b.maeP75.toFixed(2) : null,
-        sl_drift: b.slDrift,
-        most_common_tp_hit: b.mostCommonTpHit,
-        suggested_sl_pips: b.suggestedSlPips != null ? +b.suggestedSlPips.toFixed(1) : null,
-        tp_ladder_r: b.tpLadderR,
-        tp1_star: b.tp1Star ? { r: b.tp1Star.r, hit_rate_pct: +(b.tp1Star.hitRate * 100).toFixed(1), expectancy_r: +b.tp1Star.expectancyR.toFixed(2) } : null,
-        suggested_risk_pct: b.suggestedRiskPct != null ? +b.suggestedRiskPct.toFixed(2) : null,
-        confidence: b.confidence,
-        top_trade_ids: b.topTradeIds,
-        bottom_trade_ids: b.bottomTradeIds,
-      });
-
-      quant = {
-        coverage: { sl: +slCov.toFixed(2), mfe: +mfeCov.toFixed(2), mae: +maeCov.toFixed(2), total },
-        baseline: summarizeBucket(baseline),
-        buckets_top: top.map(summarizeBucket),
-        buckets_bottom: bottom.map(summarizeBucket),
-        strategy_replay: replay,
-        min_eligible_sample: MIN_ELIGIBLE_SAMPLE,
-      };
-    } catch (e) {
-      console.error('quant compute failed:', e);
-    }
+    const quant = await computeQuantBlock(admin, targetUserId, period_start, period_end, account_id);
 
     const llmPayload = {
       metrics,
