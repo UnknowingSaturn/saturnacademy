@@ -164,6 +164,55 @@ export interface PriorGoalsEvaluation {
   goals: Array<ReportGoal & { status: 'met' | 'missed'; actual: number }>;
 }
 
+export interface QuantBucketSummary {
+  label: string;
+  n: number;
+  win_rate_pct: number;
+  expected_r: number;
+  expected_r_ci: [number, number] | null;
+  mfe_p75_r: number | null;
+  mae_p75_r: number | null;
+  sl_drift: "too_wide" | "too_tight" | "aligned" | null;
+  most_common_tp_hit: string | null;
+  suggested_sl_pips: number | null;
+  tp_ladder_r: number[];
+  tp1_star: { r: number; hit_rate_pct: number; expectancy_r: number } | null;
+  suggested_risk_pct: number | null;
+  confidence: "high" | "medium" | "low";
+  top_trade_ids: string[];
+  bottom_trade_ids: string[];
+}
+
+export interface QuantAdvice {
+  bucket_label: string;
+  finding: string;
+  parameter: "sl" | "tp" | "risk" | "strategy";
+  current_value: string;
+  suggested_value: string;
+  expected_uplift_r: number;
+  confidence: "high" | "medium" | "low";
+  cited_trade_ids: string[];
+}
+
+export interface QuantBlock {
+  coverage: { sl: number; mfe: number; mae: number; total: number };
+  baseline: QuantBucketSummary;
+  buckets_top: QuantBucketSummary[];
+  buckets_bottom: QuantBucketSummary[];
+  strategy_replay: Array<{
+    preset_id: string;
+    label: string;
+    n_eligible: number;
+    win_rate: number;
+    expectancy_r: number;
+    delta_vs_current: number;
+    mean_reached_r: number | null;
+    ci: [number, number] | null;
+  }>;
+  min_eligible_sample: number;
+  advice?: QuantAdvice[];
+}
+
 export interface Report {
   id: string;
   user_id: string;
@@ -188,6 +237,7 @@ export interface Report {
   prior_goals_evaluation: PriorGoalsEvaluation | null;
 
   read_quality: ReadQualityBlock | null;
+  quant: QuantBlock | null;
 
   verdict: string | null;
   grade: ReportGrade | null;
