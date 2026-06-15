@@ -1169,8 +1169,8 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "no trades found in period" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Reruns always default to gemini-2.5-pro — deeper reasoning handles long structured-output (5 sections + goals) far better than flash
-      const model = body.model || 'google/gemini-2.5-pro';
+      // Reruns default to gemini-3-pro-preview with automatic fallback to flash inside callSensei.
+      const model = body.model || 'google/gemini-3-pro-preview';
 
       const updatePayload: any = { sensei_regenerated_at: new Date().toISOString(), sensei_model: model };
       try {
@@ -1179,12 +1179,12 @@ serve(async (req) => {
         updatePayload.verdict = result.verdict;
         updatePayload.grade = result.grade;
         updatePayload.goals = result.goals;
+        updatePayload.sensei_model = result.modelUsed;
         updatePayload.status = 'completed';
         updatePayload.error_message = null;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("Sensei rerun failed:", msg);
-        // Keep prior narrative — only flag failure
         updatePayload.status = 'failed';
         updatePayload.error_message = msg;
       }
