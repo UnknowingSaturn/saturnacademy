@@ -1075,6 +1075,7 @@ export type Database = {
           period_start: string
           prior_goals_evaluation: Json | null
           psychology: Json
+          quant: Json | null
           read_quality: Json
           report_type: string
           schema_suggestions: Json | null
@@ -1102,6 +1103,7 @@ export type Database = {
           period_start: string
           prior_goals_evaluation?: Json | null
           psychology?: Json
+          quant?: Json | null
           read_quality?: Json
           report_type: string
           schema_suggestions?: Json | null
@@ -1129,6 +1131,7 @@ export type Database = {
           period_start?: string
           prior_goals_evaluation?: Json | null
           psychology?: Json
+          quant?: Json | null
           read_quality?: Json
           report_type?: string
           schema_suggestions?: Json | null

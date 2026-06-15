@@ -6,6 +6,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { resolvePairLabFieldKeys, buildBuckets, type BucketReport } from "../_shared/quant/pairLabMath.ts";
+import { replayAllPresets, MIN_ELIGIBLE_SAMPLE, type PresetReplayResult } from "../_shared/quant/pairLabSimulator.ts";
 
 const BANNED_PHRASES = [
   "stay disciplined",
@@ -30,6 +32,7 @@ const BANNED_PHRASES = [
   "going forward",
   "in conclusion",
   "overall performance",
+  "based on my analysis",
 ];
 
 const BANNED_OPENERS = [
@@ -666,141 +669,17 @@ function rewriteVerdict(v: string): string {
   return out;
 }
 
-async function callSensei(payload: any, model: string) {
-  const apiKey = Deno.env.get("LOVABLE_API_KEY");
-  if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
+interface SenseiResult {
+  verdict: string;
+  grade: string;
+  sections: any[];
+  goals: any[];
+  quant_advice: any[];
+  modelUsed: string;
+}
 
-  const validTradeIds: string[] = payload._valid_trade_ids;
-  const validEmotions: string[] = payload._valid_emotions;
-  const validSymbols: string[] = payload._valid_symbols;
-
-  const systemPrompt = `You are a senior trading mentor — a sensei — debriefing one specific trader after their week or month. You have read every trade in the file. You write like a coach who watched the tape over their shoulder, not a report generator.
-
-VOICE
-- Direct, second person ("you"), conversational. Dry wit allowed. Short sentences welcome.
-- Name the *behavior*, not the cluster. "You doubled down on Silver after losing on it" — not "the Silver cluster underperformed."
-- Quote the trader's own review words when they're vivid. Use them as evidence.
-- No hedging. No corporate speak. No motivational filler.
-
-HARD RULES (non-negotiable)
-1. EVERY section (except "The Verdict") must cite 1–3 specific trade IDs from the whitelist in the cited_trade_ids array. Reference those trades in prose by their trade_number and date — e.g., "trade #29 on Dec 11 lost -17.4R" — NEVER paste the raw UUID string into the body. The cited_trade_ids array handles linking; the prose names the trade by number+date.
-2. NEVER invent numbers. Only use values that appear verbatim in the supplied data.
-3. NEVER start the verdict or any section body with: "Your total R was…", "This period saw…", "It is observed that…", "During this period…", "Overall, …", "In summary…".
-4. NEVER use generic coaching clichés ("stay disciplined", "trust the process", "manage risk", "consistency is key", "trust your edge", "cut your losses", "let your winners run", "needs improvement", "indicating a need for", "moving forward", "for entry optimizations").
-5. Symbols, emotions, and playbook names you reference MUST appear in the whitelists. Use the humanized cluster labels in prose (e.g., "London session on Gold, feeling focused") — NEVER quote raw cluster keys like "new_york_am · XAGUSD · unknown".
-6. If a sample is small (n < 10 for a pattern), say so explicitly inside the paragraph instead of asserting it as fact.
-7. Each section body must be at least 50 words of actual prose — not a list of numbers and IDs.
-8. NO raw UUIDs anywhere in body text. No "(trade ID: abc-123-...)". The chip system below the prose handles citation links.
-
-EVIDENCE-ONLY DISCIPLINE (most important)
-9. If a number, behavior, or pattern is not in the supplied data, do NOT speculate. Say plainly "I don't have enough evidence yet to call this" inside the affected section instead of guessing.
-10. If \`edge_clusters\` is empty, "The Edge" must explicitly say there's no statistically meaningful edge to call out yet — do not invent one from a single winning trade.
-11. If \`leak_clusters\` AND \`behavioral patterns\` are both empty, "The Bleed" must say so plainly and instead point at the single largest losing trade (from \`worst_trade_narratives\`) without dressing it up as a pattern.
-12. If \`tilt_sequences\` is empty AND \`top_emotions\` is empty (or all sample sizes are too small), "The Pattern Underneath" must say there's no behavioral pattern visible yet AND name the journaling gap (unreviewed_count) as the actionable issue.
-13. Never use the words "likely", "probably", "suggests", "appears to" without citing a specific trade or count from the data immediately after.
-
-REQUIRED STRUCTURE — produce these 5 sections, in this order, with these exact headings:
-  1. "The Verdict" — single paragraph (≤80 words). Names the single most important thing about the period in plain language.
-  2. "The Edge" — what specifically worked AND your honest read on *why* it likely worked, anchored in the cited trades' context (session, emotion, setup).
-  3. "The Bleed" — the dominant leak named as a behavior, not a cluster. Tell the story of the worst single trade or sequence.
-  4. "The Pattern Underneath" — cross-reference tilt sequences + emotion notes + revenge entries to name the *meta-pattern* the trader probably can't see themselves.
-  5. "The One Thing" — single highest-leverage change for next period. One concrete behavior, not a list.
-
-VERDICT (the one-liner returned in the verdict field) is separate from "The Verdict" section. The verdict field is a punchy 1-sentence headline ≤25 words. "The Verdict" section expands on it.
-
-OUTPUT: Use the provided tool to return structured JSON. No prose outside the tool call.`;
-
-  const userPrompt = `Here is the trader's data for this period. Coach them.
-
-PRECOMPUTED METRICS (the only numbers you may cite):
-${JSON.stringify(payload.metrics, null, 2)}
-
-WHAT WORKED — edge clusters (already humanized labels):
-${JSON.stringify(payload.edge_clusters, null, 2)}
-
-WHAT BLED — leak clusters & behavioral patterns:
-${JSON.stringify(payload.leak_clusters, null, 2)}
-
-CONSISTENCY AUDIT:
-${JSON.stringify(payload.consistency, null, 2)}
-
-PSYCHOLOGY:
-${JSON.stringify(payload.psychology, null, 2)}
-
-SYMBOL-LEVEL EXPECTANCY (ranked best→worst — useful for "Gold pays you, Silver bleeds you" style insights):
-${JSON.stringify(payload.symbol_expectancy, null, 2)}
-
-WORST TRADES — narrative context for each (their own words):
-${JSON.stringify(payload.worst_trade_narratives, null, 2)}
-
-LONGEST TILT SEQUENCE (chronological, plain English):
-${payload.tilt_narrative || "No qualifying tilt sequence (no 3+ consecutive losses)."}
-
-JOURNALING GAPS:
-- Reviewed trades: ${payload.psychology?.reviewed_count ?? 0}
-- Unreviewed trades: ${payload.psychology?.unreviewed_count ?? 0}
-- R impact of unreviewed trades: ${payload.unreviewed_r_impact ?? 0}R
-${(payload.psychology?.unreviewed_count ?? 0) > 5 ? "→ Significant journaling gap. Mention it in The One Thing if relevant." : ""}
-
-REVIEW EXCERPTS (the trader's own words across other trades):
-${JSON.stringify((payload.review_excerpts || []).slice(0, 20), null, 2)}
-
-Whitelisted trade IDs you may cite: ${validTradeIds.length} ids available.
-Whitelisted symbols: ${validSymbols.join(', ')}
-Whitelisted emotions: ${validEmotions.join(', ')}
-
-Write the 5 sections, the headline verdict, the letter grade, and 3 measurable goals.`;
-
-  const tools = [{
-    type: "function",
-    function: {
-      name: "publish_sensei_report",
-      description: "Publish the structured sensei coaching output.",
-      parameters: {
-        type: "object",
-        properties: {
-          verdict: { type: "string", description: "ONE punchy headline sentence (≤25 words). No banned openers." },
-          grade: { type: "string", enum: ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F"] },
-          sections: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                heading: { type: "string" },
-                body: { type: "string", description: "Markdown coaching prose (≥50 words). Anchor every paragraph in cited trades." },
-                cited_trade_ids: { type: "array", items: { type: "string" } },
-              },
-              required: ["heading", "body", "cited_trade_ids"],
-              additionalProperties: false,
-            },
-            minItems: 5,
-            maxItems: 5,
-          },
-          goals: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                text: { type: "string" },
-                metric: { type: "string", description: "machine-checkable metric name" },
-                baseline: { type: "number" },
-                target: { type: "number" },
-                comparator: { type: "string", enum: ["lte", "gte", "eq"] },
-              },
-              required: ["text", "metric", "baseline", "target", "comparator"],
-              additionalProperties: false,
-            },
-            minItems: 3,
-            maxItems: 3,
-          },
-        },
-        required: ["verdict", "grade", "sections", "goals"],
-        additionalProperties: false,
-      },
-    },
-  }];
-
-  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+async function callGateway(model: string, apiKey: string, systemPrompt: string, userPrompt: string, tools: any[]) {
+  return await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -814,15 +693,224 @@ Write the 5 sections, the headline verdict, the letter grade, and 3 measurable g
       tool_choice: { type: "function", function: { name: "publish_sensei_report" } },
     }),
   });
+}
 
-  if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error(`AI gateway ${resp.status}: ${txt}`);
+function tryExtractToolArgs(data: any): any | null {
+  const call = data?.choices?.[0]?.message?.tool_calls?.[0];
+  if (call?.function?.arguments) {
+    try { return JSON.parse(call.function.arguments); } catch { /* fallthrough */ }
   }
-  const data = await resp.json();
-  const call = data.choices?.[0]?.message?.tool_calls?.[0];
-  if (!call) throw new Error("No tool call returned by model");
-  const args = JSON.parse(call.function.arguments);
+  // Fallback: some models emit the structured payload inline as content despite tool_choice.
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content === "string" && content.trim()) {
+    const m = content.match(/\{[\s\S]*\}/);
+    if (m) {
+      try { return JSON.parse(m[0]); } catch { /* fallthrough */ }
+    }
+  }
+  return null;
+}
+
+async function callSensei(payload: any, primaryModel: string): Promise<SenseiResult> {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
+
+  const validTradeIds: string[] = payload._valid_trade_ids;
+  const validEmotions: string[] = payload._valid_emotions;
+  const validSymbols: string[] = payload._valid_symbols;
+  const quant = payload.quant; // optional QuantBlock — when present, require 6 sections incl. "The Math"
+  const hasQuant = !!quant && (quant.buckets_top?.length || quant.buckets_bottom?.length || quant.strategy_replay?.length);
+
+  const sectionsList = hasQuant
+    ? `produce these 6 sections, in this order, with these exact headings:
+  1. "The Verdict" — single paragraph (≤80 words). Names the single most important thing about the period in plain language.
+  2. "The Edge" — what specifically worked AND your honest read on *why* it likely worked.
+  3. "The Bleed" — the dominant leak named as a behavior, not a cluster.
+  4. "The Pattern Underneath" — cross-reference tilt sequences + emotion notes + revenge entries to name the meta-pattern.
+  5. "The One Thing" — single highest-leverage behavioral change for next period.
+  6. "The Math" — quant findings. Call out best/worst bucket by edge (cite expectedR & sample n), the single highest-leverage *parameter* change (tighten SL / trail higher / scale risk to Kelly), and any strategy preset that demonstrably beats current. Every claim MUST reference a deterministic number from the QUANT block. Do NOT invent numbers.`
+    : `produce these 5 sections, in this order, with these exact headings:
+  1. "The Verdict" — single paragraph (≤80 words).
+  2. "The Edge"
+  3. "The Bleed"
+  4. "The Pattern Underneath"
+  5. "The One Thing"`;
+
+  const systemPrompt = `You are a senior trading mentor — a sensei — debriefing one specific trader after their week or month. You have read every trade in the file. You write like a coach who watched the tape over their shoulder, not a report generator.
+
+VOICE
+- Direct, second person ("you"), conversational. Dry wit allowed. Short sentences welcome.
+- Name the *behavior*, not the cluster. "You doubled down on Silver after losing on it" — not "the Silver cluster underperformed."
+- Quote the trader's own review words when they're vivid. Use them as evidence.
+- No hedging. No corporate speak. No motivational filler.
+
+HARD RULES (non-negotiable)
+1. EVERY section (except "The Verdict") must cite 1–3 specific trade IDs from the whitelist in the cited_trade_ids array. Reference those trades in prose by their trade_number and date — e.g., "trade #29 on Dec 11 lost -17.4R" — NEVER paste the raw UUID string into the body.
+2. NEVER invent numbers. Only use values that appear verbatim in the supplied data.
+3. NEVER start the verdict or any section body with: "Your total R was…", "This period saw…", "It is observed that…", "During this period…", "Overall, …", "In summary…", "Based on my analysis…".
+4. NEVER use generic coaching clichés ("stay disciplined", "trust the process", "manage risk", "consistency is key", "trust your edge", "cut your losses", "let your winners run", "needs improvement", "indicating a need for", "moving forward", "for entry optimizations").
+5. Symbols, emotions, and playbook names you reference MUST appear in the whitelists.
+6. If a sample is small (n < 10), say so explicitly inside the paragraph.
+7. Each section body must be at least 50 words of actual prose.
+8. NO raw UUIDs anywhere in body text.
+
+EVIDENCE-ONLY DISCIPLINE
+9. If a number is not in the supplied data, do NOT speculate. Say "I don't have enough evidence yet to call this".
+10. If \`edge_clusters\` is empty, "The Edge" must say so explicitly.
+11. If both \`leak_clusters\` and behavioral patterns are empty, "The Bleed" must name the single largest losing trade from \`worst_trade_narratives\`.
+12. "The Math" (when present) must only reference numbers in the QUANT block. If the QUANT block is empty, say plainly there isn't enough labelled data (MFE/MAE/SL) to run quant yet, and tell the user which fields to fill.
+
+REQUIRED STRUCTURE — ${sectionsList}
+
+VERDICT FIELD = a punchy 1-sentence headline ≤25 words. "The Verdict" section expands on it.
+
+QUANT_ADVICE (separate structured output): list each actionable parameter change derived from the QUANT block, with current → suggested values, the expected R uplift, and confidence. Cite the trade IDs that prove the finding. Empty array when no quant signal.
+
+OUTPUT: Use the provided tool to return structured JSON. No prose outside the tool call.`;
+
+  const userPrompt = `Here is the trader's data for this period. Coach them.
+
+PRECOMPUTED METRICS (the only numbers you may cite):
+${JSON.stringify(payload.metrics, null, 2)}
+
+WHAT WORKED — edge clusters:
+${JSON.stringify(payload.edge_clusters, null, 2)}
+
+WHAT BLED — leak clusters & behavioral patterns:
+${JSON.stringify(payload.leak_clusters, null, 2)}
+
+CONSISTENCY AUDIT:
+${JSON.stringify(payload.consistency, null, 2)}
+
+PSYCHOLOGY:
+${JSON.stringify(payload.psychology, null, 2)}
+
+SYMBOL-LEVEL EXPECTANCY:
+${JSON.stringify(payload.symbol_expectancy, null, 2)}
+
+WORST TRADES — narrative context:
+${JSON.stringify(payload.worst_trade_narratives, null, 2)}
+
+LONGEST TILT SEQUENCE:
+${payload.tilt_narrative || "No qualifying tilt sequence (no 3+ consecutive losses)."}
+
+JOURNALING GAPS:
+- Reviewed trades: ${payload.psychology?.reviewed_count ?? 0}
+- Unreviewed trades: ${payload.psychology?.unreviewed_count ?? 0}
+- R impact of unreviewed trades: ${payload.unreviewed_r_impact ?? 0}R
+
+REVIEW EXCERPTS:
+${JSON.stringify((payload.review_excerpts || []).slice(0, 20), null, 2)}
+
+QUANT (deterministic Pair-Lab analysis — these numbers are computed, NOT estimated by you):
+${hasQuant ? JSON.stringify(quant, null, 2) : "No quant block available (insufficient labelled data — MFE/MAE/SL fields not filled on enough trades)."}
+
+Whitelisted trade IDs: ${validTradeIds.length} ids available.
+Whitelisted symbols: ${validSymbols.join(', ')}
+Whitelisted emotions: ${validEmotions.join(', ')}
+
+Write the ${hasQuant ? 6 : 5} sections, the headline verdict, the letter grade, 3 measurable goals, and the quant_advice array.`;
+
+  const sectionsSchema = {
+    type: "array",
+    items: {
+      type: "object",
+      properties: {
+        heading: { type: "string" },
+        body: { type: "string", description: "Markdown prose (≥50 words)." },
+        cited_trade_ids: { type: "array", items: { type: "string" } },
+      },
+      required: ["heading", "body", "cited_trade_ids"],
+      additionalProperties: false,
+    },
+    minItems: hasQuant ? 6 : 5,
+    maxItems: hasQuant ? 6 : 5,
+  };
+
+  const tools = [{
+    type: "function",
+    function: {
+      name: "publish_sensei_report",
+      description: "Publish the structured sensei coaching output.",
+      parameters: {
+        type: "object",
+        properties: {
+          verdict: { type: "string", description: "ONE punchy headline sentence (≤25 words)." },
+          grade: { type: "string", enum: ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F"] },
+          sections: sectionsSchema,
+          goals: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                text: { type: "string" },
+                metric: { type: "string" },
+                baseline: { type: "number" },
+                target: { type: "number" },
+                comparator: { type: "string", enum: ["lte", "gte", "eq"] },
+              },
+              required: ["text", "metric", "baseline", "target", "comparator"],
+              additionalProperties: false,
+            },
+            minItems: 3,
+            maxItems: 3,
+          },
+          quant_advice: {
+            type: "array",
+            description: "Actionable parameter changes derived from QUANT. Empty if QUANT block empty.",
+            items: {
+              type: "object",
+              properties: {
+                bucket_label: { type: "string", description: "e.g. 'London / Gold' or 'All sessions / Silver'" },
+                finding: { type: "string", description: "Plain-English finding referencing the quant numbers." },
+                parameter: { type: "string", enum: ["sl", "tp", "risk", "strategy"] },
+                current_value: { type: "string" },
+                suggested_value: { type: "string" },
+                expected_uplift_r: { type: "number", description: "Per-trade R uplift. Use 0 if not quantifiable." },
+                confidence: { type: "string", enum: ["high", "medium", "low"] },
+                cited_trade_ids: { type: "array", items: { type: "string" } },
+              },
+              required: ["bucket_label", "finding", "parameter", "current_value", "suggested_value", "expected_uplift_r", "confidence", "cited_trade_ids"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["verdict", "grade", "sections", "goals", "quant_advice"],
+        additionalProperties: false,
+      },
+    },
+  }];
+
+  // Fallback ladder: primary → flash → inline-JSON-from-content
+  const fallbackChain: string[] = [primaryModel];
+  if (primaryModel !== "google/gemini-3-flash-preview") fallbackChain.push("google/gemini-3-flash-preview");
+
+  let args: any = null;
+  let modelUsed = primaryModel;
+  let lastErr = "No tool call returned by model";
+
+  for (const m of fallbackChain) {
+    modelUsed = m;
+    let resp = await callGateway(m, apiKey, systemPrompt, userPrompt, tools);
+    // Single retry on 429
+    if (resp.status === 429) {
+      await new Promise(r => setTimeout(r, 2000));
+      resp = await callGateway(m, apiKey, systemPrompt, userPrompt, tools);
+    }
+    if (!resp.ok) {
+      const txt = await resp.text();
+      lastErr = `AI gateway ${resp.status}: ${txt.slice(0, 300)}`;
+      console.warn(`[callSensei] ${m} failed: ${lastErr}`);
+      continue;
+    }
+    const data = await resp.json();
+    const extracted = tryExtractToolArgs(data);
+    if (extracted) { args = extracted; break; }
+    lastErr = "No tool call returned by model";
+    console.warn(`[callSensei] ${m} returned no tool_call; trying fallback.`);
+  }
+
+  if (!args) throw new Error(lastErr);
 
   // Validate citations & enforce prose-quality (soft — keep partial sections, only hard-drop on banned opener)
   const validIdSet = new Set(validTradeIds);
@@ -842,12 +930,11 @@ Write the 5 sections, the headline verdict, the letter grade, and 3 measurable g
   }));
 
   const isVerdictSection = (heading: string) => /verdict/i.test(heading);
+  const minSections = hasQuant ? 6 : 5;
 
   const filtered = rawSections.filter((s: any) => {
     const lower = s.body.toLowerCase().trim();
-    // Hard-drop only on a banned opener (clear "recap-the-table" tell)
     if (BANNED_OPENERS.some(o => lower.startsWith(o))) return false;
-    // Verdict section is allowed to summarize without citations
     if (!isVerdictSection(s.heading) && s.cited_trade_ids.length === 0) {
       (s as any)._quality_warning = "missing_citations";
     }
@@ -859,14 +946,18 @@ Write the 5 sections, the headline verdict, the letter grade, and 3 measurable g
     return true;
   });
 
-  // If filtering left us with <5, fall back to raw sections (with UUIDs stripped) — better partial than blank
-  const sections = filtered.length >= 5 ? filtered : rawSections;
+  const sections = filtered.length >= minSections ? filtered : rawSections;
 
-  // Goals stamped with status pending
   const goals = (args.goals || []).map((g: any) => ({
     id: crypto.randomUUID(),
     ...g,
     status: 'pending' as const,
+  }));
+
+  // Filter cited_trade_ids in quant_advice the same way
+  const quant_advice = (args.quant_advice || []).map((a: any) => ({
+    ...a,
+    cited_trade_ids: Array.isArray(a.cited_trade_ids) ? a.cited_trade_ids.filter((id: string) => validIdSet.has(id)) : [],
   }));
 
   return {
@@ -874,8 +965,11 @@ Write the 5 sections, the headline verdict, the letter grade, and 3 measurable g
     grade: args.grade,
     sections,
     goals,
+    quant_advice,
+    modelUsed,
   };
 }
+
 
 // ------------------------------ LLM context builder (shared) ------------------------------
 // Builds the rich worst-trade narrative + tilt narrative + symbol expectancy + review excerpts
@@ -1075,8 +1169,8 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "no trades found in period" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Reruns always default to gemini-2.5-pro — deeper reasoning handles long structured-output (5 sections + goals) far better than flash
-      const model = body.model || 'google/gemini-2.5-pro';
+      // Reruns default to gemini-3-pro-preview with automatic fallback to flash inside callSensei.
+      const model = body.model || 'google/gemini-3-pro-preview';
 
       const updatePayload: any = { sensei_regenerated_at: new Date().toISOString(), sensei_model: model };
       try {
@@ -1085,12 +1179,12 @@ serve(async (req) => {
         updatePayload.verdict = result.verdict;
         updatePayload.grade = result.grade;
         updatePayload.goals = result.goals;
+        updatePayload.sensei_model = result.modelUsed;
         updatePayload.status = 'completed';
         updatePayload.error_message = null;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("Sensei rerun failed:", msg);
-        // Keep prior narrative — only flag failure
         updatePayload.status = 'failed';
         updatePayload.error_message = msg;
       }
@@ -1380,6 +1474,87 @@ serve(async (req) => {
       .filter(t => !reviews.has(t.id))
       .reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
 
+    // ---- QUANT BLOCK (Pair-Lab math + strategy replay) ----
+    let quant: any = null;
+    try {
+      // Refetch with the extra fields needed for tick→R conversion
+      let qQ = admin.from('trades')
+        .select('id, symbol, session, entry_time, net_pnl, r_multiple_actual, sl_initial, entry_price, custom_fields, is_open, is_archived, trade_type')
+        .eq('user_id', targetUserId)
+        .gte('entry_time', period_start)
+        .lt('entry_time', period_end)
+        .eq('trade_type', 'executed');
+      if (account_id) qQ = qQ.eq('account_id', account_id);
+      const { data: qTrades } = await qQ;
+
+      const { data: cfDefs } = await admin
+        .from('custom_field_definitions')
+        .select('key,label')
+        .eq('user_id', targetUserId)
+        .eq('is_active', true);
+
+      const keys = resolvePairLabFieldKeys((cfDefs as any[]) || []);
+      const usableTrades = (qTrades || []).filter((t: any) => !t.is_open && !t.is_archived);
+      const { perCell, baseline } = buildBuckets(usableTrades, keys);
+
+      // Coverage gauges
+      const total = usableTrades.length || 1;
+      const slCov = usableTrades.filter((t: any) => t.sl_initial != null && t.entry_price != null).length / total;
+      const mfeCov = baseline.loggedMfeCount / total;
+      const maeCov = baseline.loggedMaeCount / total;
+
+      // Top/bottom 3 buckets by expectedR × n (only with n≥3)
+      const ranked = perCell.filter((b: BucketReport) => b.n >= 3)
+        .sort((a, b) => b.expectedR * b.n - a.expectedR * a.n);
+      const top = ranked.slice(0, 3);
+      const bottom = ranked.slice(-3).reverse();
+
+      // Strategy replay (Hybrid)
+      const presetResults: PresetReplayResult[] = replayAllPresets(usableTrades, keys);
+      const current = presetResults.find(p => p.presetId === 'current');
+      const baselineR = current ? current.expectancyR : 0;
+      const replay = presetResults.map(p => ({
+        preset_id: p.presetId,
+        label: p.label,
+        n_eligible: p.nEligible,
+        win_rate: +(p.winRate * 100).toFixed(1),
+        expectancy_r: +p.expectancyR.toFixed(3),
+        delta_vs_current: +(p.expectancyR - baselineR).toFixed(3),
+        mean_reached_r: p.meanReachedR != null ? +p.meanReachedR.toFixed(2) : null,
+        ci: p.expectancyRCi ? [+p.expectancyRCi[0].toFixed(2), +p.expectancyRCi[1].toFixed(2)] : null,
+      }));
+
+      const summarizeBucket = (b: BucketReport) => ({
+        label: `${b.key.symbol} / ${b.key.session}`,
+        n: b.n,
+        win_rate_pct: +(b.winRate * 100).toFixed(1),
+        expected_r: +b.expectedR.toFixed(2),
+        expected_r_ci: b.expectedRCi ? [+b.expectedRCi[0].toFixed(2), +b.expectedRCi[1].toFixed(2)] : null,
+        mfe_p75_r: b.mfeP75 != null ? +b.mfeP75.toFixed(2) : null,
+        mae_p75_r: b.maeP75 != null ? +b.maeP75.toFixed(2) : null,
+        sl_drift: b.slDrift,
+        most_common_tp_hit: b.mostCommonTpHit,
+        suggested_sl_pips: b.suggestedSlPips != null ? +b.suggestedSlPips.toFixed(1) : null,
+        tp_ladder_r: b.tpLadderR,
+        tp1_star: b.tp1Star ? { r: b.tp1Star.r, hit_rate_pct: +(b.tp1Star.hitRate * 100).toFixed(1), expectancy_r: +b.tp1Star.expectancyR.toFixed(2) } : null,
+        suggested_risk_pct: b.suggestedRiskPct != null ? +b.suggestedRiskPct.toFixed(2) : null,
+        confidence: b.confidence,
+        top_trade_ids: b.topTradeIds,
+        bottom_trade_ids: b.bottomTradeIds,
+      });
+
+      quant = {
+        coverage: { sl: +slCov.toFixed(2), mfe: +mfeCov.toFixed(2), mae: +maeCov.toFixed(2), total },
+        baseline: summarizeBucket(baseline),
+        buckets_top: top.map(summarizeBucket),
+        buckets_bottom: bottom.map(summarizeBucket),
+        strategy_replay: replay,
+        min_eligible_sample: MIN_ELIGIBLE_SAMPLE,
+      };
+    } catch (e) {
+      console.error('quant compute failed:', e);
+    }
+
     const llmPayload = {
       metrics,
       edge_clusters: edges,
@@ -1392,17 +1567,20 @@ serve(async (req) => {
       symbol_expectancy: symbolExpectancy,
       read_quality: readQualityBlock,
       unreviewed_r_impact: +unreviewedR.toFixed(2),
+      quant,
       _valid_trade_ids: tradeIds,
       _valid_symbols: Array.from(new Set(trades.map(t => t.symbol))),
       _valid_emotions: Array.from(new Set(Array.from(reviews.values()).map(r => r.emotional_state_before).filter(Boolean))) as string[],
     };
 
-    const model = report_type === 'custom' ? 'google/gemini-2.5-flash' : 'google/gemini-2.5-pro';
+    const model = report_type === 'custom' ? 'google/gemini-3-flash-preview' : 'google/gemini-3-pro-preview';
 
     let sensei = null;
     let verdict: string | null = null;
     let grade: string | null = null;
     let goals: any[] = [];
+    let quant_advice: any[] = [];
+    let modelUsed = model;
     let sensei_error: string | null = null;
     try {
       const result = await callSensei(llmPayload, model);
@@ -1410,12 +1588,17 @@ serve(async (req) => {
       verdict = result.verdict;
       grade = result.grade;
       goals = result.goals;
+      quant_advice = result.quant_advice;
+      modelUsed = result.modelUsed;
     } catch (e) {
       sensei_error = e instanceof Error ? e.message : String(e);
       console.error("Sensei generation failed:", sensei_error);
     }
 
     const status = sensei_error ? 'failed' : 'completed';
+
+    // Attach LLM-emitted advice onto the quant block so the UI gets a single payload.
+    const quantWithAdvice = quant ? { ...quant, advice: quant_advice } : null;
 
     const { data: inserted, error: insErr } = await admin.from('reports').insert({
       user_id: targetUserId,
@@ -1429,9 +1612,10 @@ serve(async (req) => {
       consistency,
       psychology,
       sensei_notes: sensei,
-      sensei_model: model,
+      sensei_model: modelUsed,
       schema_suggestions: suggestions,
       read_quality: readQualityBlock,
+      quant: quantWithAdvice,
       goals,
       prior_goals_evaluation,
       verdict,
