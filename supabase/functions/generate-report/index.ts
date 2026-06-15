@@ -1299,7 +1299,7 @@ async function buildLlmContext(
     worst_trade_narratives: worstTradeNarratives,
     tilt_narrative: tiltNarrative,
     symbol_expectancy: symbolExpectancy,
-    unreviewed_r_impact: +unreviewedR.toFixed(2),
+    unreviewed_r_impact: unreviewedRImpact,
     _valid_trade_ids: tradeIds,
     _valid_symbols: Array.from(new Set(trades.map((t: any) => t.symbol))),
     _valid_emotions: Array.from(new Set(Array.from(reviews.values()).map((r: any) => r.emotional_state_before).filter(Boolean))) as string[],
