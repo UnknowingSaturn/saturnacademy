@@ -1254,6 +1254,12 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "no trades found in period" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // Recompute quant block (uses live trade data) so rerun gets the elite "The Math" section.
+      const quant = await computeQuantBlock(
+        admin, existing.user_id, existing.period_start, existing.period_end, existing.account_id,
+      );
+      (llmPayload as any).quant = quant;
+
       // Reruns default to gemini-3-pro-preview with automatic fallback to flash inside callSensei.
       const model = body.model || 'google/gemini-3-pro-preview';
 
@@ -1265,6 +1271,7 @@ serve(async (req) => {
         updatePayload.grade = result.grade;
         updatePayload.goals = result.goals;
         updatePayload.sensei_model = result.modelUsed;
+        updatePayload.quant = quant ? { ...quant, advice: result.quant_advice || [] } : null;
         updatePayload.status = 'completed';
         updatePayload.error_message = null;
       } catch (e) {
