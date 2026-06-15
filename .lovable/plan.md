@@ -1,130 +1,64 @@
+# Elite Report Upgrade — Accuracy, Cleanup, and Guardrails
 
-# Fix weekly reports + upgrade them with quant insights
+After auditing the last 8 reports + the quant pipeline, three classes of issues are degrading the guidance:
 
-## Part A — Fix the failing weekly (root cause)
+1. **Wrong numbers** — MAE→pip conversion is off by 10× on 5-digit FX, "pips" is mis-labeled on indices, and `delta_vs_current` compares non-overlapping trade subsets (Runner showing "+2.4R uplift" on only 10 of 21 trades).
+2. **Missing context** — no prop-firm rules feed the report, top/bottom bucket lists overlap when there are ≤3 buckets, and confidence thresholds are too loose to gate real money decisions.
+3. **Dead/duplicate code** — `bandLetter`, `clamp` are unused; ~58 lines of narrative helpers (`worstTradeNarratives`, `symbolExpectancy`, `tiltNarrative`) are computed twice; the LLM has no numeric-grounding check.
 
-The most recent weekly failed with `error_message = "No tool call returned by model"`. The scheduler ran `generate-report` with `google/gemini-2.5-pro` and strict `tool_choice: { function: "publish_sensei_report" }`. The gateway returned a non-empty completion but no `tool_calls` array — a known intermittent failure mode on the 2.5-pro path now that gemini-3 is the gateway default.
+## Changes
 
-**Fixes in `supabase/functions/generate-report/index.ts → callSensei`:**
+### 1. Fix unit-conversion bugs (highest impact — wrong numbers leaving the system)
+- **MAE / Ideal-SL in pips off by 10×** (`_shared/quant/pairLabMath.ts` + `src/lib/pairLabMath.ts`): drop the `× tick / pip` factor; treat `cf_mae` and `sl_initial`-derived distances as pre-converted pips. Update field comments to pin the contract.
+- **Symbol-aware unit label**: add `slUnit: "pips" | "points"` (via `classifySymbol` in `symbolMapping.ts`) to every `QuantBucketSummary`. UI shows the correct unit; LLM stops mislabeling SPX "152.5 pips".
 
-1. **Upgrade default models** (one-line each):
-   - weekly / monthly → `google/gemini-3-pro-preview`
-   - custom → `google/gemini-3-flash-preview`
-   - rerun_sensei default → `google/gemini-3-pro-preview`
-2. **Retry + fallback ladder.** Wrap the fetch in a small helper:
-   - Try primary model (pro).
-   - On `429`, sleep 2s and retry once.
-   - On any non-2xx OR missing `tool_calls`, fall back once to `google/gemini-3-flash-preview`.
-   - On 2nd missing-tool-call, try to parse the assistant's `message.content` as JSON (some models emit the structured output inline despite `tool_choice`) — accept if it validates against the tool schema shape.
-   - Only then throw the original `"No tool call returned by model"`.
-3. **Persist the actually-used model** in `sensei_model` (currently records the originally-chosen one even after fallback).
-4. **Schedule-reports retry once** on transient 5xx from generate-report before writing `status: 'failed'` to `report_schedule_runs`.
-5. **One-off backfill:** re-run the failed report `8528bf3b-…` via the rerun path so the user sees Saturday's report. Surface a one-click "Regenerate" affordance in the existing `ReportView` failure state (already partially there — wire it to the `rerun_sensei` action).
+### 2. De-bias the strategy replay comparison
+- In `_shared/quant/pairLabSimulator.ts`, add `nComparable` and `biasWarning: boolean` to `PresetReplayResult` — true when `nEligible < totalConsidered × 0.7`.
+- Compute a second `expectancyROnIntersection` over the trade set that's eligible for **both** the preset and `current`, so `delta_vs_current` is apples-to-apples.
+- Surface both numbers in the quant block; LLM prompt requires citing `n_eligible / total_considered` and using the intersection delta when bias is flagged.
 
-## Part B — Elite quant upgrade ("Pair Lab inside the report")
+### 3. Surface prop-firm context
+- In `computeQuantBlock`, join `accounts → prop_firms → prop_firm_rules` for the report's `account_id`. Pass `{ maxDD, dailyDD, profitTarget }` into `buildBuckets` and into the LLM payload as `prop_firm_context`.
+- Server `buildBuckets` gets an optional `PropFirmContext` param (parity with client). Suggested risk %% gets clamped under prop-firm caps; LLM prompt adds rule: "if prop_firm_context is present, frame every risk/SL suggestion in terms of remaining drawdown headroom".
 
-The Sensei narrative today sees clusters, psychology, and behavioral leaks but **none of the Pair-Lab quant primitives** that already power the Strategy Lab (bucket MFE/MAE in R, ideal-SL drift, TP-hit distribution, strategy-replay expectancies, Kelly-sized risk, prop-firm DD constraints). We bolt those into the report so weekly/monthly recaps include the same elite advice the user gets in the Pair-Lab tab — automatically.
+### 4. Tighten confidence + remove overlap
+- Raise `confidenceFor`: `n≥50 = high`, `n≥15 = medium`, else `low` (was 30/10).
+- In `computeQuantBlock`, ensure top/bottom buckets are disjoint — when fewer than 6 ranked buckets exist, only emit `buckets_top` (no fake "bottom" that is the same list reversed).
 
-### B1. Port the quant primitives to a shared Deno module
+### 5. Numeric hallucination grader
+- After `callSensei` returns, build a flat `{ pattern: number }` fact map from `metrics.current` + `quant`. Scan each section `body` for decimals; any number not within ±5% of a fact gets flagged in a new `sensei_quality.warnings[]` array stored on the report. UI shows a single inline badge "1 ungrounded figure flagged" — does not block save.
 
-Create `supabase/functions/_shared/quant/` with three slim files (logic copy-paste from the audited client libs — no recomputation drift):
+### 6. Cleanup (no behavior change)
+- Delete `bandLetter` and `clamp` in `generate-report/index.ts` (dead).
+- Extract the narrative builders (`worstTradeNarratives`, `symbolExpectancy`, `tiltNarrative`) into a single helper called by both the main generation path and `buildLlmContext` — removes ~58 lines of verbatim duplication.
+- Add a short comment block at the top of each `_shared/quant/*.ts` file documenting that it mirrors `src/lib/*.ts` and listing the intentional divergences (so future drift is visible).
 
-- `symbolMapping.ts` — `classifySymbol`, `tickSizeForSymbol`, `pipSizeForSymbol` (≈30 lines).
-- `pairLabMath.ts` — `quantile`, `median`, `bootstrapMeanCi`, `quarterKellyPct`, `normalizeSession`, `buildBuckets`, `computeBucket`, `tp1StarFor` (only the pure-functional pieces — no React-y wrappers).
-- `pairLabSimulator.ts` — `slDistanceTicks`, `tradeMaeR`, `idealSlScaleFor`, `replayBucket`, `STRATEGY_PRESETS`, `MIN_ELIGIBLE_SAMPLE`, `TRAIL_CAPTURE_FRAC`.
+### 7. Prompt upgrades for "The Math" section
+- New required clauses: cite `n_eligible vs total_considered`, use intersection delta when biased, reference `slUnit` explicitly, and tie every SL/risk suggestion to prop-firm headroom when present.
+- Schema additions to the `quant_advice` tool: `n_eligible`, `bias_warning`, `unit` ("pips" / "points" / "R" / "%").
 
-Same unit conventions as the client (MAE/ideal-SL are ticks from TradingView; convert per-trade to R via `|entry − sl_initial| / tickSize`). MFE stays as R. Self-test the port with a Deno test that loads ~5 known trades and asserts the bucket numbers match the client output.
+## Files touched
 
-### B2. Compute per-report quant blocks
+- `supabase/functions/_shared/quant/pairLabMath.ts` — unit fix, confidence thresholds, doc header
+- `supabase/functions/_shared/quant/pairLabSimulator.ts` — bias fields, intersection expectancy
+- `supabase/functions/_shared/quant/symbolMapping.ts` — `pipLabelForSymbol`
+- `supabase/functions/generate-report/index.ts` — prop-firm join, hallucination grader, dedup of narratives, slUnit wiring, prompt upgrade, delete dead helpers, top/bottom disjoint
+- `src/lib/pairLabMath.ts` — mirror unit + confidence fixes so PairLab UI stays correct
+- `src/types/reports.ts` — `slUnit`, `bias_warning`, `n_comparable`, `prop_firm_context`, `sensei_quality`
+- `src/components/reports/ReportView.tsx` — render correct unit, bias chip, prop-firm headroom line, "ungrounded figures" badge
 
-In `generate-report/index.ts`, after the existing `metricsBlock` / `clusterTrades`:
+## Validation
 
-- **Bucket leaderboard** — call `buildBuckets` on the period's trades. Keep top 3 + bottom 3 buckets (by `expected_r × n`). Per bucket: `n`, `winRate`, `expectedR`, `expectedRCi`, `mfeP75 (R)`, `maeP75 (R)`, `slDrift` (`too_wide` / `too_tight` / `aligned`), `mostCommonTpHit`, `tp1Star`, `suggestedRiskPct`. This is the source of "Gold London is leaving 0.6R on the table — TPs are hitting at 1.2R but MFE p75 is 2.1R, trail or partial higher" insights.
-- **Strategy replay** — run `replayBucket` over all `STRATEGY_PRESETS` against the period's trades (Hybrid mode — same as the Ranker by default). Capture `expectancyR`, `winRate`, `n_eligible`, and the **delta vs `current`** preset. Surface the top 2 presets that beat current by ≥ 0.15R/trade.
-- **Coverage gauges** — `loggedMaeCoverage`, `loggedMfeCoverage`, `slCoverage` (% trades with `sl_initial + entry_price`). Drives the "we couldn't analyze 40% of your trades — fill SL on these N" advice.
-- **Prop-firm context** (optional) — if any account has `firm_name + max_drawdown_dollars`, pass it through so `suggestedRiskPctPropFirm` and `bindingConstraint` are computed and the LLM can recommend a DD-aware risk %.
+- Re-run report `8528bf3b-…` after deploy; verify:
+  - `suggested_sl_pips` for EURUSD/GBPUSD is in a sane range (>5 pips).
+  - SPX bucket shows `slUnit: "points"`.
+  - Runner replay shows `bias_warning: true` and the LLM's "Math" section qualifies the uplift.
+  - Top/bottom bucket lists are disjoint (or bottom is omitted).
+  - If account has a prop firm, the report mentions DD headroom.
+- Spot-check `sensei_quality.warnings` on the rerun — should be 0 or 1 with the upgraded grounding rule.
 
-All of the above is **deterministic** and stored on the report row in a new `quant: jsonb` column. The LLM cites it, never recomputes it.
+## Out of scope (deliberately)
 
-**Migration:** `ALTER TABLE public.reports ADD COLUMN quant jsonb;` (no RLS / grant changes — `reports` already has them).
-
-### B3. Add a 6th coaching section: "The Math"
-
-Extend `callSensei`:
-
-- Add `quant` to the userPrompt block.
-- Bump the tool schema `sections` min/max from 5/5 → 6/6 and require a 6th heading **"The Math"** that calls out: best/worst bucket by edge, the single highest-leverage parameter change (tighten SL / trail higher / scale risk to Kelly-fraction), and any strategy preset that demonstrably beats current behavior. Hard rule: every claim must reference one of the deterministic quant numbers we just supplied — no recomputation, no invention.
-- New banned phrase: "based on my analysis" (we already ban hedging openers).
-
-### B4. New `quant_advice` tool-call block (parallel to narrative)
-
-In addition to "The Math" prose, ask the model to emit a structured `quant_advice` array (already strict-tool-call infra) so the UI can render it as chips/cards even if the prose is short:
-
-```ts
-quant_advice: Array<{
-  bucket_label: string;        // "London / Gold"
-  finding: string;             // "MFE p75 2.1R but most common TP hit 1.2R — leaving 0.9R"
-  parameter: "sl" | "tp" | "risk" | "strategy";
-  current_value: string;
-  suggested_value: string;
-  expected_uplift_r: number;   // from replay or tp1Star math
-  confidence: "high" | "medium" | "low";
-  cited_trade_ids: string[];
-}>
-```
-
-Persisted on `reports.quant.advice`. Surfaced in `ReportView.tsx` as a new "Quant findings" card above "Sensei notes" (reuse `RecommendationCard.tsx` styling).
-
-### B5. UI surface in `ReportView.tsx`
-
-- Render the new "The Math" section inline with the other 5 (already loops over `sensei_notes.sections`).
-- Add a **Quant Findings** Card above Sensei Notes: list `quant_advice` rows with current → suggested, confidence pill, expected uplift in R, citation chips (reuse `CitedTradeChip`).
-- Add a **Bucket Leaderboard** mini-table (top 3 / bottom 3) below the Sensei sections — column set: bucket, n, winRate, expectedR ± CI, MFE p75 R, MAE p75 R, SL drift. Click-through to `/pair-lab` with the bucket preselected.
-- Coverage banner if `slCoverage < 0.7`, mirroring the existing PairLab banner: "N trades skipped from quant analysis — fill SL/entry on these to unlock more advice."
-
-### B6. `types/reports.ts`
-
-Add:
-
-```ts
-export interface QuantAdvice { /* shape above */ }
-export interface QuantBlock {
-  buckets_top: BucketSummary[];
-  buckets_bottom: BucketSummary[];
-  strategy_replay: Array<{ preset_id: string; expectancy_r: number; win_rate: number; delta_vs_current: number; n_eligible: number }>;
-  coverage: { sl: number; mfe: number; mae: number };
-  prop_firm: PropFirmInput | null;
-  advice: QuantAdvice[];
-}
-export interface Report { /* … */ quant: QuantBlock | null; }
-```
-
-### B7. Hybrid vs Strict in reports
-
-Use **Hybrid** (per-preset native eligibility) to match what the Lab shows by default — strict-intersection too often collapses sample size below `MIN_ELIGIBLE_SAMPLE = 10` over a single week. We surface `n_eligible` so the LLM can soften when small.
-
-## Files
-
-- `supabase/functions/_shared/quant/symbolMapping.ts` *(new)*
-- `supabase/functions/_shared/quant/pairLabMath.ts` *(new)*
-- `supabase/functions/_shared/quant/pairLabSimulator.ts` *(new)*
-- `supabase/functions/_shared/quant/quant_test.ts` *(new — port sanity)*
-- `supabase/functions/generate-report/index.ts` — model upgrade + fallback ladder, quant compute, 6th section, `quant_advice` tool field, persist `quant`
-- `supabase/functions/schedule-reports/index.ts` — single-retry on 5xx
-- `src/types/reports.ts` — `QuantBlock`, `QuantAdvice`, `Report.quant`
-- `src/components/reports/ReportView.tsx` — Quant Findings card, Bucket Leaderboard table, coverage banner
-- *Migration* — `ALTER TABLE public.reports ADD COLUMN quant jsonb;`
-- *One-off* — re-run failed weekly `8528bf3b-…` via `rerun_sensei`
-
-## Out of scope
-
-- Backfilling old reports with `quant` data (would need a separate batch job — we leave `quant = null` on historical reports and gate the new UI behind `report.quant != null`).
-- Changing the Pair-Lab client math — the Deno port mirrors the audited client logic exactly.
-- Adding per-account prop-firm fields if not already on the `accounts` table; we read what exists and degrade gracefully.
-
-## Risks
-
-- LLM occasionally still misses a tool call — mitigated by the flash fallback + inline-JSON parse.
-- Porting math twice (client + Deno) risks drift; mitigated by the `quant_test.ts` self-test on known fixtures and a comment in both files referencing each other.
-- Adding a 6th section grows token usage by ~25%; gemini-3-pro-preview handles it comfortably and is the gateway default.
-
+- Extending `BucketKey` with extra dimensions (playbook/direction) — meaningful only once per-bucket sample sizes are larger; revisit when weekly trade counts exceed ~50.
+- Merging client `src/lib/*` and server `_shared/quant/*` into a shared package — divergence is intentional (client has interactive `PropFirmContext`/`opts`, server is duck-typed). Doc headers (item 6) are enough for now.
+- Backfilling `quant` onto historical reports — only forward reports get the upgraded numbers; old reports remain immutable.

@@ -1,5 +1,9 @@
 // Mirror of src/lib/symbolMapping.ts tick/pip helpers — kept in sync by hand.
 // Used by the Pair-Lab quant ports below for unit conversion.
+//
+// Intentional divergence from src/lib/symbolMapping.ts: this file only exposes
+// the helpers the server actually needs (tick/pip/label). The client file may
+// add UI-only helpers without forcing a server update.
 
 export type SymbolClass = "fx5" | "fx3" | "metal_xau" | "metal_xag" | "index" | "crypto" | "oil" | "unknown";
 
@@ -37,4 +41,9 @@ export function pipSizeForSymbol(raw: string): number {
   const cls = classifySymbol(raw);
   if (cls === "index") return 1.0;
   return tickSizeForSymbol(raw) * 10;
+}
+
+/** Human-readable unit for a symbol's SL/MAE distance. */
+export function pipLabelForSymbol(raw: string): "pips" | "points" {
+  return classifySymbol(raw) === "index" ? "points" : "pips";
 }

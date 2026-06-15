@@ -1,7 +1,12 @@
 // Deno port of src/lib/pairLabSimulator.ts — proof-based strategy replay.
+//
+// Intentional divergence from src/lib/pairLabSimulator.ts:
+//   - server uses duck-typed `any` trade rows (raw DB shape)
+//   - replay output exposes `nComparable` + `biasWarning` +
+//     `expectancyROnIntersection` for the report pipeline's bias-aware deltas.
 
 import { PairLabFieldKeys, numericCf, multiSelectCf, parseTpLabel, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
-import { tickSizeForSymbol } from "./symbolMapping.ts";
+import { pipSizeForSymbol } from "./symbolMapping.ts";
 
 export const TRAIL_CAPTURE_FRAC = 0.8;
 export const MIN_ELIGIBLE_SAMPLE = 10;
@@ -38,25 +43,25 @@ export const STRATEGY_PRESETS: Strategy[] = [
     exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" } },
 ];
 
-function slDistanceTicks(t: any): number | null {
+function slDistancePips(t: any): number | null {
   if (t.sl_initial == null || t.entry_price == null || !t.symbol) return null;
-  const tick = tickSizeForSymbol(t.symbol);
-  if (!(tick > 0)) return null;
+  const pip = pipSizeForSymbol(t.symbol);
+  if (!(pip > 0)) return null;
   const distance = Math.abs(t.entry_price - t.sl_initial);
   if (!(distance > 0)) return null;
-  return distance / tick;
+  return distance / pip;
 }
-function tradeMaeR(t: any, maeTicks: number | null): number | null {
-  if (maeTicks == null) return null;
-  const sl = slDistanceTicks(t);
-  if (sl == null || sl <= 0) return null;
-  return Math.abs(maeTicks) / sl;
+function tradeMaeR(t: any, maePips: number | null): number | null {
+  if (maePips == null) return null;
+  const slPips = slDistancePips(t);
+  if (slPips == null || slPips <= 0) return null;
+  return Math.abs(maePips) / slPips;
 }
-function idealSlScaleFor(t: any, idealTicks: number | null): number | null {
-  if (idealTicks == null) return null;
-  const sl = slDistanceTicks(t);
-  if (sl == null || sl <= 0) return null;
-  return Math.max(0.2, Math.min(2, idealTicks / sl));
+function idealSlScaleFor(t: any, idealPips: number | null): number | null {
+  if (idealPips == null) return null;
+  const slPips = slDistancePips(t);
+  if (slPips == null || slPips <= 0) return null;
+  return Math.max(0.2, Math.min(2, idealPips / slPips));
 }
 
 interface TradeProof {
@@ -187,24 +192,30 @@ export interface PresetReplayResult {
   expectancyRCi: [number, number] | null;
   meanReachedR: number | null;
   ineligibleReasons: Record<string, number>;
+  /** Number of trades eligible under BOTH this preset and the `current` baseline. */
+  nComparable: number;
+  /** Apples-to-apples expectancy on the intersection of eligible trades vs `current`. */
+  expectancyROnIntersection: number | null;
+  /** Per-trade expectancy of `current` on that same intersection. */
+  currentExpectancyROnIntersection: number | null;
+  /** True when the eligible sample is < 70% of the total trades — `delta_vs_current` is biased. */
+  biasWarning: boolean;
 }
 
 export function replayAllPresets(trades: any[], keys: PairLabFieldKeys): PresetReplayResult[] {
   const all = trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
   const bucket = buildBucketConstants(all, keys);
-  return STRATEGY_PRESETS.map((strategy) => {
-    const rs: number[] = [];
-    let wins = 0, losses = 0, totalR = 0;
-    let reachedSum = 0, reachedCount = 0;
+
+  // First pass: replay each preset, store per-trade outcomes keyed by trade id.
+  const perPreset = STRATEGY_PRESETS.map((strategy) => {
+    const outcomes = new Map<string, number>();
     const reasons: Record<string, number> = {};
+    let reachedSum = 0, reachedCount = 0;
     for (const t of all) {
       const proof = extractProof(t, keys);
       const out = replayOneTrade(strategy, t, proof, bucket);
       if ("r" in out) {
-        rs.push(out.r);
-        totalR += out.r;
-        if (out.r > 0) wins += 1;
-        else if (out.r < 0) losses += 1;
+        outcomes.set(t.id, out.r);
         if (Number.isFinite(proof.reachedR)) {
           reachedSum += proof.reachedR;
           reachedCount += 1;
@@ -213,7 +224,39 @@ export function replayAllPresets(trades: any[], keys: PairLabFieldKeys): PresetR
         reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
       }
     }
+    return { strategy, outcomes, reasons, reachedSum, reachedCount };
+  });
+
+  const currentRow = perPreset.find((p) => p.strategy.id === "current");
+  const currentOutcomes = currentRow?.outcomes ?? new Map<string, number>();
+
+  return perPreset.map(({ strategy, outcomes, reasons, reachedSum, reachedCount }) => {
+    const rs = Array.from(outcomes.values());
     const n = rs.length;
+    const totalR = rs.reduce((s, v) => s + v, 0);
+    const wins = rs.filter((r) => r > 0).length;
+
+    // Intersection vs current preset
+    let intersectionN = 0, intersectionSumPreset = 0, intersectionSumCurrent = 0;
+    if (strategy.id !== "current") {
+      for (const [id, r] of outcomes.entries()) {
+        const cur = currentOutcomes.get(id);
+        if (cur != null) {
+          intersectionN += 1;
+          intersectionSumPreset += r;
+          intersectionSumCurrent += cur;
+        }
+      }
+    } else {
+      intersectionN = n;
+      intersectionSumPreset = totalR;
+      intersectionSumCurrent = totalR;
+    }
+
+    const biasWarning = strategy.id !== "current"
+      && all.length > 0
+      && n < all.length * 0.7;
+
     return {
       presetId: strategy.id,
       label: strategy.label,
@@ -225,6 +268,10 @@ export function replayAllPresets(trades: any[], keys: PairLabFieldKeys): PresetR
       expectancyRCi: bootstrapMeanCi(rs),
       meanReachedR: reachedCount > 0 ? reachedSum / reachedCount : null,
       ineligibleReasons: reasons,
+      nComparable: intersectionN,
+      expectancyROnIntersection: intersectionN > 0 ? intersectionSumPreset / intersectionN : null,
+      currentExpectancyROnIntersection: intersectionN > 0 ? intersectionSumCurrent / intersectionN : null,
+      biasWarning,
     };
   });
 }
