@@ -232,6 +232,9 @@ export function ReportView({ report }: Props) {
             </section>
           )}
 
+          {/* Quant block — server-computed Pair-Lab analytics */}
+          {report.quant && <QuantSection quant={report.quant} />}
+
           {/* §3 What worked — success-tinted */}
           {report.edge_clusters.length > 0 && (
             <Card className="border-success/30 bg-success/5">
