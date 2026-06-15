@@ -3,8 +3,17 @@
 //
 // Field keys: we follow the same prefix-and-label resolver as the client so
 // the edge function reads the same custom_fields as the UI does.
+//
+// UNIT CONTRACT (post-2026-06 fix):
+//   cf_mae and cf_ideal_stop_loss are stored in PIPS (FX/metals/crypto/oil)
+//   or POINTS (indices). The slUnit field on each BucketReport surfaces the
+//   correct label so the LLM / UI never mis-renders 60 pips as 0.6.
+//
+// Intentional divergence from src/lib/pairLabMath.ts:
+//   - server version uses duck-typed `any` rows (raw DB shape)
+//   - client version has PropFirmContext, perRow, edgeVsBaseline (UI-only)
 
-import { tickSizeForSymbol, pipSizeForSymbol } from "./symbolMapping.ts";
+import { tickSizeForSymbol, pipSizeForSymbol, pipLabelForSymbol } from "./symbolMapping.ts";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
@@ -18,6 +27,19 @@ export interface PairLabFieldKeys {
 }
 
 interface CustomFieldDef { key: string; label: string }
+
+export interface PropFirmContext {
+  /** prop firm id (e.g. "ftmo"), for labelling. */
+  firm: string;
+  /** balance starting value, used to translate % rules to R cap. */
+  balance: number;
+  /** Daily loss limit as $. */
+  dailyLossDollars: number | null;
+  /** Max drawdown as $. */
+  maxDrawdownDollars: number | null;
+  /** Profit target as $. */
+  profitTargetDollars: number | null;
+}
 
 const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefixes: string[] }> = [
   { alias: "mfe",              labels: ["mfe (rr)", "mfe", "max favourable excursion", "max favorable excursion"], prefixes: ["cf_mfe"] },
@@ -150,9 +172,13 @@ export interface BucketReport {
   mostCommonTpHit: string | null;
   confidence: ConfidenceLevel;
   suggestedSlPips: number | null;
+  /** "pips" for FX/metals/crypto/oil, "points" for indices. */
+  slUnit: "pips" | "points";
   tpLadderR: number[];
   tp1Star: Tp1Star | null;
   suggestedRiskPct: number | null;
+  /** Prop-firm-aware cap on suggested risk (% of balance). null when no prop-firm context. */
+  suggestedRiskPctPropFirmCap: number | null;
   worstLosingStreak: number;
   loggedMfeCount: number;
   loggedMaeCount: number;
@@ -161,8 +187,10 @@ export interface BucketReport {
 }
 
 function confidenceFor(n: number): ConfidenceLevel {
-  if (n >= 30) return "high";
-  if (n >= 10) return "medium";
+  // Tightened 2026-06: "high" requires n≥50 — at n=30 the 95% CI on win-rate
+  // is still ±18pp, too loose to gate real-money parameter changes.
+  if (n >= 50) return "high";
+  if (n >= 15) return "medium";
   return "low";
 }
 function longestLossStreak(rows: any[]): number {
@@ -193,7 +221,22 @@ function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
   return best;
 }
 
-export function computeBucket(key: BucketKey, rows: any[], keys: PairLabFieldKeys): BucketReport {
+/** Convert a stored `cf_mae` / `cf_ideal_stop_loss` value into the per-trade R-multiple, given the trade's SL distance. */
+function pipsToR(pips: number, t: any): number | null {
+  if (t.sl_initial == null || t.entry_price == null || !t.symbol) return null;
+  const pip = pipSizeForSymbol(t.symbol);
+  if (!(pip > 0)) return null;
+  const slDistPips = Math.abs(t.entry_price - t.sl_initial) / pip;
+  if (!(slDistPips > 0)) return null;
+  return Math.abs(pips) / slDistPips;
+}
+
+export function computeBucket(
+  key: BucketKey,
+  rows: any[],
+  keys: PairLabFieldKeys,
+  propFirm?: PropFirmContext | null,
+): BucketReport {
   const closed = rows.filter((t) => t.net_pnl != null);
   const sideOf = (t: any): 1 | -1 | 0 => {
     if (t.r_multiple_actual != null) {
@@ -215,29 +258,22 @@ export function computeBucket(key: BucketKey, rows: any[], keys: PairLabFieldKey
 
   const mfes = rows.map((t) => numericCf(t, keys.mfe)).filter((v): v is number => v != null);
 
+  // MAE is logged in PIPS (or POINTS for indices) per the unit contract above.
   const maesR: number[] = [];
   const maesPips: number[] = [];
   for (const t of rows) {
-    const ticks = numericCf(t, keys.mae);
-    if (ticks == null || !t.symbol) continue;
-    const tick = tickSizeForSymbol(t.symbol);
-    const pip = pipSizeForSymbol(t.symbol);
-    if (!(pip > 0)) continue;
-    maesPips.push((Math.abs(ticks) * tick) / pip);
-    if (t.sl_initial != null && t.entry_price != null) {
-      const slDistTicks = Math.abs(t.entry_price - t.sl_initial) / tick;
-      if (slDistTicks > 0) maesR.push(Math.abs(ticks) / slDistTicks);
-    }
+    const maePips = numericCf(t, keys.mae);
+    if (maePips == null || !t.symbol) continue;
+    maesPips.push(Math.abs(maePips));
+    const r = pipsToR(maePips, t);
+    if (r != null) maesR.push(r);
   }
 
   const idealSls: number[] = [];
   for (const t of rows) {
-    const ticks = numericCf(t, keys.idealStopLoss);
-    if (ticks == null || !t.symbol) continue;
-    const tick = tickSizeForSymbol(t.symbol);
-    const pip = pipSizeForSymbol(t.symbol);
-    if (!(pip > 0)) continue;
-    idealSls.push((Math.abs(ticks) * tick) / pip);
+    const idealPips = numericCf(t, keys.idealStopLoss);
+    if (idealPips == null || !t.symbol) continue;
+    idealSls.push(Math.abs(idealPips));
   }
 
   const slInitials: number[] = [];
@@ -269,7 +305,6 @@ export function computeBucket(key: BucketKey, rows: any[], keys: PairLabFieldKey
     else slDrift = "aligned";
   }
 
-  // recommendations
   const maeP75Pips = quantile(maesPips, 0.75);
   let suggestedSlPips: number | null = null;
   const maeCandidate = maeP75Pips != null ? maeP75Pips * 1.15 : null;
@@ -293,9 +328,25 @@ export function computeBucket(key: BucketKey, rows: any[], keys: PairLabFieldKey
   const suggestedRiskPct = n >= 10 ? quarterKellyPct(winRate, avgWinR, avgLossR) : null;
   const tp1Star = computeTp1Star(mfes, avgLossR || 1);
 
+  // Prop-firm cap: the lower of (daily loss limit / max DD) translated to a
+  // single-trade risk %. Conservative — assumes 3-loss safety margin.
+  let suggestedRiskPctPropFirmCap: number | null = null;
+  if (propFirm && propFirm.balance > 0) {
+    const limits: number[] = [];
+    if (propFirm.dailyLossDollars && propFirm.dailyLossDollars > 0) {
+      limits.push((propFirm.dailyLossDollars / propFirm.balance) * 100 / 3);
+    }
+    if (propFirm.maxDrawdownDollars && propFirm.maxDrawdownDollars > 0) {
+      limits.push((propFirm.maxDrawdownDollars / propFirm.balance) * 100 / 5);
+    }
+    if (limits.length > 0) suggestedRiskPctPropFirmCap = +Math.min(...limits).toFixed(2);
+  }
+
   const sorted = [...closed].sort((a, b) => (b.r_multiple_actual ?? 0) - (a.r_multiple_actual ?? 0));
   const topTradeIds = sorted.slice(0, 3).map((t) => t.id);
   const bottomTradeIds = sorted.slice(-3).reverse().map((t) => t.id);
+
+  const slUnit = key.symbol && key.symbol !== "All" ? pipLabelForSymbol(key.symbol) : "pips";
 
   return {
     key,
@@ -318,9 +369,11 @@ export function computeBucket(key: BucketKey, rows: any[], keys: PairLabFieldKey
     mostCommonTpHit,
     confidence: confidenceFor(n),
     suggestedSlPips,
+    slUnit,
     tpLadderR,
     tp1Star,
     suggestedRiskPct,
+    suggestedRiskPctPropFirmCap,
     worstLosingStreak: longestLossStreak(rows),
     loggedMfeCount: closed.filter((t) => numericCf(t, keys.mfe) != null).length,
     loggedMaeCount: closed.filter((t) => {
@@ -332,12 +385,16 @@ export function computeBucket(key: BucketKey, rows: any[], keys: PairLabFieldKey
   };
 }
 
-export function buildBuckets(trades: any[], keys: PairLabFieldKeys): {
+export function buildBuckets(
+  trades: any[],
+  keys: PairLabFieldKeys,
+  propFirm?: PropFirmContext | null,
+): {
   perCell: BucketReport[];
   baseline: BucketReport;
 } {
   const closed = trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
-  const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys);
+  const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm);
   const cellMap = new Map<string, any[]>();
   for (const t of closed) {
     if (!t.symbol) continue;
@@ -349,7 +406,7 @@ export function buildBuckets(trades: any[], keys: PairLabFieldKeys): {
   const perCell: BucketReport[] = [];
   cellMap.forEach((rows, k) => {
     const [symbol, session] = k.split("__");
-    perCell.push(computeBucket({ symbol, session }, rows, keys));
+    perCell.push(computeBucket({ symbol, session }, rows, keys, propFirm));
   });
   perCell.sort((a, b) => b.expectedR * b.n - a.expectedR * a.n);
   return { perCell, baseline };
