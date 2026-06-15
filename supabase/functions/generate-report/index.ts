@@ -1474,6 +1474,87 @@ serve(async (req) => {
       .filter(t => !reviews.has(t.id))
       .reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
 
+    // ---- QUANT BLOCK (Pair-Lab math + strategy replay) ----
+    let quant: any = null;
+    try {
+      // Refetch with the extra fields needed for tick→R conversion
+      let qQ = admin.from('trades')
+        .select('id, symbol, session, entry_time, net_pnl, r_multiple_actual, sl_initial, entry_price, custom_fields, is_open, is_archived, trade_type')
+        .eq('user_id', targetUserId)
+        .gte('entry_time', period_start)
+        .lt('entry_time', period_end)
+        .eq('trade_type', 'executed');
+      if (account_id) qQ = qQ.eq('account_id', account_id);
+      const { data: qTrades } = await qQ;
+
+      const { data: cfDefs } = await admin
+        .from('custom_field_definitions')
+        .select('key,label')
+        .eq('user_id', targetUserId)
+        .eq('is_active', true);
+
+      const keys = resolvePairLabFieldKeys((cfDefs as any[]) || []);
+      const usableTrades = (qTrades || []).filter((t: any) => !t.is_open && !t.is_archived);
+      const { perCell, baseline } = buildBuckets(usableTrades, keys);
+
+      // Coverage gauges
+      const total = usableTrades.length || 1;
+      const slCov = usableTrades.filter((t: any) => t.sl_initial != null && t.entry_price != null).length / total;
+      const mfeCov = baseline.loggedMfeCount / total;
+      const maeCov = baseline.loggedMaeCount / total;
+
+      // Top/bottom 3 buckets by expectedR × n (only with n≥3)
+      const ranked = perCell.filter((b: BucketReport) => b.n >= 3)
+        .sort((a, b) => b.expectedR * b.n - a.expectedR * a.n);
+      const top = ranked.slice(0, 3);
+      const bottom = ranked.slice(-3).reverse();
+
+      // Strategy replay (Hybrid)
+      const presetResults: PresetReplayResult[] = replayAllPresets(usableTrades, keys);
+      const current = presetResults.find(p => p.presetId === 'current');
+      const baselineR = current ? current.expectancyR : 0;
+      const replay = presetResults.map(p => ({
+        preset_id: p.presetId,
+        label: p.label,
+        n_eligible: p.nEligible,
+        win_rate: +(p.winRate * 100).toFixed(1),
+        expectancy_r: +p.expectancyR.toFixed(3),
+        delta_vs_current: +(p.expectancyR - baselineR).toFixed(3),
+        mean_reached_r: p.meanReachedR != null ? +p.meanReachedR.toFixed(2) : null,
+        ci: p.expectancyRCi ? [+p.expectancyRCi[0].toFixed(2), +p.expectancyRCi[1].toFixed(2)] : null,
+      }));
+
+      const summarizeBucket = (b: BucketReport) => ({
+        label: `${b.key.symbol} / ${b.key.session}`,
+        n: b.n,
+        win_rate_pct: +(b.winRate * 100).toFixed(1),
+        expected_r: +b.expectedR.toFixed(2),
+        expected_r_ci: b.expectedRCi ? [+b.expectedRCi[0].toFixed(2), +b.expectedRCi[1].toFixed(2)] : null,
+        mfe_p75_r: b.mfeP75 != null ? +b.mfeP75.toFixed(2) : null,
+        mae_p75_r: b.maeP75 != null ? +b.maeP75.toFixed(2) : null,
+        sl_drift: b.slDrift,
+        most_common_tp_hit: b.mostCommonTpHit,
+        suggested_sl_pips: b.suggestedSlPips != null ? +b.suggestedSlPips.toFixed(1) : null,
+        tp_ladder_r: b.tpLadderR,
+        tp1_star: b.tp1Star ? { r: b.tp1Star.r, hit_rate_pct: +(b.tp1Star.hitRate * 100).toFixed(1), expectancy_r: +b.tp1Star.expectancyR.toFixed(2) } : null,
+        suggested_risk_pct: b.suggestedRiskPct != null ? +b.suggestedRiskPct.toFixed(2) : null,
+        confidence: b.confidence,
+        top_trade_ids: b.topTradeIds,
+        bottom_trade_ids: b.bottomTradeIds,
+      });
+
+      quant = {
+        coverage: { sl: +slCov.toFixed(2), mfe: +mfeCov.toFixed(2), mae: +maeCov.toFixed(2), total },
+        baseline: summarizeBucket(baseline),
+        buckets_top: top.map(summarizeBucket),
+        buckets_bottom: bottom.map(summarizeBucket),
+        strategy_replay: replay,
+        min_eligible_sample: MIN_ELIGIBLE_SAMPLE,
+      };
+    } catch (e) {
+      console.error('quant compute failed:', e);
+    }
+
     const llmPayload = {
       metrics,
       edge_clusters: edges,
@@ -1486,17 +1567,20 @@ serve(async (req) => {
       symbol_expectancy: symbolExpectancy,
       read_quality: readQualityBlock,
       unreviewed_r_impact: +unreviewedR.toFixed(2),
+      quant,
       _valid_trade_ids: tradeIds,
       _valid_symbols: Array.from(new Set(trades.map(t => t.symbol))),
       _valid_emotions: Array.from(new Set(Array.from(reviews.values()).map(r => r.emotional_state_before).filter(Boolean))) as string[],
     };
 
-    const model = report_type === 'custom' ? 'google/gemini-2.5-flash' : 'google/gemini-2.5-pro';
+    const model = report_type === 'custom' ? 'google/gemini-3-flash-preview' : 'google/gemini-3-pro-preview';
 
     let sensei = null;
     let verdict: string | null = null;
     let grade: string | null = null;
     let goals: any[] = [];
+    let quant_advice: any[] = [];
+    let modelUsed = model;
     let sensei_error: string | null = null;
     try {
       const result = await callSensei(llmPayload, model);
@@ -1504,12 +1588,17 @@ serve(async (req) => {
       verdict = result.verdict;
       grade = result.grade;
       goals = result.goals;
+      quant_advice = result.quant_advice;
+      modelUsed = result.modelUsed;
     } catch (e) {
       sensei_error = e instanceof Error ? e.message : String(e);
       console.error("Sensei generation failed:", sensei_error);
     }
 
     const status = sensei_error ? 'failed' : 'completed';
+
+    // Attach LLM-emitted advice onto the quant block so the UI gets a single payload.
+    const quantWithAdvice = quant ? { ...quant, advice: quant_advice } : null;
 
     const { data: inserted, error: insErr } = await admin.from('reports').insert({
       user_id: targetUserId,
@@ -1523,9 +1612,10 @@ serve(async (req) => {
       consistency,
       psychology,
       sensei_notes: sensei,
-      sensei_model: model,
+      sensei_model: modelUsed,
       schema_suggestions: suggestions,
       read_quality: readQualityBlock,
+      quant: quantWithAdvice,
       goals,
       prior_goals_evaluation,
       verdict,
