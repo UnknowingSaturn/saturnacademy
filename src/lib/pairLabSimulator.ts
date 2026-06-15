@@ -21,7 +21,7 @@
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile } from "@/lib/pairLabMath";
-import { tickSizeForSymbol } from "@/lib/symbolMapping";
+import { tickSizeForSymbol, pipSizeForSymbol } from "@/lib/symbolMapping";
 
 /** Default fraction of MFE captured by a trailing stop. */
 export const TRAIL_CAPTURE_FRAC = 0.8;
@@ -145,10 +145,9 @@ function maxTpReached(trade: Trade, keys: PairLabFieldKeys): number | null {
 }
 
 /**
- * Distance from entry to initial stop, expressed in broker ticks
- * (`|entry - sl_initial| / tickSize(symbol)`). Returns null when SL or
- * entry are missing so callers can mark the trade ineligible rather than
- * silently treating it as 0.
+ * Distance from entry to initial stop, expressed in broker ticks.
+ * Returns null when SL or entry are missing so callers can mark the trade
+ * ineligible rather than silently treating it as 0.
  */
 export function slDistanceTicks(t: Trade): number | null {
   if (t.sl_initial == null || t.entry_price == null || !t.symbol) return null;
@@ -159,20 +158,30 @@ export function slDistanceTicks(t: Trade): number | null {
   return distance / tick;
 }
 
-/** MAE-ticks → MAE in R-multiples of the original SL. Null when SL/entry missing. */
-export function tradeMaeR(t: Trade, maeTicks: number | null): number | null {
-  if (maeTicks == null) return null;
-  const sl = slDistanceTicks(t);
-  if (sl == null || sl <= 0) return null;
-  return Math.abs(maeTicks) / sl;
+/** Distance from entry to initial stop, expressed in pips (or points for indices). */
+function slDistancePips(t: Trade): number | null {
+  if (t.sl_initial == null || t.entry_price == null || !t.symbol) return null;
+  const pip = pipSizeForSymbol(t.symbol);
+  if (!(pip > 0)) return null;
+  const distance = Math.abs(t.entry_price - t.sl_initial);
+  if (!(distance > 0)) return null;
+  return distance / pip;
 }
 
-/** Ideal-SL ticks → scale multiplier against original SL distance (clamped 0.2..2). */
-export function idealSlScaleFor(t: Trade, idealTicks: number | null): number | null {
-  if (idealTicks == null) return null;
-  const sl = slDistanceTicks(t);
-  if (sl == null || sl <= 0) return null;
-  return Math.max(0.2, Math.min(2, idealTicks / sl));
+/** MAE-pips → MAE in R-multiples of the original SL. Null when SL/entry missing. */
+export function tradeMaeR(t: Trade, maePips: number | null): number | null {
+  if (maePips == null) return null;
+  const slPips = slDistancePips(t);
+  if (slPips == null || slPips <= 0) return null;
+  return Math.abs(maePips) / slPips;
+}
+
+/** Ideal-SL pips → scale multiplier against original SL distance (clamped 0.2..2). */
+export function idealSlScaleFor(t: Trade, idealPips: number | null): number | null {
+  if (idealPips == null) return null;
+  const slPips = slDistancePips(t);
+  if (slPips == null || slPips <= 0) return null;
+  return Math.max(0.2, Math.min(2, idealPips / slPips));
 }
 
 
