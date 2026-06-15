@@ -97,25 +97,12 @@ function formatDateShort(iso: string): string {
 
 // ------------------------------ helpers ------------------------------
 
-function clamp(n: number, min: number, max: number) { return Math.max(min, Math.min(max, n)); }
 function safeDiv(a: number, b: number, fallback = 0) { return b === 0 ? fallback : a / b; }
 function stddev(xs: number[]): number {
   if (xs.length < 2) return 0;
   const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
   const variance = xs.reduce((a, b) => a + (b - mean) ** 2, 0) / (xs.length - 1);
   return Math.sqrt(variance);
-}
-function bandLetter(score: number): string {
-  if (score >= 90) return "A";
-  if (score >= 80) return "A-";
-  if (score >= 75) return "B+";
-  if (score >= 65) return "B";
-  if (score >= 55) return "B-";
-  if (score >= 45) return "C+";
-  if (score >= 35) return "C";
-  if (score >= 25) return "C-";
-  if (score >= 15) return "D";
-  return "F";
 }
 
 interface TradeRow {
