@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { TrendingUp, TrendingDown, AlertCircle, Target, Brain, Activity, Sparkles, Trophy, Skull, RefreshCw, Eye } from "lucide-react";
+import { TrendingUp, TrendingDown, AlertCircle, Target, Brain, Activity, Sparkles, Trophy, Skull, RefreshCw, Eye, Calculator, FlaskConical } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { CitedTradeChip } from "./CitedTradeChip";
 import { SchemaSuggestionCard } from "./SchemaSuggestionCard";
@@ -231,6 +231,9 @@ export function ReportView({ report }: Props) {
               ))}
             </section>
           )}
+
+          {/* Quant block — server-computed Pair-Lab analytics */}
+          {report.quant && <QuantSection quant={report.quant} />}
 
           {/* §3 What worked — success-tinted */}
           {report.edge_clusters.length > 0 && (
@@ -571,5 +574,165 @@ function ConsistencyStat({
         </Badge>
       )}
     </div>
+  );
+}
+
+function driftLabel(d: string | null | undefined): { text: string; cls: string } | null {
+  if (!d) return null;
+  if (d === "too_wide") return { text: "SL too wide", cls: "border-warning/40 text-warning" };
+  if (d === "too_tight") return { text: "SL too tight", cls: "border-destructive/40 text-destructive" };
+  if (d === "aligned") return { text: "SL aligned", cls: "border-success/40 text-success" };
+  return null;
+}
+
+function QuantSection({ quant }: { quant: NonNullable<Report["quant"]> }) {
+  const cov = quant.coverage;
+  const lowCoverage = cov && (cov.sl / Math.max(1, cov.total) < 0.7 || cov.mae / Math.max(1, cov.total) < 0.5);
+  const beats = (quant.strategy_replay || [])
+    .filter(r => r.n_eligible >= (quant.min_eligible_sample ?? 10) && r.delta_vs_current >= 0.15)
+    .sort((a, b) => b.delta_vs_current - a.delta_vs_current)
+    .slice(0, 3);
+
+  const renderBucketRow = (b: typeof quant.buckets_top[number], tone: "top" | "bottom") => {
+    const drift = driftLabel(b.sl_drift);
+    const borderCls = tone === "top" ? "border-success/15" : "border-destructive/15";
+    return (
+      <div key={`${tone}-${b.label}`} className={`flex items-start gap-3 pb-3 border-b ${borderCls} last:border-0 last:pb-0`}>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-sm truncate">{b.label}</div>
+          <div className="text-xs text-muted-foreground mt-0.5 tabular-nums">
+            {b.n} trades · {formatNum(b.win_rate_pct, 0)}% WR · MFE p75 {b.mfe_p75_r != null ? `${formatNum(b.mfe_p75_r, 2)}R` : "—"} · MAE p75 {b.mae_p75_r != null ? `${formatNum(b.mae_p75_r, 2)}R` : "—"}
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {b.most_common_tp_hit && <>Most-hit TP: <span className="font-mono">{b.most_common_tp_hit}</span> · </>}
+            {b.tp1_star && <>TP1★ {formatNum(b.tp1_star.r, 2)}R · {formatNum(b.tp1_star.hit_rate_pct, 0)}% hit · </>}
+            {b.suggested_risk_pct != null && <>Suggested risk {formatNum(b.suggested_risk_pct, 2)}%</>}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {(tone === "top" ? b.top_trade_ids : b.bottom_trade_ids).slice(0, 6).map(id => <CitedTradeChip key={id} tradeId={id} />)}
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <Badge
+            variant="outline"
+            className={tone === "top" ? "border-success/40 text-success bg-background/50" : "border-destructive/40 text-destructive bg-background/50"}
+          >
+            {b.expected_r >= 0 ? "+" : ""}{formatNum(b.expected_r, 2)}R/trade
+          </Badge>
+          {drift && <Badge variant="outline" className={`text-[10px] ${drift.cls}`}>{drift.text}</Badge>}
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{b.confidence}</span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <section className="space-y-4">
+      {lowCoverage && (
+        <Alert>
+          <AlertCircle className="w-4 h-4" />
+          <AlertDescription className="text-xs">
+            Quant coverage is partial — SL logged on {formatNum((cov.sl / Math.max(1, cov.total)) * 100, 0)}% of trades,
+            MAE on {formatNum((cov.mae / Math.max(1, cov.total)) * 100, 0)}%, MFE on {formatNum((cov.mfe / Math.max(1, cov.total)) * 100, 0)}%.
+            Numbers below reflect only trades with the required fields.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {quant.advice && quant.advice.length > 0 && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Calculator className="w-4 h-4 text-primary" /> Quant findings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {quant.advice.map((a, i) => (
+              <div key={i} className="border-b border-primary/15 last:border-0 pb-3 last:pb-0">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-mono text-muted-foreground">{a.bucket_label} · {a.parameter}</div>
+                    <div className="text-sm mt-1 leading-snug">{a.finding}</div>
+                    <div className="text-xs text-muted-foreground mt-1 tabular-nums">
+                      <span className="line-through">{a.current_value}</span>
+                      {" → "}
+                      <span className="text-foreground font-medium">{a.suggested_value}</span>
+                    </div>
+                    {a.cited_trade_ids?.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {a.cited_trade_ids.slice(0, 6).map(id => <CitedTradeChip key={id} tradeId={id} />)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <Badge variant="outline" className="border-success/40 text-success bg-background/50">
+                      +{formatNum(a.expected_uplift_r, 2)}R
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{a.confidence}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {quant.buckets_top?.length > 0 && (
+        <Card className="border-success/30 bg-success/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-success" /> Top buckets (expected R × volume)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {quant.buckets_top.map(b => renderBucketRow(b, "top"))}
+          </CardContent>
+        </Card>
+      )}
+
+      {quant.buckets_bottom?.length > 0 && (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Skull className="w-4 h-4 text-destructive" /> Bottom buckets
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {quant.buckets_bottom.map(b => renderBucketRow(b, "bottom"))}
+          </CardContent>
+        </Card>
+      )}
+
+      {beats.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FlaskConical className="w-4 h-4" /> Strategy replay — presets that beat your current execution
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 text-sm">
+              {beats.map(r => (
+                <div key={r.preset_id} className="flex items-center justify-between gap-3 border-b border-border/50 pb-2 last:border-0 last:pb-0">
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{r.label}</div>
+                    <div className="text-xs text-muted-foreground tabular-nums">
+                      n={r.n_eligible} · WR {formatNum(r.win_rate, 0)}% · expectancy {formatNum(r.expectancy_r, 2)}R
+                      {r.mean_reached_r != null && <> · reached {formatNum(r.mean_reached_r, 2)}R</>}
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="border-success/40 text-success bg-background/50 shrink-0 tabular-nums">
+                    +{formatNum(r.delta_vs_current, 2)}R/trade
+                  </Badge>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-[10px] text-muted-foreground">
+              Hybrid replay — eligibility ≥ {quant.min_eligible_sample}. Trail estimates assume captured fraction of MFE.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+    </section>
   );
 }
