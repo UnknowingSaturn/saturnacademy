@@ -6,7 +6,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
-import { resolvePairLabFieldKeys, buildBuckets, type BucketReport } from "../_shared/quant/pairLabMath.ts";
+import { resolvePairLabFieldKeys, buildBuckets, type BucketReport, type PropFirmContext } from "../_shared/quant/pairLabMath.ts";
 import { replayAllPresets, MIN_ELIGIBLE_SAMPLE, type PresetReplayResult } from "../_shared/quant/pairLabSimulator.ts";
 
 const BANNED_PHRASES = [
@@ -961,6 +961,51 @@ Write the ${hasQuant ? 6 : 5} sections, the headline verdict, the letter grade, 
 // ------------------------------ LLM context builder (shared) ------------------------------
 // Builds the rich worst-trade narrative + tilt narrative + symbol expectancy + review excerpts
 // from raw trades/reviews. Used by both initial generation and rerun-sensei.
+async function fetchPropFirmContext(
+  admin: any,
+  account_id: string | null,
+): Promise<PropFirmContext | null> {
+  if (!account_id) return null;
+  try {
+    const { data: acct } = await admin
+      .from('accounts')
+      .select('prop_firm, balance_start, equity_current')
+      .eq('id', account_id)
+      .maybeSingle();
+    if (!acct?.prop_firm) return null;
+    const balance = Number(acct.balance_start ?? acct.equity_current ?? 0);
+    if (!(balance > 0)) return null;
+    const { data: rules } = await admin
+      .from('prop_firm_rules')
+      .select('rule_type, value, is_percentage')
+      .eq('firm', acct.prop_firm);
+    if (!rules) return null;
+    const toDollars = (r: any): number | null => {
+      const v = Number(r.value);
+      if (!isFinite(v) || v <= 0) return null;
+      return r.is_percentage ? (v / 100) * balance : v;
+    };
+    let dailyLossDollars: number | null = null;
+    let maxDrawdownDollars: number | null = null;
+    let profitTargetDollars: number | null = null;
+    for (const r of rules as any[]) {
+      if (r.rule_type === 'daily_loss') dailyLossDollars = toDollars(r);
+      else if (r.rule_type === 'max_drawdown') maxDrawdownDollars = toDollars(r);
+      else if (r.rule_type === 'profit_target') profitTargetDollars = toDollars(r);
+    }
+    return {
+      firm: acct.prop_firm,
+      balance,
+      dailyLossDollars,
+      maxDrawdownDollars,
+      profitTargetDollars,
+    };
+  } catch (e) {
+    console.warn('prop firm context fetch failed:', e);
+    return null;
+  }
+}
+
 async function computeQuantBlock(
   admin: any,
   targetUserId: string,
@@ -988,7 +1033,9 @@ async function computeQuantBlock(
     const usableTrades = ((qTrades as any[]) || []).filter((t: any) => !t.is_open && !t.is_archived);
     if (usableTrades.length === 0) return null;
 
-    const { perCell, baseline } = buildBuckets(usableTrades, keys);
+    const propFirm = await fetchPropFirmContext(admin, account_id);
+
+    const { perCell, baseline } = buildBuckets(usableTrades, keys, propFirm);
     const total = usableTrades.length || 1;
     const slCov = usableTrades.filter((t: any) => t.sl_initial != null && t.entry_price != null).length / total;
     const mfeCov = baseline.loggedMfeCount / total;
@@ -997,21 +1044,32 @@ async function computeQuantBlock(
     const ranked = perCell.filter((b: BucketReport) => b.n >= 3)
       .sort((a, b) => b.expectedR * b.n - a.expectedR * a.n);
     const top = ranked.slice(0, 3);
-    const bottom = ranked.slice(-3).reverse();
+    // Disjoint bottom — when fewer than 6 ranked buckets exist, skip bottom to
+    // avoid presenting the same buckets as both "top" and "bottom" reversed.
+    const bottom = ranked.length >= 6 ? ranked.slice(-3).reverse() : [];
 
     const presetResults: PresetReplayResult[] = replayAllPresets(usableTrades, keys);
     const current = presetResults.find(p => p.presetId === 'current');
     const baselineR = current ? current.expectancyR : 0;
-    const replay = presetResults.map(p => ({
-      preset_id: p.presetId,
-      label: p.label,
-      n_eligible: p.nEligible,
-      win_rate: +(p.winRate * 100).toFixed(1),
-      expectancy_r: +p.expectancyR.toFixed(3),
-      delta_vs_current: +(p.expectancyR - baselineR).toFixed(3),
-      mean_reached_r: p.meanReachedR != null ? +p.meanReachedR.toFixed(2) : null,
-      ci: p.expectancyRCi ? [+p.expectancyRCi[0].toFixed(2), +p.expectancyRCi[1].toFixed(2)] : null,
-    }));
+    const replay = presetResults.map(p => {
+      const intersectionDelta = p.expectancyROnIntersection != null && p.currentExpectancyROnIntersection != null
+        ? +(p.expectancyROnIntersection - p.currentExpectancyROnIntersection).toFixed(3)
+        : null;
+      return {
+        preset_id: p.presetId,
+        label: p.label,
+        n_eligible: p.nEligible,
+        total_considered: p.totalConsidered,
+        win_rate: +(p.winRate * 100).toFixed(1),
+        expectancy_r: +p.expectancyR.toFixed(3),
+        delta_vs_current: +(p.expectancyR - baselineR).toFixed(3),
+        delta_vs_current_intersection: intersectionDelta,
+        n_comparable: p.nComparable,
+        bias_warning: p.biasWarning,
+        mean_reached_r: p.meanReachedR != null ? +p.meanReachedR.toFixed(2) : null,
+        ci: p.expectancyRCi ? [+p.expectancyRCi[0].toFixed(2), +p.expectancyRCi[1].toFixed(2)] : null,
+      };
+    });
 
     const summarizeBucket = (b: BucketReport) => ({
       label: `${b.key.symbol} / ${b.key.session}`,
@@ -1024,9 +1082,11 @@ async function computeQuantBlock(
       sl_drift: b.slDrift,
       most_common_tp_hit: b.mostCommonTpHit,
       suggested_sl_pips: b.suggestedSlPips != null ? +b.suggestedSlPips.toFixed(1) : null,
+      sl_unit: b.slUnit,
       tp_ladder_r: b.tpLadderR,
       tp1_star: b.tp1Star ? { r: b.tp1Star.r, hit_rate_pct: +(b.tp1Star.hitRate * 100).toFixed(1), expectancy_r: +b.tp1Star.expectancyR.toFixed(2) } : null,
       suggested_risk_pct: b.suggestedRiskPct != null ? +b.suggestedRiskPct.toFixed(2) : null,
+      suggested_risk_pct_propfirm_cap: b.suggestedRiskPctPropFirmCap,
       confidence: b.confidence,
       top_trade_ids: b.topTradeIds,
       bottom_trade_ids: b.bottomTradeIds,
@@ -1039,11 +1099,145 @@ async function computeQuantBlock(
       buckets_bottom: bottom.map(summarizeBucket),
       strategy_replay: replay,
       min_eligible_sample: MIN_ELIGIBLE_SAMPLE,
+      prop_firm_context: propFirm ? {
+        firm: propFirm.firm,
+        balance: propFirm.balance,
+        daily_loss_dollars: propFirm.dailyLossDollars,
+        max_drawdown_dollars: propFirm.maxDrawdownDollars,
+        profit_target_dollars: propFirm.profitTargetDollars,
+      } : null,
     };
   } catch (e) {
     console.error('quant compute failed:', e);
     return null;
   }
+}
+
+// ------------------------------ numeric hallucination grader ------------------------------
+function gradeSenseiNumbers(sections: Array<{ heading: string; body: string }>, factSources: any[]): {
+  ungrounded_numbers: Array<{ section: string; value: number }>;
+  warnings: string[];
+} {
+  // Build a flat set of trusted numerical facts (rounded to 2dp).
+  const facts = new Set<string>();
+  const visit = (v: any) => {
+    if (v == null) return;
+    if (typeof v === 'number' && isFinite(v)) {
+      facts.add(v.toFixed(2));
+      facts.add(Math.round(v).toString());
+      return;
+    }
+    if (Array.isArray(v)) { v.forEach(visit); return; }
+    if (typeof v === 'object') { Object.values(v).forEach(visit); }
+  };
+  factSources.forEach(visit);
+
+  // Numbers from prose: integers (≥2 digits) or decimals.
+  const NUM_RE = /-?\d+(?:\.\d+)?/g;
+  const ungrounded: Array<{ section: string; value: number }> = [];
+  const TOL = 0.05; // ±5%
+  for (const s of sections) {
+    const matches = (s.body.match(NUM_RE) || []).map(Number).filter(Number.isFinite);
+    for (const n of matches) {
+      const absN = Math.abs(n);
+      // Skip trivial small ints (likely trade #, ordinals, "1R", "3 trades").
+      if (absN < 5 && Number.isInteger(n)) continue;
+      const candidates = [n.toFixed(2), Math.round(n).toString()];
+      if (candidates.some(c => facts.has(c))) continue;
+      // Tolerance check: scan facts for ±5% match.
+      let matched = false;
+      for (const f of facts) {
+        const fn = Number(f);
+        if (!isFinite(fn) || fn === 0) continue;
+        if (Math.abs(fn - n) / Math.abs(fn) <= TOL) { matched = true; break; }
+      }
+      if (!matched) ungrounded.push({ section: s.heading, value: n });
+    }
+  }
+  const warnings: string[] = [];
+  if (ungrounded.length > 0) warnings.push(`${ungrounded.length} numeric value(s) in Sensei prose don't match the deterministic data (±5%)`);
+  return { ungrounded_numbers: ungrounded.slice(0, 12), warnings };
+}
+
+// ------------------------------ shared narrative builder ------------------------------
+// Builds worst-trade narratives, tilt narrative, symbol expectancy, and unreviewed-R impact
+// from raw trades+reviews+psychology. Single source of truth — used by both the main
+// generation path and the rerun-sensei branch.
+function buildNarratives(
+  closedExec: TradeRow[],
+  reviews: Map<string, ReviewRow>,
+  psychology: any,
+): {
+  worstTradeNarratives: any[];
+  tiltNarrative: string | null;
+  symbolExpectancy: any[];
+  unreviewedRImpact: number;
+} {
+  const sortedByR = [...closedExec].sort((a, b) => (a.r_multiple_actual ?? 0) - (b.r_multiple_actual ?? 0));
+  const sortedByTime = [...closedExec].sort((a, b) => a.entry_time.localeCompare(b.entry_time));
+  const worstTradeNarratives = sortedByR.slice(0, 3).map((t) => {
+    const r = reviews.get(t.id);
+    const idx = sortedByTime.findIndex((x) => x.id === t.id);
+    const prior = idx > 0 ? sortedByTime[idx - 1] : null;
+    const gapMin = prior ? Math.round((new Date(t.entry_time).getTime() - new Date(prior.exit_time || prior.entry_time).getTime()) / 60000) : null;
+    return {
+      trade_id: t.id,
+      trade_number: t.trade_number,
+      symbol: humanSymbol(t.symbol),
+      date: formatDateShort(t.entry_time),
+      clock: formatClock(t.entry_time),
+      r_multiple: t.r_multiple_actual,
+      net_pnl: t.net_pnl,
+      session: humanSession(t.session),
+      emotion_before: r?.emotional_state_before || null,
+      thoughts: r?.thoughts?.slice(0, 400) || null,
+      mistakes: asArray(r?.mistakes).slice(0, 5),
+      psychology_notes: r?.psychology_notes?.slice(0, 300) || null,
+      minutes_after_prior_trade: gapMin,
+      prior_trade_outcome_r: prior?.r_multiple_actual ?? null,
+    };
+  });
+
+  const longestTilt = [...((psychology?.tilt_sequences) || [])].sort((a: any, b: any) => b.length - a.length)[0];
+  let tiltNarrative: string | null = null;
+  if (longestTilt && longestTilt.trade_ids?.length) {
+    const tiltTrades = longestTilt.trade_ids
+      .map((id: string) => closedExec.find((t) => t.id === id))
+      .filter(Boolean) as TradeRow[];
+    tiltNarrative = tiltTrades
+      .map((t) => `${formatClock(t.entry_time)} ${(t.r_multiple_actual ?? 0) >= 0 ? "won" : "lost"} ${(t.r_multiple_actual ?? 0).toFixed(1)}R on ${humanSymbol(t.symbol)}`)
+      .join(" → ");
+  }
+
+  const bySymbol = new Map<string, TradeRow[]>();
+  for (const t of closedExec) {
+    const arr = bySymbol.get(t.symbol) ?? [];
+    arr.push(t);
+    bySymbol.set(t.symbol, arr);
+  }
+  const symbolExpectancy = Array.from(bySymbol.entries())
+    .filter(([, ts]) => ts.length >= 2)
+    .map(([sym, ts]) => {
+      const total_r = ts.reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
+      const total_pnl = ts.reduce((s, t) => s + (t.net_pnl ?? 0), 0);
+      const wins = ts.filter((t) => (t.net_pnl ?? 0) > 0).length;
+      return {
+        symbol: humanSymbol(sym),
+        raw_symbol: sym,
+        trades: ts.length,
+        win_rate: +(wins / ts.length * 100).toFixed(1),
+        expectancy_r: +(total_r / ts.length).toFixed(2),
+        total_r: +total_r.toFixed(2),
+        total_pnl: +total_pnl.toFixed(2),
+      };
+    })
+    .sort((a, b) => b.expectancy_r - a.expectancy_r);
+
+  const unreviewedRImpact = closedExec
+    .filter((t) => !reviews.has(t.id))
+    .reduce((s, t) => s + (t.r_multiple_actual ?? 0), 0);
+
+  return { worstTradeNarratives, tiltNarrative, symbolExpectancy, unreviewedRImpact: +unreviewedRImpact.toFixed(2) };
 }
 
 async function buildLlmContext(
