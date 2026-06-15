@@ -6,6 +6,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { resolvePairLabFieldKeys, buildBuckets, type BucketReport } from "../_shared/quant/pairLabMath.ts";
+import { replayAllPresets, MIN_ELIGIBLE_SAMPLE, type PresetReplayResult } from "../_shared/quant/pairLabSimulator.ts";
 
 const BANNED_PHRASES = [
   "stay disciplined",
