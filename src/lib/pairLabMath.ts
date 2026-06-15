@@ -23,9 +23,9 @@ export type ConfidenceLevel = "high" | "medium" | "low";
 
 export interface PairLabFieldKeys {
   mfe: string | null;            // number (R-multiple)
-  mae: string | null;            // number (pips OR R, user decides)
+  mae: string | null;            // number (PIPS for FX/metals/crypto/oil, POINTS for indices)
   tpReached: string | null;      // multi_select (["1:1","1:2",…])
-  idealStopLoss: string | null;  // number (pips)
+  idealStopLoss: string | null;  // number (PIPS for FX/metals/crypto/oil, POINTS for indices)
   idealStopLossPos: string | null; // select (initial_leg | last_leg)
   idealEntryWindow: string | null; // select (first_30min | last_30min)
 }
@@ -263,8 +263,10 @@ function parseTpLabelLocal(s: string): number | null {
 }
 
 function confidenceFor(n: number): ConfidenceLevel {
-  if (n >= 30) return "high";
-  if (n >= 10) return "medium";
+  // Tightened 2026-06: "high" requires n≥50 — at n=30 the 95% CI on win-rate
+  // is still ±18pp, too loose to gate real-money parameter changes.
+  if (n >= 50) return "high";
+  if (n >= 15) return "medium";
   return "low";
 }
 
@@ -418,32 +420,28 @@ function computeBucket(
 
   const mfes = rows.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
 
-  // MAE is logged in TICKS — convert per-trade to (a) R-multiple for display
-  // and (b) pips for the SL-pip recommendation.
+  // MAE is logged in PIPS (or POINTS for indices). Convert per-trade to
+  // R-multiple for display by dividing by SL distance in the same unit.
   const maesR: number[] = [];
   const maesPips: number[] = [];
   for (const t of rows) {
-    const ticks = numericCf(t as any, keys.mae);
-    if (ticks == null || !t.symbol) continue;
-    const tick = tickSizeForSymbol(t.symbol);
+    const maePips = numericCf(t as any, keys.mae);
+    if (maePips == null || !t.symbol) continue;
     const pip = pipSizeForSymbol(t.symbol);
     if (!(pip > 0)) continue;
-    maesPips.push((Math.abs(ticks) * tick) / pip);
+    maesPips.push(Math.abs(maePips));
     if (t.sl_initial != null && t.entry_price != null) {
-      const slDistTicks = Math.abs(t.entry_price - t.sl_initial) / tick;
-      if (slDistTicks > 0) maesR.push(Math.abs(ticks) / slDistTicks);
+      const slDistPips = Math.abs(t.entry_price - t.sl_initial) / pip;
+      if (slDistPips > 0) maesR.push(Math.abs(maePips) / slDistPips);
     }
   }
 
-  // Ideal SL is logged in TICKS — convert to pips for SL recommendation.
+  // Ideal SL is logged in PIPS (or POINTS for indices).
   const idealSls: number[] = [];
   for (const t of rows) {
-    const ticks = numericCf(t as any, keys.idealStopLoss);
-    if (ticks == null || !t.symbol) continue;
-    const tick = tickSizeForSymbol(t.symbol);
-    const pip = pipSizeForSymbol(t.symbol);
-    if (!(pip > 0)) continue;
-    idealSls.push((Math.abs(ticks) * tick) / pip);
+    const idealPips = numericCf(t as any, keys.idealStopLoss);
+    if (idealPips == null || !t.symbol) continue;
+    idealSls.push(Math.abs(idealPips));
   }
 
   // SL initial distance in pips per trade (symbol-aware).
