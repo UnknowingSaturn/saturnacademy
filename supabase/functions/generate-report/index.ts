@@ -32,6 +32,7 @@ const BANNED_PHRASES = [
   "going forward",
   "in conclusion",
   "overall performance",
+  "based on my analysis",
 ];
 
 const BANNED_OPENERS = [
