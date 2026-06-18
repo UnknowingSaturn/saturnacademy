@@ -4,8 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useTrades } from "@/hooks/useTrades";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
-import { useAccount, useAccounts } from "@/hooks/useAccounts";
+import { useAccount } from "@/hooks/useAccounts";
 import { useSymbolAliases } from "@/hooks/useSymbolAliases";
+import { useSimulatorProfile } from "@/hooks/useSimulatorProfile";
 import { buildSymbolResolver } from "@/lib/symbolAliasing";
 import {
   buildBuckets,
@@ -38,10 +39,10 @@ export interface PairLabData {
   trades: Trade[];
   /** Resolver from raw broker symbol → canonical. */
   symbolResolver: (raw: string) => string;
-  /** Balance used to convert R into $: single-account balance, else aggregate of all accounts. */
-  accountBalance: number;
-  /** True when the global filter is "all accounts" (or none selected). */
-  isAllAccounts: boolean;
+  /** Notional balance used to convert R into $. Driven by the user's Simulator Profile, independent of accounts. */
+  simBalance: number;
+  /** Where the balance/prop-firm context came from. */
+  simSource: "manual" | "active_account";
 }
 
 const SESSION_ORDER = ["Tokyo", "London", "NY AM", "NY PM"];
@@ -70,9 +71,34 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
   const tradesQuery = useTrades(accountFilter);
   const defsQuery = useCustomFieldDefinitions();
   const aliasesQuery = useSymbolAliases();
-  const accountQuery = useAccount(!isAllAccounts ? selectedAccountId : undefined);
-  const accountsQuery = useAccounts();
-  const rulesQuery = usePropFirmRules(accountQuery.data?.prop_firm ?? null);
+  const profileQuery = useSimulatorProfile();
+
+  // Only fetch the active account when the user explicitly opts into sourcing
+  // from it. The simulator otherwise runs purely on the user-level profile so
+  // deleting failed-challenge accounts never breaks historical R replay.
+  const useActiveAccount = profileQuery.data?.sim_source === "active_account";
+  const accountQuery = useAccount(
+    useActiveAccount && !isAllAccounts ? selectedAccountId : undefined,
+  );
+
+  // Resolve the effective balance + firm id from the simulator profile,
+  // optionally overlaid by the active account when the user requested it.
+  const effectiveBalance = useMemo(() => {
+    const profile = profileQuery.data;
+    if (!profile) return 0;
+    if (useActiveAccount && accountQuery.data?.balance_start != null) {
+      return Number(accountQuery.data.balance_start);
+    }
+    return Number(profile.sim_balance ?? 0);
+  }, [profileQuery.data, useActiveAccount, accountQuery.data]);
+
+  const effectiveFirmId = useMemo(() => {
+    const profile = profileQuery.data;
+    if (useActiveAccount) return accountQuery.data?.prop_firm ?? null;
+    return profile?.sim_prop_firm ?? null;
+  }, [profileQuery.data, useActiveAccount, accountQuery.data]);
+
+  const rulesQuery = usePropFirmRules(effectiveFirmId);
 
   return useMemo(() => {
     const trades = tradesQuery.data ?? [];
@@ -84,37 +110,27 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
 
     const symbolResolver = buildSymbolResolver(aliases);
 
-    // Build prop firm context from account + rules. Disabled in all-accounts mode
-    // (mixing different firms' DD caps would be meaningless).
+    // Build prop-firm context purely from the simulator profile (or overlaid
+    // active account). Independent of whether any account row still exists.
     let propFirm: PropFirmContext | null = null;
-    const acct = accountQuery.data;
+    const profile = profileQuery.data;
     const rules = rulesQuery.data ?? [];
-    if (!isAllAccounts && filters.propFirmMode && acct && acct.balance_start) {
-      const balance = Number(acct.balance_start ?? 0);
+    if (filters.propFirmMode && profile && effectiveBalance > 0 && effectiveFirmId) {
       const dailyRule = rules.find((r) => r.rule_type === "daily_loss");
       const maxDdRule = rules.find((r) => r.rule_type === "max_drawdown");
       const toDollars = (r: typeof rules[number] | undefined) => {
         if (!r) return null;
-        return r.is_percentage ? balance * (Number(r.value) / 100) : Number(r.value);
+        return r.is_percentage ? effectiveBalance * (Number(r.value) / 100) : Number(r.value);
       };
       propFirm = {
-        balance,
+        balance: effectiveBalance,
         dailyLossDollars: toDollars(dailyRule),
         maxDrawdownDollars: toDollars(maxDdRule),
-        riskPerTradeFrac: 0.01,
-        hardCapPct: 2,
-        firmName: acct.prop_firm ?? null,
+        riskPerTradeFrac: (profile.sim_risk_per_trade_pct ?? 1) / 100,
+        hardCapPct: profile.sim_hard_cap_pct ?? 2,
+        firmName: effectiveFirmId,
       };
     }
-
-    // Balance for $ replay: single account when picked, else aggregate of all active accounts.
-    const aggregateBalance = (accountsQuery.data ?? []).reduce(
-      (sum, a) => sum + Number(a.balance_start ?? 0),
-      0,
-    );
-    const accountBalance = isAllAccounts
-      ? aggregateBalance
-      : Number(accountQuery.data?.balance_start ?? 0);
 
     const { perCell, perRow, baseline } = buildBuckets(trades, fieldKeys, {
       profile: filters.profile ?? null,
@@ -134,7 +150,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
         tradesQuery.isLoading ||
         defsQuery.isLoading ||
         aliasesQuery.isLoading ||
-        accountQuery.isLoading,
+        profileQuery.isLoading,
       fieldKeys,
       baseline,
       perCell,
@@ -146,8 +162,8 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       propFirm,
       trades,
       symbolResolver,
-      accountBalance,
-      isAllAccounts,
+      simBalance: effectiveBalance,
+      simSource: profile?.sim_source ?? "manual",
     };
   }, [
     tradesQuery.data,
@@ -156,13 +172,13 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     defsQuery.isLoading,
     aliasesQuery.data,
     aliasesQuery.isLoading,
-    accountQuery.data,
-    accountQuery.isLoading,
-    accountsQuery.data,
+    profileQuery.data,
+    profileQuery.isLoading,
     rulesQuery.data,
+    effectiveBalance,
+    effectiveFirmId,
     filters.profile,
     filters.actualProfile,
     filters.propFirmMode,
-    isAllAccounts,
   ]);
 }

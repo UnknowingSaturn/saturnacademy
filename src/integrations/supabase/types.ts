@@ -2054,6 +2054,11 @@ export type Database = {
           display_timezone: string
           field_label_overrides: Json
           id: string
+          sim_balance: number
+          sim_hard_cap_pct: number
+          sim_prop_firm: string | null
+          sim_risk_per_trade_pct: number
+          sim_source: string
           updated_at: string
           user_id: string
           visible_columns: Json
@@ -2071,6 +2076,11 @@ export type Database = {
           display_timezone?: string
           field_label_overrides?: Json
           id?: string
+          sim_balance?: number
+          sim_hard_cap_pct?: number
+          sim_prop_firm?: string | null
+          sim_risk_per_trade_pct?: number
+          sim_source?: string
           updated_at?: string
           user_id: string
           visible_columns?: Json
@@ -2088,6 +2098,11 @@ export type Database = {
           display_timezone?: string
           field_label_overrides?: Json
           id?: string
+          sim_balance?: number
+          sim_hard_cap_pct?: number
+          sim_prop_firm?: string | null
+          sim_risk_per_trade_pct?: number
+          sim_source?: string
           updated_at?: string
           user_id?: string
           visible_columns?: Json
