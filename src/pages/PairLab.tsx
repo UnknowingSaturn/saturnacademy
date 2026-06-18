@@ -54,7 +54,7 @@ export default function PairLab() {
       <PageIntroBanner
         routeKey="pair-lab"
         title="Pair Lab — find optimal parameters per pair × session"
-        body="Buckets your closed trades by canonical symbol and session, then derives suggested stop, TP ladder (incl. a win-rate-maximizing TP1*), and risk size from your MFE / MAE / TP-hit / ideal-SL fields. Toggle Prop-firm mode to cap risk against the active account's daily drawdown budget."
+        body="Buckets your closed trades by canonical symbol and session, then derives suggested stop, TP ladder (incl. a win-rate-maximizing TP1*), and risk size from your MFE / MAE / TP-hit / ideal-SL fields. Toggle Prop-firm mode to cap risk against your simulator profile's daily drawdown budget."
       />
 
       {/* Header */}
