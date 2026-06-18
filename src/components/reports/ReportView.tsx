@@ -749,14 +749,20 @@ function QuantSection({ quant }: { quant: NonNullable<Report["quant"]> }) {
               {beats.map(r => (
                 <div key={r.preset_id} className="flex items-center justify-between gap-3 border-b border-border/50 pb-2 last:border-0 last:pb-0">
                   <div className="min-w-0">
-                    <div className="font-medium truncate">{r.label}</div>
+                    <div className="font-medium truncate flex items-center gap-2">
+                      <span className="truncate">{r.label}</span>
+                      {r.bias_warning && (
+                        <Badge variant="outline" className="border-warning/40 text-warning text-[10px] shrink-0">partial overlap</Badge>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground tabular-nums">
                       n={r.n_eligible} · WR {formatNum(r.win_rate, 0)}% · expectancy {formatNum(r.expectancy_r, 2)}R
                       {r.mean_reached_r != null && <> · reached {formatNum(r.mean_reached_r, 2)}R</>}
+                      {r.n_comparable != null && r.n_comparable > 0 && <> · {r.n_comparable} comparable</>}
                     </div>
                   </div>
                   <Badge variant="outline" className="border-success/40 text-success bg-background/50 shrink-0 tabular-nums">
-                    +{formatNum(r.delta_vs_current, 2)}R/trade
+                    +{formatNum(effDelta(r), 2)}R/trade
                   </Badge>
                 </div>
               ))}
