@@ -588,10 +588,15 @@ function driftLabel(d: string | null | undefined): { text: string; cls: string }
 function QuantSection({ quant }: { quant: NonNullable<Report["quant"]> }) {
   const cov = quant.coverage;
   const lowCoverage = cov && (cov.sl / Math.max(1, cov.total) < 0.7 || cov.mae / Math.max(1, cov.total) < 0.5);
+  // Prefer intersection delta when present (bias-adjusted); fall back to raw delta.
+  const effDelta = (r: typeof quant.strategy_replay[number]) =>
+    r.delta_vs_current_intersection != null ? r.delta_vs_current_intersection : r.delta_vs_current;
   const beats = (quant.strategy_replay || [])
-    .filter(r => r.n_eligible >= (quant.min_eligible_sample ?? 10) && r.delta_vs_current >= 0.15)
-    .sort((a, b) => b.delta_vs_current - a.delta_vs_current)
+    .filter(r => r.n_eligible >= (quant.min_eligible_sample ?? 10) && effDelta(r) >= 0.15)
+    .sort((a, b) => effDelta(b) - effDelta(a))
     .slice(0, 3);
+  const propFirm = quant.prop_firm_context;
+  const senseiQuality = quant.sensei_quality;
 
   const renderBucketRow = (b: typeof quant.buckets_top[number], tone: "top" | "bottom") => {
     const drift = driftLabel(b.sl_drift);
