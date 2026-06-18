@@ -617,7 +617,7 @@ function QuantSection({ quant }: { quant: NonNullable<Report["quant"]> }) {
                 {b.suggested_risk_pct_propfirm_cap != null && b.suggested_risk_pct_propfirm_cap < b.suggested_risk_pct && (
                   <> (capped {formatNum(b.suggested_risk_pct_propfirm_cap, 2)}% by prop firm)</>
                 )}
-                {b.sl_unit && b.sl_unit !== 'R' && b.sl_unit !== '%' && <> · SL in {b.sl_unit}</>}
+                {b.sl_unit && <> · SL in {b.sl_unit}</>}
               </>
             )}
           </div>
