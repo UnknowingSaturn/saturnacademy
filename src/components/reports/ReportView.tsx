@@ -652,6 +652,27 @@ function QuantSection({ quant }: { quant: NonNullable<Report["quant"]> }) {
         </Alert>
       )}
 
+      {propFirm && (
+        <Alert className="border-primary/30 bg-primary/5">
+          <AlertCircle className="w-4 h-4" />
+          <AlertDescription className="text-xs">
+            Prop-firm guardrails active ({propFirm.firm}): max DD ${formatNum(propFirm.max_drawdown_dollars ?? 0, 0)}
+            {propFirm.daily_loss_dollars != null && <> · daily loss ${formatNum(propFirm.daily_loss_dollars, 0)}</>}
+            {propFirm.profit_target_dollars != null && <> · target ${formatNum(propFirm.profit_target_dollars, 0)}</>}
+            . Per-bucket risk suggestions are capped against remaining drawdown headroom.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {senseiQuality && senseiQuality.warnings?.length > 0 && (
+        <Alert className="border-warning/40 bg-warning/5">
+          <AlertCircle className="w-4 h-4" />
+          <AlertDescription className="text-xs">
+            {senseiQuality.warnings.join(' · ')}. Trust the deterministic numbers below over any prose figure that doesn't match.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {quant.advice && quant.advice.length > 0 && (
         <Card className="border-primary/30 bg-primary/5">
           <CardHeader className="pb-3">
