@@ -746,6 +746,9 @@ EVIDENCE-ONLY DISCIPLINE
 10. If \`edge_clusters\` is empty, "The Edge" must say so explicitly.
 11. If both \`leak_clusters\` and behavioral patterns are empty, "The Bleed" must name the single largest losing trade from \`worst_trade_narratives\`.
 12. "The Math" (when present) must only reference numbers in the QUANT block. If the QUANT block is empty, say plainly there isn't enough labelled data (MFE/MAE/SL) to run quant yet, and tell the user which fields to fill.
+13. When citing a stop-loss distance from a bucket, ALWAYS use the bucket's \`sl_unit\` (pips for FX, points for indices/metals, R for normalized, % for crypto). Never call points "pips" or vice versa.
+14. When recommending a strategy_replay preset, prefer \`delta_vs_current_intersection\` over \`delta_vs_current\`. If \`bias_warning\` is true, explicitly say "this is based on a partial overlap of trades" and avoid headline claims.
+15. If \`prop_firm_context\` is present, frame every risk-per-trade or stop suggestion against the remaining drawdown headroom (\`max_drawdown_dollars\`, \`daily_loss_dollars\`) and respect the per-bucket \`suggested_risk_pct_propfirm_cap\` ceiling.
 
 REQUIRED STRUCTURE — ${sectionsList}
 
