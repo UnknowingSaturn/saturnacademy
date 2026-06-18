@@ -746,6 +746,9 @@ EVIDENCE-ONLY DISCIPLINE
 10. If \`edge_clusters\` is empty, "The Edge" must say so explicitly.
 11. If both \`leak_clusters\` and behavioral patterns are empty, "The Bleed" must name the single largest losing trade from \`worst_trade_narratives\`.
 12. "The Math" (when present) must only reference numbers in the QUANT block. If the QUANT block is empty, say plainly there isn't enough labelled data (MFE/MAE/SL) to run quant yet, and tell the user which fields to fill.
+13. When citing a stop-loss distance from a bucket, ALWAYS use the bucket's \`sl_unit\` (pips for FX, points for indices/metals, R for normalized, % for crypto). Never call points "pips" or vice versa.
+14. When recommending a strategy_replay preset, prefer \`delta_vs_current_intersection\` over \`delta_vs_current\`. If \`bias_warning\` is true, explicitly say "this is based on a partial overlap of trades" and avoid headline claims.
+15. If \`prop_firm_context\` is present, frame every risk-per-trade or stop suggestion against the remaining drawdown headroom (\`max_drawdown_dollars\`, \`daily_loss_dollars\`) and respect the per-bucket \`suggested_risk_pct_propfirm_cap\` ceiling.
 
 REQUIRED STRUCTURE — ${sectionsList}
 
@@ -1391,7 +1394,10 @@ serve(async (req) => {
         updatePayload.grade = result.grade;
         updatePayload.goals = result.goals;
         updatePayload.sensei_model = result.modelUsed;
-        updatePayload.quant = quant ? { ...quant, advice: result.quant_advice || [] } : null;
+        const quality = gradeSenseiNumbers(result.sections || [], [
+          existing.metrics?.current, existing.metrics?.deltas, quant,
+        ]);
+        updatePayload.quant = quant ? { ...quant, advice: result.quant_advice || [], sensei_quality: quality } : null;
         updatePayload.status = 'completed';
         updatePayload.error_message = null;
       } catch (e) {
@@ -1636,7 +1642,7 @@ serve(async (req) => {
       tilt_narrative: tiltNarrative,
       symbol_expectancy: symbolExpectancy,
       read_quality: readQualityBlock,
-      unreviewed_r_impact: +unreviewedR.toFixed(2),
+      unreviewed_r_impact: unreviewedRImpact,
       quant,
       _valid_trade_ids: tradeIds,
       _valid_symbols: Array.from(new Set(trades.map(t => t.symbol))),
@@ -1667,8 +1673,9 @@ serve(async (req) => {
 
     const status = sensei_error ? 'failed' : 'completed';
 
-    // Attach LLM-emitted advice onto the quant block so the UI gets a single payload.
-    const quantWithAdvice = quant ? { ...quant, advice: quant_advice } : null;
+    // Attach LLM-emitted advice + numeric grader onto the quant block so the UI gets a single payload.
+    const sensei_quality = sensei ? gradeSenseiNumbers(sensei.sections || [], [metrics?.current, metrics?.deltas, quant]) : undefined;
+    const quantWithAdvice = quant ? { ...quant, advice: quant_advice, ...(sensei_quality ? { sensei_quality } : {}) } : null;
 
     const { data: inserted, error: insErr } = await admin.from('reports').insert({
       user_id: targetUserId,

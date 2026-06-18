@@ -588,10 +588,15 @@ function driftLabel(d: string | null | undefined): { text: string; cls: string }
 function QuantSection({ quant }: { quant: NonNullable<Report["quant"]> }) {
   const cov = quant.coverage;
   const lowCoverage = cov && (cov.sl / Math.max(1, cov.total) < 0.7 || cov.mae / Math.max(1, cov.total) < 0.5);
+  // Prefer intersection delta when present (bias-adjusted); fall back to raw delta.
+  const effDelta = (r: typeof quant.strategy_replay[number]) =>
+    r.delta_vs_current_intersection != null ? r.delta_vs_current_intersection : r.delta_vs_current;
   const beats = (quant.strategy_replay || [])
-    .filter(r => r.n_eligible >= (quant.min_eligible_sample ?? 10) && r.delta_vs_current >= 0.15)
-    .sort((a, b) => b.delta_vs_current - a.delta_vs_current)
+    .filter(r => r.n_eligible >= (quant.min_eligible_sample ?? 10) && effDelta(r) >= 0.15)
+    .sort((a, b) => effDelta(b) - effDelta(a))
     .slice(0, 3);
+  const propFirm = quant.prop_firm_context;
+  const senseiQuality = quant.sensei_quality;
 
   const renderBucketRow = (b: typeof quant.buckets_top[number], tone: "top" | "bottom") => {
     const drift = driftLabel(b.sl_drift);
@@ -606,7 +611,15 @@ function QuantSection({ quant }: { quant: NonNullable<Report["quant"]> }) {
           <div className="text-xs text-muted-foreground mt-0.5">
             {b.most_common_tp_hit && <>Most-hit TP: <span className="font-mono">{b.most_common_tp_hit}</span> · </>}
             {b.tp1_star && <>TP1★ {formatNum(b.tp1_star.r, 2)}R · {formatNum(b.tp1_star.hit_rate_pct, 0)}% hit · </>}
-            {b.suggested_risk_pct != null && <>Suggested risk {formatNum(b.suggested_risk_pct, 2)}%</>}
+            {b.suggested_risk_pct != null && (
+              <>
+                Suggested risk {formatNum(b.suggested_risk_pct, 2)}%
+                {b.suggested_risk_pct_propfirm_cap != null && b.suggested_risk_pct_propfirm_cap < b.suggested_risk_pct && (
+                  <> (capped {formatNum(b.suggested_risk_pct_propfirm_cap, 2)}% by prop firm)</>
+                )}
+                {b.sl_unit && <> · SL in {b.sl_unit}</>}
+              </>
+            )}
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
             {(tone === "top" ? b.top_trade_ids : b.bottom_trade_ids).slice(0, 6).map(id => <CitedTradeChip key={id} tradeId={id} />)}
@@ -635,6 +648,27 @@ function QuantSection({ quant }: { quant: NonNullable<Report["quant"]> }) {
             Quant coverage is partial — SL logged on {formatNum((cov.sl / Math.max(1, cov.total)) * 100, 0)}% of trades,
             MAE on {formatNum((cov.mae / Math.max(1, cov.total)) * 100, 0)}%, MFE on {formatNum((cov.mfe / Math.max(1, cov.total)) * 100, 0)}%.
             Numbers below reflect only trades with the required fields.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {propFirm && (
+        <Alert className="border-primary/30 bg-primary/5">
+          <AlertCircle className="w-4 h-4" />
+          <AlertDescription className="text-xs">
+            Prop-firm guardrails active ({propFirm.firm}): max DD ${formatNum(propFirm.max_drawdown_dollars ?? 0, 0)}
+            {propFirm.daily_loss_dollars != null && <> · daily loss ${formatNum(propFirm.daily_loss_dollars, 0)}</>}
+            {propFirm.profit_target_dollars != null && <> · target ${formatNum(propFirm.profit_target_dollars, 0)}</>}
+            . Per-bucket risk suggestions are capped against remaining drawdown headroom.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {senseiQuality && senseiQuality.warnings?.length > 0 && (
+        <Alert className="border-warning/40 bg-warning/5">
+          <AlertCircle className="w-4 h-4" />
+          <AlertDescription className="text-xs">
+            {senseiQuality.warnings.join(' · ')}. Trust the deterministic numbers below over any prose figure that doesn't match.
           </AlertDescription>
         </Alert>
       )}
@@ -715,14 +749,20 @@ function QuantSection({ quant }: { quant: NonNullable<Report["quant"]> }) {
               {beats.map(r => (
                 <div key={r.preset_id} className="flex items-center justify-between gap-3 border-b border-border/50 pb-2 last:border-0 last:pb-0">
                   <div className="min-w-0">
-                    <div className="font-medium truncate">{r.label}</div>
+                    <div className="font-medium truncate flex items-center gap-2">
+                      <span className="truncate">{r.label}</span>
+                      {r.bias_warning && (
+                        <Badge variant="outline" className="border-warning/40 text-warning text-[10px] shrink-0">partial overlap</Badge>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground tabular-nums">
                       n={r.n_eligible} · WR {formatNum(r.win_rate, 0)}% · expectancy {formatNum(r.expectancy_r, 2)}R
                       {r.mean_reached_r != null && <> · reached {formatNum(r.mean_reached_r, 2)}R</>}
+                      {r.n_comparable != null && r.n_comparable > 0 && <> · {r.n_comparable} comparable</>}
                     </div>
                   </div>
                   <Badge variant="outline" className="border-success/40 text-success bg-background/50 shrink-0 tabular-nums">
-                    +{formatNum(r.delta_vs_current, 2)}R/trade
+                    +{formatNum(effDelta(r), 2)}R/trade
                   </Badge>
                 </div>
               ))}
