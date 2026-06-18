@@ -14,6 +14,7 @@ import { QuantNotePanel } from "@/components/pair-lab/QuantNotePanel";
 import { SymbolAliasManager } from "@/components/pair-lab/SymbolAliasManager";
 import { StrategyCompare } from "@/components/pair-lab/StrategyCompare";
 import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
+import { SimulatorProfileSettings } from "@/components/pair-lab/SimulatorProfileSettings";
 import { normalizeSession } from "@/lib/pairLabMath";
 
 export default function PairLab() {
