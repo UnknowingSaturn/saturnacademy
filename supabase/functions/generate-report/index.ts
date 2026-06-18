@@ -1391,7 +1391,10 @@ serve(async (req) => {
         updatePayload.grade = result.grade;
         updatePayload.goals = result.goals;
         updatePayload.sensei_model = result.modelUsed;
-        updatePayload.quant = quant ? { ...quant, advice: result.quant_advice || [] } : null;
+        const quality = gradeSenseiNumbers(result.sections || [], [
+          existing.metrics?.current, existing.metrics?.deltas, quant,
+        ]);
+        updatePayload.quant = quant ? { ...quant, advice: result.quant_advice || [], sensei_quality: quality } : null;
         updatePayload.status = 'completed';
         updatePayload.error_message = null;
       } catch (e) {
