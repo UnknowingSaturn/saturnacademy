@@ -1,64 +1,80 @@
-# Elite Report Upgrade — Accuracy, Cleanup, and Guardrails
+# Decouple the Pair Lab simulator from accounts
 
-After auditing the last 8 reports + the quant pipeline, three classes of issues are degrading the guidance:
+## Problem
 
-1. **Wrong numbers** — MAE→pip conversion is off by 10× on 5-digit FX, "pips" is mis-labeled on indices, and `delta_vs_current` compares non-overlapping trade subsets (Runner showing "+2.4R uplift" on only 10 of 21 trades).
-2. **Missing context** — no prop-firm rules feed the report, top/bottom bucket lists overlap when there are ≤3 buckets, and confidence thresholds are too loose to gate real money decisions.
-3. **Dead/duplicate code** — `bandLetter`, `clamp` are unused; ~58 lines of narrative helpers (`worstTradeNarratives`, `symbolExpectancy`, `tiltNarrative`) are computed twice; the LLM has no numeric-grounding check.
+Today `usePairLab` reads `balance_start` and `prop_firm` from the currently selected account (`useAccount(selectedAccountId)`), and aggregates `balance_start` across `useAccounts()` in all-accounts mode. When you delete a failed challenge:
 
-## Changes
+- The trades stay (good — your R-based stats are still valid).
+- The account row is gone, so the simulator loses balance + prop-firm context.
+- Aggregate balance silently shrinks, which distorts $ replay and Kelly sizing.
+- Prop-firm verdict disables because no firm is attached to the (now-missing) account.
 
-### 1. Fix unit-conversion bugs (highest impact — wrong numbers leaving the system)
-- **MAE / Ideal-SL in pips off by 10×** (`_shared/quant/pairLabMath.ts` + `src/lib/pairLabMath.ts`): drop the `× tick / pip` factor; treat `cf_mae` and `sl_initial`-derived distances as pre-converted pips. Update field comments to pin the contract.
-- **Symbol-aware unit label**: add `slUnit: "pips" | "points"` (via `classifySymbol` in `symbolMapping.ts`) to every `QuantBucketSummary`. UI shows the correct unit; LLM stops mislabeling SPX "152.5 pips".
+Tying simulation to a mutable, deletable row is the wrong coupling. R is a property of the trade; balance and risk caps are a property of *how you want to evaluate going forward*, not of historical accounts.
 
-### 2. De-bias the strategy replay comparison
-- In `_shared/quant/pairLabSimulator.ts`, add `nComparable` and `biasWarning: boolean` to `PresetReplayResult` — true when `nEligible < totalConsidered × 0.7`.
-- Compute a second `expectancyROnIntersection` over the trade set that's eligible for **both** the preset and `current`, so `delta_vs_current` is apples-to-apples.
-- Surface both numbers in the quant block; LLM prompt requires citing `n_eligible / total_considered` and using the intersection delta when bias is flagged.
+## Approach: a user-level "Simulator Profile"
 
-### 3. Surface prop-firm context
-- In `computeQuantBlock`, join `accounts → prop_firms → prop_firm_rules` for the report's `account_id`. Pass `{ maxDD, dailyDD, profitTarget }` into `buildBuckets` and into the LLM payload as `prop_firm_context`.
-- Server `buildBuckets` gets an optional `PropFirmContext` param (parity with client). Suggested risk %% gets clamped under prop-firm caps; LLM prompt adds rule: "if prop_firm_context is present, frame every risk/SL suggestion in terms of remaining drawdown headroom".
+Introduce a single per-user simulator config that the Pair Lab (and any future simulator) reads from. It is independent of `accounts` and survives any account deletion.
 
-### 4. Tighten confidence + remove overlap
-- Raise `confidenceFor`: `n≥50 = high`, `n≥15 = medium`, else `low` (was 30/10).
-- In `computeQuantBlock`, ensure top/bottom buckets are disjoint — when fewer than 6 ranked buckets exist, only emit `buckets_top` (no fake "bottom" that is the same list reversed).
+Stored on `user_settings` (already exists, no new table needed):
 
-### 5. Numeric hallucination grader
-- After `callSensei` returns, build a flat `{ pattern: number }` fact map from `metrics.current` + `quant`. Scan each section `body` for decimals; any number not within ±5% of a fact gets flagged in a new `sensei_quality.warnings[]` array stored on the report. UI shows a single inline badge "1 ungrounded figure flagged" — does not block save.
+- `sim_balance` — notional balance used to convert R → $ (e.g. 100,000)
+- `sim_prop_firm` — optional firm key (FK to `prop_firms.id`), nullable
+- `sim_risk_per_trade_pct` — default 1
+- `sim_hard_cap_pct` — default 2
+- `sim_source` — `'manual' | 'active_account'` (default `'manual'`)
 
-### 6. Cleanup (no behavior change)
-- Delete `bandLetter` and `clamp` in `generate-report/index.ts` (dead).
-- Extract the narrative builders (`worstTradeNarratives`, `symbolExpectancy`, `tiltNarrative`) into a single helper called by both the main generation path and `buildLlmContext` — removes ~58 lines of verbatim duplication.
-- Add a short comment block at the top of each `_shared/quant/*.ts` file documenting that it mirrors `src/lib/*.ts` and listing the intentional divergences (so future drift is visible).
+When `sim_source = 'active_account'`, the simulator falls back to the currently selected account's balance + firm (today's behavior) — so users who want the old wiring keep it. When `'manual'` (default for new users with no live account), it uses the explicit values above and is fully independent of `accounts`.
 
-### 7. Prompt upgrades for "The Math" section
-- New required clauses: cite `n_eligible vs total_considered`, use intersection delta when biased, reference `slUnit` explicitly, and tie every SL/risk suggestion to prop-firm headroom when present.
-- Schema additions to the `quant_advice` tool: `n_eligible`, `bias_warning`, `unit` ("pips" / "points" / "R" / "%").
+## UI
+
+Small "Simulator settings" popover on the Pair Lab Simulator tab header:
+
+- Balance input (numeric, with $)
+- Prop-firm select (None / pick from `prop_firms`)
+- Risk per trade % + hard cap %
+- Source toggle: "Use active account" / "Manual"
+- "Save as default" button
+
+State persists to `user_settings` so it survives reloads and is the same across sessions.
+
+The existing all-accounts aggregate balance and the "No account balances found" empty state both go away — replaced by the manual balance, which always has a sensible default (100,000) for new users.
+
+## Cleanup
+
+- Remove `accountsQuery` aggregation and `isAllAccounts ? aggregateBalance : ...` branching from `usePairLab`.
+- Remove the "Prop-firm verdict disabled in all-accounts mode" warning and the "No account balances found" empty card from `PairLab.tsx`.
+- Keep `useAccount` only as the optional source when `sim_source = 'active_account'`.
+- Update `PageIntroBanner` body: no longer reference "the active account's daily drawdown budget" — say "your simulator profile."
+
+## Technical details
+
+1. **Migration** — `user_settings` add columns:
+   - `sim_balance numeric not null default 100000`
+   - `sim_prop_firm text` (nullable, references `prop_firms.id` loosely — no FK to keep it soft)
+   - `sim_risk_per_trade_pct numeric not null default 1`
+   - `sim_hard_cap_pct numeric not null default 2`
+   - `sim_source text not null default 'manual' check (sim_source in ('manual','active_account'))`
+   No new RLS — existing `user_settings` policies cover it. No GRANTs needed (table already granted).
+
+2. **Hook refactor** — `usePairLab`:
+   - Read `user_settings` for the five sim_* fields.
+   - Build `propFirm` from `sim_prop_firm` + `prop_firm_rules` when set, regardless of accounts.
+   - Drop `aggregateBalance`. `accountBalance` becomes `simBalance` (rename in `PairLabData`).
+   - `isAllAccounts` stays for trade-scoping (it still controls which trades feed the buckets) but no longer gates prop-firm verdict.
+
+3. **New component** — `SimulatorProfileSettings.tsx` (popover trigger on the Simulator tab) with the five inputs and a Save button that updates `user_settings`.
+
+4. **Component prop renames** — `StrategyRanker` / `StrategyCompare` `balance` prop already takes a number; just feeds from the new source.
 
 ## Files touched
 
-- `supabase/functions/_shared/quant/pairLabMath.ts` — unit fix, confidence thresholds, doc header
-- `supabase/functions/_shared/quant/pairLabSimulator.ts` — bias fields, intersection expectancy
-- `supabase/functions/_shared/quant/symbolMapping.ts` — `pipLabelForSymbol`
-- `supabase/functions/generate-report/index.ts` — prop-firm join, hallucination grader, dedup of narratives, slUnit wiring, prompt upgrade, delete dead helpers, top/bottom disjoint
-- `src/lib/pairLabMath.ts` — mirror unit + confidence fixes so PairLab UI stays correct
-- `src/types/reports.ts` — `slUnit`, `bias_warning`, `n_comparable`, `prop_firm_context`, `sensei_quality`
-- `src/components/reports/ReportView.tsx` — render correct unit, bias chip, prop-firm headroom line, "ungrounded figures" badge
+- `supabase/migrations/<ts>_sim_profile.sql` — new
+- `src/hooks/usePairLab.tsx` — refactor balance + propFirm sourcing
+- `src/pages/PairLab.tsx` — remove aggregate/empty-state branches, mount new settings popover
+- `src/components/pair-lab/SimulatorProfileSettings.tsx` — new
+- `src/types/...` if `UserSettings` type is locally mirrored (otherwise the auto-gen types pick it up)
 
-## Validation
+## Out of scope
 
-- Re-run report `8528bf3b-…` after deploy; verify:
-  - `suggested_sl_pips` for EURUSD/GBPUSD is in a sane range (>5 pips).
-  - SPX bucket shows `slUnit: "points"`.
-  - Runner replay shows `bias_warning: true` and the LLM's "Math" section qualifies the uplift.
-  - Top/bottom bucket lists are disjoint (or bottom is omitted).
-  - If account has a prop firm, the report mentions DD headroom.
-- Spot-check `sensei_quality.warnings` on the rerun — should be 0 or 1 with the upgraded grounding rule.
-
-## Out of scope (deliberately)
-
-- Extending `BucketKey` with extra dimensions (playbook/direction) — meaningful only once per-bucket sample sizes are larger; revisit when weekly trade counts exceed ~50.
-- Merging client `src/lib/*` and server `_shared/quant/*` into a shared package — divergence is intentional (client has interactive `PropFirmContext`/`opts`, server is duck-typed). Doc headers (item 6) are enough for now.
-- Backfilling `quant` onto historical reports — only forward reports get the upgraded numbers; old reports remain immutable.
+- Per-trade balance reconstruction from historical `equity_current` snapshots (possible later, but unnecessary for an R-based simulator).
+- Backfilling `sim_balance` from existing accounts (default 100k is fine; user adjusts once).
