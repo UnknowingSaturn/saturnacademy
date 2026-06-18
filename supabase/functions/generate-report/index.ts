@@ -1670,8 +1670,9 @@ serve(async (req) => {
 
     const status = sensei_error ? 'failed' : 'completed';
 
-    // Attach LLM-emitted advice onto the quant block so the UI gets a single payload.
-    const quantWithAdvice = quant ? { ...quant, advice: quant_advice } : null;
+    // Attach LLM-emitted advice + numeric grader onto the quant block so the UI gets a single payload.
+    const sensei_quality = sensei ? gradeSenseiNumbers(sensei.sections || [], [metrics?.current, metrics?.deltas, quant]) : undefined;
+    const quantWithAdvice = quant ? { ...quant, advice: quant_advice, ...(sensei_quality ? { sensei_quality } : {}) } : null;
 
     const { data: inserted, error: insErr } = await admin.from('reports').insert({
       user_id: targetUserId,
