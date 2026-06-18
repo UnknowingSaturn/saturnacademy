@@ -611,7 +611,15 @@ function QuantSection({ quant }: { quant: NonNullable<Report["quant"]> }) {
           <div className="text-xs text-muted-foreground mt-0.5">
             {b.most_common_tp_hit && <>Most-hit TP: <span className="font-mono">{b.most_common_tp_hit}</span> · </>}
             {b.tp1_star && <>TP1★ {formatNum(b.tp1_star.r, 2)}R · {formatNum(b.tp1_star.hit_rate_pct, 0)}% hit · </>}
-            {b.suggested_risk_pct != null && <>Suggested risk {formatNum(b.suggested_risk_pct, 2)}%</>}
+            {b.suggested_risk_pct != null && (
+              <>
+                Suggested risk {formatNum(b.suggested_risk_pct, 2)}%
+                {b.suggested_risk_pct_propfirm_cap != null && b.suggested_risk_pct_propfirm_cap < b.suggested_risk_pct && (
+                  <> (capped {formatNum(b.suggested_risk_pct_propfirm_cap, 2)}% by prop firm)</>
+                )}
+                {b.sl_unit && b.sl_unit !== 'R' && b.sl_unit !== '%' && <> · SL in {b.sl_unit}</>}
+              </>
+            )}
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
             {(tone === "top" ? b.top_trade_ids : b.bottom_trade_ids).slice(0, 6).map(id => <CitedTradeChip key={id} tradeId={id} />)}
