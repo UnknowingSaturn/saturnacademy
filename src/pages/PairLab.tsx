@@ -218,45 +218,43 @@ export default function PairLab() {
             const scopeLabel = selected
               ? `${selected.symbol} · ${selected.session}`
               : "All trades in scope";
-            const balanceLabel = data.isAllAccounts
-              ? `aggregate $${data.accountBalance.toLocaleString()} across all accounts`
-              : `$${data.accountBalance.toLocaleString()}`;
+            const sourceLabel =
+              data.simSource === "active_account" ? "active account" : "simulator profile";
             return (
               <>
                 <Card className="p-3 text-xs text-muted-foreground flex items-start justify-between gap-3">
                   <span>
                     Simulating <span className="text-foreground font-medium">{scopeLabel}</span> ·{" "}
-                    <span className="text-foreground">{balanceLabel}</span>.
+                    <span className="text-foreground">
+                      ${data.simBalance.toLocaleString()}
+                    </span>{" "}
+                    from {sourceLabel}.
                     {selected
                       ? " Click another cell in the Grid tab to switch scope."
                       : " Select a cell in the Grid tab to narrow to one pair × session."}
-                    {data.isAllAccounts && (
-                      <span className="block mt-1 text-amber-600 dark:text-amber-400">
-                        Prop-firm verdict disabled in all-accounts mode — pick one account to enable DD checks.
-                      </span>
-                    )}
                   </span>
+                  <SimulatorProfileSettings />
                 </Card>
-                {data.accountBalance > 0 ? (
+                {data.simBalance > 0 ? (
                   <>
                     <StrategyRanker
                       trades={scopedTrades}
                       fieldKeys={data.fieldKeys}
-                      balance={data.accountBalance}
+                      balance={data.simBalance}
                       propFirm={propFirmMode ? data.propFirm : null}
                       scopeLabel={scopeLabel}
                     />
                     <StrategyCompare
                       trades={scopedTrades}
                       fieldKeys={data.fieldKeys}
-                      balance={data.accountBalance}
+                      balance={data.simBalance}
                       propFirm={propFirmMode ? data.propFirm : null}
                       scopeLabel={scopeLabel}
                     />
                   </>
                 ) : (
                   <Card className="p-6 text-sm text-muted-foreground text-center">
-                    No account balances found. Add an account in Settings, then come back — the simulator needs a balance to convert R into dollars.
+                    Set a notional balance in your simulator profile to convert R into $.
                   </Card>
                 )}
               </>
