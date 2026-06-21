@@ -303,12 +303,22 @@ function replayOneTrade(
   if (stoppedUnderNewSl === null) return { ineligible: "missing SL/entry — can't convert MAE ticks to R" };
 
 
-  const partials = [...strategy.exitRule.partials].sort((a, b) => a.atR - b.atR);
+  // Resolve each partial's effective atR (bucket-adaptive presets may override).
+  const resolved: Array<{ atR: number; fraction: number }> = [];
+  for (const p of strategy.exitRule.partials) {
+    const atR = resolvePartialAtR(p, ctx.bucket);
+    if (atR == null) {
+      return { ineligible: `bucket has no MFE samples for adaptive TP (${p.atRSource})` };
+    }
+    resolved.push({ atR, fraction: p.fraction });
+  }
+  resolved.sort((a, b) => a.atR - b.atR);
+
   let booked = 0;
   let remainingFrac = 1;
   let anyFilled = false;
   let lastFilledAtR = 0;
-  for (const p of partials) {
+  for (const p of resolved) {
     const needOrigR = p.atR * slScale;
     if (proof.reachedR >= needOrigR) {
       const take = Math.min(p.fraction, remainingFrac);
@@ -319,7 +329,7 @@ function replayOneTrade(
     } else if (stoppedUnderNewSl) {
       // partial does not fill — runner handling will book the loss
     } else {
-      return { ineligible: `unproven ${p.atR}R target` };
+      return { ineligible: `unproven ${p.atR.toFixed(2)}R target` };
     }
   }
 
