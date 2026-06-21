@@ -93,13 +93,9 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
               ? b.recommendation.tpLadderR.map((r) => `${r}R`).join(" · ")
               : "—"}
           </div>
-          {tp1 ? (
+          {tp1 && (
             <div className="text-[10px] text-primary">
               TP1* (win-rate maxing): {tp1.r}R · hits {(tp1.hitRate * 100).toFixed(0)}% of trades
-            </div>
-          ) : (
-            <div className="text-[10px] text-muted-foreground">
-              Capped at most-common TP hit: {b.mostCommonTpHit ?? "n/a"}
             </div>
           )}
         </div>
