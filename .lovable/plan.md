@@ -1,50 +1,46 @@
-## Audit of current strategy presets
+# Pair Lab — simplify confusing surfaces
 
-**The 6 presets in `src/lib/pairLabPresets.ts` are mathematically correct** under the proof-based replay engine (`replayOneTrade`), with these caveats:
+After auditing `/pair-lab`, the math is sound but the **UI exposes too many quant knobs at once**. A non-quant trader lands on the page and sees: 4 confidence/CI styles, 2 expectancies (mean + median), 3 modes (Strict / Walk-forward / Prop-firm), and the Compare tab duplicates the Ranker. This is the cleanup.
 
-### Accuracy findings
+## What's overengineered or redundant
 
-1. **Runner preset partial fractions** — `33% @1R + 33% @2R` partials sum to 0.67, leaving 0.33 for `trail_to_mfe`. Code handles this correctly via `remainingFrac`. No bug, but the label says "33% / 33% / trail" while the actual fractions are 0.34 / 0.33 / 0.33 — rounding artifact, harmless.
-2. **"Your current behavior" baseline is mislabeled** — `useActualOutcome: true` returns `r_actual`, then multiplies by `(simBalance * riskPct%)`. So the "+$25,450" baseline is *not* the user's real P&L; it is "what your recorded R-outcomes would have produced at 1% risk on $100k". Label says "Baseline to beat" which is fine, but description should clarify this is a normalized-risk replay, not actual dollars booked.
-3. **`Tighten SL → ideal · all-out @2R` clamps `idealSlScale` to [0.2, 2]** in `idealSlScaleFor()`. If a user's logged ideal-SL is much tighter than recorded SL (e.g. 0.15× — common after wide initial stops), the floor of 0.2 silently caps the benefit. Not a bug per se, but worth widening the floor to 0.1 or surfacing the clamp count.
-4. **`widen_to_mae_p75_x_1_15` SL rule exists in the engine but no preset uses it** — dead code path.
-5. **Walk-forward winner is chosen on IS expectancyR alone**, ignoring Sharpe/eligibility — a noisy IS winner can carry to OOS. Already tiebreaks on Sharpe in the main ranker; mirror that in `walkForwardEvaluate`.
+| # | Surface | Why it confuses | Action |
+|---|---|---|---|
+| 1 | **`StrategyCompare` (side-by-side picker + equity overlay)** | Auto-ranker already shows all 12 presets ranked, with CI + Sharpe. Compare adds a second mental model ("matched intersection") that contradicts the ranker's per-preset N. Users have to learn the difference. | **Remove the Compare card.** Keep `EquityCurveOverlay` but render it inline under the auto-ranker for the top-1 vs "current" only. |
+| 2 | **"Strict" toggle in `StrategyRanker`** | Switches the leaderboard between native-N and intersection-N — same data, different denominators. 99% of users won't grasp the difference; the dot+tooltip already flags coverage. | Remove the Strict toggle. Always show native-N (current default). |
+| 3 | **"Planned profile" + "Actual profile" selectors in the header** | Two near-identical dropdowns side by side, both default to "Any". Most users don't tag both fields. | Collapse to **one "Profile" filter** that searches either field. Keep both fields in the data model. |
+| 4 | **Hypothetical SL sweep table (5 rows of MAE quantiles in `RecommendationCard`)** | A grid optimization inside a recommendation card. The single "Suggested SL" tile already encodes the answer. | Hide behind a `<details>` "Show SL sensitivity" disclosure. |
+| 5 | **"TP1*" line under TP ladder** | Adds a third TP concept (win-rate-maxing) next to the ladder and the suggested SL. Most users want one TP plan. | Keep TP1* number but move it into the same tile as the ladder with a small "win-max" tag — no separate sub-paragraph. |
+| 6 | **`SimulatorProfileSettings` button buried in the simulator scope bar** | Users click "Sim $" input and don't realize the source-of-truth is a profile. Two ways to set the same number. | Make the Sim $ input read-only with a "Edit in profile" link — single source of truth. |
+| 7 | **`QuantNotePanel` (AI quant note)** rendered next to `RecommendationCard` by default | Doubles the visual load on cell-select. Empty state ("Generate an AI note…") competes with the actual recommendation. | Render only the Generate button by default; expand into the full layout after the note exists. |
+| 8 | **"Partial-fill" warning banner** | Long copy block about unimplemented consolidation — informational only, no action. | Shorten to a one-line muted note; move details into a tooltip. |
+| 9 | **Median R + Mean R both shown in `RecommendationCard`** | Two expectancies invite the question "which is right?" | Keep Mean R + CI. Drop "Median R" row. |
+| 10 | **"Reached R" diagnostic column in the ranker** | Marketed as "self-selection bias diagnostic" — that's PhD-level. | Hide column by default behind a "diagnostics" toggle on the ranker, or drop entirely. |
 
-### Strategies that *should* exist given the data the engine already collects
+## Out of scope (keeping these — they are load-bearing)
 
-The engine records `loggedMfe`, `loggedMae`, `r_actual`, `idealSlScale`, plus bucket-level `maeP75`. Six obvious presets are missing:
+- Walk-forward toggle (genuine overfitting check; one switch, one badge)
+- Prop-firm mode (changes binding constraint; clearly labeled)
+- Coverage dot + ineligibility tooltip (this is *exactly* the level of transparency the engine needs)
+- BH/FDR badges in `BucketGrid` (one badge per bucket, low cost)
+- 12 strategy presets (just added; sorting handles "too many")
 
-| # | Proposed preset | Why it fits the data |
-|---|---|---|
-| 7 | **All-out @3R** | The Auto-ranker shows mean Reached R = 4.73R across the sample — every current preset caps booking at 2R, leaving the entire right tail on the table. A 3R preset will reveal whether targets are being closed too early. |
-| 8 | **Pure trail from entry (no partials)** | Trail-capture is now empirically measured (38%, N=23). A pure trail preset isolates trailing-stop value vs. the 2R cap. Needs the engine to skip the `partials.length === 0 + be_after_first_tp` guard (use `trail_to_mfe`). |
-| 9 | **Tighten SL → ideal · scale-out 50%@1R + 50%@2R** | Same SL tightening but lower-variance exit; lets the ranker isolate SL-tightening from exit-style. |
-| 10 | **Tighten SL → ideal · runner 33%/33%/trail** | Mirrors #9 with the runner — completes the SL × exit matrix. |
-| 11 | **Widen SL → MAE-p75 × 1.15 · all-out @2R** | Activates the dead `widen_to_mae_p75_x_1_15` rule. Tests whether SL tightness is sacrificing R-multiples for win rate. |
-| 12 | **Bucket-adaptive TP @ MFE p60 of bucket** | Use bucket-level MFE distribution (already computed) to pick a data-driven TP per bucket instead of fixed 1R/2R. Single partial at p60(MFE), all-out. Most "quant-like" of the proposed presets — the others are heuristics. |
+## Technical changes
 
-#12 requires a new `exitRule.partials` mode that resolves `atR` from a bucket statistic at replay time. Smallest engine change: add an `atRSource: "fixed" | "bucket_mfe_p60" | "bucket_mfe_p75"` field; resolve in `replayOneTrade`.
+**Files to edit (frontend only):**
+- `src/pages/PairLab.tsx` — collapse profile selectors to one; remove `<StrategyCompare>` mount; render `EquityCurveOverlay` inline under ranker.
+- `src/components/pair-lab/StrategyRanker.tsx` — remove Strict toggle & branch; hide "Reached R" column behind a `showDiagnostics` local state (default off).
+- `src/components/pair-lab/RecommendationCard.tsx` — wrap SL sweep table in `<details>`; merge TP1* into the TP tile; drop Median R `StatLine`.
+- `src/components/pair-lab/QuantNotePanel.tsx` — render only header + Generate button when `note == null`.
+- `src/pages/PairLab.tsx` — shorten partial-fill banner copy, move details to a Tooltip.
+- `src/components/pair-lab/SimulatorProfileSettings.tsx` (or the scope-bar block in `PairLab.tsx`) — make Sim $ display read-only with an "Edit" link.
+- **Delete:** `src/components/pair-lab/StrategyCompare.tsx` and its import in `PairLab.tsx`. `StrategyPresetPicker.tsx` is still used by other paths? Verify with `rg` before deletion; if unused, delete too.
 
-### Implementation
+**No engine, math, or DB changes.** All replay/CI/BH/walk-forward logic stays intact — only the UI surface is reduced.
 
-1. `src/lib/pairLabSimulator.ts`
-   - Add optional `atRSource?: "fixed" | "bucket_mfe_p50" | "bucket_mfe_p60" | "bucket_mfe_p75"` on partials (default `"fixed"`).
-   - Extend `BucketConstants` with `mfeP50`, `mfeP60`, `mfeP75` (computed from existing `loggedMfe` extraction).
-   - In `replayOneTrade`, resolve each partial's effective `atR` from the bucket constant when `atRSource !== "fixed"`. If the bucket stat is null or ≤ 0, mark ineligible (`"bucket has no MFE samples for adaptive TP"`).
-   - Relax the `be_after_first_tp + no partials` guard so a pure-trail preset works (the existing `trail_to_mfe` branch already handles `anyFilled=false`).
-   - In `walkForwardEvaluate`, add Sharpe tiebreak when IS expectancies tie within 0.05R.
-   - Lower `idealSlScale` floor from 0.2 to 0.1; emit `clampedCount` in `ReplayResult` so UI can flag it.
+## Verification
 
-2. `supabase/functions/_shared/quant/pairLabSimulator.ts` — mirror all of the above.
-
-3. `src/lib/pairLabPresets.ts` — add the 6 new entries above. Fix the "current behavior" description to read: *"Replay using each trade's recorded R-outcome at this simulator risk % — normalized P&L baseline, not actual dollars booked."*
-
-4. `src/components/pair-lab/StrategyRanker.tsx` — no structural change; the new presets will appear in the leaderboard automatically. Add a column tooltip noting bucket-adaptive presets resolve TP per-bucket.
-
-### Verification
-
-- Run preview on `/pair-lab` via Playwright, screenshot the Auto-ranker leaderboard, confirm 12 rows render with no console errors and the new "All-out @3R" / adaptive presets produce sensible eligible counts.
-- Spot-check `bucket_mfe_p60` math against a single bucket: open the Grid tab, pick a cell with N≥10, compare the resolved TP to the bucket's MFE p60 shown in `BucketGrid`.
-- Confirm walk-forward still reports OOS and the overfit flag triggers when expected.
-
-No DB / schema changes.
+- Playwright on `/pair-lab`: load page, select a cell, confirm RecommendationCard renders without SL sweep open and without Median R; expand `<details>` and confirm sweep table appears.
+- Confirm `StrategyRanker` still renders 12 rows and the winner card; no Strict toggle visible.
+- Confirm Compare card is gone and an equity overlay (winner vs current) appears under the ranker.
+- Console errors: none.
