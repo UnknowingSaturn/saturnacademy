@@ -546,6 +546,8 @@ function computeBucket(
   // R for the distribution display.
   const maesR: number[] = [];
   const maesPips: number[] = [];
+  /** Per-trade tuples used by the SL sweep — needs MAE-pips, planned SL-pips, and actual R. */
+  const sweepRows: Array<{ maePips: number; slPips: number; rActual: number }> = [];
   for (const t of rows) {
     const maeTicks = numericCf(t as any, keys.mae);
     if (maeTicks == null || !t.symbol) continue;
@@ -555,7 +557,12 @@ function computeBucket(
     maesPips.push(maePips);
     if (t.sl_initial != null && t.entry_price != null) {
       const slDistPips = Math.abs(t.entry_price - t.sl_initial) / pip;
-      if (slDistPips > 0) maesR.push(maePips / slDistPips);
+      if (slDistPips > 0) {
+        maesR.push(maePips / slDistPips);
+        if (t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual)) {
+          sweepRows.push({ maePips, slPips: slDistPips, rActual: t.r_multiple_actual });
+        }
+      }
     }
   }
 
@@ -597,6 +604,39 @@ function computeBucket(
     else slDrift = "aligned";
   }
 
+  // Hypothetical SL sweep: replay outcomes at candidate SLs drawn from the
+  // MAE quantile distribution. If MAE > candidate SL, the trade is stopped
+  // at −1R; otherwise the actual outcome is rescaled by the SL ratio.
+  let slSweep: SlSweepRow[] | null = null;
+  if (sweepRows.length >= 10) {
+    const maePipsForQ = sweepRows.map((r) => r.maePips);
+    const quants = [0.25, 0.4, 0.55, 0.7, 0.9];
+    const seen = new Set<string>();
+    const rows: SlSweepRow[] = [];
+    for (const q of quants) {
+      const slCand = quantile(maePipsForQ, q);
+      if (slCand == null || !(slCand > 0)) continue;
+      const key = slCand.toFixed(2);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let stopped = 0;
+      let sumR = 0;
+      for (const r of sweepRows) {
+        if (r.maePips > slCand) { sumR += -1; stopped += 1; }
+        else { sumR += r.rActual * (r.slPips / slCand); }
+      }
+      const meanR = sumR / sweepRows.length;
+      rows.push({
+        q,
+        slPips: slCand,
+        pctStopped: stopped / sweepRows.length,
+        meanR,
+        deltaR: meanR - expectedR,
+      });
+    }
+    if (rows.length > 0) slSweep = rows;
+  }
+
   const stats: BucketStats = {
     key,
     rawSymbols: [],
@@ -619,13 +659,17 @@ function computeBucket(
     slDrift,
     confidence: confidenceFor(n),
     expectedRCi: bootstrapMeanCi(rActuals),
+    expectancyPValue: bootstrapPositivePValue(rActuals),
     worstLosingStreak: longestLossStreak(rows),
     loggedMfeCount: closed.filter((t) => numericCf(t as any, keys.mfe) != null).length,
     loggedMaeCount: closed.filter((t) => {
       const v = numericCf(t as any, keys.mae);
       return v != null && t.sl_initial != null && t.entry_price != null;
     }).length,
+    slSweep,
   };
+
+
 
 
   const recommendation = buildRecommendation(stats, winR, lossR, mfes, baseline, propFirm);
