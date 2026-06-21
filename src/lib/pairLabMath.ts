@@ -261,6 +261,51 @@ export function bootstrapMeanCi(values: number[], iters = 500): [number, number]
 }
 
 /**
+ * One-sided bootstrap p-value that mean(values) > 0.
+ * Resamples with replacement; p = fraction of resampled means ≤ 0.
+ * Returns null when n < 5. Floor at 1/iters to avoid log(0) downstream.
+ */
+export function bootstrapPositivePValue(values: number[], iters = 500): number | null {
+  const xs = values.filter((v) => Number.isFinite(v));
+  if (xs.length < 5) return null;
+  let hash = xs.length * 1000003 + 7;
+  for (let i = 0; i < xs.length; i++) {
+    hash = (hash * 31 + Math.floor(xs[i] * 1000)) | 0;
+  }
+  const rand = makeSeededRng(hash);
+  let nonPos = 0;
+  for (let i = 0; i < iters; i++) {
+    let sum = 0;
+    for (let j = 0; j < xs.length; j++) sum += xs[Math.floor(rand() * xs.length)];
+    if (sum / xs.length <= 0) nonPos += 1;
+  }
+  return Math.max(1 / iters, nonPos / iters);
+}
+
+/**
+ * Benjamini–Hochberg FDR adjustment. Returns a boolean[] same length as `pvals`
+ * marking which hypotheses are significant at level `alpha` after BH correction.
+ * Entries with null p-value are treated as non-significant.
+ */
+export function bhSignificant(pvals: Array<number | null>, alpha = 0.05): boolean[] {
+  const indexed = pvals
+    .map((p, i) => ({ p, i }))
+    .filter((x): x is { p: number; i: number } => x.p != null && Number.isFinite(x.p));
+  indexed.sort((a, b) => a.p - b.p);
+  const m = indexed.length;
+  const out = new Array<boolean>(pvals.length).fill(false);
+  if (m === 0) return out;
+  // Find largest k with p_(k) ≤ k/m * alpha.
+  let kMax = -1;
+  for (let k = 1; k <= m; k++) {
+    if (indexed[k - 1].p <= (k / m) * alpha) kMax = k;
+  }
+  if (kMax < 0) return out;
+  for (let k = 0; k < kMax; k++) out[indexed[k].i] = true;
+  return out;
+}
+
+/**
  * Bootstrap 95% CI on the raw quarter-Kelly fraction (percent of account).
  * Resamples paired (winR, lossR) outcomes, recomputes Kelly per resample.
  */
