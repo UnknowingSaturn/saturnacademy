@@ -36,9 +36,19 @@ export const TRAIL_CAPTURE_FRAC = 0.8;
 
 export type SlRule = "original" | "tighten_to_ideal" | "widen_to_mae_p75_x_1_15";
 export type RunnerRule = "trail_to_mfe" | "be_after_first_tp" | "all_out_at_last_partial";
+/** Source for a partial's atR target. "fixed" uses `atR` as-is; bucket_mfe_pN
+ * resolves to the Nth percentile of MFE-in-R for the trades in the replay set. */
+export type AtRSource = "fixed" | "bucket_mfe_p50" | "bucket_mfe_p60" | "bucket_mfe_p75";
+
+export interface PartialRule {
+  atR: number;
+  fraction: number;
+  /** Defaults to "fixed". When set, `atR` is overridden by the bucket statistic. */
+  atRSource?: AtRSource;
+}
 
 export interface ExitRule {
-  partials: Array<{ atR: number; fraction: number }>;
+  partials: PartialRule[];
   runner: RunnerRule;
 }
 
