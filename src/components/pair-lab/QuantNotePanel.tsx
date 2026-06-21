@@ -103,6 +103,18 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
 
   const tooFewSamples = bucket.confidence === "low";
 
+  const b = bucket;
+  const fmtR = (v: number | null | undefined) =>
+    v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "R";
+  const driftBadge =
+    b.slDrift === "too_wide" ? (
+      <Badge variant="outline" className="text-loss border-loss/40 bg-loss/10 text-[10px]">stops too wide</Badge>
+    ) : b.slDrift === "too_tight" ? (
+      <Badge variant="outline" className="text-amber-500 border-amber-500/40 bg-amber-500/10 text-[10px]">stops too tight</Badge>
+    ) : b.slDrift === "aligned" ? (
+      <Badge variant="outline" className="text-profit border-profit/40 bg-profit/10 text-[10px]">SL aligned</Badge>
+    ) : null;
+
   return (
     <Card className="p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -110,8 +122,9 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
           <Sparkles className="w-4 h-4 text-primary" />
           <h3 className="font-semibold text-sm">AI quant note</h3>
           <Badge variant="outline" className="text-xs">
-            {bucket.key.symbol} · {bucket.key.session}
+            {b.key.symbol} · {b.key.session}
           </Badge>
+          {driftBadge}
         </div>
         <Button
           size="sm"
@@ -130,6 +143,55 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
           )}
         </Button>
       </div>
+
+      {/* Bucket stats strip — replaces the removed RecommendationCard fact sheet. */}
+      {b.n > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs border-y border-border/40 py-3">
+          <div>
+            <div className="text-muted-foreground">N</div>
+            <div className="font-mono-numbers font-semibold text-sm">{b.n}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Win rate</div>
+            <div className="font-mono-numbers font-semibold text-sm">
+              {(b.winRate * 100).toFixed(1)}%
+              <span className="text-muted-foreground font-normal text-[10px] ml-1">
+                {b.wins}W/{b.losses}L
+              </span>
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Expected R</div>
+            <div className="font-mono-numbers font-semibold text-sm">{fmtR(b.expectedR)}</div>
+            {b.expectedRCi && (
+              <div className="text-[10px] text-muted-foreground font-mono-numbers">
+                {fmtR(b.expectedRCi[0])} … {fmtR(b.expectedRCi[1])}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-muted-foreground">MFE p50/p75</div>
+            <div className="font-mono-numbers font-semibold text-sm">
+              {b.mfeP50?.toFixed(2) ?? "—"} / {b.mfeP75?.toFixed(2) ?? "—"}R
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">MAE p50/p75</div>
+            <div className="font-mono-numbers font-semibold text-sm">
+              {b.maeP50 != null ? b.maeP50.toFixed(2) : "—"} / {b.maeP75 != null ? b.maeP75.toFixed(2) : "—"}R
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">SL drift</div>
+            <div className="font-mono-numbers font-semibold text-sm">
+              {b.slInitialMedian != null && b.idealSlMedian != null
+                ? `${b.slInitialMedian.toFixed(0)} → ${b.idealSlMedian.toFixed(0)}`
+                : "—"}
+            </div>
+            <div className="text-[10px] text-muted-foreground">planned → ideal (pips)</div>
+          </div>
+        </div>
+      )}
 
       {bucket.n === 0 && (
         <p className="text-sm text-muted-foreground">No trades in this bucket — nothing to analyze.</p>
