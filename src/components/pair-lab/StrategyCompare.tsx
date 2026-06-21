@@ -290,8 +290,7 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
         <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed flex items-start gap-1.5">
           <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
           <span>
-            Proof-only replay: a trade is eligible for a preset when MFE,
-            {" "}<code className="text-[10px]">tp_reached</code>, or
+            Proof-only replay: a trade is eligible for a preset when MFE or
             {" "}<code className="text-[10px]">r_actual</code> proves the rule's targets were reached
             (or the trade stopped out). MAE and Ideal-SL are logged in broker ticks and converted to R
             using each trade's initial-SL distance — trades missing
