@@ -447,14 +447,6 @@ function computeBucket(
     slInitials.push(Math.abs(t.entry_price - t.sl_initial) / pip);
   }
 
-  const tpDist: Record<string, number> = {};
-  for (const t of rows) {
-    for (const v of multiSelectCf(t as any, keys.tpReached)) {
-      tpDist[v] = (tpDist[v] ?? 0) + 1;
-    }
-  }
-  const mostCommonTpHit = Object.entries(tpDist).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-
   const n = closed.length;
   const winRate = n > 0 ? wins.length / n : 0;
   const expectedR = mean(rActuals);
