@@ -81,7 +81,7 @@ function idealSlScaleFor(t: any, idealTicks: number | null): number | null {
   const slPips = slDistancePips(t);
   if (slPips == null || slPips <= 0) return null;
   const idealPips = ticksToPips(t.symbol, idealTicks);
-  return Math.max(0.2, Math.min(2, idealPips / slPips));
+  return Math.max(0.1, Math.min(2, idealPips / slPips));
 }
 
 interface TradeProof {
