@@ -112,36 +112,6 @@ function numericCf(trade: any, key: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function multiSelectCf(trade: any, key: string | null): string[] {
-  const v = getCf(trade, key);
-  if (Array.isArray(v)) return v.map(String);
-  if (typeof v === "string" && v) return [v];
-  return [];
-}
-
-/** Parse strings like "1:2", "1R", "2", "TP2" → R-multiple. */
-function parseTpLabel(s: string): number | null {
-  if (!s) return null;
-  const clean = s.trim().toUpperCase();
-  const ratio = clean.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
-  if (ratio) {
-    const a = Number(ratio[1]), b = Number(ratio[2]);
-    if (a > 0) return b / a;
-  }
-  const tp = clean.match(/^TP\s*(\d+(?:\.\d+)?)$/);
-  if (tp) return Number(tp[1]);
-  const num = clean.match(/^(\d+(?:\.\d+)?)R?$/);
-  if (num) return Number(num[1]);
-  return null;
-}
-
-function maxTpReached(trade: Trade, keys: PairLabFieldKeys): number | null {
-  const labels = multiSelectCf(trade as any, keys.tpReached);
-  if (labels.length === 0) return null;
-  const rs = labels.map(parseTpLabel).filter((v): v is number => v != null && v > 0);
-  if (rs.length === 0) return null;
-  return Math.max(...rs);
-}
 
 /**
  * Distance from entry to initial stop, expressed in broker ticks.
