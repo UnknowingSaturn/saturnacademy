@@ -5,7 +5,6 @@
 // preset if the recorded data PROVES the rules would have triggered:
 //
 //   - Logged MFE ≥ X  → price reached X.            (proof)
-//   - tp_reached "X"  → price reached X.            (proof)
 //   - r_actual ≥ X    → price reached at least X.   (proof; close happened there)
 //   - Logged MAE ≥ S  → trade stopped at SL distance S.
 //
