@@ -159,7 +159,7 @@ export function idealSlScaleFor(t: Trade, idealPips: number | null): number | nu
 // ----------------------------------------------------------------------------
 
 interface TradeProof {
-  /** Proven max R reached (max of MFE, tp_reached, max(0, r_actual)). */
+  /** Proven max R reached (max of MFE, max(0, r_actual)). */
   reachedR: number;
   /** Has any proof of reach (any of the three signals present). */
   hasReachProof: boolean;
