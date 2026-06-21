@@ -9,7 +9,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -17,12 +16,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Trophy, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import {
   replayBucket,
-  replayBucketMatched,
   walkForwardEvaluate,
   MIN_ELIGIBLE_SAMPLE,
   type ReplayResult,
 } from "@/lib/pairLabSimulator";
 import { STRATEGY_PRESETS } from "@/lib/pairLabPresets";
+import { EquityCurveOverlay } from "./EquityCurveOverlay";
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext, TrailCaptureEstimate } from "@/lib/pairLabMath";
 
@@ -66,26 +65,17 @@ export function StrategyRanker({
   defaultRiskPct = 1, trailCapture, effectiveTrailCapture,
 }: Props) {
   const [riskPct, setRiskPct] = useState<number>(defaultRiskPct);
-  const [simBalance, setSimBalance] = useState<number>(balance);
-  const [strictMode, setStrictMode] = useState<boolean>(false);
   const [walkForward, setWalkForward] = useState<boolean>(false);
-  useEffect(() => { setSimBalance(balance); }, [balance]);
   useEffect(() => { setRiskPct(defaultRiskPct); }, [defaultRiskPct]);
 
   const replayOpts = useMemo(
-    () => ({ balance: simBalance, propFirm, trailCapture: effectiveTrailCapture }),
-    [simBalance, propFirm, effectiveTrailCapture],
+    () => ({ balance, propFirm, trailCapture: effectiveTrailCapture }),
+    [balance, propFirm, effectiveTrailCapture],
   );
 
   const ranked = useMemo(() => {
     const presets = STRATEGY_PRESETS.map((p) => ({ ...p, riskPct }));
-    let results: ReplayResult[];
-    if (strictMode) {
-      const matched = replayBucketMatched(trades, fieldKeys, presets, replayOpts);
-      results = matched.results;
-    } else {
-      results = presets.map((p) => replayBucket(trades, fieldKeys, p, replayOpts));
-    }
+    const results = presets.map((p) => replayBucket(trades, fieldKeys, p, replayOpts));
     return results.sort((a, b) => {
       const aBust = busted(a);
       const bBust = busted(b);
@@ -94,14 +84,12 @@ export function StrategyRanker({
       const bOk = b.eligibleCount >= MIN_ELIGIBLE_SAMPLE ? 1 : 0;
       if (aOk !== bOk) return bOk - aOk;
       if (b.expectancyR !== a.expectancyR) return b.expectancyR - a.expectancyR;
-      // Tiebreak on risk-adjusted return (Sharpe of per-trade R) so a preset
-      // with a tighter distribution beats a noisy one of equal expectancy.
       const aS = a.sharpeR ?? -Infinity;
       const bS = b.sharpeR ?? -Infinity;
       if (bS !== aS) return bS - aS;
       return b.eligibleCount - a.eligibleCount;
     });
-  }, [trades, fieldKeys, riskPct, strictMode, replayOpts]);
+  }, [trades, fieldKeys, riskPct, replayOpts]);
 
   const walkForwardResult = useMemo(() => {
     if (!walkForward) return null;
