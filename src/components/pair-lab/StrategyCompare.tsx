@@ -113,27 +113,30 @@ function StrategyMetrics({ r, winner, nativeN }: { r: ReplayResult; winner: bool
   );
 }
 
-export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLabel }: Props) {
+export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLabel, effectiveTrailCapture }: Props) {
   const [stratA, setStratA] = useState<Strategy>(getPreset("current")!);
   const [stratB, setStratB] = useState<Strategy>(getPreset("scale-out")!);
   const [simBalance, setSimBalance] = useState<number>(balance);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
-  // Matched-sample replay: both strategies scored on the intersection of eligible trades.
+  const replayOpts = useMemo(
+    () => ({ balance: simBalance, propFirm, trailCapture: effectiveTrailCapture }),
+    [simBalance, propFirm, effectiveTrailCapture],
+  );
+
   const matched = useMemo(
-    () => replayBucketMatched(trades, fieldKeys, [stratA, stratB], { balance: simBalance, propFirm }),
-    [trades, fieldKeys, stratA, stratB, simBalance, propFirm],
+    () => replayBucketMatched(trades, fieldKeys, [stratA, stratB], replayOpts),
+    [trades, fieldKeys, stratA, stratB, replayOpts],
   );
   const [resA, resB] = matched.results;
 
-  // Native eligible counts (each preset's own eligible sample, for context).
   const nativeA = useMemo(
-    () => replayBucket(trades, fieldKeys, stratA, { balance: simBalance, propFirm }).eligibleCount,
-    [trades, fieldKeys, stratA, simBalance, propFirm],
+    () => replayBucket(trades, fieldKeys, stratA, replayOpts).eligibleCount,
+    [trades, fieldKeys, stratA, replayOpts],
   );
   const nativeB = useMemo(
-    () => replayBucket(trades, fieldKeys, stratB, { balance: simBalance, propFirm }).eligibleCount,
-    [trades, fieldKeys, stratB, simBalance, propFirm],
+    () => replayBucket(trades, fieldKeys, stratB, replayOpts).eligibleCount,
+    [trades, fieldKeys, stratB, replayOpts],
   );
 
   if (trades.length === 0) {
