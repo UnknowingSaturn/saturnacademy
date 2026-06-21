@@ -136,18 +136,6 @@ export function StrategyRanker({
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex items-center gap-2 rounded-md border border-border/60 px-2 py-1">
-                  <Label htmlFor="rank-strict" className="text-xs cursor-pointer">Strict</Label>
-                  <Switch id="rank-strict" checked={strictMode} onCheckedChange={setStrictMode} />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                Score every preset on the intersection of trades eligible under ALL presets — apples-to-apples
-                leaderboard. Sample shrinks; turn off for per-preset native samples.
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 rounded-md border border-border/60 px-2 py-1">
                   <Label htmlFor="rank-wf" className="text-xs cursor-pointer">Walk-forward</Label>
                   <Switch id="rank-wf" checked={walkForward} onCheckedChange={setWalkForward} />
                 </div>
@@ -157,17 +145,9 @@ export function StrategyRanker({
                 Flags overfitting when OOS expectancy collapses.
               </TooltipContent>
             </Tooltip>
-            <div className="flex items-center gap-2">
-              <Label htmlFor="rank-balance" className="text-xs whitespace-nowrap">Sim $</Label>
-              <Input
-                id="rank-balance"
-                type="number"
-                value={simBalance}
-                onChange={(e) => setSimBalance(Math.max(0, Number(e.target.value) || 0))}
-                className="h-8 w-28 font-mono-numbers text-xs"
-                min={0}
-                step={1000}
-              />
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground">Sim $</span>
+              <span className="font-mono-numbers font-semibold">${balance.toLocaleString()}</span>
             </div>
             <div className="flex items-center gap-2 min-w-[220px]">
               <Label htmlFor="rank-risk" className="text-xs whitespace-nowrap">
