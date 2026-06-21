@@ -612,7 +612,7 @@ function computeBucket(
     const maePipsForQ = sweepRows.map((r) => r.maePips);
     const quants = [0.25, 0.4, 0.55, 0.7, 0.9];
     const seen = new Set<string>();
-    const rows: SlSweepRow[] = [];
+    const sweepOut: SlSweepRow[] = [];
     for (const q of quants) {
       const slCand = quantile(maePipsForQ, q);
       if (slCand == null || !(slCand > 0)) continue;
@@ -634,7 +634,7 @@ function computeBucket(
         deltaR: meanR - expectedR,
       });
     }
-    if (rows.length > 0) slSweep = rows;
+    if (sweepOut.length > 0) slSweep = sweepOut;
   }
 
   const stats: BucketStats = {
