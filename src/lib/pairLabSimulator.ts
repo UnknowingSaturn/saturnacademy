@@ -569,6 +569,21 @@ function ctxFor(opts: ReplayOpts, bucket: BucketConstants): ReplayContext {
   };
 }
 
+/** Resolve the displayable TP ladder for a strategy given a bucket. Adaptive
+ *  partials get their bucket-resolved atR. Returns [] when the bucket lacks the
+ *  required stat (UI shows "—"). */
+function buildAppliedTpLadder(strategy: Strategy, bucket: BucketConstants): AppliedTpLeg[] {
+  if (strategy.useActualOutcome) return [];
+  const out: AppliedTpLeg[] = [];
+  for (const p of strategy.exitRule.partials) {
+    const source: AtRSource = p.atRSource ?? "fixed";
+    const resolved = resolvePartialAtR(p, bucket);
+    if (resolved == null) continue;
+    out.push({ atR: resolved, fraction: p.fraction, source });
+  }
+  return out.sort((a, b) => a.atR - b.atR);
+}
+
 export function replayBucket(
   trades: Trade[],
   keys: PairLabFieldKeys,
@@ -578,18 +593,18 @@ export function replayBucket(
   const all = preparedTrades(trades);
   const bucket = buildBucketConstants(all, keys);
   const ctx = ctxFor(opts, bucket);
-  const replayed: Array<{ trade: Trade; r: number; reachedR: number }> = [];
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null }> = [];
   const reasons: Record<string, number> = {};
 
   for (const t of all) {
     const proof = extractProof(t, keys);
     const out = replayOneTrade(strategy, t, proof, ctx);
-    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR });
+    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips });
     else reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
   }
 
-
-  return buildResult(strategy, replayed, reasons, all.length, opts);
+  const ladder = buildAppliedTpLadder(strategy, bucket);
+  return buildResult(strategy, replayed, reasons, all.length, opts, ladder);
 }
 
 export interface MatchedReplay {
