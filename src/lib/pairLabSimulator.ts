@@ -186,13 +186,11 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
   const loggedMaeRawTicks = numericCf(trade as any, keys.mae);
   const loggedMae = tradeMaeR(trade, loggedMaeRawTicks);
 
-  const tpHit = maxTpReached(trade, keys);
   const rActual = trade.r_multiple_actual;
   const hasActualR = rActual != null;
 
   const proofs: number[] = [];
   if (loggedMfe != null) proofs.push(loggedMfe);
-  if (tpHit != null) proofs.push(tpHit);
   if (hasActualR && (rActual as number) > 0) proofs.push(rActual as number);
   const reachedR = proofs.length ? Math.max(...proofs) : 0;
   const hasReachProof = proofs.length > 0;
