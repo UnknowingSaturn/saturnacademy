@@ -8,8 +8,6 @@
 // Design notes:
 //   - Robust statistics only (median, quantiles, IQR). Means are easy to
 //     manipulate with a single outlier; medians aren't.
-//   - We never recommend a TP target the trader has never actually reached
-//     according to cf_tp_reached, even if the MFE distribution suggests it.
 //   - Kelly is scaled to 0.25 (quarter-Kelly) and clamped, because the sample
 //     sizes here are tiny by quant standards.
 //   - Confidence is exposed as a sample-size bucket so the UI can hide the
