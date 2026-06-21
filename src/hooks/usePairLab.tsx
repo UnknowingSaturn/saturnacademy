@@ -106,7 +106,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const aliases = aliasesQuery.data ?? [];
     const fieldKeys = resolvePairLabFieldKeys(defs);
     const missingFields =
-      !fieldKeys.mfe && !fieldKeys.mae && !fieldKeys.tpReached && !fieldKeys.idealStopLoss;
+      !fieldKeys.mfe && !fieldKeys.mae && !fieldKeys.idealStopLoss;
 
     const symbolResolver = buildSymbolResolver(aliases);
 
