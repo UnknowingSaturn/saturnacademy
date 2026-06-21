@@ -6,18 +6,19 @@
 // Sort by expectancy R, tiebreak by Sharpe-of-R (mean / std).
 // ============================================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Trophy, AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { Trophy, AlertTriangle, CheckCircle2, Info, ChevronRight } from "lucide-react";
 import {
   replayBucket,
   walkForwardEvaluate,
   MIN_ELIGIBLE_SAMPLE,
+  TP_SOURCE_LABELS,
   type ReplayResult,
 } from "@/lib/pairLabSimulator";
 import { STRATEGY_PRESETS } from "@/lib/pairLabPresets";
