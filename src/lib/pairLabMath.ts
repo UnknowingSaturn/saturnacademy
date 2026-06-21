@@ -516,21 +516,14 @@ function buildRecommendation(
     suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
   }
 
-  // Expected-R TP ladder, capped by the most-common TP hit so we never
-  // recommend a target the user has never reached in practice. Reuses the
-  // simulator's full TP-label parser ("1:2", "TP2", "2R", …).
+  // Expected-R TP ladder from win-R quantiles.
   const ladder: number[] = [];
-  const cap = (() => {
-    if (!s.mostCommonTpHit) return Infinity;
-    const parsed = parseTpLabelLocal(s.mostCommonTpHit);
-    return parsed != null && parsed > 0 ? parsed : Infinity;
-  })();
   const p70 = quantile(winR, 0.3);
   const p50 = quantile(winR, 0.5);
   const p25 = quantile(winR, 0.75);
   for (const v of [p70, p50, p25]) {
     if (v == null || v <= 0) continue;
-    ladder.push(Math.min(v, cap));
+    ladder.push(v);
   }
   const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
 
