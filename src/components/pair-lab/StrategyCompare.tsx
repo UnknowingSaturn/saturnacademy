@@ -310,7 +310,8 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
             {" "}<code className="text-[10px]">sl_initial</code> or
             {" "}<code className="text-[10px]">entry_price</code> are ineligible for MAE/ideal-SL-based presets.
             ±CI is the bootstrap 95% interval on per-trade R — when the two CIs overlap, the difference
-            isn't statistically meaningful. Trail runners assume 80% MFE capture (estimate, not proof).
+            isn't statistically meaningful. Trail runners use your empirical r_actual/MFE ratio when ≥10
+            trades have both, otherwise fall back to an 80% MFE-capture default.
           </span>
         </p>
       </Card>
