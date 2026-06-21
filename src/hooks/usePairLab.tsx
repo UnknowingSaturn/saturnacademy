@@ -10,11 +10,14 @@ import { useSimulatorProfile } from "@/hooks/useSimulatorProfile";
 import { buildSymbolResolver } from "@/lib/symbolAliasing";
 import {
   buildBuckets,
+  estimateTrailCapture,
   resolvePairLabFieldKeys,
   type PairLabFieldKeys,
   type BucketReport,
   type PropFirmContext,
+  type TrailCaptureEstimate,
 } from "@/lib/pairLabMath";
+import { TRAIL_CAPTURE_FRAC } from "@/lib/pairLabSimulator";
 
 export interface PairLabFilters {
   profile?: string | null;
@@ -24,6 +27,13 @@ export interface PairLabFilters {
 
 import type { Trade } from "@/types/trading";
 
+export interface PartialFillFlag {
+  /** Number of (accountId, symbol, entry_minute) groups with > 1 trade row. */
+  groups: number;
+  /** Total trades that fall into one of those groups. */
+  trades: number;
+}
+
 export interface PairLabData {
   isLoading: boolean;
   fieldKeys: PairLabFieldKeys;
@@ -32,22 +42,28 @@ export interface PairLabData {
   perRow: BucketReport[];
   symbols: string[];
   sessions: string[];
+  /** Closed (non-archived) trades in scope. Matches what the grid actually counts. */
   totalTrades: number;
+  /** Raw row count (incl. open trades) — kept for debugging only. */
+  totalTradeRowsRaw: number;
   missingFields: boolean;
   propFirm: PropFirmContext | null;
-  /** Filtered trades (closed-only, non-archived, profile-filtered). */
   trades: Trade[];
-  /** Resolver from raw broker symbol → canonical. */
   symbolResolver: (raw: string) => string;
-  /** Notional balance used to convert R into $. Driven by the user's Simulator Profile, independent of accounts. */
   simBalance: number;
-  /** Where the balance/prop-firm context came from. */
   simSource: "manual" | "active_account";
+  /** Default % risk for the simulator slider (from user's simulator profile). */
+  defaultSimRiskPct: number;
+  /** Empirically-derived trail-capture ratio (or null when sample too small). */
+  trailCapture: TrailCaptureEstimate | null;
+  /** Effective trail capture used by replay (estimate when present, else default 0.8). */
+  effectiveTrailCapture: number;
+  /** Heuristic warning when the same trade may appear in multiple rows. */
+  partialFillFlag: PartialFillFlag | null;
 }
 
 const SESSION_ORDER = ["Tokyo", "London", "NY AM", "NY PM"];
 
-/** Fetch prop firm rules for one firm (small static dataset, cached). */
 function usePropFirmRules(firmId: string | null | undefined) {
   return useQuery({
     queryKey: ["prop_firm_rules", firmId],
@@ -64,6 +80,23 @@ function usePropFirmRules(firmId: string | null | undefined) {
   });
 }
 
+/** Detect possible partial-fill duplication: same account+symbol within 1 minute. */
+function detectPartialFills(trades: Trade[]): PartialFillFlag | null {
+  const groups = new Map<string, number>();
+  for (const t of trades) {
+    if (t.is_open || t.is_archived) continue;
+    if (!t.symbol || !t.entry_time || !t.account_id) continue;
+    // Round to minute resolution.
+    const minute = String(t.entry_time).slice(0, 16);
+    const k = `${t.account_id}|${t.symbol}|${minute}`;
+    groups.set(k, (groups.get(k) ?? 0) + 1);
+  }
+  let g = 0;
+  let n = 0;
+  groups.forEach((count) => { if (count > 1) { g += 1; n += count; } });
+  return g > 0 ? { groups: g, trades: n } : null;
+}
+
 export function usePairLab(filters: PairLabFilters = {}): PairLabData {
   const { selectedAccountId } = useAccountFilter();
   const isAllAccounts = !selectedAccountId || selectedAccountId === "all";
@@ -73,16 +106,11 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
   const aliasesQuery = useSymbolAliases();
   const profileQuery = useSimulatorProfile();
 
-  // Only fetch the active account when the user explicitly opts into sourcing
-  // from it. The simulator otherwise runs purely on the user-level profile so
-  // deleting failed-challenge accounts never breaks historical R replay.
   const useActiveAccount = profileQuery.data?.sim_source === "active_account";
   const accountQuery = useAccount(
     useActiveAccount && !isAllAccounts ? selectedAccountId : undefined,
   );
 
-  // Resolve the effective balance + firm id from the simulator profile,
-  // optionally overlaid by the active account when the user requested it.
   const effectiveBalance = useMemo(() => {
     const profile = profileQuery.data;
     if (!profile) return 0;
@@ -110,8 +138,6 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
 
     const symbolResolver = buildSymbolResolver(aliases);
 
-    // Build prop-firm context purely from the simulator profile (or overlaid
-    // active account). Independent of whether any account row still exists.
     let propFirm: PropFirmContext | null = null;
     const profile = profileQuery.data;
     const rules = rulesQuery.data ?? [];
@@ -140,10 +166,16 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       propFirm,
     });
 
+    const closedTrades = trades.filter((t) => !t.is_open && !t.is_archived);
+
     const symbols = Array.from(new Set(perRow.map((r) => r.key.symbol))).sort();
     const sessions = Array.from(new Set(perCell.map((c) => c.key.session))).sort(
       (a, b) => SESSION_ORDER.indexOf(a) - SESSION_ORDER.indexOf(b),
     );
+
+    const trailCapture = estimateTrailCapture(closedTrades, fieldKeys);
+    const effectiveTrailCapture = trailCapture?.ratio ?? TRAIL_CAPTURE_FRAC;
+    const partialFillFlag = detectPartialFills(closedTrades);
 
     return {
       isLoading:
@@ -157,13 +189,18 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       perRow,
       symbols,
       sessions,
-      totalTrades: trades.length,
+      totalTrades: closedTrades.length,
+      totalTradeRowsRaw: trades.length,
       missingFields,
       propFirm,
       trades,
       symbolResolver,
       simBalance: effectiveBalance,
       simSource: profile?.sim_source ?? "manual",
+      defaultSimRiskPct: Number(profile?.sim_risk_per_trade_pct ?? 1),
+      trailCapture,
+      effectiveTrailCapture,
+      partialFillFlag,
     };
   }, [
     tradesQuery.data,
