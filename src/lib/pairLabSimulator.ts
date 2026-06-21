@@ -247,7 +247,7 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
 // Single-trade proof-based replay
 // ----------------------------------------------------------------------------
 
-type ReplayOutcome = { r: number } | { ineligible: string };
+type ReplayOutcome = { r: number; slPips: number | null } | { ineligible: string };
 
 interface BucketConstants {
   maeP75: number | null;
