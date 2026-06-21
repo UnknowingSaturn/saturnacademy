@@ -166,8 +166,6 @@ export interface BucketReport {
   idealSlMedianPips: number | null;
   slInitialMedianPips: number | null;
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
-  tpHitDistribution: Record<string, number>;
-  mostCommonTpHit: string | null;
   confidence: ConfidenceLevel;
   suggestedSlPips: number | null;
   /** "pips" for FX/metals/crypto/oil, "points" for indices. */
