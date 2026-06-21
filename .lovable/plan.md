@@ -1,80 +1,57 @@
-# Decouple the Pair Lab simulator from accounts
+# Remove `tp_reached` — MFE becomes the single proof source
 
-## Problem
+## Rationale
+MFE (numeric R) strictly dominates `tp_reached` (multi-select tags) for everything the simulator does. Removing it simplifies field resolution, kills a stale code path in `maxReachedR`, and shortens the trade form.
 
-Today `usePairLab` reads `balance_start` and `prop_firm` from the currently selected account (`useAccount(selectedAccountId)`), and aggregates `balance_start` across `useAccounts()` in all-accounts mode. When you delete a failed challenge:
+## Scope
 
-- The trades stay (good — your R-based stats are still valid).
-- The account row is gone, so the simulator loses balance + prop-firm context.
-- Aggregate balance silently shrinks, which distorts $ replay and Kelly sizing.
-- Prop-firm verdict disables because no firm is attached to the (now-missing) account.
+### 1. Simulator math
+**`src/lib/pairLabSimulator.ts`**
+- Drop `tp_reached` from the proof-source comment block.
+- Remove the `multiSelectCf(trade, keys.tpReached)` lookup and its contribution to `maxReachedR` — it becomes `max(loggedMfe, max(0, rActual))`.
+- Remove `tpReached` from any local destructure.
 
-Tying simulation to a mutable, deletable row is the wrong coupling. R is a property of the trade; balance and risk caps are a property of *how you want to evaluate going forward*, not of historical accounts.
+**`src/lib/pairLabMath.ts`**
+- Remove the `tpReached` entry from the `FIELD_ALIASES` table (line ~123).
+- Remove `tpReached: null` from the default `FieldKeys` object (line ~131).
+- Remove the `multiSelectCf(t, keys.tpReached)` aggregation block (~line 458) and any derived stat it feeds (likely a "TP hit distribution" counter — confirm whether it surfaces in `BucketStats`; if it does, drop the field from the type and from `BucketGrid` / `RecommendationCard` consumers).
+- Remove the comment in the header about `cf_tp_reached`.
 
-## Approach: a user-level "Simulator Profile"
+**`src/lib/pairLabPresets.ts`**
+- No change to `trail_to_mfe` runner key — that's MFE-based, not tp_reached.
 
-Introduce a single per-user simulator config that the Pair Lab (and any future simulator) reads from. It is independent of `accounts` and survives any account deletion.
+### 2. Edge function mirror
+**`supabase/functions/_shared/quant/pairLabSimulator.ts`** and **`.../pairLabMath.ts`**
+- Apply the identical removals so server-side `pair-lab-report` stays in sync.
 
-Stored on `user_settings` (already exists, no new table needed):
+### 3. Type + UI
+**`src/lib/pairLabMath.ts`** (`FieldKeys` type) — remove `tpReached: string | null`.
 
-- `sim_balance` — notional balance used to convert R → $ (e.g. 100,000)
-- `sim_prop_firm` — optional firm key (FK to `prop_firms.id`), nullable
-- `sim_risk_per_trade_pct` — default 1
-- `sim_hard_cap_pct` — default 2
-- `sim_source` — `'manual' | 'active_account'` (default `'manual'`)
+**`src/hooks/usePairLab.tsx`** (line 109) — drop `!fieldKeys.tpReached` from the "no proof fields configured" guard so the warning fires correctly with just MFE/MAE.
 
-When `sim_source = 'active_account'`, the simulator falls back to the currently selected account's balance + firm (today's behavior) — so users who want the old wiring keep it. When `'manual'` (default for new users with no live account), it uses the explicit values above and is fully independent of `accounts`.
+Search for any other consumers:
+- `RecommendationCard`, `QuantNotePanel`, `BucketGrid`, `StrategyCompare`, `StrategyRanker` — strip any "TPs hit" column / chip / copy.
+- `src/types/reports.ts` and `ReportView.tsx` — remove TP-reached references if present.
 
-## UI
+### 4. Custom field definitions (data, not schema)
+The `tp_reached` / `tps_hit` rows live in `custom_field_definitions` per user. We will **not** auto-delete them — users may still want the field for manual notes. The simulator simply stops reading it. Document this in the changelog comment at top of `pairLabSimulator.ts`.
 
-Small "Simulator settings" popover on the Pair Lab Simulator tab header:
+If you'd rather hard-delete them, that's a separate `insert`-tool DELETE pass — say the word.
 
-- Balance input (numeric, with $)
-- Prop-firm select (None / pick from `prop_firms`)
-- Risk per trade % + hard cap %
-- Source toggle: "Use active account" / "Manual"
-- "Save as default" button
-
-State persists to `user_settings` so it survives reloads and is the same across sessions.
-
-The existing all-accounts aggregate balance and the "No account balances found" empty state both go away — replaced by the manual balance, which always has a sensible default (100,000) for new users.
-
-## Cleanup
-
-- Remove `accountsQuery` aggregation and `isAllAccounts ? aggregateBalance : ...` branching from `usePairLab`.
-- Remove the "Prop-firm verdict disabled in all-accounts mode" warning and the "No account balances found" empty card from `PairLab.tsx`.
-- Keep `useAccount` only as the optional source when `sim_source = 'active_account'`.
-- Update `PageIntroBanner` body: no longer reference "the active account's daily drawdown budget" — say "your simulator profile."
-
-## Technical details
-
-1. **Migration** — `user_settings` add columns:
-   - `sim_balance numeric not null default 100000`
-   - `sim_prop_firm text` (nullable, references `prop_firms.id` loosely — no FK to keep it soft)
-   - `sim_risk_per_trade_pct numeric not null default 1`
-   - `sim_hard_cap_pct numeric not null default 2`
-   - `sim_source text not null default 'manual' check (sim_source in ('manual','active_account'))`
-   No new RLS — existing `user_settings` policies cover it. No GRANTs needed (table already granted).
-
-2. **Hook refactor** — `usePairLab`:
-   - Read `user_settings` for the five sim_* fields.
-   - Build `propFirm` from `sim_prop_firm` + `prop_firm_rules` when set, regardless of accounts.
-   - Drop `aggregateBalance`. `accountBalance` becomes `simBalance` (rename in `PairLabData`).
-   - `isAllAccounts` stays for trade-scoping (it still controls which trades feed the buckets) but no longer gates prop-firm verdict.
-
-3. **New component** — `SimulatorProfileSettings.tsx` (popover trigger on the Simulator tab) with the five inputs and a Save button that updates `user_settings`.
-
-4. **Component prop renames** — `StrategyRanker` / `StrategyCompare` `balance` prop already takes a number; just feeds from the new source.
+### 5. Out of scope
+- No DB schema migration (the field is user-defined, not a column).
+- No change to MFE logging UX.
+- No change to `trail_to_mfe` runner behaviour.
 
 ## Files touched
+- `src/lib/pairLabSimulator.ts`
+- `src/lib/pairLabMath.ts`
+- `src/hooks/usePairLab.tsx`
+- `src/components/pair-lab/{RecommendationCard,QuantNotePanel,BucketGrid,StrategyCompare,StrategyRanker}.tsx` (only where tp_reached is surfaced)
+- `supabase/functions/_shared/quant/pairLabSimulator.ts`
+- `supabase/functions/_shared/quant/pairLabMath.ts`
 
-- `supabase/migrations/<ts>_sim_profile.sql` — new
-- `src/hooks/usePairLab.tsx` — refactor balance + propFirm sourcing
-- `src/pages/PairLab.tsx` — remove aggregate/empty-state branches, mount new settings popover
-- `src/components/pair-lab/SimulatorProfileSettings.tsx` — new
-- `src/types/...` if `UserSettings` type is locally mirrored (otherwise the auto-gen types pick it up)
-
-## Out of scope
-
-- Per-trade balance reconstruction from historical `equity_current` snapshots (possible later, but unnecessary for an R-based simulator).
-- Backfilling `sim_balance` from existing accounts (default 100k is fine; user adjusts once).
+## Validation
+- Open Pair Lab on an account with MFE-logged trades → buckets, TP1\*, recommendation render unchanged.
+- Open Pair Lab on a bucket where some trades only had `tp_reached` proof → those trades' `maxReachedR` now falls back to `max(0, r_actual)`; verify no NaN/undefined in BucketGrid.
+- `pair-lab-report` edge function returns without errors.
