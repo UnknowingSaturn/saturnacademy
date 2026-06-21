@@ -65,12 +65,29 @@ export interface BucketStats {
   confidence: ConfidenceLevel;
   // Two-sided bootstrap CI on expectedR — null when n < 5.
   expectedRCi: [number, number] | null;
+  /** One-sided bootstrap p-value that expectedR > 0. null when n < 5. */
+  expectancyPValue: number | null;
   // Longest run of consecutive losing trades observed in this bucket.
   worstLosingStreak: number;
   /** Number of (closed) trades in this bucket that have an explicit MFE custom-field value. */
   loggedMfeCount: number;
   /** Number of (closed) trades in this bucket that have an explicit MAE custom-field value AND convertible SL. */
   loggedMaeCount: number;
+  /** Hypothetical SL sweep over the bucket's MAE distribution. null when N<10 or insufficient MAE data. */
+  slSweep: SlSweepRow[] | null;
+}
+
+export interface SlSweepRow {
+  /** Quantile of MAE distribution (e.g. 0.25, 0.40, 0.55, 0.70, 0.90). */
+  q: number;
+  /** SL distance in pips at this quantile. */
+  slPips: number;
+  /** Fraction of trades stopped out at this SL (0–1). */
+  pctStopped: number;
+  /** Mean R-multiple under this hypothetical SL. */
+  meanR: number;
+  /** Delta vs actual mean R (meanR − expectedR). */
+  deltaR: number;
 }
 
 export interface Tp1Star {
@@ -241,6 +258,51 @@ export function bootstrapMeanCi(values: number[], iters = 500): [number, number]
   }
   means.sort((a, b) => a - b);
   return [means[Math.floor(iters * 0.025)], means[Math.floor(iters * 0.975)]];
+}
+
+/**
+ * One-sided bootstrap p-value that mean(values) > 0.
+ * Resamples with replacement; p = fraction of resampled means ≤ 0.
+ * Returns null when n < 5. Floor at 1/iters to avoid log(0) downstream.
+ */
+export function bootstrapPositivePValue(values: number[], iters = 500): number | null {
+  const xs = values.filter((v) => Number.isFinite(v));
+  if (xs.length < 5) return null;
+  let hash = xs.length * 1000003 + 7;
+  for (let i = 0; i < xs.length; i++) {
+    hash = (hash * 31 + Math.floor(xs[i] * 1000)) | 0;
+  }
+  const rand = makeSeededRng(hash);
+  let nonPos = 0;
+  for (let i = 0; i < iters; i++) {
+    let sum = 0;
+    for (let j = 0; j < xs.length; j++) sum += xs[Math.floor(rand() * xs.length)];
+    if (sum / xs.length <= 0) nonPos += 1;
+  }
+  return Math.max(1 / iters, nonPos / iters);
+}
+
+/**
+ * Benjamini–Hochberg FDR adjustment. Returns a boolean[] same length as `pvals`
+ * marking which hypotheses are significant at level `alpha` after BH correction.
+ * Entries with null p-value are treated as non-significant.
+ */
+export function bhSignificant(pvals: Array<number | null>, alpha = 0.05): boolean[] {
+  const indexed = pvals
+    .map((p, i) => ({ p, i }))
+    .filter((x): x is { p: number; i: number } => x.p != null && Number.isFinite(x.p));
+  indexed.sort((a, b) => a.p - b.p);
+  const m = indexed.length;
+  const out = new Array<boolean>(pvals.length).fill(false);
+  if (m === 0) return out;
+  // Find largest k with p_(k) ≤ k/m * alpha.
+  let kMax = -1;
+  for (let k = 1; k <= m; k++) {
+    if (indexed[k - 1].p <= (k / m) * alpha) kMax = k;
+  }
+  if (kMax < 0) return out;
+  for (let k = 0; k < kMax; k++) out[indexed[k].i] = true;
+  return out;
 }
 
 /**
@@ -484,6 +546,8 @@ function computeBucket(
   // R for the distribution display.
   const maesR: number[] = [];
   const maesPips: number[] = [];
+  /** Per-trade tuples used by the SL sweep — needs MAE-pips, planned SL-pips, and actual R. */
+  const sweepRows: Array<{ maePips: number; slPips: number; rActual: number }> = [];
   for (const t of rows) {
     const maeTicks = numericCf(t as any, keys.mae);
     if (maeTicks == null || !t.symbol) continue;
@@ -493,7 +557,12 @@ function computeBucket(
     maesPips.push(maePips);
     if (t.sl_initial != null && t.entry_price != null) {
       const slDistPips = Math.abs(t.entry_price - t.sl_initial) / pip;
-      if (slDistPips > 0) maesR.push(maePips / slDistPips);
+      if (slDistPips > 0) {
+        maesR.push(maePips / slDistPips);
+        if (t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual)) {
+          sweepRows.push({ maePips, slPips: slDistPips, rActual: t.r_multiple_actual });
+        }
+      }
     }
   }
 
@@ -535,6 +604,39 @@ function computeBucket(
     else slDrift = "aligned";
   }
 
+  // Hypothetical SL sweep: replay outcomes at candidate SLs drawn from the
+  // MAE quantile distribution. If MAE > candidate SL, the trade is stopped
+  // at −1R; otherwise the actual outcome is rescaled by the SL ratio.
+  let slSweep: SlSweepRow[] | null = null;
+  if (sweepRows.length >= 10) {
+    const maePipsForQ = sweepRows.map((r) => r.maePips);
+    const quants = [0.25, 0.4, 0.55, 0.7, 0.9];
+    const seen = new Set<string>();
+    const sweepOut: SlSweepRow[] = [];
+    for (const q of quants) {
+      const slCand = quantile(maePipsForQ, q);
+      if (slCand == null || !(slCand > 0)) continue;
+      const key = slCand.toFixed(2);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let stopped = 0;
+      let sumR = 0;
+      for (const r of sweepRows) {
+        if (r.maePips > slCand) { sumR += -1; stopped += 1; }
+        else { sumR += r.rActual * (r.slPips / slCand); }
+      }
+      const meanR = sumR / sweepRows.length;
+      sweepOut.push({
+        q,
+        slPips: slCand,
+        pctStopped: stopped / sweepRows.length,
+        meanR,
+        deltaR: meanR - expectedR,
+      });
+    }
+    if (sweepOut.length > 0) slSweep = sweepOut;
+  }
+
   const stats: BucketStats = {
     key,
     rawSymbols: [],
@@ -557,13 +659,17 @@ function computeBucket(
     slDrift,
     confidence: confidenceFor(n),
     expectedRCi: bootstrapMeanCi(rActuals),
+    expectancyPValue: bootstrapPositivePValue(rActuals),
     worstLosingStreak: longestLossStreak(rows),
     loggedMfeCount: closed.filter((t) => numericCf(t as any, keys.mfe) != null).length,
     loggedMaeCount: closed.filter((t) => {
       const v = numericCf(t as any, keys.mae);
       return v != null && t.sl_initial != null && t.entry_price != null;
     }).length,
+    slSweep,
   };
+
+
 
 
   const recommendation = buildRecommendation(stats, winR, lossR, mfes, baseline, propFirm);

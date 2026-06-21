@@ -204,6 +204,50 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
         </>
       )}
 
+      {b.slSweep && b.slSweep.length > 0 && (
+        <>
+          <Separator />
+          <div>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5" /> Hypothetical SL sweep
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs font-mono-numbers">
+                <thead>
+                  <tr className="text-muted-foreground border-b border-border/40">
+                    <th className="text-left font-normal py-1">MAE q</th>
+                    <th className="text-right font-normal py-1">SL (pips)</th>
+                    <th className="text-right font-normal py-1">% stopped</th>
+                    <th className="text-right font-normal py-1">mean R</th>
+                    <th className="text-right font-normal py-1">ΔE[R]</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {b.slSweep.map((row) => (
+                    <tr key={row.q} className="border-b border-border/20 last:border-0">
+                      <td className="py-1">p{(row.q * 100).toFixed(0)}</td>
+                      <td className="py-1 text-right">{row.slPips.toFixed(0)}</td>
+                      <td className="py-1 text-right">{(row.pctStopped * 100).toFixed(0)}%</td>
+                      <td className={cn("py-1 text-right", row.meanR >= 0 ? "text-profit" : "text-loss")}>
+                        {fmtR(row.meanR)}
+                      </td>
+                      <td className={cn("py-1 text-right", row.deltaR >= 0 ? "text-profit" : "text-loss")}>
+                        {row.deltaR >= 0 ? "+" : ""}{row.deltaR.toFixed(2)}R
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1.5 leading-relaxed">
+              Hypothetical — replays each trade as <code>−1R</code> when MAE exceeds the candidate SL,
+              otherwise rescales the actual R by <code>sl_init / sl_cand</code>. Assumes the same entry/exit
+              logic at a different stop distance.
+            </p>
+          </div>
+        </>
+      )}
+
       <p className="text-[10px] text-muted-foreground leading-relaxed border-t pt-2">
         R metrics derive from <code>r_multiple_actual</code> on each trade — if your broker import
         populates it from gross P&amp;L, expectancy and Kelly slightly overstate net of

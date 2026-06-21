@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
-import type { BucketReport } from "@/lib/pairLabMath";
+import { bhSignificant, type BucketReport } from "@/lib/pairLabMath";
 
 interface Props {
   symbols: string[];
@@ -23,7 +23,7 @@ function coverageColor(logged: number, total: number) {
   return "text-emerald-600 dark:text-emerald-400";
 }
 
-function CellInner({ b }: { b: BucketReport | null }) {
+function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | null }) {
   if (!b || b.n === 0) {
     return <span className="text-xs text-muted-foreground">—</span>;
   }
@@ -37,6 +37,22 @@ function CellInner({ b }: { b: BucketReport | null }) {
         <span>{confidenceDot(b.confidence)}</span>
         <span className="font-medium">N {b.n}</span>
         <span className="text-muted-foreground">· {winRatePct}%</span>
+        {fdr === "sig" && (
+          <span
+            className="ml-auto text-[9px] px-1 rounded bg-emerald-500/15 text-emerald-500 font-semibold"
+            title="FDR-significant (Benjamini–Hochberg, α=0.05) — expectancy > 0 survives multiple-testing correction across all displayed buckets."
+          >
+            FDR✓
+          </span>
+        )}
+        {fdr === "ns" && (
+          <span
+            className="ml-auto text-[9px] px-1 rounded bg-muted text-muted-foreground"
+            title="Not significant after Benjamini–Hochberg FDR correction across all displayed buckets — guard against cherry-picking."
+          >
+            ns
+          </span>
+        )}
       </div>
       <div className={cn("text-sm font-mono-numbers font-semibold", b.expectedR >= 0 ? "text-profit" : "text-loss")}>
         {expR}
@@ -65,6 +81,24 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
   perCell.forEach((c) => cellLookup.set(`${c.key.symbol}__${c.key.session}`, c));
   const rowLookup = new Map<string, BucketReport>();
   perRow.forEach((r) => rowLookup.set(r.key.symbol, r));
+
+  // BH FDR across every displayed bucket (cells + row totals). Only buckets
+  // with n ≥ 10 and a positive expectancy enter the test — others can't be
+  // significant by construction and would just inflate `m`.
+  const fdrPool = [...perCell, ...perRow];
+  const fdrEligible = fdrPool
+    .map((b, idx) => ({ b, idx }))
+    .filter(({ b }) => b.n >= 10 && b.expectedR > 0 && b.expectancyPValue != null);
+  const sig = bhSignificant(fdrEligible.map(({ b }) => b.expectancyPValue), 0.05);
+  const fdrByKey = new Map<string, "sig" | "ns">();
+  fdrEligible.forEach(({ b }, i) => {
+    const k = `${b.key.symbol}__${b.key.session}`;
+    fdrByKey.set(k, sig[i] ? "sig" : "ns");
+  });
+  const fdrFor = (b: BucketReport | null): "sig" | "ns" | null => {
+    if (!b || b.n < 10 || !(b.expectedR > 0) || b.expectancyPValue == null) return null;
+    return fdrByKey.get(`${b.key.symbol}__${b.key.session}`) ?? null;
+  };
 
   if (symbols.length === 0) {
     return (
@@ -132,7 +166,7 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
                             : "cursor-default",
                       )}
                     >
-                      <CellInner b={b} />
+                      <CellInner b={b} fdr={fdrFor(b)} />
                     </button>
                   </td>
                 );
@@ -151,7 +185,7 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
                       : "hover:bg-muted/40",
                   )}
                 >
-                  <CellInner b={rowLookup.get(symbol) ?? null} />
+                  <CellInner b={rowLookup.get(symbol) ?? null} fdr={fdrFor(rowLookup.get(symbol) ?? null)} />
                 </button>
               </td>
             </tr>

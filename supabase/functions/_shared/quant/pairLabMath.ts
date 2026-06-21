@@ -100,6 +100,44 @@ export function bootstrapMeanCi(values: number[], iters = 500): [number, number]
   means.sort((a, b) => a - b);
   return [means[Math.floor(iters * 0.025)], means[Math.floor(iters * 0.975)]];
 }
+
+/** One-sided bootstrap p-value that mean(values) > 0. Null when n < 5. */
+export function bootstrapPositivePValue(values: number[], iters = 500): number | null {
+  const xs = values.filter((v) => Number.isFinite(v));
+  if (xs.length < 5) return null;
+  let seed = xs.length * 1000003 + 7;
+  for (let i = 0; i < xs.length; i++) seed = (seed * 31 + Math.floor(xs[i] * 1000)) | 0;
+  if (seed === 0) seed = 0x9e3779b9;
+  const rand = () => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    return ((seed >>> 0) % 1_000_000) / 1_000_000;
+  };
+  let nonPos = 0;
+  for (let i = 0; i < iters; i++) {
+    let sum = 0;
+    for (let j = 0; j < xs.length; j++) sum += xs[Math.floor(rand() * xs.length)];
+    if (sum / xs.length <= 0) nonPos += 1;
+  }
+  return Math.max(1 / iters, nonPos / iters);
+}
+
+/** Benjamini–Hochberg FDR. Returns boolean[] aligned to input order. */
+export function bhSignificant(pvals: Array<number | null>, alpha = 0.05): boolean[] {
+  const indexed = pvals
+    .map((p, i) => ({ p, i }))
+    .filter((x): x is { p: number; i: number } => x.p != null && Number.isFinite(x.p));
+  indexed.sort((a, b) => a.p - b.p);
+  const m = indexed.length;
+  const out = new Array<boolean>(pvals.length).fill(false);
+  if (m === 0) return out;
+  let kMax = -1;
+  for (let k = 1; k <= m; k++) {
+    if (indexed[k - 1].p <= (k / m) * alpha) kMax = k;
+  }
+  if (kMax < 0) return out;
+  for (let k = 0; k < kMax; k++) out[indexed[k].i] = true;
+  return out;
+}
 export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
   if (!(avgWinR > 0) || !(avgLossR > 0)) return null;
   const b = avgWinR / avgLossR, p = winRate, q = 1 - p;
