@@ -216,6 +216,9 @@ type ReplayOutcome = { r: number } | { ineligible: string };
 
 interface BucketConstants {
   maeP75: number | null;
+  mfeP50: number | null;
+  mfeP60: number | null;
+  mfeP75: number | null;
 }
 
 interface ReplayContext {
@@ -227,7 +230,29 @@ function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketCo
   const maes = trades
     .map((t) => tradeMaeR(t, numericCf(t as any, keys.mae)))
     .filter((v): v is number => v != null && Number.isFinite(v));
-  return { maeP75: quantile(maes, 0.75) };
+  const mfes = trades
+    .map((t) => {
+      const v = numericCf(t as any, keys.mfe);
+      return v != null ? Math.max(0, v) : null;
+    })
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  return {
+    maeP75: quantile(maes, 0.75),
+    mfeP50: quantile(mfes, 0.5),
+    mfeP60: quantile(mfes, 0.6),
+    mfeP75: quantile(mfes, 0.75),
+  };
+}
+
+/** Resolve a partial's atR, honoring bucket-adaptive sources. Returns null when
+ *  the bucket lacks the required stat (caller marks the trade ineligible). */
+function resolvePartialAtR(p: { atR: number; atRSource?: AtRSource }, bucket: BucketConstants): number | null {
+  switch (p.atRSource ?? "fixed") {
+    case "bucket_mfe_p50": return bucket.mfeP50 != null && bucket.mfeP50 > 0 ? bucket.mfeP50 : null;
+    case "bucket_mfe_p60": return bucket.mfeP60 != null && bucket.mfeP60 > 0 ? bucket.mfeP60 : null;
+    case "bucket_mfe_p75": return bucket.mfeP75 != null && bucket.mfeP75 > 0 ? bucket.mfeP75 : null;
+    default: return p.atR;
+  }
 }
 
 
