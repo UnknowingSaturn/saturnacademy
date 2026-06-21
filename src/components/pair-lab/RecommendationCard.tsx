@@ -170,24 +170,6 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
         </>
       )}
 
-      {/* TP hit distribution */}
-      {Object.keys(b.tpHitDistribution).length > 0 && (
-        <>
-          <Separator />
-          <div>
-            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">TP hit distribution</div>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(b.tpHitDistribution)
-                .sort((a, b) => b[1] - a[1])
-                .map(([tp, count]) => (
-                  <Badge key={tp} variant="outline" className="text-xs">
-                    {tp} · {count}
-                  </Badge>
-                ))}
-            </div>
-          </div>
-        </>
-      )}
     </Card>
   );
 }
