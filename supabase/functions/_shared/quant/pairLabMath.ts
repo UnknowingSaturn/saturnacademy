@@ -218,14 +218,15 @@ function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
   return best;
 }
 
-/** Convert a stored `cf_mae` / `cf_ideal_stop_loss` value into the per-trade R-multiple, given the trade's SL distance. */
-function pipsToR(pips: number, t: any): number | null {
+/** Convert a stored `cf_mae` / `cf_ideal_stop_loss` value (TICKS) into the per-trade R-multiple, given the trade's SL distance. */
+function ticksToR(ticks: number, t: any): number | null {
   if (t.sl_initial == null || t.entry_price == null || !t.symbol) return null;
   const pip = pipSizeForSymbol(t.symbol);
   if (!(pip > 0)) return null;
   const slDistPips = Math.abs(t.entry_price - t.sl_initial) / pip;
   if (!(slDistPips > 0)) return null;
-  return Math.abs(pips) / slDistPips;
+  const pips = ticksToPips(t.symbol, Math.abs(ticks));
+  return pips / slDistPips;
 }
 
 export function computeBucket(
