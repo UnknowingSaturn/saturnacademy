@@ -67,6 +67,7 @@ export function StrategyRanker({
 }: Props) {
   const [riskPct, setRiskPct] = useState<number>(defaultRiskPct);
   const [walkForward, setWalkForward] = useState<boolean>(false);
+  const [openId, setOpenId] = useState<string | null>(null);
   useEffect(() => { setRiskPct(defaultRiskPct); }, [defaultRiskPct]);
 
   const replayOpts = useMemo(
