@@ -82,6 +82,24 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
   const rowLookup = new Map<string, BucketReport>();
   perRow.forEach((r) => rowLookup.set(r.key.symbol, r));
 
+  // BH FDR across every displayed bucket (cells + row totals). Only buckets
+  // with n ≥ 10 and a positive expectancy enter the test — others can't be
+  // significant by construction and would just inflate `m`.
+  const fdrPool = [...perCell, ...perRow];
+  const fdrEligible = fdrPool
+    .map((b, idx) => ({ b, idx }))
+    .filter(({ b }) => b.n >= 10 && b.expectedR > 0 && b.expectancyPValue != null);
+  const sig = bhSignificant(fdrEligible.map(({ b }) => b.expectancyPValue), 0.05);
+  const fdrByKey = new Map<string, "sig" | "ns">();
+  fdrEligible.forEach(({ b }, i) => {
+    const k = `${b.key.symbol}__${b.key.session}`;
+    fdrByKey.set(k, sig[i] ? "sig" : "ns");
+  });
+  const fdrFor = (b: BucketReport | null): "sig" | "ns" | null => {
+    if (!b || b.n < 10 || !(b.expectedR > 0) || b.expectancyPValue == null) return null;
+    return fdrByKey.get(`${b.key.symbol}__${b.key.session}`) ?? null;
+  };
+
   if (symbols.length === 0) {
     return (
       <Card className="p-8 text-center text-muted-foreground text-sm">
