@@ -50,8 +50,6 @@ export interface BucketStats {
   idealSlMedian: number | null;   // pips
   slInitialMedian: number | null; // pips
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
-  tpHitDistribution: Record<string, number>; // "1:1" -> count
-  mostCommonTpHit: string | null;
   confidence: ConfidenceLevel;
   // Two-sided bootstrap CI on expectedR — null when n < 5.
   expectedRCi: [number, number] | null;
