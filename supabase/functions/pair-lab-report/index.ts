@@ -34,8 +34,6 @@ interface BucketInput {
   idealSlMedian: number | null;
   slInitialMedian: number | null;
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
-  tpHitDistribution: Record<string, number>;
-  mostCommonTpHit: string | null;
   confidence: "high" | "medium" | "low";
   expectedRCi: [number, number] | null;
   worstLosingStreak: number;
@@ -120,8 +118,6 @@ serve(async (req) => {
         actual_sl_median_pips: b.slInitialMedian,
         drift: b.slDrift,
       },
-      tp_hits: b.tpHitDistribution,
-      most_common_tp_hit: b.mostCommonTpHit,
       recommended_parameters: {
         suggested_sl_pips: b.suggestedSlPips,
         tp_ladder_R_expected_r: b.tpLadderR,

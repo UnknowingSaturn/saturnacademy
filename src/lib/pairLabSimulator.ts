@@ -5,7 +5,6 @@
 // preset if the recorded data PROVES the rules would have triggered:
 //
 //   - Logged MFE ≥ X  → price reached X.            (proof)
-//   - tp_reached "X"  → price reached X.            (proof)
 //   - r_actual ≥ X    → price reached at least X.   (proof; close happened there)
 //   - Logged MAE ≥ S  → trade stopped at SL distance S.
 //
@@ -113,36 +112,6 @@ function numericCf(trade: any, key: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function multiSelectCf(trade: any, key: string | null): string[] {
-  const v = getCf(trade, key);
-  if (Array.isArray(v)) return v.map(String);
-  if (typeof v === "string" && v) return [v];
-  return [];
-}
-
-/** Parse strings like "1:2", "1R", "2", "TP2" → R-multiple. */
-function parseTpLabel(s: string): number | null {
-  if (!s) return null;
-  const clean = s.trim().toUpperCase();
-  const ratio = clean.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
-  if (ratio) {
-    const a = Number(ratio[1]), b = Number(ratio[2]);
-    if (a > 0) return b / a;
-  }
-  const tp = clean.match(/^TP\s*(\d+(?:\.\d+)?)$/);
-  if (tp) return Number(tp[1]);
-  const num = clean.match(/^(\d+(?:\.\d+)?)R?$/);
-  if (num) return Number(num[1]);
-  return null;
-}
-
-function maxTpReached(trade: Trade, keys: PairLabFieldKeys): number | null {
-  const labels = multiSelectCf(trade as any, keys.tpReached);
-  if (labels.length === 0) return null;
-  const rs = labels.map(parseTpLabel).filter((v): v is number => v != null && v > 0);
-  if (rs.length === 0) return null;
-  return Math.max(...rs);
-}
 
 /**
  * Distance from entry to initial stop, expressed in broker ticks.
@@ -190,7 +159,7 @@ export function idealSlScaleFor(t: Trade, idealPips: number | null): number | nu
 // ----------------------------------------------------------------------------
 
 interface TradeProof {
-  /** Proven max R reached (max of MFE, tp_reached, max(0, r_actual)). */
+  /** Proven max R reached (max of MFE, max(0, r_actual)). */
   reachedR: number;
   /** Has any proof of reach (any of the three signals present). */
   hasReachProof: boolean;
@@ -217,13 +186,11 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
   const loggedMaeRawTicks = numericCf(trade as any, keys.mae);
   const loggedMae = tradeMaeR(trade, loggedMaeRawTicks);
 
-  const tpHit = maxTpReached(trade, keys);
   const rActual = trade.r_multiple_actual;
   const hasActualR = rActual != null;
 
   const proofs: number[] = [];
   if (loggedMfe != null) proofs.push(loggedMfe);
-  if (tpHit != null) proofs.push(tpHit);
   if (hasActualR && (rActual as number) > 0) proofs.push(rActual as number);
   const reachedR = proofs.length ? Math.max(...proofs) : 0;
   const hasReachProof = proofs.length > 0;

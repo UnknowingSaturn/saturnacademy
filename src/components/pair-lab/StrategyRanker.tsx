@@ -205,7 +205,7 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
                 <th className="text-right py-2 px-2">Total $</th>
                 <th className="text-right py-2 px-2">Win %</th>
                 <th className="text-right py-2 px-2">Expectancy ± CI</th>
-                <th className="text-right py-2 px-2" title="Mean of MFE/tp_reached/r_actual reach proof across the eligible sample. Higher = preset's eligible trades were 'easier' (self-selection bias).">Reached R</th>
+                <th className="text-right py-2 px-2" title="Mean of MFE/r_actual reach proof across the eligible sample. Higher = preset's eligible trades were 'easier' (self-selection bias).">Reached R</th>
                 <th className="text-right py-2 px-2">Max DD</th>
                 <th className="text-left py-2 pl-2">Prop-firm</th>
               </tr>
@@ -309,8 +309,8 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
               <>Native mode — each preset is scored on its own eligible sample. The <span className="font-medium">Reached R</span> column
               exposes self-selection bias: a higher value means the preset's eligible trades happened to be easier than another preset's.</>
             )}
-            {" "}A trade is eligible only when MFE, <code className="text-[10px] mx-0.5">tp_reached</code>, or
-            <code className="text-[10px] mx-0.5">r_actual</code> proves the rule's targets were reached (or that the trade stopped out).
+            {" "}A trade is eligible only when MFE or <code className="text-[10px] mx-0.5">r_actual</code> proves
+            the rule's targets were reached (or that the trade stopped out).
             MAE and Ideal-SL are logged in broker ticks and converted to R via each trade's initial-SL distance — trades missing
             <code className="text-[10px] mx-0.5">sl_initial</code> or <code className="text-[10px] mx-0.5">entry_price</code> become ineligible for MAE/ideal-SL presets.
             Presets with fewer than {MIN_ELIGIBLE_SAMPLE} eligible trades are demoted. ±CI is the bootstrap 95% interval on per-trade R.

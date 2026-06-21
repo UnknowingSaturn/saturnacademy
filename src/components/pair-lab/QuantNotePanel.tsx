@@ -58,8 +58,6 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
             idealSlMedian: bucket.idealSlMedian,
             slInitialMedian: bucket.slInitialMedian,
             slDrift: bucket.slDrift,
-            tpHitDistribution: bucket.tpHitDistribution,
-            mostCommonTpHit: bucket.mostCommonTpHit,
             confidence: bucket.confidence,
             expectedRCi: bucket.expectedRCi,
             worstLosingStreak: bucket.worstLosingStreak,

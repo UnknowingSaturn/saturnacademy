@@ -8,8 +8,6 @@
 // Design notes:
 //   - Robust statistics only (median, quantiles, IQR). Means are easy to
 //     manipulate with a single outlier; medians aren't.
-//   - We never recommend a TP target the trader has never actually reached
-//     according to cf_tp_reached, even if the MFE distribution suggests it.
 //   - Kelly is scaled to 0.25 (quarter-Kelly) and clamped, because the sample
 //     sizes here are tiny by quant standards.
 //   - Confidence is exposed as a sample-size bucket so the UI can hide the
@@ -24,7 +22,6 @@ export type ConfidenceLevel = "high" | "medium" | "low";
 export interface PairLabFieldKeys {
   mfe: string | null;            // number (R-multiple)
   mae: string | null;            // number (PIPS for FX/metals/crypto/oil, POINTS for indices)
-  tpReached: string | null;      // multi_select (["1:1","1:2",…])
   idealStopLoss: string | null;  // number (PIPS for FX/metals/crypto/oil, POINTS for indices)
   idealStopLossPos: string | null; // select (initial_leg | last_leg)
   idealEntryWindow: string | null; // select (first_30min | last_30min)
@@ -53,8 +50,6 @@ export interface BucketStats {
   idealSlMedian: number | null;   // pips
   slInitialMedian: number | null; // pips
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
-  tpHitDistribution: Record<string, number>; // "1:1" -> count
-  mostCommonTpHit: string | null;
   confidence: ConfidenceLevel;
   // Two-sided bootstrap CI on expectedR — null when n < 5.
   expectedRCi: [number, number] | null;
@@ -120,7 +115,6 @@ interface CustomFieldDef {
 const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefixes: string[] }> = [
   { alias: "mfe",              labels: ["mfe (rr)", "mfe", "max favourable excursion", "max favorable excursion"], prefixes: ["cf_mfe"] },
   { alias: "mae",              labels: ["mae", "max adverse excursion"],                                            prefixes: ["cf_mae"] },
-  { alias: "tpReached",        labels: ["tp reached", "tps hit", "tp's hit", "tps reached"],                        prefixes: ["cf_tp_reached", "cf_tps_hit"] },
   { alias: "idealStopLoss",    labels: ["ideal stop-loss", "ideal stop loss", "ideal sl"],                          prefixes: ["cf_ideal_stop_loss_rnv7", "cf_ideal_stop_loss"] },
   { alias: "idealStopLossPos", labels: ["ideal stop-loss position", "ideal stop loss position"],                    prefixes: ["cf_ideal_stop_loss_position"] },
   { alias: "idealEntryWindow", labels: ["ideal entry window"],                                                      prefixes: ["cf_ideal_entry_window"] },
@@ -128,7 +122,7 @@ const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefix
 
 export function resolvePairLabFieldKeys(defs: CustomFieldDef[]): PairLabFieldKeys {
   const out: PairLabFieldKeys = {
-    mfe: null, mae: null, tpReached: null,
+    mfe: null, mae: null,
     idealStopLoss: null, idealStopLossPos: null, idealEntryWindow: null,
   };
   for (const entry of LABEL_MAP) {
@@ -239,28 +233,6 @@ function numericCf(trade: any, key: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function multiSelectCf(trade: any, key: string | null): string[] {
-  const v = getCf(trade, key);
-  if (Array.isArray(v)) return v.map(String);
-  if (typeof v === "string" && v) return [v];
-  return [];
-}
-
-/** Parse strings like "1:2", "1R", "2", "TP2" → R-multiple. Mirrors simulator. */
-function parseTpLabelLocal(s: string): number | null {
-  if (!s) return null;
-  const clean = s.trim().toUpperCase();
-  const ratio = clean.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
-  if (ratio) {
-    const a = Number(ratio[1]), b = Number(ratio[2]);
-    if (a > 0) return b / a;
-  }
-  const tp = clean.match(/^TP\s*(\d+(?:\.\d+)?)$/);
-  if (tp) return Number(tp[1]);
-  const num = clean.match(/^(\d+(?:\.\d+)?)R?$/);
-  if (num) return Number(num[1]);
-  return null;
-}
 
 function confidenceFor(n: number): ConfidenceLevel {
   // Tightened 2026-06: "high" requires n≥50 — at n=30 the 95% CI on win-rate
@@ -453,14 +425,6 @@ function computeBucket(
     slInitials.push(Math.abs(t.entry_price - t.sl_initial) / pip);
   }
 
-  const tpDist: Record<string, number> = {};
-  for (const t of rows) {
-    for (const v of multiSelectCf(t as any, keys.tpReached)) {
-      tpDist[v] = (tpDist[v] ?? 0) + 1;
-    }
-  }
-  const mostCommonTpHit = Object.entries(tpDist).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-
   const n = closed.length;
   const winRate = n > 0 ? wins.length / n : 0;
   const expectedR = mean(rActuals);
@@ -493,8 +457,6 @@ function computeBucket(
     idealSlMedian: idealMed,
     slInitialMedian: slInitMed,
     slDrift,
-    tpHitDistribution: tpDist,
-    mostCommonTpHit,
     confidence: confidenceFor(n),
     expectedRCi: bootstrapMeanCi(rActuals),
     worstLosingStreak: longestLossStreak(rows),
@@ -532,21 +494,14 @@ function buildRecommendation(
     suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
   }
 
-  // Expected-R TP ladder, capped by the most-common TP hit so we never
-  // recommend a target the user has never reached in practice. Reuses the
-  // simulator's full TP-label parser ("1:2", "TP2", "2R", …).
+  // Expected-R TP ladder from win-R quantiles.
   const ladder: number[] = [];
-  const cap = (() => {
-    if (!s.mostCommonTpHit) return Infinity;
-    const parsed = parseTpLabelLocal(s.mostCommonTpHit);
-    return parsed != null && parsed > 0 ? parsed : Infinity;
-  })();
   const p70 = quantile(winR, 0.3);
   const p50 = quantile(winR, 0.5);
   const p25 = quantile(winR, 0.75);
   for (const v of [p70, p50, p25]) {
     if (v == null || v <= 0) continue;
-    ladder.push(Math.min(v, cap));
+    ladder.push(v);
   }
   const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
 

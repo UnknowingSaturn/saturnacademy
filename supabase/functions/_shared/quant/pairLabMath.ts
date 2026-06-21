@@ -20,7 +20,6 @@ export type ConfidenceLevel = "high" | "medium" | "low";
 export interface PairLabFieldKeys {
   mfe: string | null;
   mae: string | null;
-  tpReached: string | null;
   idealStopLoss: string | null;
   idealStopLossPos: string | null;
   idealEntryWindow: string | null;
@@ -44,7 +43,6 @@ export interface PropFirmContext {
 const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefixes: string[] }> = [
   { alias: "mfe",              labels: ["mfe (rr)", "mfe", "max favourable excursion", "max favorable excursion"], prefixes: ["cf_mfe"] },
   { alias: "mae",              labels: ["mae", "max adverse excursion"],                                            prefixes: ["cf_mae"] },
-  { alias: "tpReached",        labels: ["tp reached", "tps hit", "tp's hit", "tps reached"],                        prefixes: ["cf_tp_reached", "cf_tps_hit"] },
   { alias: "idealStopLoss",    labels: ["ideal stop-loss", "ideal stop loss", "ideal sl"],                          prefixes: ["cf_ideal_stop_loss_rnv7", "cf_ideal_stop_loss"] },
   { alias: "idealStopLossPos", labels: ["ideal stop-loss position", "ideal stop loss position"],                    prefixes: ["cf_ideal_stop_loss_position"] },
   { alias: "idealEntryWindow", labels: ["ideal entry window"],                                                      prefixes: ["cf_ideal_entry_window"] },
@@ -52,7 +50,7 @@ const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefix
 
 export function resolvePairLabFieldKeys(defs: CustomFieldDef[]): PairLabFieldKeys {
   const out: PairLabFieldKeys = {
-    mfe: null, mae: null, tpReached: null,
+    mfe: null, mae: null,
     idealStopLoss: null, idealStopLossPos: null, idealEntryWindow: null,
   };
   for (const entry of LABEL_MAP) {
@@ -168,8 +166,6 @@ export interface BucketReport {
   idealSlMedianPips: number | null;
   slInitialMedianPips: number | null;
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
-  tpHitDistribution: Record<string, number>;
-  mostCommonTpHit: string | null;
   confidence: ConfidenceLevel;
   suggestedSlPips: number | null;
   /** "pips" for FX/metals/crypto/oil, "points" for indices. */
@@ -284,14 +280,6 @@ export function computeBucket(
     slInitials.push(Math.abs(t.entry_price - t.sl_initial) / pip);
   }
 
-  const tpDist: Record<string, number> = {};
-  for (const t of rows) {
-    for (const v of multiSelectCf(t, keys.tpReached)) {
-      tpDist[v] = (tpDist[v] ?? 0) + 1;
-    }
-  }
-  const mostCommonTpHit = Object.entries(tpDist).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-
   const n = closed.length;
   const winRate = n > 0 ? wins.length / n : 0;
   const expectedR = mean(rActuals);
@@ -311,15 +299,10 @@ export function computeBucket(
   if (maeCandidate != null || idealMed != null) {
     suggestedSlPips = Math.max(maeCandidate ?? 0, idealMed ?? 0);
   }
-  const cap = (() => {
-    if (!mostCommonTpHit) return Infinity;
-    const parsed = parseTpLabel(mostCommonTpHit);
-    return parsed != null && parsed > 0 ? parsed : Infinity;
-  })();
   const ladder: number[] = [];
   for (const v of [quantile(winR, 0.3), quantile(winR, 0.5), quantile(winR, 0.75)]) {
     if (v == null || v <= 0) continue;
-    ladder.push(Math.min(v, cap));
+    ladder.push(v);
   }
   const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
 
@@ -365,8 +348,6 @@ export function computeBucket(
     idealSlMedianPips: idealMed,
     slInitialMedianPips: slInitMed,
     slDrift,
-    tpHitDistribution: tpDist,
-    mostCommonTpHit,
     confidence: confidenceFor(n),
     suggestedSlPips,
     slUnit,

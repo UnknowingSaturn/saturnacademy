@@ -93,13 +93,9 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
               ? b.recommendation.tpLadderR.map((r) => `${r}R`).join(" · ")
               : "—"}
           </div>
-          {tp1 ? (
+          {tp1 && (
             <div className="text-[10px] text-primary">
               TP1* (win-rate maxing): {tp1.r}R · hits {(tp1.hitRate * 100).toFixed(0)}% of trades
-            </div>
-          ) : (
-            <div className="text-[10px] text-muted-foreground">
-              Capped at most-common TP hit: {b.mostCommonTpHit ?? "n/a"}
             </div>
           )}
         </div>
@@ -174,24 +170,6 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
         </>
       )}
 
-      {/* TP hit distribution */}
-      {Object.keys(b.tpHitDistribution).length > 0 && (
-        <>
-          <Separator />
-          <div>
-            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">TP hit distribution</div>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(b.tpHitDistribution)
-                .sort((a, b) => b[1] - a[1])
-                .map(([tp, count]) => (
-                  <Badge key={tp} variant="outline" className="text-xs">
-                    {tp} · {count}
-                  </Badge>
-                ))}
-            </div>
-          </div>
-        </>
-      )}
     </Card>
   );
 }

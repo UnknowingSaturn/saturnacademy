@@ -111,8 +111,7 @@ export default function PairLab() {
             <div className="font-medium mb-1">No excursion fields detected.</div>
             <div className="text-muted-foreground">
               Add custom fields named <span className="font-mono text-foreground">MFE (RR)</span>,{" "}
-              <span className="font-mono text-foreground">MAE</span>,{" "}
-              <span className="font-mono text-foreground">TP Reached</span>, and{" "}
+              <span className="font-mono text-foreground">MAE</span>, and{" "}
               <span className="font-mono text-foreground">Ideal Stop-Loss</span> from
               the Journal settings, then fill them in on your closed trades to power this page.
             </div>

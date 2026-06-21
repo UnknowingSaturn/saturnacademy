@@ -5,7 +5,7 @@
 //   - replay output exposes `nComparable` + `biasWarning` +
 //     `expectancyROnIntersection` for the report pipeline's bias-aware deltas.
 
-import { PairLabFieldKeys, numericCf, multiSelectCf, parseTpLabel, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
+import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
 import { pipSizeForSymbol } from "./symbolMapping.ts";
 
 export const TRAIL_CAPTURE_FRAC = 0.8;
@@ -74,23 +74,14 @@ interface TradeProof {
   rActual: number;
   idealSlScale: number | null;
 }
-function maxTpReached(trade: any, keys: PairLabFieldKeys): number | null {
-  const labels = multiSelectCf(trade, keys.tpReached);
-  if (labels.length === 0) return null;
-  const rs = labels.map(parseTpLabel).filter((v): v is number => v != null && v > 0);
-  if (rs.length === 0) return null;
-  return Math.max(...rs);
-}
 function extractProof(trade: any, keys: PairLabFieldKeys): TradeProof {
   const loggedMfeRaw = numericCf(trade, keys.mfe);
   const loggedMfe = loggedMfeRaw != null ? Math.max(0, loggedMfeRaw) : null;
   const loggedMae = tradeMaeR(trade, numericCf(trade, keys.mae));
-  const tpHit = maxTpReached(trade, keys);
   const rActual = trade.r_multiple_actual;
   const hasActualR = rActual != null;
   const proofs: number[] = [];
   if (loggedMfe != null) proofs.push(loggedMfe);
-  if (tpHit != null) proofs.push(tpHit);
   if (hasActualR && (rActual as number) > 0) proofs.push(rActual as number);
   const reachedR = proofs.length ? Math.max(...proofs) : 0;
   let stoppedOut: boolean | null = null;
