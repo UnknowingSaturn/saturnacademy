@@ -510,6 +510,15 @@ function buildResult(
 
   const ineligibleCount = Object.values(ineligibleReasons).reduce((a, b) => a + b, 0);
 
+  const slPipsSamples = replayed
+    .map((x) => x.slPips)
+    .filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
+  const appliedSlPipsMedian = slPipsSamples.length ? quantile(slPipsSamples, 0.5) : null;
+  const slP25 = slPipsSamples.length ? quantile(slPipsSamples, 0.25) : null;
+  const slP75 = slPipsSamples.length ? quantile(slPipsSamples, 0.75) : null;
+  const appliedSlPipsRange: [number, number] | null =
+    slP25 != null && slP75 != null ? [slP25, slP75] : null;
+
   return {
     strategy,
     n,
@@ -536,6 +545,11 @@ function buildResult(
     bustNote,
     expectancyRCi,
     totalDollarsCi,
+    appliedSlPipsMedian,
+    appliedSlPipsRange,
+    appliedTpLadder,
+    slRuleLabel: SL_RULE_LABELS[strategy.slRule],
+    runnerLabel: RUNNER_LABELS[strategy.exitRule.runner],
   };
 }
 
