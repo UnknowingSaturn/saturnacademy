@@ -417,10 +417,11 @@ export const MIN_MATCHED_SAMPLE = 5;
 
 function buildResult(
   strategy: Strategy,
-  replayed: Array<{ trade: Trade; r: number; reachedR?: number }>,
+  replayed: Array<{ trade: Trade; r: number; reachedR?: number; slPips?: number | null }>,
   ineligibleReasons: Record<string, number>,
   totalTradeCount: number,
   opts: ReplayOpts,
+  appliedTpLadder: AppliedTpLeg[],
 ): ReplayResult {
   const dollarRisk = (opts.balance * strategy.riskPct) / 100;
   const perTrade: ReplayPerTrade[] = [];
