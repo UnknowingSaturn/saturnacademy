@@ -626,7 +626,7 @@ function computeBucket(
         else { sumR += r.rActual * (r.slPips / slCand); }
       }
       const meanR = sumR / sweepRows.length;
-      rows.push({
+      sweepOut.push({
         q,
         slPips: slCand,
         pctStopped: stopped / sweepRows.length,
