@@ -74,6 +74,12 @@ export interface ReplayPerTrade {
   cumulativeEquity: number;
 }
 
+export interface AppliedTpLeg {
+  atR: number;
+  fraction: number;
+  source: AtRSource;
+}
+
 export interface ReplayResult {
   strategy: Strategy;
   n: number;
@@ -103,7 +109,36 @@ export interface ReplayResult {
   bustNote: string | null;
   expectancyRCi: [number, number] | null;
   totalDollarsCi: [number, number] | null;
+  /** Median SL distance actually applied to eligible trades, in pips. */
+  appliedSlPipsMedian: number | null;
+  /** Inter-quartile range (p25, p75) of applied SL in pips. */
+  appliedSlPipsRange: [number, number] | null;
+  /** Resolved TP ladder. For adaptive presets, atR reflects the bucket statistic. */
+  appliedTpLadder: AppliedTpLeg[];
+  /** Plain-English label for the SL rule. */
+  slRuleLabel: string;
+  /** Plain-English label for the runner rule. */
+  runnerLabel: string;
 }
+
+export const SL_RULE_LABELS: Record<SlRule, string> = {
+  original: "Use original stop",
+  tighten_to_ideal: "Tighten to recorded ideal-SL",
+  widen_to_mae_p75_x_1_15: "Widen to bucket MAE p75 × 1.15",
+};
+
+export const RUNNER_LABELS: Record<RunnerRule, string> = {
+  trail_to_mfe: "Trail runner to MFE",
+  be_after_first_tp: "Move runner to breakeven after first TP",
+  all_out_at_last_partial: "Close runner with last partial",
+};
+
+export const TP_SOURCE_LABELS: Record<AtRSource, string> = {
+  fixed: "fixed",
+  bucket_mfe_p50: "adaptive · MFE p50",
+  bucket_mfe_p60: "adaptive · MFE p60",
+  bucket_mfe_p75: "adaptive · MFE p75",
+};
 
 // ----------------------------------------------------------------------------
 // Field readers
