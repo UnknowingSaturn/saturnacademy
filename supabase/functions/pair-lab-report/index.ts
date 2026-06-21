@@ -34,8 +34,6 @@ interface BucketInput {
   idealSlMedian: number | null;
   slInitialMedian: number | null;
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
-  tpHitDistribution: Record<string, number>;
-  mostCommonTpHit: string | null;
   confidence: "high" | "medium" | "low";
   expectedRCi: [number, number] | null;
   worstLosingStreak: number;
