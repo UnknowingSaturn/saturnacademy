@@ -132,6 +132,12 @@ export function StrategyRanker({
               Quant mode — each preset is replayed only on trades whose recorded data proves
               the rules would have triggered. No guessing.
             </p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              <span className="font-medium text-foreground/80">Units:</span>{" "}
+              MAE & Ideal-SL in <span className="font-medium">ticks</span> (TradingView long/short tool) ·
+              MFE & TP targets in <span className="font-medium">R</span> (1R = initial stop distance).
+              Click a row to see its stop & TP details.
+            </p>
             <p className="text-[10px] text-muted-foreground mt-0.5 font-mono-numbers">{trailLabel}</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
