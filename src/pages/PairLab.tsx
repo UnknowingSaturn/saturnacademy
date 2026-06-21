@@ -271,6 +271,12 @@ export default function PairLab() {
                       scopeLabel={scopeLabel}
                       effectiveTrailCapture={data.effectiveTrailCapture}
                     />
+                  </>
+                ) : (
+                  <Card className="p-6 text-sm text-muted-foreground text-center">
+                    Set a notional balance in your simulator profile to convert R into $.
+                  </Card>
+                )}
               </>
             );
           })()}
