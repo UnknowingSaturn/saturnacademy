@@ -51,16 +51,18 @@ function slDistancePips(t: any): number | null {
   if (!(distance > 0)) return null;
   return distance / pip;
 }
-function tradeMaeR(t: any, maePips: number | null): number | null {
-  if (maePips == null) return null;
+function tradeMaeR(t: any, maeTicks: number | null): number | null {
+  if (maeTicks == null || !t.symbol) return null;
   const slPips = slDistancePips(t);
   if (slPips == null || slPips <= 0) return null;
-  return Math.abs(maePips) / slPips;
+  const maePips = ticksToPips(t.symbol, Math.abs(maeTicks));
+  return maePips / slPips;
 }
-function idealSlScaleFor(t: any, idealPips: number | null): number | null {
-  if (idealPips == null) return null;
+function idealSlScaleFor(t: any, idealTicks: number | null): number | null {
+  if (idealTicks == null || !t.symbol) return null;
   const slPips = slDistancePips(t);
   if (slPips == null || slPips <= 0) return null;
+  const idealPips = ticksToPips(t.symbol, idealTicks);
   return Math.max(0.2, Math.min(2, idealPips / slPips));
 }
 
