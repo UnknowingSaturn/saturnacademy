@@ -6,7 +6,7 @@
 //     `expectancyROnIntersection` for the report pipeline's bias-aware deltas.
 
 import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
-import { pipSizeForSymbol } from "./symbolMapping.ts";
+import { pipSizeForSymbol, ticksToPips } from "./symbolMapping.ts";
 
 export const TRAIL_CAPTURE_FRAC = 0.8;
 export const MIN_ELIGIBLE_SAMPLE = 10;
@@ -51,16 +51,18 @@ function slDistancePips(t: any): number | null {
   if (!(distance > 0)) return null;
   return distance / pip;
 }
-function tradeMaeR(t: any, maePips: number | null): number | null {
-  if (maePips == null) return null;
+function tradeMaeR(t: any, maeTicks: number | null): number | null {
+  if (maeTicks == null || !t.symbol) return null;
   const slPips = slDistancePips(t);
   if (slPips == null || slPips <= 0) return null;
-  return Math.abs(maePips) / slPips;
+  const maePips = ticksToPips(t.symbol, Math.abs(maeTicks));
+  return maePips / slPips;
 }
-function idealSlScaleFor(t: any, idealPips: number | null): number | null {
-  if (idealPips == null) return null;
+function idealSlScaleFor(t: any, idealTicks: number | null): number | null {
+  if (idealTicks == null || !t.symbol) return null;
   const slPips = slDistancePips(t);
   if (slPips == null || slPips <= 0) return null;
+  const idealPips = ticksToPips(t.symbol, idealTicks);
   return Math.max(0.2, Math.min(2, idealPips / slPips));
 }
 
@@ -109,6 +111,9 @@ function buildBucketConstants(trades: any[], keys: PairLabFieldKeys): BucketCons
 function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucket: BucketConstants): ReplayOutcome {
   if (strategy.useActualOutcome) {
     return proof.hasActualR ? { r: proof.rActual } : { ineligible: "no recorded r_actual" };
+  }
+  if (strategy.exitRule.runner === "be_after_first_tp" && strategy.exitRule.partials.length === 0) {
+    return { ineligible: "BE-after-TP runner needs ≥1 partial" };
   }
   let slScale: number;
   if (strategy.slRule === "original") slScale = 1;

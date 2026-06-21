@@ -4,16 +4,17 @@
 // Field keys: we follow the same prefix-and-label resolver as the client so
 // the edge function reads the same custom_fields as the UI does.
 //
-// UNIT CONTRACT (post-2026-06 fix):
-//   cf_mae and cf_ideal_stop_loss are stored in PIPS (FX/metals/crypto/oil)
-//   or POINTS (indices). The slUnit field on each BucketReport surfaces the
-//   correct label so the LLM / UI never mis-renders 60 pips as 0.6.
+// UNIT CONTRACT (2026-06):
+//   cf_mae and cf_ideal_stop_loss are stored in broker TICKS (TradingView
+//   position-calc output). Convert with `ticksToPips()` before comparing
+//   against pip-denominated SL distances. The slUnit field on each
+//   BucketReport surfaces the human-readable label.
 //
 // Intentional divergence from src/lib/pairLabMath.ts:
 //   - server version uses duck-typed `any` rows (raw DB shape)
 //   - client version has PropFirmContext, perRow, edgeVsBaseline (UI-only)
 
-import { tickSizeForSymbol, pipSizeForSymbol, pipLabelForSymbol } from "./symbolMapping.ts";
+import { tickSizeForSymbol, pipSizeForSymbol, pipLabelForSymbol, ticksToPips } from "./symbolMapping.ts";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
@@ -80,10 +81,12 @@ export function mean(values: number[]): number {
   if (xs.length === 0) return 0;
   return xs.reduce((s, v) => s + v, 0) / xs.length;
 }
-export function bootstrapMeanCi(values: number[], iters = 400): [number, number] | null {
+export function bootstrapMeanCi(values: number[], iters = 500): [number, number] | null {
   const xs = values.filter((v) => Number.isFinite(v));
   if (xs.length < 5) return null;
   let seed = xs.length * 1000003;
+  for (let i = 0; i < xs.length; i++) seed = (seed * 31 + Math.floor(xs[i] * 1000)) | 0;
+  if (seed === 0) seed = 0x9e3779b9;
   const rand = () => {
     seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
     return ((seed >>> 0) % 1_000_000) / 1_000_000;
@@ -217,14 +220,15 @@ function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
   return best;
 }
 
-/** Convert a stored `cf_mae` / `cf_ideal_stop_loss` value into the per-trade R-multiple, given the trade's SL distance. */
-function pipsToR(pips: number, t: any): number | null {
+/** Convert a stored `cf_mae` / `cf_ideal_stop_loss` value (TICKS) into the per-trade R-multiple, given the trade's SL distance. */
+function ticksToR(ticks: number, t: any): number | null {
   if (t.sl_initial == null || t.entry_price == null || !t.symbol) return null;
   const pip = pipSizeForSymbol(t.symbol);
   if (!(pip > 0)) return null;
   const slDistPips = Math.abs(t.entry_price - t.sl_initial) / pip;
   if (!(slDistPips > 0)) return null;
-  return Math.abs(pips) / slDistPips;
+  const pips = ticksToPips(t.symbol, Math.abs(ticks));
+  return pips / slDistPips;
 }
 
 export function computeBucket(
@@ -254,22 +258,23 @@ export function computeBucket(
 
   const mfes = rows.map((t) => numericCf(t, keys.mfe)).filter((v): v is number => v != null);
 
-  // MAE is logged in PIPS (or POINTS for indices) per the unit contract above.
+  // MAE is stored in TICKS. Convert to pips for the SL math, R for distribution.
   const maesR: number[] = [];
   const maesPips: number[] = [];
   for (const t of rows) {
-    const maePips = numericCf(t, keys.mae);
-    if (maePips == null || !t.symbol) continue;
-    maesPips.push(Math.abs(maePips));
-    const r = pipsToR(maePips, t);
+    const maeTicks = numericCf(t, keys.mae);
+    if (maeTicks == null || !t.symbol) continue;
+    maesPips.push(Math.abs(ticksToPips(t.symbol, Math.abs(maeTicks))));
+    const r = ticksToR(maeTicks, t);
     if (r != null) maesR.push(r);
   }
 
+  // Ideal SL is stored in TICKS — convert to pips for the SL recommendation.
   const idealSls: number[] = [];
   for (const t of rows) {
-    const idealPips = numericCf(t, keys.idealStopLoss);
-    if (idealPips == null || !t.symbol) continue;
-    idealSls.push(Math.abs(idealPips));
+    const idealTicks = numericCf(t, keys.idealStopLoss);
+    if (idealTicks == null || !t.symbol) continue;
+    idealSls.push(Math.abs(ticksToPips(t.symbol, idealTicks)));
   }
 
   const slInitials: number[] = [];
@@ -370,17 +375,20 @@ export function buildBuckets(
   trades: any[],
   keys: PairLabFieldKeys,
   propFirm?: PropFirmContext | null,
+  symbolResolver?: (raw: string) => string,
 ): {
   perCell: BucketReport[];
   baseline: BucketReport;
 } {
+  const resolveSym = symbolResolver ?? ((s: string) => s);
   const closed = trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
   const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm);
   const cellMap = new Map<string, any[]>();
   for (const t of closed) {
     if (!t.symbol) continue;
+    const canonical = resolveSym(t.symbol);
     const sess = normalizeSession(t.session);
-    const k = `${t.symbol}__${sess}`;
+    const k = `${canonical}__${sess}`;
     if (!cellMap.has(k)) cellMap.set(k, []);
     cellMap.get(k)!.push(t);
   }

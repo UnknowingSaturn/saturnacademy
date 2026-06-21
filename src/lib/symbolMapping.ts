@@ -334,3 +334,24 @@ export function pipSizeForSymbol(raw: string): number {
   return tickSizeForSymbol(raw) * 10;
 }
 
+/** Human-readable unit for a symbol's SL/MAE distance. */
+export function pipLabelForSymbol(raw: string): "pips" | "points" {
+  return classifySymbol(raw) === "index" ? "points" : "pips";
+}
+
+/**
+ * Convert a tick count (e.g. TradingView position-calc output) to pips
+ * (or points for indices). On 5-digit FX 1 pip = 10 ticks; on indices the
+ * tick == 1 point so ticks and "pips" are equal.
+ *
+ * Pair-Lab unit contract: MAE and Ideal-SL custom fields are logged in
+ * broker TICKS. Every read site must convert through this helper before
+ * comparing against SL distances expressed in pips.
+ */
+export function ticksToPips(symbol: string, ticks: number): number {
+  const tick = tickSizeForSymbol(symbol);
+  const pip = pipSizeForSymbol(symbol);
+  if (!(tick > 0) || !(pip > 0)) return ticks;
+  return (ticks * tick) / pip;
+}
+

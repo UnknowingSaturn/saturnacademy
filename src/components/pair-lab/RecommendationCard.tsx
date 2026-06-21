@@ -29,6 +29,9 @@ const fmt = (v: number | null | undefined, digits = 2, suffix = "") =>
 const fmtR = (v: number | null | undefined) =>
   v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "R";
 
+const fmtPct = (v: number | null | undefined, digits = 0) =>
+  v == null ? "—" : (v * 100).toFixed(digits) + "%";
+
 export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
   const b = bucket;
   const lowSample = b.confidence === "low";
@@ -39,6 +42,7 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
     : kellyRisk;
   const binding = b.recommendation.bindingConstraint;
   const tp1 = b.recommendation.tp1Star;
+  const kellyCi = b.recommendation.suggestedRiskPctCi;
 
   const driftBadge =
     b.slDrift === "too_wide" ? (
@@ -68,7 +72,7 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
         <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs">
           <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
           <div className="text-amber-200">
-            Sample size is below 10 trades. Treat the recommendation as directional only —
+            Sample size is below 15 trades. Treat the recommendation as directional only —
             distributions are shown, but suggested risk sizing is hidden until more data accumulates.
           </div>
         </div>
@@ -95,7 +99,12 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
           </div>
           {tp1 && (
             <div className="text-[10px] text-primary">
-              TP1* (win-rate maxing): {tp1.r}R · hits {(tp1.hitRate * 100).toFixed(0)}% of trades
+              TP1* (win-rate maxing): {tp1.r}R · hits {(tp1.hitRate * 100).toFixed(0)}%
+              {tp1.hitRateCi && (
+                <span className="text-muted-foreground">
+                  {" "}[{(tp1.hitRateCi[0] * 100).toFixed(0)}–{(tp1.hitRateCi[1] * 100).toFixed(0)}%]
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -108,19 +117,44 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
           )}>
             {effectiveRisk != null ? `${effectiveRisk.toFixed(2)}%` : "—"}
           </div>
+          {kellyCi && (
+            <div className="text-[10px] text-muted-foreground font-mono-numbers">
+              95% CI {kellyCi[0].toFixed(2)} – {kellyCi[1].toFixed(2)}%
+            </div>
+          )}
           <div className="text-[10px] text-muted-foreground">
-            {propFirmMode && binding === "prop_firm_dd"
-              ? `Capped by prop-firm DD budget (worst streak ${b.worstLosingStreak || "≤3"})`
-              : propFirmMode && binding === "hard_cap"
-                ? "Capped by account hard-cap"
-                : "Quarter-Kelly, clamped 0.25 – 1.5 %"}
+            {b.recommendation.riskBelowFloor
+              ? "Raw ¼-Kelly below 0.25 % — edge too thin to size confidently"
+              : propFirmMode && binding === "prop_firm_dd"
+                ? `Capped by prop-firm DD budget (worst streak ${b.worstLosingStreak || "≤3"})`
+                : propFirmMode && binding === "hard_cap"
+                  ? "Capped by account hard-cap"
+                  : "Quarter-Kelly · floor 0.25 %, ceiling 1.5 %"}
           </div>
         </div>
       </div>
 
+      {/* PF/payoff/sharpe-like chips */}
+      <div className="flex flex-wrap gap-2 text-xs">
+        {b.profitFactor != null && (
+          <Badge variant="outline" className="font-mono-numbers">
+            PF {b.profitFactor.toFixed(2)}
+          </Badge>
+        )}
+        {b.payoffRatio != null && (
+          <Badge variant="outline" className="font-mono-numbers">
+            Payoff {b.payoffRatio.toFixed(2)} ×
+          </Badge>
+        )}
+        {b.winRateCi && (
+          <Badge variant="outline" className="font-mono-numbers">
+            Win {fmtPct(b.winRate, 1)} [{(b.winRateCi[0] * 100).toFixed(0)}–{(b.winRateCi[1] * 100).toFixed(0)}%]
+          </Badge>
+        )}
+      </div>
+
       <Separator />
 
-      {/* Distribution summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
         <div>
           <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
@@ -128,8 +162,8 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
           </div>
           <StatLine label="MFE median" value={fmt(b.mfeP50, 2, "R")} />
           <StatLine label="MFE p75" value={fmt(b.mfeP75, 2, "R")} />
-          <StatLine label="MAE median" value={fmt(b.maeP50, 1)} sub="user-entered units" />
-          <StatLine label="MAE p75" value={fmt(b.maeP75, 2)} sub="R-multiple" />
+          <StatLine label="MAE median" value={fmt(b.maeP50, 2, "R")} sub="R-multiple of original SL" />
+          <StatLine label="MAE p75" value={fmt(b.maeP75, 2, "R")} />
         </div>
         <div>
           <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
@@ -139,7 +173,7 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
           <StatLine
             label="Expected R"
             value={fmtR(b.expectedR)}
-            sub={b.expectedRCi ? `90% CI ${fmtR(b.expectedRCi[0])} … ${fmtR(b.expectedRCi[1])}` : "CI needs N≥5"}
+            sub={b.expectedRCi ? `95% CI ${fmtR(b.expectedRCi[0])} … ${fmtR(b.expectedRCi[1])}` : "CI needs N≥5"}
           />
           <StatLine label="Median R" value={fmtR(b.expectedRMedian)} />
           <StatLine
@@ -169,6 +203,12 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
           </div>
         </>
       )}
+
+      <p className="text-[10px] text-muted-foreground leading-relaxed border-t pt-2">
+        R metrics derive from <code>r_multiple_actual</code> on each trade — if your broker import
+        populates it from gross P&amp;L, expectancy and Kelly slightly overstate net of
+        commissions / swap.
+      </p>
 
     </Card>
   );

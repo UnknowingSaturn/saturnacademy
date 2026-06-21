@@ -47,3 +47,14 @@ export function pipSizeForSymbol(raw: string): number {
 export function pipLabelForSymbol(raw: string): "pips" | "points" {
   return classifySymbol(raw) === "index" ? "points" : "pips";
 }
+
+/**
+ * Convert a tick count to pips. Pair-Lab MAE and Ideal-SL custom fields are
+ * stored in broker TICKS; this helper bridges to the pip-denominated SL math.
+ */
+export function ticksToPips(symbol: string, ticks: number): number {
+  const tick = tickSizeForSymbol(symbol);
+  const pip = pipSizeForSymbol(symbol);
+  if (!(tick > 0) || !(pip > 0)) return ticks;
+  return (ticks * tick) / pip;
+}

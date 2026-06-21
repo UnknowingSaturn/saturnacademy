@@ -32,6 +32,8 @@ interface Props {
   balance: number;
   propFirm: PropFirmContext | null;
   scopeLabel: string;
+  /** Empirical trail capture ratio (overrides the default 0.8). */
+  effectiveTrailCapture?: number;
 }
 
 function fmtMoney(v: number) {
@@ -91,6 +93,14 @@ function StrategyMetrics({ r, winner, nativeN }: { r: ReplayResult; winner: bool
         <span className="text-muted-foreground">Worst streak</span>
         <span className="font-mono-numbers">{r.worstLosingStreak} losses</span>
       </div>
+      <div className="flex items-baseline justify-between">
+        <span className="text-muted-foreground">Sharpe / Sortino</span>
+        <span className="font-mono-numbers">
+          {r.sharpeR != null ? r.sharpeR.toFixed(2) : "—"}
+          {" / "}
+          {r.sortinoR != null ? r.sortinoR.toFixed(2) : "—"}
+        </span>
+      </div>
       <div className="flex items-baseline justify-between text-xs">
         <span className="text-muted-foreground">Native eligible</span>
         <span className="font-mono-numbers text-muted-foreground">{nativeN}/{r.totalTradeCount}</span>
@@ -103,27 +113,30 @@ function StrategyMetrics({ r, winner, nativeN }: { r: ReplayResult; winner: bool
   );
 }
 
-export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLabel }: Props) {
+export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLabel, effectiveTrailCapture }: Props) {
   const [stratA, setStratA] = useState<Strategy>(getPreset("current")!);
   const [stratB, setStratB] = useState<Strategy>(getPreset("scale-out")!);
   const [simBalance, setSimBalance] = useState<number>(balance);
   useEffect(() => { setSimBalance(balance); }, [balance]);
 
-  // Matched-sample replay: both strategies scored on the intersection of eligible trades.
+  const replayOpts = useMemo(
+    () => ({ balance: simBalance, propFirm, trailCapture: effectiveTrailCapture }),
+    [simBalance, propFirm, effectiveTrailCapture],
+  );
+
   const matched = useMemo(
-    () => replayBucketMatched(trades, fieldKeys, [stratA, stratB], { balance: simBalance, propFirm }),
-    [trades, fieldKeys, stratA, stratB, simBalance, propFirm],
+    () => replayBucketMatched(trades, fieldKeys, [stratA, stratB], replayOpts),
+    [trades, fieldKeys, stratA, stratB, replayOpts],
   );
   const [resA, resB] = matched.results;
 
-  // Native eligible counts (each preset's own eligible sample, for context).
   const nativeA = useMemo(
-    () => replayBucket(trades, fieldKeys, stratA, { balance: simBalance, propFirm }).eligibleCount,
-    [trades, fieldKeys, stratA, simBalance, propFirm],
+    () => replayBucket(trades, fieldKeys, stratA, replayOpts).eligibleCount,
+    [trades, fieldKeys, stratA, replayOpts],
   );
   const nativeB = useMemo(
-    () => replayBucket(trades, fieldKeys, stratB, { balance: simBalance, propFirm }).eligibleCount,
-    [trades, fieldKeys, stratB, simBalance, propFirm],
+    () => replayBucket(trades, fieldKeys, stratB, replayOpts).eligibleCount,
+    [trades, fieldKeys, stratB, replayOpts],
   );
 
   if (trades.length === 0) {
@@ -297,7 +310,8 @@ export function StrategyCompare({ trades, fieldKeys, balance, propFirm, scopeLab
             {" "}<code className="text-[10px]">sl_initial</code> or
             {" "}<code className="text-[10px]">entry_price</code> are ineligible for MAE/ideal-SL-based presets.
             ±CI is the bootstrap 95% interval on per-trade R — when the two CIs overlap, the difference
-            isn't statistically meaningful. Trail runners assume 80% MFE capture (estimate, not proof).
+            isn't statistically meaningful. Trail runners use your empirical r_actual/MFE ratio when ≥10
+            trades have both, otherwise fall back to an 80% MFE-capture default.
           </span>
         </p>
       </Card>
