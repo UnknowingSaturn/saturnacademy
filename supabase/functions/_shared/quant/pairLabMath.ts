@@ -375,17 +375,20 @@ export function buildBuckets(
   trades: any[],
   keys: PairLabFieldKeys,
   propFirm?: PropFirmContext | null,
+  symbolResolver?: (raw: string) => string,
 ): {
   perCell: BucketReport[];
   baseline: BucketReport;
 } {
+  const resolveSym = symbolResolver ?? ((s: string) => s);
   const closed = trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
   const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm);
   const cellMap = new Map<string, any[]>();
   for (const t of closed) {
     if (!t.symbol) continue;
+    const canonical = resolveSym(t.symbol);
     const sess = normalizeSession(t.session);
-    const k = `${t.symbol}__${sess}`;
+    const k = `${canonical}__${sess}`;
     if (!cellMap.has(k)) cellMap.set(k, []);
     cellMap.get(k)!.push(t);
   }
