@@ -3,7 +3,7 @@
 //
 // Each preset uses its own ELIGIBLE sample (trades whose recorded data proves
 // the preset's rules would have triggered). Per-row N exposes data coverage.
-// Sort by expectancy R (busted strategies demoted), tiebreak by total $.
+// Sort by expectancy R, tiebreak by Sharpe-of-R (mean / std).
 // ============================================================================
 
 import { useEffect, useMemo, useState } from "react";
@@ -18,12 +18,13 @@ import { Trophy, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import {
   replayBucket,
   replayBucketMatched,
+  walkForwardEvaluate,
   MIN_ELIGIBLE_SAMPLE,
   type ReplayResult,
 } from "@/lib/pairLabSimulator";
 import { STRATEGY_PRESETS } from "@/lib/pairLabPresets";
 import type { Trade } from "@/types/trading";
-import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
+import type { PairLabFieldKeys, PropFirmContext, TrailCaptureEstimate } from "@/lib/pairLabMath";
 
 interface Props {
   trades: Trade[];
@@ -31,6 +32,12 @@ interface Props {
   balance: number;
   propFirm: PropFirmContext | null;
   scopeLabel: string;
+  /** Default % risk for the slider — comes from the user's simulator profile. */
+  defaultRiskPct?: number;
+  /** Empirical trail capture estimate (when available). */
+  trailCapture?: TrailCaptureEstimate | null;
+  /** Trail capture ratio actually used by replay (estimate or default). */
+  effectiveTrailCapture?: number;
 }
 
 function fmtMoney(v: number) {
@@ -54,35 +61,53 @@ function topReasons(reasons: Record<string, number>, k = 3): Array<[string, numb
   return Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, k);
 }
 
-export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabel }: Props) {
-  const [riskPct, setRiskPct] = useState<number>(1);
+export function StrategyRanker({
+  trades, fieldKeys, balance, propFirm, scopeLabel,
+  defaultRiskPct = 1, trailCapture, effectiveTrailCapture,
+}: Props) {
+  const [riskPct, setRiskPct] = useState<number>(defaultRiskPct);
   const [simBalance, setSimBalance] = useState<number>(balance);
   const [strictMode, setStrictMode] = useState<boolean>(false);
+  const [walkForward, setWalkForward] = useState<boolean>(false);
   useEffect(() => { setSimBalance(balance); }, [balance]);
+  useEffect(() => { setRiskPct(defaultRiskPct); }, [defaultRiskPct]);
+
+  const replayOpts = useMemo(
+    () => ({ balance: simBalance, propFirm, trailCapture: effectiveTrailCapture }),
+    [simBalance, propFirm, effectiveTrailCapture],
+  );
 
   const ranked = useMemo(() => {
     const presets = STRATEGY_PRESETS.map((p) => ({ ...p, riskPct }));
     let results: ReplayResult[];
     if (strictMode) {
-      // Strict: score every preset on the intersection of trades eligible
-      // under ALL presets — fully apples-to-apples leaderboard.
-      const matched = replayBucketMatched(trades, fieldKeys, presets, { balance: simBalance, propFirm });
+      const matched = replayBucketMatched(trades, fieldKeys, presets, replayOpts);
       results = matched.results;
     } else {
-      results = presets.map((p) => replayBucket(trades, fieldKeys, p, { balance: simBalance, propFirm }));
+      results = presets.map((p) => replayBucket(trades, fieldKeys, p, replayOpts));
     }
     return results.sort((a, b) => {
       const aBust = busted(a);
       const bBust = busted(b);
       if (aBust !== bBust) return aBust ? 1 : -1;
-      // Penalise unsupported samples: anything below MIN_ELIGIBLE_SAMPLE goes after supported ones.
       const aOk = a.eligibleCount >= MIN_ELIGIBLE_SAMPLE ? 1 : 0;
       const bOk = b.eligibleCount >= MIN_ELIGIBLE_SAMPLE ? 1 : 0;
       if (aOk !== bOk) return bOk - aOk;
       if (b.expectancyR !== a.expectancyR) return b.expectancyR - a.expectancyR;
-      return b.totalDollars - a.totalDollars;
+      // Tiebreak on risk-adjusted return (Sharpe of per-trade R) so a preset
+      // with a tighter distribution beats a noisy one of equal expectancy.
+      const aS = a.sharpeR ?? -Infinity;
+      const bS = b.sharpeR ?? -Infinity;
+      if (bS !== aS) return bS - aS;
+      return b.eligibleCount - a.eligibleCount;
     });
-  }, [trades, fieldKeys, riskPct, simBalance, propFirm, strictMode]);
+  }, [trades, fieldKeys, riskPct, strictMode, replayOpts]);
+
+  const walkForwardResult = useMemo(() => {
+    if (!walkForward) return null;
+    const presets = STRATEGY_PRESETS.map((p) => ({ ...p, riskPct }));
+    return walkForwardEvaluate(trades, fieldKeys, presets, replayOpts);
+  }, [walkForward, trades, fieldKeys, riskPct, replayOpts]);
 
   if (trades.length === 0) {
     return (
@@ -99,6 +124,10 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
       ? winner.totalDollars - baselineCurrent.totalDollars
       : null;
 
+  const trailLabel = trailCapture
+    ? `trail capture ${(effectiveTrailCapture! * 100).toFixed(0)}% (N=${trailCapture.n})`
+    : `trail capture 80% (default — log MFE + r_actual on ≥10 trades to estimate yours)`;
+
   return (
     <TooltipProvider delayDuration={150}>
       <Card className="p-5 space-y-4">
@@ -113,6 +142,7 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
               Quant mode — each preset is replayed only on trades whose recorded data proves
               the rules would have triggered. No guessing.
             </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5 font-mono-numbers">{trailLabel}</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <Tooltip>
@@ -125,6 +155,18 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
               <TooltipContent side="bottom" className="max-w-xs text-xs">
                 Score every preset on the intersection of trades eligible under ALL presets — apples-to-apples
                 leaderboard. Sample shrinks; turn off for per-preset native samples.
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2 rounded-md border border-border/60 px-2 py-1">
+                  <Label htmlFor="rank-wf" className="text-xs cursor-pointer">Walk-forward</Label>
+                  <Switch id="rank-wf" checked={walkForward} onCheckedChange={setWalkForward} />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                Split trades 70/30 by entry time, pick the winner on the first 70%, then report its expectancy on the last 30%.
+                Flags overfitting when OOS expectancy collapses.
               </TooltipContent>
             </Tooltip>
             <div className="flex items-center gap-2">
@@ -182,6 +224,9 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
                     {" "}(±{((winner.expectancyRCi[1] - winner.expectancyRCi[0]) / 2).toFixed(2)}R 95% CI)
                   </span>
                 )}
+                {winner.sharpeR != null && (
+                  <span className="text-muted-foreground"> · Sharpe {winner.sharpeR.toFixed(2)}</span>
+                )}
               </span>
               {upliftDollars != null && Math.abs(upliftDollars) > 1 && (
                 <>
@@ -195,6 +240,42 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
           </div>
         )}
 
+        {walkForwardResult && (
+          <div className={`rounded-md border p-3 text-xs ${
+            walkForwardResult.overfit
+              ? "border-amber-500/40 bg-amber-500/5"
+              : "border-border bg-muted/20"
+          }`}>
+            <div className="flex items-start gap-2">
+              {walkForwardResult.overfit ? (
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5" />
+              ) : (
+                <Info className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />
+              )}
+              <div className="flex-1">
+                <div className="font-medium text-sm">
+                  Walk-forward: {walkForwardResult.winnerStrategy.label}
+                </div>
+                <div className="font-mono-numbers text-muted-foreground mt-1">
+                  IS (N={walkForwardResult.inSampleN}): {walkForwardResult.inSample.expectancyR >= 0 ? "+" : ""}
+                  {walkForwardResult.inSample.expectancyR.toFixed(2)}R
+                  {" · "}
+                  OOS (N={walkForwardResult.outOfSampleN}): {walkForwardResult.outOfSample.expectancyR >= 0 ? "+" : ""}
+                  {walkForwardResult.outOfSample.expectancyR.toFixed(2)}R
+                  {walkForwardResult.outOfSample.sharpeR != null && (
+                    <> · OOS Sharpe {walkForwardResult.outOfSample.sharpeR.toFixed(2)}</>
+                  )}
+                </div>
+                {walkForwardResult.overfit && (
+                  <div className="text-amber-600 dark:text-amber-400 mt-1">
+                    OOS expectancy is &lt; 50% of IS — winner likely overfits this sample.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -205,7 +286,8 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
                 <th className="text-right py-2 px-2">Total $</th>
                 <th className="text-right py-2 px-2">Win %</th>
                 <th className="text-right py-2 px-2">Expectancy ± CI</th>
-                <th className="text-right py-2 px-2" title="Mean of MFE/r_actual reach proof across the eligible sample. Higher = preset's eligible trades were 'easier' (self-selection bias).">Reached R</th>
+                <th className="text-right py-2 px-2" title="Sharpe ratio of per-trade R series — mean / stddev. Higher = more consistent.">Sharpe</th>
+                <th className="text-right py-2 px-2" title="Mean of MFE/r_actual reach proof across the eligible sample (self-selection bias diagnostic).">Reached R</th>
                 <th className="text-right py-2 px-2">Max DD</th>
                 <th className="text-left py-2 pl-2">Prop-firm</th>
               </tr>
@@ -274,6 +356,9 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
                         </>
                       )}
                     </td>
+                    <td className="py-2 px-2 text-right font-mono-numbers">
+                      {insufficient || r.sharpeR == null ? "—" : r.sharpeR.toFixed(2)}
+                    </td>
                     <td className="py-2 px-2 text-right font-mono-numbers text-muted-foreground">
                       {insufficient || r.meanReachedR == null ? "—" : `${r.meanReachedR.toFixed(2)}R`}
                     </td>
@@ -311,10 +396,10 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
             )}
             {" "}A trade is eligible only when MFE or <code className="text-[10px] mx-0.5">r_actual</code> proves
             the rule's targets were reached (or that the trade stopped out).
-            MAE and Ideal-SL are logged in broker ticks and converted to R via each trade's initial-SL distance — trades missing
+            MAE and Ideal-SL are stored in broker ticks and converted to R via each trade's initial-SL distance — trades missing
             <code className="text-[10px] mx-0.5">sl_initial</code> or <code className="text-[10px] mx-0.5">entry_price</code> become ineligible for MAE/ideal-SL presets.
             Presets with fewer than {MIN_ELIGIBLE_SAMPLE} eligible trades are demoted. ±CI is the bootstrap 95% interval on per-trade R.
-            Trail runners use an 80% MFE-capture assumption (estimate, not proof).
+            Tiebreaker is Sharpe-of-R (mean / std) — risk-adjusted, not total $.
           </span>
         </p>
       </Card>
