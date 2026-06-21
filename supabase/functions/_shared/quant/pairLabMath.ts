@@ -81,10 +81,12 @@ export function mean(values: number[]): number {
   if (xs.length === 0) return 0;
   return xs.reduce((s, v) => s + v, 0) / xs.length;
 }
-export function bootstrapMeanCi(values: number[], iters = 400): [number, number] | null {
+export function bootstrapMeanCi(values: number[], iters = 500): [number, number] | null {
   const xs = values.filter((v) => Number.isFinite(v));
   if (xs.length < 5) return null;
   let seed = xs.length * 1000003;
+  for (let i = 0; i < xs.length; i++) seed = (seed * 31 + Math.floor(xs[i] * 1000)) | 0;
+  if (seed === 0) seed = 0x9e3779b9;
   const rand = () => {
     seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
     return ((seed >>> 0) % 1_000_000) / 1_000_000;
