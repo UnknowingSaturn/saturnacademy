@@ -255,7 +255,6 @@ export function StrategyRanker({
                 <th className="text-right py-2 px-2">Win %</th>
                 <th className="text-right py-2 px-2">Expectancy ± CI</th>
                 <th className="text-right py-2 px-2" title="Sharpe ratio of per-trade R series — mean / stddev. Higher = more consistent.">Sharpe</th>
-                <th className="text-right py-2 px-2" title="Mean of MFE/r_actual reach proof across the eligible sample (self-selection bias diagnostic).">Reached R</th>
                 <th className="text-right py-2 px-2">Max DD</th>
                 <th className="text-left py-2 pl-2">Prop-firm</th>
               </tr>
@@ -327,9 +326,6 @@ export function StrategyRanker({
                     <td className="py-2 px-2 text-right font-mono-numbers">
                       {insufficient || r.sharpeR == null ? "—" : r.sharpeR.toFixed(2)}
                     </td>
-                    <td className="py-2 px-2 text-right font-mono-numbers text-muted-foreground">
-                      {insufficient || r.meanReachedR == null ? "—" : `${r.meanReachedR.toFixed(2)}R`}
-                    </td>
                     <td className="py-2 px-2 text-right font-mono-numbers text-destructive">
                       {insufficient ? "—" : fmtMoney(r.maxDrawdownDollars)}
                     </td>
@@ -353,21 +349,24 @@ export function StrategyRanker({
           </table>
         </div>
 
+        {winner && baselineCurrent && winner.strategy.id !== "current" &&
+          winner.eligibleCount >= MIN_ELIGIBLE_SAMPLE && (
+          <div className="space-y-1 pt-2">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground px-2">
+              Equity curve — {winner.strategy.label} vs current behavior
+            </div>
+            <EquityCurveOverlay results={[winner, baselineCurrent]} />
+          </div>
+        )}
+
         <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed flex items-start gap-1.5">
           <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
           <span>
-            {strictMode ? (
-              <>Strict mode — every preset is scored on the intersection of trades eligible under ALL presets (apples-to-apples).</>
-            ) : (
-              <>Native mode — each preset is scored on its own eligible sample. The <span className="font-medium">Reached R</span> column
-              exposes self-selection bias: a higher value means the preset's eligible trades happened to be easier than another preset's.</>
-            )}
-            {" "}A trade is eligible only when MFE or <code className="text-[10px] mx-0.5">r_actual</code> proves
-            the rule's targets were reached (or that the trade stopped out).
-            MAE and Ideal-SL are stored in broker ticks and converted to R via each trade's initial-SL distance — trades missing
-            <code className="text-[10px] mx-0.5">sl_initial</code> or <code className="text-[10px] mx-0.5">entry_price</code> become ineligible for MAE/ideal-SL presets.
-            Presets with fewer than {MIN_ELIGIBLE_SAMPLE} eligible trades are demoted. ±CI is the bootstrap 95% interval on per-trade R.
-            Tiebreaker is Sharpe-of-R (mean / std) — risk-adjusted, not total $.
+            Each preset is scored on its own eligible sample — a trade is eligible only when MFE or
+            <code className="text-[10px] mx-0.5">r_actual</code> proves the rule's targets were reached
+            (or the trade stopped out). MAE / Ideal-SL are stored in broker ticks and need each trade's
+            initial-SL + entry price to convert into R. Presets with fewer than {MIN_ELIGIBLE_SAMPLE} eligible
+            trades are demoted. ±CI is the bootstrap 95% interval on per-trade R. Tiebreaker is Sharpe-of-R.
           </span>
         </p>
       </Card>
