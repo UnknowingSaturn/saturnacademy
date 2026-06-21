@@ -122,7 +122,7 @@ const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefix
 
 export function resolvePairLabFieldKeys(defs: CustomFieldDef[]): PairLabFieldKeys {
   const out: PairLabFieldKeys = {
-    mfe: null, mae: null, tpReached: null,
+    mfe: null, mae: null,
     idealStopLoss: null, idealStopLossPos: null, idealEntryWindow: null,
   };
   for (const entry of LABEL_MAP) {
