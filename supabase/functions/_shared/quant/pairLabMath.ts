@@ -256,22 +256,23 @@ export function computeBucket(
 
   const mfes = rows.map((t) => numericCf(t, keys.mfe)).filter((v): v is number => v != null);
 
-  // MAE is logged in PIPS (or POINTS for indices) per the unit contract above.
+  // MAE is stored in TICKS. Convert to pips for the SL math, R for distribution.
   const maesR: number[] = [];
   const maesPips: number[] = [];
   for (const t of rows) {
-    const maePips = numericCf(t, keys.mae);
-    if (maePips == null || !t.symbol) continue;
-    maesPips.push(Math.abs(maePips));
-    const r = pipsToR(maePips, t);
+    const maeTicks = numericCf(t, keys.mae);
+    if (maeTicks == null || !t.symbol) continue;
+    maesPips.push(Math.abs(ticksToPips(t.symbol, Math.abs(maeTicks))));
+    const r = ticksToR(maeTicks, t);
     if (r != null) maesR.push(r);
   }
 
+  // Ideal SL is stored in TICKS — convert to pips for the SL recommendation.
   const idealSls: number[] = [];
   for (const t of rows) {
-    const idealPips = numericCf(t, keys.idealStopLoss);
-    if (idealPips == null || !t.symbol) continue;
-    idealSls.push(Math.abs(idealPips));
+    const idealTicks = numericCf(t, keys.idealStopLoss);
+    if (idealTicks == null || !t.symbol) continue;
+    idealSls.push(Math.abs(ticksToPips(t.symbol, idealTicks)));
   }
 
   const slInitials: number[] = [];
