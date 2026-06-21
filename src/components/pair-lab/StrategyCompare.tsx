@@ -93,6 +93,14 @@ function StrategyMetrics({ r, winner, nativeN }: { r: ReplayResult; winner: bool
         <span className="text-muted-foreground">Worst streak</span>
         <span className="font-mono-numbers">{r.worstLosingStreak} losses</span>
       </div>
+      <div className="flex items-baseline justify-between">
+        <span className="text-muted-foreground">Sharpe / Sortino</span>
+        <span className="font-mono-numbers">
+          {r.sharpeR != null ? r.sharpeR.toFixed(2) : "—"}
+          {" / "}
+          {r.sortinoR != null ? r.sortinoR.toFixed(2) : "—"}
+        </span>
+      </div>
       <div className="flex items-baseline justify-between text-xs">
         <span className="text-muted-foreground">Native eligible</span>
         <span className="font-mono-numbers text-muted-foreground">{nativeN}/{r.totalTradeCount}</span>
