@@ -65,12 +65,29 @@ export interface BucketStats {
   confidence: ConfidenceLevel;
   // Two-sided bootstrap CI on expectedR — null when n < 5.
   expectedRCi: [number, number] | null;
+  /** One-sided bootstrap p-value that expectedR > 0. null when n < 5. */
+  expectancyPValue: number | null;
   // Longest run of consecutive losing trades observed in this bucket.
   worstLosingStreak: number;
   /** Number of (closed) trades in this bucket that have an explicit MFE custom-field value. */
   loggedMfeCount: number;
   /** Number of (closed) trades in this bucket that have an explicit MAE custom-field value AND convertible SL. */
   loggedMaeCount: number;
+  /** Hypothetical SL sweep over the bucket's MAE distribution. null when N<10 or insufficient MAE data. */
+  slSweep: SlSweepRow[] | null;
+}
+
+export interface SlSweepRow {
+  /** Quantile of MAE distribution (e.g. 0.25, 0.40, 0.55, 0.70, 0.90). */
+  q: number;
+  /** SL distance in pips at this quantile. */
+  slPips: number;
+  /** Fraction of trades stopped out at this SL (0–1). */
+  pctStopped: number;
+  /** Mean R-multiple under this hypothetical SL. */
+  meanR: number;
+  /** Delta vs actual mean R (meanR − expectedR). */
+  deltaR: number;
 }
 
 export interface Tp1Star {
