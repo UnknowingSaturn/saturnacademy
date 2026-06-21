@@ -205,7 +205,7 @@ export function StrategyRanker({ trades, fieldKeys, balance, propFirm, scopeLabe
                 <th className="text-right py-2 px-2">Total $</th>
                 <th className="text-right py-2 px-2">Win %</th>
                 <th className="text-right py-2 px-2">Expectancy ± CI</th>
-                <th className="text-right py-2 px-2" title="Mean of MFE/tp_reached/r_actual reach proof across the eligible sample. Higher = preset's eligible trades were 'easier' (self-selection bias).">Reached R</th>
+                <th className="text-right py-2 px-2" title="Mean of MFE/r_actual reach proof across the eligible sample. Higher = preset's eligible trades were 'easier' (self-selection bias).">Reached R</th>
                 <th className="text-right py-2 px-2">Max DD</th>
                 <th className="text-left py-2 pl-2">Prop-firm</th>
               </tr>
