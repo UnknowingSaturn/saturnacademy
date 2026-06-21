@@ -8,21 +8,27 @@
 // Design notes:
 //   - Robust statistics only (median, quantiles, IQR). Means are easy to
 //     manipulate with a single outlier; medians aren't.
-//   - Kelly is scaled to 0.25 (quarter-Kelly) and clamped, because the sample
-//     sizes here are tiny by quant standards.
+//   - Kelly is scaled to 0.25 (quarter-Kelly). The raw fraction is returned
+//     uncapped; the UI flags values below 0.25% as "edge too thin to size".
 //   - Confidence is exposed as a sample-size bucket so the UI can hide the
 //     numeric output when N < 10.
+//
+// UNIT CONTRACT (2026-06):
+//   `cf_mae` and `cf_ideal_stop_loss` are stored in broker TICKS (TradingView
+//   position-calc output). Convert with `ticksToPips()` before comparing
+//   against SL distances expressed in pips. This is the canonical source of
+//   truth; the server mirror in supabase/functions/_shared/quant/* matches.
 // ============================================================================
 
 import type { Trade } from "@/types/trading";
-import { tickSizeForSymbol, pipSizeForSymbol } from "@/lib/symbolMapping";
+import { tickSizeForSymbol, pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
 export interface PairLabFieldKeys {
   mfe: string | null;            // number (R-multiple)
-  mae: string | null;            // number (PIPS for FX/metals/crypto/oil, POINTS for indices)
-  idealStopLoss: string | null;  // number (PIPS for FX/metals/crypto/oil, POINTS for indices)
+  mae: string | null;            // number (broker TICKS — convert with ticksToPips)
+  idealStopLoss: string | null;  // number (broker TICKS — convert with ticksToPips)
   idealStopLossPos: string | null; // select (initial_leg | last_leg)
   idealEntryWindow: string | null; // select (first_30min | last_30min)
 }
@@ -40,8 +46,14 @@ export interface BucketStats {
   wins: number;
   losses: number;
   winRate: number;            // 0–1
+  /** Wilson 95% CI on win rate, null when n < 5. */
+  winRateCi: [number, number] | null;
   expectedR: number;          // average R-multiple, mean of r_multiple_actual
   expectedRMedian: number;    // median R-multiple
+  /** Sum(winR) / Sum(|lossR|). null when no losses. */
+  profitFactor: number | null;
+  /** mean(winR) / mean(|lossR|). null when no losses or no wins. */
+  payoffRatio: number | null;
   mfeP50: number | null;          // R-multiple
   mfeP75: number | null;          // R-multiple
   maeP50: number | null;          // R-multiple (per-trade ticks→R)
@@ -64,6 +76,8 @@ export interface BucketStats {
 export interface Tp1Star {
   r: number;          // R-multiple target
   hitRate: number;    // 0–1, fraction of trades whose MFE ≥ r
+  /** Wilson 95% CI on hitRate. */
+  hitRateCi: [number, number] | null;
   expectancyR: number;
 }
 
@@ -85,7 +99,11 @@ export interface BucketRecommendation {
   suggestedSlPips: number | null;
   tpLadderR: number[];            // ascending R targets, 1-3 entries (expected-R)
   tp1Star: Tp1Star | null;        // win-rate-maximizing TP target
-  suggestedRiskPct: number | null;  // % of account, edge-only (Kelly)
+  suggestedRiskPct: number | null;  // % of account, edge-only (Kelly), uncapped
+  /** True when raw quarter-Kelly is positive but below the 0.25% floor — edge too thin to size meaningfully. */
+  riskBelowFloor: boolean;
+  /** Bootstrap 95% CI on the quarter-Kelly fraction (raw, uncapped). */
+  suggestedRiskPctCi: [number, number] | null;
   suggestedRiskPctPropFirm: number | null; // % of account, prop-firm-capped
   bindingConstraint: "kelly" | "prop_firm_dd" | "hard_cap" | null;
   edgeVsBaseline: {
@@ -126,15 +144,11 @@ export function resolvePairLabFieldKeys(defs: CustomFieldDef[]): PairLabFieldKey
     idealStopLoss: null, idealStopLossPos: null, idealEntryWindow: null,
   };
   for (const entry of LABEL_MAP) {
-    // Prefer exact-position match (idealStopLoss vs idealStopLossPos) by
-    // checking the more specific entry first — order in LABEL_MAP matters.
     const byLabel = defs.find((d) => entry.labels.includes((d.label || "").trim().toLowerCase()));
     if (byLabel) { out[entry.alias] = byLabel.key; continue; }
     const byPrefix = defs.find((d) => entry.prefixes.some((p) => (d.key || "").startsWith(p)));
     if (byPrefix) out[entry.alias] = byPrefix.key;
   }
-  // Disambiguate: "Ideal Stop-Loss" prefix also matches "Ideal Stop-Loss Position".
-  // If both ended up pointing at the same key, prefer the more specific one for Pos.
   if (out.idealStopLoss && out.idealStopLoss === out.idealStopLossPos) {
     out.idealStopLoss = null;
   }
@@ -166,19 +180,59 @@ export function mean(values: number[]): number {
   return xs.reduce((s, v) => s + v, 0) / xs.length;
 }
 
-// Bootstrap mean CI (2.5% / 97.5%) with `iters` resamples.
-// Deterministic seed so the UI doesn't flicker between renders.
-export function bootstrapMeanCi(values: number[], iters = 500): [number, number] | null {
+/** Sample standard deviation (Bessel-corrected). 0 when n < 2. */
+export function stddev(values: number[]): number {
   const xs = values.filter((v) => Number.isFinite(v));
-  if (xs.length < 5) return null;
-  let seed = xs.length * 1000003;
-  const rand = () => {
-    // xorshift32
+  if (xs.length < 2) return 0;
+  const m = xs.reduce((s, v) => s + v, 0) / xs.length;
+  const ss = xs.reduce((s, v) => s + (v - m) * (v - m), 0);
+  return Math.sqrt(ss / (xs.length - 1));
+}
+
+/** Downside deviation (penalises only sub-target outcomes). */
+export function downsideStddev(values: number[], target = 0): number {
+  const xs = values.filter((v) => Number.isFinite(v));
+  if (xs.length < 2) return 0;
+  const ss = xs.reduce((s, v) => s + Math.min(0, v - target) ** 2, 0);
+  return Math.sqrt(ss / (xs.length - 1));
+}
+
+/**
+ * Wilson 95% confidence interval for a binomial proportion.
+ * Better than the normal approximation at small N. Returns null when n=0.
+ */
+export function wilsonCi(successes: number, n: number, z = 1.96): [number, number] | null {
+  if (n <= 0) return null;
+  const p = successes / n;
+  const denom = 1 + (z * z) / n;
+  const centre = (p + (z * z) / (2 * n)) / denom;
+  const margin = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denom;
+  return [Math.max(0, centre - margin), Math.min(1, centre + margin)];
+}
+
+// Seeded xorshift32 — deterministic across renders.
+function makeSeededRng(seedBase: number) {
+  let seed = seedBase | 0;
+  if (seed === 0) seed = 0x9e3779b9;
+  return () => {
     seed ^= seed << 13;
     seed ^= seed >>> 17;
     seed ^= seed << 5;
     return ((seed >>> 0) % 1_000_000) / 1_000_000;
   };
+}
+
+// Bootstrap mean CI (2.5% / 97.5%). Deterministic seed derived from both
+// sample size and a value hash so two buckets with the same N but different
+// values don't share an artificial CI alignment.
+export function bootstrapMeanCi(values: number[], iters = 500): [number, number] | null {
+  const xs = values.filter((v) => Number.isFinite(v));
+  if (xs.length < 5) return null;
+  let hash = xs.length * 1000003;
+  for (let i = 0; i < xs.length; i++) {
+    hash = (hash * 31 + Math.floor(xs[i] * 1000)) | 0;
+  }
+  const rand = makeSeededRng(hash);
   const means: number[] = new Array(iters);
   for (let i = 0; i < iters; i++) {
     let sum = 0;
@@ -189,16 +243,62 @@ export function bootstrapMeanCi(values: number[], iters = 500): [number, number]
   return [means[Math.floor(iters * 0.025)], means[Math.floor(iters * 0.975)]];
 }
 
-// Quarter-Kelly with a hard clamp. Returns null when the edge is non-positive.
-export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
+/**
+ * Bootstrap 95% CI on the raw quarter-Kelly fraction (percent of account).
+ * Resamples paired (winR, lossR) outcomes, recomputes Kelly per resample.
+ */
+export function bootstrapKellyCi(
+  winR: number[],
+  lossR: number[],
+  iters = 500,
+): [number, number] | null {
+  const wins = winR.filter((v) => Number.isFinite(v) && v > 0);
+  const losses = lossR.filter((v) => Number.isFinite(v) && v > 0);
+  const n = wins.length + losses.length;
+  if (n < 10) return null;
+  // Combined draw with outcome labels.
+  const pool: Array<{ r: number; win: boolean }> = [
+    ...wins.map((r) => ({ r, win: true })),
+    ...losses.map((r) => ({ r, win: false })),
+  ];
+  const rand = makeSeededRng((n * 1000003) ^ Math.floor((wins[0] ?? 0) * 1000));
+  const ks: number[] = [];
+  for (let i = 0; i < iters; i++) {
+    let w = 0, l = 0, sw = 0, sl = 0;
+    for (let j = 0; j < n; j++) {
+      const pick = pool[Math.floor(rand() * n)];
+      if (pick.win) { w += 1; sw += pick.r; }
+      else { l += 1; sl += pick.r; }
+    }
+    if (w === 0 || l === 0) continue;
+    const avgW = sw / w;
+    const avgL = sl / l;
+    const p = w / (w + l);
+    const b = avgW / avgL;
+    const kelly = (b * p - (1 - p)) / b;
+    ks.push(kelly * 0.25 * 100);
+  }
+  if (ks.length < 10) return null;
+  ks.sort((a, b) => a - b);
+  return [ks[Math.floor(ks.length * 0.025)], ks[Math.floor(ks.length * 0.975)]];
+}
+
+/** Raw quarter-Kelly value (percent of account), uncapped. Null when edge is non-positive. */
+export function rawQuarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
   if (!(avgWinR > 0) || !(avgLossR > 0)) return null;
   const b = avgWinR / avgLossR;
   const p = winRate;
   const q = 1 - p;
   const kelly = (b * p - q) / b;
   if (kelly <= 0) return null;
-  const quarter = kelly * 0.25 * 100; // percent of account
-  return Math.max(0.25, Math.min(1.5, quarter));
+  return kelly * 0.25 * 100;
+}
+
+/** Back-compat wrapper that clamps to the historical floor/ceiling. */
+export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
+  const raw = rawQuarterKellyPct(winRate, avgWinR, avgLossR);
+  if (raw == null) return null;
+  return Math.max(0.25, Math.min(1.5, raw));
 }
 
 // ----------------------------------------------------------------------------
@@ -212,6 +312,9 @@ const SESSION_LABELS: Record<string, string> = {
   ny_am: "NY AM",
   ny_pm: "NY PM",
   ny: "NY AM",
+  new_york: "NY AM",
+  new_york_am: "NY AM",
+  new_york_pm: "NY PM",
 };
 
 export function normalizeSession(raw: string | null | undefined): string {
@@ -235,23 +338,16 @@ function numericCf(trade: any, key: string | null): number | null {
 
 
 function confidenceFor(n: number): ConfidenceLevel {
-  // Tightened 2026-06: "high" requires n≥50 — at n=30 the 95% CI on win-rate
-  // is still ±18pp, too loose to gate real-money parameter changes.
   if (n >= 50) return "high";
   if (n >= 15) return "medium";
   return "low";
 }
 
 export interface BuildBucketsOpts {
-  /** Optional filter — only trades with a matching planned profile. */
   profile?: string | null;
-  /** Optional filter — only trades whose actual_profile matches. */
   actualProfile?: string | null;
-  /** Closed trades only when true (default). */
   closedOnly?: boolean;
-  /** Map a raw broker symbol to its canonical name. Default = identity. */
   symbolResolver?: (raw: string) => string;
-  /** When supplied, recommendation includes a prop-firm-aware risk cap. */
   propFirm?: PropFirmContext | null;
 }
 
@@ -270,7 +366,6 @@ export function buildBuckets(
     return true;
   });
 
-  // Baseline = all symbols, all sessions (used for edge deltas).
   const baseline = computeBucket(
     { symbol: "All", session: "All sessions" },
     filtered,
@@ -279,7 +374,6 @@ export function buildBuckets(
     opts.propFirm ?? null,
   );
 
-  // Per-cell (canonicalSymbol × session) and per-row (canonicalSymbol × "All sessions").
   const cellMap = new Map<string, Trade[]>();
   const rowMap = new Map<string, Trade[]>();
   const cellRawSymbols = new Map<string, Set<string>>();
@@ -322,7 +416,6 @@ export function buildBuckets(
   return { perCell, perRow, baseline };
 }
 
-/** Longest run of consecutive losing trades (net_pnl < 0), ordered by entry_time. */
 function longestLossStreak(rows: Trade[]): number {
   const sorted = [...rows]
     .filter((t) => t.net_pnl != null && t.entry_time)
@@ -340,7 +433,6 @@ function longestLossStreak(rows: Trade[]): number {
   return worst;
 }
 
-/** Empirical hit rate of MFE ≥ r for trades that have MFE recorded. */
 function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
   if (mfes.length < 5) return null;
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
@@ -348,12 +440,11 @@ function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
   for (const r of candidates) {
     const hits = mfes.filter((v) => v >= r).length;
     const hitRate = hits / mfes.length;
-    if (hitRate < 0.4) continue; // need a real chance of being hit
-    // log scaling avoids 0.25R always winning the "win rate" race.
+    if (hitRate < 0.4) continue;
     const score = hitRate * Math.log(1 + r);
     const expectancyR = hitRate * r - (1 - hitRate) * avgLossR;
     if (!best || score > best.hitRate * Math.log(1 + best.r)) {
-      best = { r, hitRate, expectancyR };
+      best = { r, hitRate, hitRateCi: wilsonCi(hits, mfes.length), expectancyR };
     }
   }
   return best;
@@ -368,9 +459,6 @@ function computeBucket(
 ): BucketReport {
   const closed = rows.filter((t) => t.net_pnl != null);
 
-  // Normalize win/loss using r_multiple_actual when available, falling back
-  // to sign(net_pnl) only when r_actual is missing. Keeps grid + simulator
-  // consistent.
   const sideOf = (t: Trade): 1 | -1 | 0 => {
     if (t.r_multiple_actual != null) {
       if (t.r_multiple_actual > 0) return 1;
@@ -392,31 +480,31 @@ function computeBucket(
 
   const mfes = rows.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
 
-  // MAE is logged in PIPS (or POINTS for indices). Convert per-trade to
-  // R-multiple for display by dividing by SL distance in the same unit.
+  // MAE is stored in TICKS. Convert each value to pips for the SL math and to
+  // R for the distribution display.
   const maesR: number[] = [];
   const maesPips: number[] = [];
   for (const t of rows) {
-    const maePips = numericCf(t as any, keys.mae);
-    if (maePips == null || !t.symbol) continue;
+    const maeTicks = numericCf(t as any, keys.mae);
+    if (maeTicks == null || !t.symbol) continue;
     const pip = pipSizeForSymbol(t.symbol);
     if (!(pip > 0)) continue;
-    maesPips.push(Math.abs(maePips));
+    const maePips = ticksToPips(t.symbol, Math.abs(maeTicks));
+    maesPips.push(maePips);
     if (t.sl_initial != null && t.entry_price != null) {
       const slDistPips = Math.abs(t.entry_price - t.sl_initial) / pip;
-      if (slDistPips > 0) maesR.push(Math.abs(maePips) / slDistPips);
+      if (slDistPips > 0) maesR.push(maePips / slDistPips);
     }
   }
 
-  // Ideal SL is logged in PIPS (or POINTS for indices).
+  // Ideal SL is stored in TICKS. Convert to pips for the SL recommendation.
   const idealSls: number[] = [];
   for (const t of rows) {
-    const idealPips = numericCf(t as any, keys.idealStopLoss);
-    if (idealPips == null || !t.symbol) continue;
-    idealSls.push(Math.abs(idealPips));
+    const idealTicks = numericCf(t as any, keys.idealStopLoss);
+    if (idealTicks == null || !t.symbol) continue;
+    idealSls.push(Math.abs(ticksToPips(t.symbol, idealTicks)));
   }
 
-  // SL initial distance in pips per trade (symbol-aware).
   const slInitials: number[] = [];
   for (const t of rows) {
     if (t.sl_initial == null || t.entry_price == null || !t.symbol) continue;
@@ -430,10 +518,17 @@ function computeBucket(
   const expectedR = mean(rActuals);
   const expectedRMedian = median(rActuals) ?? 0;
 
+  const sumWin = winR.reduce((s, v) => s + v, 0);
+  const sumLoss = lossR.reduce((s, v) => s + v, 0);
+  const profitFactor = sumLoss > 0 ? sumWin / sumLoss : (sumWin > 0 ? Infinity : null);
+  const payoffRatio = (wins.length > 0 && losses.length > 0 && lossR.length > 0)
+    ? (sumWin / winR.length) / (sumLoss / lossR.length)
+    : null;
+
   const idealMed = median(idealSls);
   const slInitMed = median(slInitials);
   let slDrift: BucketStats["slDrift"] = null;
-  if (idealMed != null && slInitMed != null) {
+  if (idealMed != null && slInitMed != null && slInitMed > 0) {
     const ratio = idealMed / slInitMed;
     if (ratio < 0.8) slDrift = "too_wide";
     else if (ratio > 1.2) slDrift = "too_tight";
@@ -447,8 +542,11 @@ function computeBucket(
     wins: wins.length,
     losses: losses.length,
     winRate,
+    winRateCi: n > 0 ? wilsonCi(wins.length, n) : null,
     expectedR,
     expectedRMedian,
+    profitFactor: profitFactor === Infinity ? null : profitFactor,
+    payoffRatio,
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),
     maeP50: median(maesR),
@@ -494,36 +592,34 @@ function buildRecommendation(
     suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
   }
 
-  // Expected-R TP ladder from win-R quantiles.
+  // TP ladder from win-R quantiles (conservative / median / aggressive).
   const ladder: number[] = [];
-  const p70 = quantile(winR, 0.3);
-  const p50 = quantile(winR, 0.5);
-  const p25 = quantile(winR, 0.75);
-  for (const v of [p70, p50, p25]) {
+  const pConservative = quantile(winR, 0.3);
+  const pMedian       = quantile(winR, 0.5);
+  const pAggressive   = quantile(winR, 0.75);
+  for (const v of [pConservative, pMedian, pAggressive]) {
     if (v == null || v <= 0) continue;
     ladder.push(v);
   }
   const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
 
 
-  // Kelly sizing.
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
   const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
-  const suggestedRiskPct = s.n >= 10 ? quarterKellyPct(s.winRate, avgWinR, avgLossR) : null;
+  const rawKelly = s.n >= 10 ? rawQuarterKellyPct(s.winRate, avgWinR, avgLossR) : null;
+  const suggestedRiskPct = rawKelly != null ? Math.min(1.5, rawKelly) : null;
+  const riskBelowFloor = rawKelly != null && rawKelly < 0.25;
+  const suggestedRiskPctCi = s.n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
 
-  // TP1* — win-rate-maximizing target from MFE distribution.
   const tp1Star = computeTp1Star(mfes, avgLossR || 1);
 
-  // Prop-firm-aware risk cap.
+  // Prop-firm-aware risk cap. Uses observed worst losing streak (floored at 3)
+  // to distribute the daily-loss budget over N consecutive full stops.
   let suggestedRiskPctPropFirm: number | null = null;
   let bindingConstraint: BucketRecommendation["bindingConstraint"] = null;
   if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null) {
-    // Worst plausible losing streak: use observed worst, but assume at
-    // least 3 to avoid sizing off a single trade's history.
     const streak = Math.max(3, s.worstLosingStreak || 0);
-    // Daily loss budget translated to % of account.
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
-    // Distribute the budget across `streak` consecutive full-stop losses.
     const ddCappedPct = dailyBudgetPct / streak;
     suggestedRiskPctPropFirm = Math.max(0.1, Math.min(propFirm.hardCapPct, ddCappedPct));
 
@@ -553,8 +649,49 @@ function buildRecommendation(
     tpLadderR,
     tp1Star,
     suggestedRiskPct,
+    riskBelowFloor,
+    suggestedRiskPctCi,
     suggestedRiskPctPropFirm,
     bindingConstraint,
     edgeVsBaseline,
   };
+}
+
+// ----------------------------------------------------------------------------
+// Empirical trail-capture estimate
+//
+// Replaces the hardcoded TRAIL_CAPTURE_FRAC = 0.8 in the simulator when the
+// user has enough trades with both MFE and r_actual logged. Excludes all-out
+// exits at TP (r_actual == MFE) since those have no trail to measure.
+// ----------------------------------------------------------------------------
+
+export interface TrailCaptureEstimate {
+  /** Median r_actual / MFE on qualifying trades. */
+  ratio: number;
+  /** Number of trades the estimate is derived from. */
+  n: number;
+}
+
+export function estimateTrailCapture(
+  trades: Trade[],
+  keys: PairLabFieldKeys,
+  minSample = 10,
+): TrailCaptureEstimate | null {
+  const ratios: number[] = [];
+  for (const t of trades) {
+    if (t.is_open || t.is_archived) continue;
+    const mfe = numericCf(t as any, keys.mfe);
+    const r = t.r_multiple_actual;
+    if (mfe == null || r == null) continue;
+    if (!(mfe > 0)) continue;
+    if (!(r > 0)) continue;
+    // Exclude all-out exits at TP — they don't measure trail behaviour.
+    if (mfe - r < 0.1) continue;
+    const ratio = r / mfe;
+    if (ratio > 0 && ratio < 1.05) ratios.push(ratio);
+  }
+  if (ratios.length < minSample) return null;
+  const m = median(ratios);
+  if (m == null || !(m > 0)) return null;
+  return { ratio: Math.max(0.1, Math.min(0.95, m)), n: ratios.length };
 }
