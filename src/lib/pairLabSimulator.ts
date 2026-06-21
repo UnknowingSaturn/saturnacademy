@@ -644,11 +644,15 @@ export function replayBucketMatched(
   const matchedIdSet = new Set(matchedIds);
 
   const results: ReplayResult[] = strategies.map((strategy, idx) => {
-    const replayed = matched.map((t) => ({
-      trade: t,
-      r: (perStrategy[idx].get(t.id) as { r: number }).r,
-      reachedR: proofs.get(t.id)?.reachedR ?? 0,
-    }));
+    const replayed = matched.map((t) => {
+      const o = perStrategy[idx].get(t.id) as { r: number; slPips: number | null };
+      return {
+        trade: t,
+        r: o.r,
+        reachedR: proofs.get(t.id)?.reachedR ?? 0,
+        slPips: o.slPips,
+      };
+    });
     // Intersection-only reasons: count only trades that this strategy excluded
     // AND that are NOT in the matched intersection (i.e. trades that genuinely
     // caused the intersection to shrink because of this strategy).
@@ -658,7 +662,8 @@ export function replayBucketMatched(
         reasons[o.ineligible] = (reasons[o.ineligible] ?? 0) + 1;
       }
     });
-    return buildResult(strategy, replayed, reasons, all.length, opts);
+    const ladder = buildAppliedTpLadder(strategy, bucket);
+    return buildResult(strategy, replayed, reasons, all.length, opts, ladder);
   });
 
 
