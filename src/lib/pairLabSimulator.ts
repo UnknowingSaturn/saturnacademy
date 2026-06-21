@@ -298,7 +298,8 @@ function replayOneTrade(
   ctx: ReplayContext,
 ): ReplayOutcome {
   if (strategy.useActualOutcome) {
-    return proof.hasActualR ? { r: proof.rActual } : { ineligible: "no recorded r_actual" };
+    if (!proof.hasActualR) return { ineligible: "no recorded r_actual" };
+    return { r: proof.rActual, slPips: slDistancePips(trade) };
   }
 
   // BE-after-TP runner needs at least one partial to have a TP to move stops
