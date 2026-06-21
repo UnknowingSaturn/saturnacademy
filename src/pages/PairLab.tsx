@@ -12,20 +12,18 @@ import { BucketGrid } from "@/components/pair-lab/BucketGrid";
 import { RecommendationCard } from "@/components/pair-lab/RecommendationCard";
 import { QuantNotePanel } from "@/components/pair-lab/QuantNotePanel";
 import { SymbolAliasManager } from "@/components/pair-lab/SymbolAliasManager";
-import { StrategyCompare } from "@/components/pair-lab/StrategyCompare";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
 import { SimulatorProfileSettings } from "@/components/pair-lab/SimulatorProfileSettings";
 import { normalizeSession } from "@/lib/pairLabMath";
 
 export default function PairLab() {
   const [profile, setProfile] = useState<string>("any");
-  const [actualProfile, setActualProfile] = useState<string>("any");
   const [propFirmMode, setPropFirmMode] = useState(true);
   const [selected, setSelected] = useState<{ symbol: string; session: string } | null>(null);
 
   const data = usePairLab({
     profile: profile === "any" ? null : profile,
-    actualProfile: actualProfile === "any" ? null : actualProfile,
     propFirmMode,
   });
 
@@ -79,22 +77,10 @@ export default function PairLab() {
           </div>
           <Select value={profile} onValueChange={setProfile}>
             <SelectTrigger className="w-[170px]">
-              <SelectValue placeholder="Planned profile" />
+              <SelectValue placeholder="Profile" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="any">Any planned profile</SelectItem>
-              <SelectItem value="planned">Planned</SelectItem>
-              <SelectItem value="continuation">Continuation</SelectItem>
-              <SelectItem value="range">Range</SelectItem>
-              <SelectItem value="reversal">Reversal</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={actualProfile} onValueChange={setActualProfile}>
-            <SelectTrigger className="w-[170px]">
-              <SelectValue placeholder="Actual profile" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="any">Any actual profile</SelectItem>
+              <SelectItem value="any">Any profile</SelectItem>
               <SelectItem value="continuation">Continuation</SelectItem>
               <SelectItem value="range">Range</SelectItem>
               <SelectItem value="reversal">Reversal</SelectItem>
@@ -120,20 +106,20 @@ export default function PairLab() {
       )}
 
       {data.partialFillFlag && (
-        <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">
-          <Info className="w-4 h-4 text-amber-500 mt-0.5" />
-          <div className="text-sm">
-            <div className="font-medium mb-1">
-              {data.partialFillFlag.trades} trades across {data.partialFillFlag.groups} groups share an
-              account · symbol · entry-minute — possible partial-fill duplication.
-            </div>
-            <div className="text-muted-foreground text-xs leading-relaxed">
-              Each row is counted as an independent trade today, so any single position split across
-              partial-close rows will inflate sample sizes and distort MFE/MAE quantiles. Consolidation
-              isn't implemented yet; tell us if your imports split or aggregate.
-            </div>
+        <TooltipProvider delayDuration={150}>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Info className="w-3.5 h-3.5 text-amber-500" />
+            <span>
+              {data.partialFillFlag.trades} trades in {data.partialFillFlag.groups} groups may be partial-fill duplicates.
+            </span>
+            <Tooltip>
+              <TooltipTrigger className="underline decoration-dotted">why</TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                Trades sharing account · symbol · entry-minute are counted independently today, which can inflate sample sizes and distort MFE/MAE quantiles. Consolidation isn't implemented yet.
+              </TooltipContent>
+            </Tooltip>
           </div>
-        </Card>
+        </TooltipProvider>
       )}
 
       <Tabs defaultValue="grid">
@@ -261,14 +247,6 @@ export default function PairLab() {
                       scopeLabel={scopeLabel}
                       defaultRiskPct={data.defaultSimRiskPct}
                       trailCapture={data.trailCapture}
-                      effectiveTrailCapture={data.effectiveTrailCapture}
-                    />
-                    <StrategyCompare
-                      trades={scopedTrades}
-                      fieldKeys={data.fieldKeys}
-                      balance={data.simBalance}
-                      propFirm={propFirmMode ? data.propFirm : null}
-                      scopeLabel={scopeLabel}
                       effectiveTrailCapture={data.effectiveTrailCapture}
                     />
                   </>
