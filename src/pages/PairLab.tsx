@@ -119,6 +119,23 @@ export default function PairLab() {
         </Card>
       )}
 
+      {data.partialFillFlag && (
+        <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">
+          <Info className="w-4 h-4 text-amber-500 mt-0.5" />
+          <div className="text-sm">
+            <div className="font-medium mb-1">
+              {data.partialFillFlag.trades} trades across {data.partialFillFlag.groups} groups share an
+              account · symbol · entry-minute — possible partial-fill duplication.
+            </div>
+            <div className="text-muted-foreground text-xs leading-relaxed">
+              Each row is counted as an independent trade today, so any single position split across
+              partial-close rows will inflate sample sizes and distort MFE/MAE quantiles. Consolidation
+              isn't implemented yet; tell us if your imports split or aggregate.
+            </div>
+          </div>
+        </Card>
+      )}
+
       <Tabs defaultValue="grid">
         <TabsList>
           <TabsTrigger value="grid">Grid</TabsTrigger>
