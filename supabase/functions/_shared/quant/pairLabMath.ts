@@ -280,14 +280,6 @@ export function computeBucket(
     slInitials.push(Math.abs(t.entry_price - t.sl_initial) / pip);
   }
 
-  const tpDist: Record<string, number> = {};
-  for (const t of rows) {
-    for (const v of multiSelectCf(t, keys.tpReached)) {
-      tpDist[v] = (tpDist[v] ?? 0) + 1;
-    }
-  }
-  const mostCommonTpHit = Object.entries(tpDist).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-
   const n = closed.length;
   const winRate = n > 0 ? wins.length / n : 0;
   const expectedR = mean(rActuals);
@@ -307,15 +299,10 @@ export function computeBucket(
   if (maeCandidate != null || idealMed != null) {
     suggestedSlPips = Math.max(maeCandidate ?? 0, idealMed ?? 0);
   }
-  const cap = (() => {
-    if (!mostCommonTpHit) return Infinity;
-    const parsed = parseTpLabel(mostCommonTpHit);
-    return parsed != null && parsed > 0 ? parsed : Infinity;
-  })();
   const ladder: number[] = [];
   for (const v of [quantile(winR, 0.3), quantile(winR, 0.5), quantile(winR, 0.75)]) {
     if (v == null || v <= 0) continue;
-    ladder.push(Math.min(v, cap));
+    ladder.push(v);
   }
   const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
 
