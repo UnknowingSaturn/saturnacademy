@@ -143,13 +143,13 @@ export function tradeMaeR(t: Trade, maeTicks: number | null): number | null {
   return maePips / slPips;
 }
 
-/** Ideal-SL ticks → scale multiplier against original SL distance (clamped 0.2..2). */
+/** Ideal-SL ticks → scale multiplier against original SL distance (clamped 0.1..2). */
 export function idealSlScaleFor(t: Trade, idealTicks: number | null): number | null {
   if (idealTicks == null || !t.symbol) return null;
   const slPips = slDistancePips(t);
   if (slPips == null || slPips <= 0) return null;
   const idealPips = ticksToPips(t.symbol, idealTicks);
-  return Math.max(0.2, Math.min(2, idealPips / slPips));
+  return Math.max(0.1, Math.min(2, idealPips / slPips));
 }
 
 
