@@ -101,6 +101,8 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
     }
   };
 
+  const tooFewSamples = bucket.confidence === "low";
+
   return (
     <Card className="p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -111,7 +113,12 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
             {bucket.key.symbol} · {bucket.key.session}
           </Badge>
         </div>
-        <Button size="sm" onClick={generate} disabled={loading || bucket.n === 0}>
+        <Button
+          size="sm"
+          onClick={generate}
+          disabled={loading || bucket.n === 0 || tooFewSamples}
+          title={tooFewSamples ? "Need ≥15 trades for an honest LLM read — generating earlier produces narrative on noise." : undefined}
+        >
           {loading ? (
             <>
               <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Analyzing…
@@ -126,6 +133,13 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
 
       {bucket.n === 0 && (
         <p className="text-sm text-muted-foreground">No trades in this bucket — nothing to analyze.</p>
+      )}
+
+      {tooFewSamples && bucket.n > 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          Bucket has {bucket.n} trades — below the 15-trade threshold. Add more closed trades before generating
+          an AI note, or the model will narrate noise as signal.
+        </p>
       )}
 
       {error && (
