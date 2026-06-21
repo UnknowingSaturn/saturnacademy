@@ -266,9 +266,11 @@ function replayOneTrade(
     return proof.hasActualR ? { r: proof.rActual } : { ineligible: "no recorded r_actual" };
   }
 
-  // BE-after-TP runner requires at least one partial to have an actual TP to
-  // move stops behind. Without partials it would silently exit at 0R on every
-  // non-stopped trade, which would massively understate strategy P&L.
+  // BE-after-TP runner needs at least one partial to have a TP to move stops
+  // behind. Without partials a BE runner would silently exit at 0R on every
+  // non-stopped trade, which would massively understate strategy P&L. Pure-
+  // trail presets (no partials, runner=trail_to_mfe) are allowed and handled
+  // by the !anyFilled branches below.
   if (
     strategy.exitRule.runner === "be_after_first_tp" &&
     strategy.exitRule.partials.length === 0
