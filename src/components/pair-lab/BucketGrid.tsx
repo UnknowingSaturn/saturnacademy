@@ -23,7 +23,7 @@ function coverageColor(logged: number, total: number) {
   return "text-emerald-600 dark:text-emerald-400";
 }
 
-function CellInner({ b }: { b: BucketReport | null }) {
+function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | null }) {
   if (!b || b.n === 0) {
     return <span className="text-xs text-muted-foreground">—</span>;
   }
@@ -37,6 +37,22 @@ function CellInner({ b }: { b: BucketReport | null }) {
         <span>{confidenceDot(b.confidence)}</span>
         <span className="font-medium">N {b.n}</span>
         <span className="text-muted-foreground">· {winRatePct}%</span>
+        {fdr === "sig" && (
+          <span
+            className="ml-auto text-[9px] px-1 rounded bg-emerald-500/15 text-emerald-500 font-semibold"
+            title="FDR-significant (Benjamini–Hochberg, α=0.05) — expectancy > 0 survives multiple-testing correction across all displayed buckets."
+          >
+            FDR✓
+          </span>
+        )}
+        {fdr === "ns" && (
+          <span
+            className="ml-auto text-[9px] px-1 rounded bg-muted text-muted-foreground"
+            title="Not significant after Benjamini–Hochberg FDR correction across all displayed buckets — guard against cherry-picking."
+          >
+            ns
+          </span>
+        )}
       </div>
       <div className={cn("text-sm font-mono-numbers font-semibold", b.expectedR >= 0 ? "text-profit" : "text-loss")}>
         {expR}
