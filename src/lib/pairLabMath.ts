@@ -479,8 +479,6 @@ function computeBucket(
     idealSlMedian: idealMed,
     slInitialMedian: slInitMed,
     slDrift,
-    tpHitDistribution: tpDist,
-    mostCommonTpHit,
     confidence: confidenceFor(n),
     expectedRCi: bootstrapMeanCi(rActuals),
     worstLosingStreak: longestLossStreak(rows),
