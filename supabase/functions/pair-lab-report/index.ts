@@ -118,8 +118,6 @@ serve(async (req) => {
         actual_sl_median_pips: b.slInitialMedian,
         drift: b.slDrift,
       },
-      tp_hits: b.tpHitDistribution,
-      most_common_tp_hit: b.mostCommonTpHit,
       recommended_parameters: {
         suggested_sl_pips: b.suggestedSlPips,
         tp_ladder_R_expected_r: b.tpLadderR,
