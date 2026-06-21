@@ -6,7 +6,7 @@
 //     `expectancyROnIntersection` for the report pipeline's bias-aware deltas.
 
 import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
-import { pipSizeForSymbol } from "./symbolMapping.ts";
+import { pipSizeForSymbol, ticksToPips } from "./symbolMapping.ts";
 
 export const TRAIL_CAPTURE_FRAC = 0.8;
 export const MIN_ELIGIBLE_SAMPLE = 10;
