@@ -642,6 +642,13 @@ export function walkForwardEvaluate(
     const aOk = a.eligibleCount >= MIN_ELIGIBLE_SAMPLE ? 1 : 0;
     const bOk = b.eligibleCount >= MIN_ELIGIBLE_SAMPLE ? 1 : 0;
     if (aOk !== bOk) return bOk - aOk;
+    // Tiebreak on Sharpe when IS expectancies are within 0.05R — prevents a
+    // noisy IS winner from being chosen over a slightly-lower-mean preset with
+    // tighter variance, mirroring the main ranker's tiebreak.
+    if (Math.abs(b.expectancyR - a.expectancyR) > 0.05) return b.expectancyR - a.expectancyR;
+    const aS = a.sharpeR ?? -Infinity;
+    const bS = b.sharpeR ?? -Infinity;
+    if (bS !== aS) return bS - aS;
     return b.expectancyR - a.expectancyR;
   });
   const winner = ranked[0];
