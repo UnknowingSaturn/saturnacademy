@@ -13,9 +13,15 @@ export const MIN_ELIGIBLE_SAMPLE = 10;
 
 export type SlRule = "original" | "tighten_to_ideal" | "widen_to_mae_p75_x_1_15";
 export type RunnerRule = "trail_to_mfe" | "be_after_first_tp" | "all_out_at_last_partial";
+export type AtRSource = "fixed" | "bucket_mfe_p50" | "bucket_mfe_p60" | "bucket_mfe_p75";
 
+export interface PartialRule {
+  atR: number;
+  fraction: number;
+  atRSource?: AtRSource;
+}
 export interface ExitRule {
-  partials: Array<{ atR: number; fraction: number }>;
+  partials: PartialRule[];
   runner: RunnerRule;
 }
 export interface Strategy {
@@ -39,8 +45,20 @@ export const STRATEGY_PRESETS: Strategy[] = [
     exitRule: { partials: [{ atR: 1, fraction: 0.34 }, { atR: 2, fraction: 0.33 }], runner: "trail_to_mfe" } },
   { id: "all-out-2r", label: "All-out @2R", riskPct: 1, slRule: "original",
     exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" } },
+  { id: "all-out-3r", label: "All-out @3R", riskPct: 1, slRule: "original",
+    exitRule: { partials: [{ atR: 3, fraction: 1 }], runner: "all_out_at_last_partial" } },
+  { id: "pure-trail", label: "Pure trail · no partials", riskPct: 1, slRule: "original",
+    exitRule: { partials: [], runner: "trail_to_mfe" } },
+  { id: "tighten-scale", label: "Tighten SL → ideal · scale-out 50%@1R + 50%@2R", riskPct: 1, slRule: "tighten_to_ideal",
+    exitRule: { partials: [{ atR: 1, fraction: 0.5 }, { atR: 2, fraction: 0.5 }], runner: "be_after_first_tp" } },
+  { id: "tighten-runner", label: "Tighten SL → ideal · runner 33%@1R + 33%@2R + trail", riskPct: 1, slRule: "tighten_to_ideal",
+    exitRule: { partials: [{ atR: 1, fraction: 0.34 }, { atR: 2, fraction: 0.33 }], runner: "trail_to_mfe" } },
   { id: "tighten-2r", label: "Tighten SL → ideal · all-out @2R", riskPct: 1, slRule: "tighten_to_ideal",
     exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" } },
+  { id: "widen-2r", label: "Widen SL → MAE-p75 × 1.15 · all-out @2R", riskPct: 1, slRule: "widen_to_mae_p75_x_1_15",
+    exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" } },
+  { id: "adaptive-mfe-p60", label: "Adaptive TP @ MFE p60 of bucket", riskPct: 1, slRule: "original",
+    exitRule: { partials: [{ atR: 1, fraction: 1, atRSource: "bucket_mfe_p60" }], runner: "all_out_at_last_partial" } },
 ];
 
 function slDistancePips(t: any): number | null {
@@ -63,7 +81,7 @@ function idealSlScaleFor(t: any, idealTicks: number | null): number | null {
   const slPips = slDistancePips(t);
   if (slPips == null || slPips <= 0) return null;
   const idealPips = ticksToPips(t.symbol, idealTicks);
-  return Math.max(0.2, Math.min(2, idealPips / slPips));
+  return Math.max(0.1, Math.min(2, idealPips / slPips));
 }
 
 interface TradeProof {
@@ -99,19 +117,45 @@ function extractProof(trade: any, keys: PairLabFieldKeys): TradeProof {
 }
 
 type ReplayOutcome = { r: number } | { ineligible: string };
-interface BucketConstants { maeP75: number | null }
+interface BucketConstants {
+  maeP75: number | null;
+  mfeP50: number | null;
+  mfeP60: number | null;
+  mfeP75: number | null;
+}
 
 function buildBucketConstants(trades: any[], keys: PairLabFieldKeys): BucketConstants {
   const maes = trades
     .map((t) => tradeMaeR(t, numericCf(t, keys.mae)))
     .filter((v): v is number => v != null && Number.isFinite(v));
-  return { maeP75: quantile(maes, 0.75) };
+  const mfes = trades
+    .map((t) => {
+      const v = numericCf(t, keys.mfe);
+      return v != null ? Math.max(0, v) : null;
+    })
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  return {
+    maeP75: quantile(maes, 0.75),
+    mfeP50: quantile(mfes, 0.5),
+    mfeP60: quantile(mfes, 0.6),
+    mfeP75: quantile(mfes, 0.75),
+  };
+}
+
+function resolvePartialAtR(p: { atR: number; atRSource?: AtRSource }, bucket: BucketConstants): number | null {
+  switch (p.atRSource ?? "fixed") {
+    case "bucket_mfe_p50": return bucket.mfeP50 != null && bucket.mfeP50 > 0 ? bucket.mfeP50 : null;
+    case "bucket_mfe_p60": return bucket.mfeP60 != null && bucket.mfeP60 > 0 ? bucket.mfeP60 : null;
+    case "bucket_mfe_p75": return bucket.mfeP75 != null && bucket.mfeP75 > 0 ? bucket.mfeP75 : null;
+    default: return p.atR;
+  }
 }
 
 function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucket: BucketConstants): ReplayOutcome {
   if (strategy.useActualOutcome) {
     return proof.hasActualR ? { r: proof.rActual } : { ineligible: "no recorded r_actual" };
   }
+  // Pure-trail (no partials, trail_to_mfe) is allowed; BE-after-TP without a partial is not.
   if (strategy.exitRule.runner === "be_after_first_tp" && strategy.exitRule.partials.length === 0) {
     return { ineligible: "BE-after-TP runner needs ≥1 partial" };
   }
@@ -136,12 +180,19 @@ function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucke
   }
   if (stoppedUnderNewSl === null) return { ineligible: "missing MAE/SL — unprovable" };
 
-  const partials = [...strategy.exitRule.partials].sort((a, b) => a.atR - b.atR);
+  const resolved: Array<{ atR: number; fraction: number }> = [];
+  for (const p of strategy.exitRule.partials) {
+    const atR = resolvePartialAtR(p, bucket);
+    if (atR == null) return { ineligible: `bucket has no MFE samples for adaptive TP (${p.atRSource})` };
+    resolved.push({ atR, fraction: p.fraction });
+  }
+  resolved.sort((a, b) => a.atR - b.atR);
+
   let booked = 0;
   let remainingFrac = 1;
   let anyFilled = false;
   let lastFilledAtR = 0;
-  for (const p of partials) {
+  for (const p of resolved) {
     const needOrigR = p.atR * slScale;
     if (proof.reachedR >= needOrigR) {
       const take = Math.min(p.fraction, remainingFrac);
@@ -152,7 +203,7 @@ function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucke
     } else if (stoppedUnderNewSl) {
       // no fill
     } else {
-      return { ineligible: `unproven ${p.atR}R target` };
+      return { ineligible: `unproven ${p.atR.toFixed(2)}R target` };
     }
   }
   if (remainingFrac > 0) {

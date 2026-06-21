@@ -36,9 +36,19 @@ export const TRAIL_CAPTURE_FRAC = 0.8;
 
 export type SlRule = "original" | "tighten_to_ideal" | "widen_to_mae_p75_x_1_15";
 export type RunnerRule = "trail_to_mfe" | "be_after_first_tp" | "all_out_at_last_partial";
+/** Source for a partial's atR target. "fixed" uses `atR` as-is; bucket_mfe_pN
+ * resolves to the Nth percentile of MFE-in-R for the trades in the replay set. */
+export type AtRSource = "fixed" | "bucket_mfe_p50" | "bucket_mfe_p60" | "bucket_mfe_p75";
+
+export interface PartialRule {
+  atR: number;
+  fraction: number;
+  /** Defaults to "fixed". When set, `atR` is overridden by the bucket statistic. */
+  atRSource?: AtRSource;
+}
 
 export interface ExitRule {
-  partials: Array<{ atR: number; fraction: number }>;
+  partials: PartialRule[];
   runner: RunnerRule;
 }
 
@@ -133,13 +143,13 @@ export function tradeMaeR(t: Trade, maeTicks: number | null): number | null {
   return maePips / slPips;
 }
 
-/** Ideal-SL ticks → scale multiplier against original SL distance (clamped 0.2..2). */
+/** Ideal-SL ticks → scale multiplier against original SL distance (clamped 0.1..2). */
 export function idealSlScaleFor(t: Trade, idealTicks: number | null): number | null {
   if (idealTicks == null || !t.symbol) return null;
   const slPips = slDistancePips(t);
   if (slPips == null || slPips <= 0) return null;
   const idealPips = ticksToPips(t.symbol, idealTicks);
-  return Math.max(0.2, Math.min(2, idealPips / slPips));
+  return Math.max(0.1, Math.min(2, idealPips / slPips));
 }
 
 
@@ -206,6 +216,9 @@ type ReplayOutcome = { r: number } | { ineligible: string };
 
 interface BucketConstants {
   maeP75: number | null;
+  mfeP50: number | null;
+  mfeP60: number | null;
+  mfeP75: number | null;
 }
 
 interface ReplayContext {
@@ -217,7 +230,29 @@ function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketCo
   const maes = trades
     .map((t) => tradeMaeR(t, numericCf(t as any, keys.mae)))
     .filter((v): v is number => v != null && Number.isFinite(v));
-  return { maeP75: quantile(maes, 0.75) };
+  const mfes = trades
+    .map((t) => {
+      const v = numericCf(t as any, keys.mfe);
+      return v != null ? Math.max(0, v) : null;
+    })
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  return {
+    maeP75: quantile(maes, 0.75),
+    mfeP50: quantile(mfes, 0.5),
+    mfeP60: quantile(mfes, 0.6),
+    mfeP75: quantile(mfes, 0.75),
+  };
+}
+
+/** Resolve a partial's atR, honoring bucket-adaptive sources. Returns null when
+ *  the bucket lacks the required stat (caller marks the trade ineligible). */
+function resolvePartialAtR(p: { atR: number; atRSource?: AtRSource }, bucket: BucketConstants): number | null {
+  switch (p.atRSource ?? "fixed") {
+    case "bucket_mfe_p50": return bucket.mfeP50 != null && bucket.mfeP50 > 0 ? bucket.mfeP50 : null;
+    case "bucket_mfe_p60": return bucket.mfeP60 != null && bucket.mfeP60 > 0 ? bucket.mfeP60 : null;
+    case "bucket_mfe_p75": return bucket.mfeP75 != null && bucket.mfeP75 > 0 ? bucket.mfeP75 : null;
+    default: return p.atR;
+  }
 }
 
 
@@ -231,9 +266,11 @@ function replayOneTrade(
     return proof.hasActualR ? { r: proof.rActual } : { ineligible: "no recorded r_actual" };
   }
 
-  // BE-after-TP runner requires at least one partial to have an actual TP to
-  // move stops behind. Without partials it would silently exit at 0R on every
-  // non-stopped trade, which would massively understate strategy P&L.
+  // BE-after-TP runner needs at least one partial to have a TP to move stops
+  // behind. Without partials a BE runner would silently exit at 0R on every
+  // non-stopped trade, which would massively understate strategy P&L. Pure-
+  // trail presets (no partials, runner=trail_to_mfe) are allowed and handled
+  // by the !anyFilled branches below.
   if (
     strategy.exitRule.runner === "be_after_first_tp" &&
     strategy.exitRule.partials.length === 0
@@ -266,12 +303,22 @@ function replayOneTrade(
   if (stoppedUnderNewSl === null) return { ineligible: "missing SL/entry — can't convert MAE ticks to R" };
 
 
-  const partials = [...strategy.exitRule.partials].sort((a, b) => a.atR - b.atR);
+  // Resolve each partial's effective atR (bucket-adaptive presets may override).
+  const resolved: Array<{ atR: number; fraction: number }> = [];
+  for (const p of strategy.exitRule.partials) {
+    const atR = resolvePartialAtR(p, ctx.bucket);
+    if (atR == null) {
+      return { ineligible: `bucket has no MFE samples for adaptive TP (${p.atRSource})` };
+    }
+    resolved.push({ atR, fraction: p.fraction });
+  }
+  resolved.sort((a, b) => a.atR - b.atR);
+
   let booked = 0;
   let remainingFrac = 1;
   let anyFilled = false;
   let lastFilledAtR = 0;
-  for (const p of partials) {
+  for (const p of resolved) {
     const needOrigR = p.atR * slScale;
     if (proof.reachedR >= needOrigR) {
       const take = Math.min(p.fraction, remainingFrac);
@@ -282,7 +329,7 @@ function replayOneTrade(
     } else if (stoppedUnderNewSl) {
       // partial does not fill — runner handling will book the loss
     } else {
-      return { ineligible: `unproven ${p.atR}R target` };
+      return { ineligible: `unproven ${p.atR.toFixed(2)}R target` };
     }
   }
 
@@ -595,6 +642,13 @@ export function walkForwardEvaluate(
     const aOk = a.eligibleCount >= MIN_ELIGIBLE_SAMPLE ? 1 : 0;
     const bOk = b.eligibleCount >= MIN_ELIGIBLE_SAMPLE ? 1 : 0;
     if (aOk !== bOk) return bOk - aOk;
+    // Tiebreak on Sharpe when IS expectancies are within 0.05R — prevents a
+    // noisy IS winner from being chosen over a slightly-lower-mean preset with
+    // tighter variance, mirroring the main ranker's tiebreak.
+    if (Math.abs(b.expectancyR - a.expectancyR) > 0.05) return b.expectancyR - a.expectancyR;
+    const aS = a.sharpeR ?? -Infinity;
+    const bS = b.sharpeR ?? -Infinity;
+    if (bS !== aS) return bS - aS;
     return b.expectancyR - a.expectancyR;
   });
   const winner = ranked[0];
