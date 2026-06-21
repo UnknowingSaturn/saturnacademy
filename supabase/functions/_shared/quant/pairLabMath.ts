@@ -4,16 +4,17 @@
 // Field keys: we follow the same prefix-and-label resolver as the client so
 // the edge function reads the same custom_fields as the UI does.
 //
-// UNIT CONTRACT (post-2026-06 fix):
-//   cf_mae and cf_ideal_stop_loss are stored in PIPS (FX/metals/crypto/oil)
-//   or POINTS (indices). The slUnit field on each BucketReport surfaces the
-//   correct label so the LLM / UI never mis-renders 60 pips as 0.6.
+// UNIT CONTRACT (2026-06):
+//   cf_mae and cf_ideal_stop_loss are stored in broker TICKS (TradingView
+//   position-calc output). Convert with `ticksToPips()` before comparing
+//   against pip-denominated SL distances. The slUnit field on each
+//   BucketReport surfaces the human-readable label.
 //
 // Intentional divergence from src/lib/pairLabMath.ts:
 //   - server version uses duck-typed `any` rows (raw DB shape)
 //   - client version has PropFirmContext, perRow, edgeVsBaseline (UI-only)
 
-import { tickSizeForSymbol, pipSizeForSymbol, pipLabelForSymbol } from "./symbolMapping.ts";
+import { tickSizeForSymbol, pipSizeForSymbol, pipLabelForSymbol, ticksToPips } from "./symbolMapping.ts";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
