@@ -259,6 +259,9 @@ export default function PairLab() {
                       balance={data.simBalance}
                       propFirm={propFirmMode ? data.propFirm : null}
                       scopeLabel={scopeLabel}
+                      defaultRiskPct={data.defaultSimRiskPct}
+                      trailCapture={data.trailCapture}
+                      effectiveTrailCapture={data.effectiveTrailCapture}
                     />
                     <StrategyCompare
                       trades={scopedTrades}
@@ -266,13 +269,8 @@ export default function PairLab() {
                       balance={data.simBalance}
                       propFirm={propFirmMode ? data.propFirm : null}
                       scopeLabel={scopeLabel}
+                      effectiveTrailCapture={data.effectiveTrailCapture}
                     />
-                  </>
-                ) : (
-                  <Card className="p-6 text-sm text-muted-foreground text-center">
-                    Set a notional balance in your simulator profile to convert R into $.
-                  </Card>
-                )}
               </>
             );
           })()}
