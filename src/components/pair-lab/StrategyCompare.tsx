@@ -32,6 +32,8 @@ interface Props {
   balance: number;
   propFirm: PropFirmContext | null;
   scopeLabel: string;
+  /** Empirical trail capture ratio (overrides the default 0.8). */
+  effectiveTrailCapture?: number;
 }
 
 function fmtMoney(v: number) {
