@@ -13,9 +13,15 @@ export const MIN_ELIGIBLE_SAMPLE = 10;
 
 export type SlRule = "original" | "tighten_to_ideal" | "widen_to_mae_p75_x_1_15";
 export type RunnerRule = "trail_to_mfe" | "be_after_first_tp" | "all_out_at_last_partial";
+export type AtRSource = "fixed" | "bucket_mfe_p50" | "bucket_mfe_p60" | "bucket_mfe_p75";
 
+export interface PartialRule {
+  atR: number;
+  fraction: number;
+  atRSource?: AtRSource;
+}
 export interface ExitRule {
-  partials: Array<{ atR: number; fraction: number }>;
+  partials: PartialRule[];
   runner: RunnerRule;
 }
 export interface Strategy {
@@ -39,8 +45,20 @@ export const STRATEGY_PRESETS: Strategy[] = [
     exitRule: { partials: [{ atR: 1, fraction: 0.34 }, { atR: 2, fraction: 0.33 }], runner: "trail_to_mfe" } },
   { id: "all-out-2r", label: "All-out @2R", riskPct: 1, slRule: "original",
     exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" } },
+  { id: "all-out-3r", label: "All-out @3R", riskPct: 1, slRule: "original",
+    exitRule: { partials: [{ atR: 3, fraction: 1 }], runner: "all_out_at_last_partial" } },
+  { id: "pure-trail", label: "Pure trail · no partials", riskPct: 1, slRule: "original",
+    exitRule: { partials: [], runner: "trail_to_mfe" } },
+  { id: "tighten-scale", label: "Tighten SL → ideal · scale-out 50%@1R + 50%@2R", riskPct: 1, slRule: "tighten_to_ideal",
+    exitRule: { partials: [{ atR: 1, fraction: 0.5 }, { atR: 2, fraction: 0.5 }], runner: "be_after_first_tp" } },
+  { id: "tighten-runner", label: "Tighten SL → ideal · runner 33%@1R + 33%@2R + trail", riskPct: 1, slRule: "tighten_to_ideal",
+    exitRule: { partials: [{ atR: 1, fraction: 0.34 }, { atR: 2, fraction: 0.33 }], runner: "trail_to_mfe" } },
   { id: "tighten-2r", label: "Tighten SL → ideal · all-out @2R", riskPct: 1, slRule: "tighten_to_ideal",
     exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" } },
+  { id: "widen-2r", label: "Widen SL → MAE-p75 × 1.15 · all-out @2R", riskPct: 1, slRule: "widen_to_mae_p75_x_1_15",
+    exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" } },
+  { id: "adaptive-mfe-p60", label: "Adaptive TP @ MFE p60 of bucket", riskPct: 1, slRule: "original",
+    exitRule: { partials: [{ atR: 1, fraction: 1, atRSource: "bucket_mfe_p60" }], runner: "all_out_at_last_partial" } },
 ];
 
 function slDistancePips(t: any): number | null {
