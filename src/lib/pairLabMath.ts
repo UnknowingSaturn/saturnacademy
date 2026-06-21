@@ -233,28 +233,6 @@ function numericCf(trade: any, key: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function multiSelectCf(trade: any, key: string | null): string[] {
-  const v = getCf(trade, key);
-  if (Array.isArray(v)) return v.map(String);
-  if (typeof v === "string" && v) return [v];
-  return [];
-}
-
-/** Parse strings like "1:2", "1R", "2", "TP2" → R-multiple. Mirrors simulator. */
-function parseTpLabelLocal(s: string): number | null {
-  if (!s) return null;
-  const clean = s.trim().toUpperCase();
-  const ratio = clean.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
-  if (ratio) {
-    const a = Number(ratio[1]), b = Number(ratio[2]);
-    if (a > 0) return b / a;
-  }
-  const tp = clean.match(/^TP\s*(\d+(?:\.\d+)?)$/);
-  if (tp) return Number(tp[1]);
-  const num = clean.match(/^(\d+(?:\.\d+)?)R?$/);
-  if (num) return Number(num[1]);
-  return null;
-}
 
 function confidenceFor(n: number): ConfidenceLevel {
   // Tightened 2026-06: "high" requires n≥50 — at n=30 the 95% CI on win-rate
