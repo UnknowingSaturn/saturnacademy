@@ -112,6 +112,9 @@ function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucke
   if (strategy.useActualOutcome) {
     return proof.hasActualR ? { r: proof.rActual } : { ineligible: "no recorded r_actual" };
   }
+  if (strategy.exitRule.runner === "be_after_first_tp" && strategy.exitRule.partials.length === 0) {
+    return { ineligible: "BE-after-TP runner needs ≥1 partial" };
+  }
   let slScale: number;
   if (strategy.slRule === "original") slScale = 1;
   else if (strategy.slRule === "tighten_to_ideal") {
