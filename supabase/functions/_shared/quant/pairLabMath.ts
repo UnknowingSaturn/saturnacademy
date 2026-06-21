@@ -348,8 +348,6 @@ export function computeBucket(
     idealSlMedianPips: idealMed,
     slInitialMedianPips: slInitMed,
     slDrift,
-    tpHitDistribution: tpDist,
-    mostCommonTpHit,
     confidence: confidenceFor(n),
     suggestedSlPips,
     slUnit,
