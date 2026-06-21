@@ -96,17 +96,12 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
             {b.recommendation.tpLadderR.length > 0
               ? b.recommendation.tpLadderR.map((r) => `${r}R`).join(" · ")
               : "—"}
+            {tp1 && (
+              <span className="ml-2 text-[10px] uppercase tracking-wider text-primary align-middle">
+                win-max {tp1.r}R · {(tp1.hitRate * 100).toFixed(0)}%
+              </span>
+            )}
           </div>
-          {tp1 && (
-            <div className="text-[10px] text-primary">
-              TP1* (win-rate maxing): {tp1.r}R · hits {(tp1.hitRate * 100).toFixed(0)}%
-              {tp1.hitRateCi && (
-                <span className="text-muted-foreground">
-                  {" "}[{(tp1.hitRateCi[0] * 100).toFixed(0)}–{(tp1.hitRateCi[1] * 100).toFixed(0)}%]
-                </span>
-              )}
-            </div>
-          )}
         </div>
 
         <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1">
@@ -175,7 +170,6 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
             value={fmtR(b.expectedR)}
             sub={b.expectedRCi ? `95% CI ${fmtR(b.expectedRCi[0])} … ${fmtR(b.expectedRCi[1])}` : "CI needs N≥5"}
           />
-          <StatLine label="Median R" value={fmtR(b.expectedRMedian)} />
           <StatLine
             label="SL drift"
             value={
@@ -207,11 +201,11 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
       {b.slSweep && b.slSweep.length > 0 && (
         <>
           <Separator />
-          <div>
-            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5" /> Hypothetical SL sweep
-            </div>
-            <div className="overflow-x-auto">
+          <details className="group">
+            <summary className="cursor-pointer text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 select-none">
+              <Shield className="w-3.5 h-3.5" /> Show SL sensitivity
+            </summary>
+            <div className="mt-2 overflow-x-auto">
               <table className="w-full text-xs font-mono-numbers">
                 <thead>
                   <tr className="text-muted-foreground border-b border-border/40">
@@ -241,10 +235,9 @@ export function RecommendationCard({ bucket, baseline, propFirmMode }: Props) {
             </div>
             <p className="text-[10px] text-muted-foreground mt-1.5 leading-relaxed">
               Hypothetical — replays each trade as <code>−1R</code> when MAE exceeds the candidate SL,
-              otherwise rescales the actual R by <code>sl_init / sl_cand</code>. Assumes the same entry/exit
-              logic at a different stop distance.
+              otherwise rescales the actual R by <code>sl_init / sl_cand</code>.
             </p>
-          </div>
+          </details>
         </>
       )}
 
