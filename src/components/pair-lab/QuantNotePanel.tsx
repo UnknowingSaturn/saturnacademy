@@ -149,10 +149,9 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
         </div>
       )}
 
-      {!loading && !note && !error && bucket.n > 0 && (
-        <p className="text-sm text-muted-foreground">
-          Generate an AI note that explains what this bucket does well, what's leaking R, and the
-          specific parameter changes to apply — grounded in the numbers above.
+      {!loading && !note && !error && bucket.n > 0 && !tooFewSamples && (
+        <p className="text-xs text-muted-foreground">
+          Generate an AI note grounded in this bucket's numbers.
         </p>
       )}
 

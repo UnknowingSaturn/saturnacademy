@@ -423,7 +423,8 @@ export function buildBuckets(
   const filtered = trades.filter((t) => {
     if (closedOnly && t.is_open) return false;
     if (t.is_archived) return false;
-    if (opts.profile && t.profile !== opts.profile) return false;
+    // `profile` matches either planned or actual profile field — single filter for users.
+    if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) return false;
     if (opts.actualProfile && t.actual_profile !== opts.actualProfile) return false;
     return true;
   });

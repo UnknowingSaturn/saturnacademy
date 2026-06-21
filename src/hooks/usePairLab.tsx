@@ -20,8 +20,8 @@ import {
 import { TRAIL_CAPTURE_FRAC } from "@/lib/pairLabSimulator";
 
 export interface PairLabFilters {
+  /** Matches trades whose planned OR actual profile equals this value. */
   profile?: string | null;
-  actualProfile?: string | null;
   propFirmMode?: boolean;
 }
 
@@ -160,7 +160,6 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
 
     const { perCell, perRow, baseline } = buildBuckets(trades, fieldKeys, {
       profile: filters.profile ?? null,
-      actualProfile: filters.actualProfile ?? null,
       closedOnly: true,
       symbolResolver,
       propFirm,
@@ -215,7 +214,6 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     effectiveBalance,
     effectiveFirmId,
     filters.profile,
-    filters.actualProfile,
     filters.propFirmMode,
   ]);
 }
