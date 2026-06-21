@@ -22,7 +22,6 @@ export type ConfidenceLevel = "high" | "medium" | "low";
 export interface PairLabFieldKeys {
   mfe: string | null;            // number (R-multiple)
   mae: string | null;            // number (PIPS for FX/metals/crypto/oil, POINTS for indices)
-  tpReached: string | null;      // multi_select (["1:1","1:2",…])
   idealStopLoss: string | null;  // number (PIPS for FX/metals/crypto/oil, POINTS for indices)
   idealStopLossPos: string | null; // select (initial_leg | last_leg)
   idealEntryWindow: string | null; // select (first_30min | last_30min)
