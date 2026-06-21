@@ -166,7 +166,7 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
                             : "cursor-default",
                       )}
                     >
-                      <CellInner b={b} />
+                      <CellInner b={b} fdr={fdrFor(b)} />
                     </button>
                   </td>
                 );
@@ -185,7 +185,7 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
                       : "hover:bg-muted/40",
                   )}
                 >
-                  <CellInner b={rowLookup.get(symbol) ?? null} />
+                  <CellInner b={rowLookup.get(symbol) ?? null} fdr={fdrFor(rowLookup.get(symbol) ?? null)} />
                 </button>
               </td>
             </tr>
