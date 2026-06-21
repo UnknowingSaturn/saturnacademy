@@ -9,7 +9,7 @@ import { Loader2, FlaskConical, Info, Shield } from "lucide-react";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 import { usePairLab } from "@/hooks/usePairLab";
 import { BucketGrid } from "@/components/pair-lab/BucketGrid";
-import { RecommendationCard } from "@/components/pair-lab/RecommendationCard";
+
 import { QuantNotePanel } from "@/components/pair-lab/QuantNotePanel";
 import { SymbolAliasManager } from "@/components/pair-lab/SymbolAliasManager";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -184,21 +184,15 @@ export default function PairLab() {
           />
 
           {selectedBucket ? (
-            <div className="grid lg:grid-cols-2 gap-4">
-              <RecommendationCard
-                bucket={selectedBucket}
-                baseline={data.baseline}
-                propFirmMode={propFirmMode}
-              />
-              <QuantNotePanel
-                bucket={selectedBucket}
-                baseline={data.baseline}
-                propFirm={propFirmMode ? data.propFirm : null}
-              />
-            </div>
+            <QuantNotePanel
+              bucket={selectedBucket}
+              baseline={data.baseline}
+              propFirm={propFirmMode ? data.propFirm : null}
+            />
           ) : (
             <Card className="p-6 text-sm text-muted-foreground text-center">
-              Select a cell in the grid to see the recommended SL, TP ladder, and risk sizing for that bucket.
+              Select a cell in the grid to see this bucket's stats and generate an AI quant note.
+              Actionable parameters live in the Simulator tab.
             </Card>
           )}
         </TabsContent>
