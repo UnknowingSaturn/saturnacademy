@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
-import type { BucketReport } from "@/lib/pairLabMath";
+import { bhSignificant, type BucketReport } from "@/lib/pairLabMath";
 
 interface Props {
   symbols: string[];
