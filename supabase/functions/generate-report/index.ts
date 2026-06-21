@@ -1083,7 +1083,7 @@ async function computeQuantBlock(
       mfe_p75_r: b.mfeP75 != null ? +b.mfeP75.toFixed(2) : null,
       mae_p75_r: b.maeP75 != null ? +b.maeP75.toFixed(2) : null,
       sl_drift: b.slDrift,
-      most_common_tp_hit: b.mostCommonTpHit,
+      
       suggested_sl_pips: b.suggestedSlPips != null ? +b.suggestedSlPips.toFixed(1) : null,
       sl_unit: b.slUnit,
       tp_ladder_r: b.tpLadderR,
