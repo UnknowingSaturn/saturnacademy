@@ -20,7 +20,6 @@ export type ConfidenceLevel = "high" | "medium" | "low";
 export interface PairLabFieldKeys {
   mfe: string | null;
   mae: string | null;
-  tpReached: string | null;
   idealStopLoss: string | null;
   idealStopLossPos: string | null;
   idealEntryWindow: string | null;
