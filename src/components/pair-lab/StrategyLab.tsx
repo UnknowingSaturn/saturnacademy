@@ -102,6 +102,15 @@ export function StrategyLab({
 }: Props) {
   const rSample = useMemo(() => extractRSample(trades), [trades]);
   const detectedTpd = useMemo(() => autoTradesPerDay(trades), [trades]);
+  // Bootstrap 95% CI on mean R (block bootstrap, same block-size as engine).
+  // Drives the edge-direction gate: when the CI lower bound is ≤ 0 the sample
+  // doesn't statistically demonstrate a positive edge, and no sizing recommendation
+  // should be presented regardless of pass-prob heatmap colouring.
+  const edge = useMemo(
+    () => meanRWithCI(rSample, { resamples: 1500, seed: 0xC0FFEE }),
+    [rSample],
+  );
+  const edgePositive = edge.n >= 30 && edge.ciLow > 0;
 
   const [numAccounts, setNumAccounts] = useState<number>(2);
   const [accountSize, setAccountSize] = useState<number>(defaultAccountSize > 0 ? defaultAccountSize : 100_000);
