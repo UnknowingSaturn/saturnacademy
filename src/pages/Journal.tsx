@@ -210,7 +210,7 @@ export default function Journal() {
         if ((trade.net_pnl || 0) < 0) return 'loss';
         return 'be';
       default:
-        return (trade as any)[column];
+        return (trade as unknown as Record<string, unknown>)[column];
     }
   };
 
