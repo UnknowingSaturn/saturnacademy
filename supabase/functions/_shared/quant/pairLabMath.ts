@@ -98,7 +98,16 @@ export function bootstrapMeanCi(values: number[], iters = 500): [number, number]
     means[i] = sum / xs.length;
   }
   means.sort((a, b) => a - b);
-  return [means[Math.floor(iters * 0.025)], means[Math.floor(iters * 0.975)]];
+  return [percentileFromSorted(means, 0.025), percentileFromSorted(means, 0.975)];
+}
+
+/** Standard NIST-type-7 percentile via linear interpolation. */
+function percentileFromSorted(sorted: number[], q: number): number {
+  if (sorted.length === 0) return NaN;
+  if (sorted.length === 1) return sorted[0];
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos), hi = Math.ceil(pos), w = pos - lo;
+  return sorted[lo] * (1 - w) + sorted[hi] * w;
 }
 
 /** One-sided bootstrap p-value that mean(values) > 0. Null when n < 5. */
@@ -260,19 +269,32 @@ function wilsonCi(successes: number, n: number, z = 1.96): [number, number] | nu
   return [Math.max(0, centre - margin), Math.min(1, centre + margin)];
 }
 
-function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
-  if (mfes.length < 5) return null;
+function computeTp1Star(
+  pairs: Array<{ mfeR: number; rActual: number | null }>,
+  avgLossR: number,
+): Tp1Star | null {
+  if (pairs.length < 5) return null;
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
-  // Use expectancyR directly as the selection objective — the prior
-  // `hitRate × log(1+r)` was an ad-hoc utility, not an economic criterion.
+  const fallbackMiss = -Math.abs(avgLossR);
+  // Empirical miss cost: when MFE < r, use the conditional mean r_actual of
+  // missing trades (BE / partial / full stop) rather than the worst-case
+  // avgLossR. Falls back to −avgLossR when fewer than 5 misses with rActual.
   for (const r of candidates) {
-    const hits = mfes.filter((v) => v >= r).length;
-    const hitRate = hits / mfes.length;
+    let hits = 0;
+    const missRs: number[] = [];
+    for (const p of pairs) {
+      if (p.mfeR >= r) hits += 1;
+      else if (p.rActual != null && Number.isFinite(p.rActual)) missRs.push(p.rActual);
+    }
+    const hitRate = hits / pairs.length;
     if (hitRate < 0.4) continue;
-    const expectancyR = hitRate * r - (1 - hitRate) * avgLossR;
+    const missMean = missRs.length >= 5
+      ? missRs.reduce((s, v) => s + v, 0) / missRs.length
+      : fallbackMiss;
+    const expectancyR = hitRate * r + (1 - hitRate) * missMean;
     if (!best || expectancyR > best.expectancyR) {
-      best = { r, hitRate, hitRateCi: wilsonCi(hits, mfes.length), expectancyR };
+      best = { r, hitRate, hitRateCi: wilsonCi(hits, pairs.length), expectancyR };
     }
   }
   return best;
@@ -292,10 +314,9 @@ function ticksToR(ticks: number, t: any): number | null {
 // ----- TP grid + walk-forward helpers (mirror src/lib/pairLabMath.ts) -----
 interface MfePair { mfeR: number; rActual: number }
 
-// `trail` is reserved for the dedicated trailing-stop counterfactual; the grid
-// here uses pure realized outcomes when no TP would have fired. See client
-// `scoreTp` for the rationale (discounting realized exits biases argmax low).
-function scoreTp(tp: number, sample: MfePair[], _trail: number): number {
+// Trail-capture is intentionally not threaded into scoreTp; mixing it with
+// realized exits biases the TP-grid argmax low. See client scoreTp.
+function scoreTp(tp: number, sample: MfePair[]): number {
   if (sample.length === 0) return 0;
   let sum = 0;
   for (const p of sample) {
@@ -336,12 +357,12 @@ function estimateTrailCaptureRows(rows: any[], keys: PairLabFieldKeys, minSample
 
 function pickBestTp(
   pairs: MfePair[],
-  trail: number,
+  _trail: number,
 ): { tpR: number; expectancy: number; ladder: number[]; ci: [number, number] | null } | null {
   if (pairs.length < 10) return null;
   const grid: number[] = [];
   for (let r = 0.5; r <= 4.0001; r += 0.25) grid.push(Math.round(r * 4) / 4);
-  const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs, trail) }));
+  const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs) }));
   let best: { tp: number; e: number } | null = null;
   for (const c of scored) if (!best || c.e > best.e) best = c;
   if (!best || !(best.e > 0)) return null;
@@ -354,10 +375,10 @@ function pickBestTp(
   const buf: MfePair[] = new Array(pairs.length);
   for (let i = 0; i < iters; i++) {
     for (let j = 0; j < pairs.length; j++) buf[j] = pairs[Math.floor(rand() * pairs.length)];
-    samples[i] = scoreTp(best.tp, buf, trail);
+    samples[i] = scoreTp(best.tp, buf);
   }
   samples.sort((a, b) => a - b);
-  const ci: [number, number] = [samples[Math.floor(0.025 * iters)], samples[Math.floor(0.975 * iters)]];
+  const ci: [number, number] = [percentileFromSorted(samples, 0.025), percentileFromSorted(samples, 0.975)];
   const ladder = Array.from(
     new Set([...scored].filter((c) => c.e > 0).sort((a, b) => b.e - a.e).slice(0, 3).map((c) => c.tp)),
   ).sort((a, b) => a - b);
@@ -377,12 +398,11 @@ function runWalkForward(rows: any[], keys: PairLabFieldKeys):
   const isPairs = collectMfeRPairs(isRows, keys);
   const oosPairs = collectMfeRPairs(oosRows, keys);
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
-  // Walk-forward must not estimate trailCapture on the OOS slice (look-ahead
-  // leak): use the IS estimate on both sides.
-  const isTrail = estimateTrailCaptureRows(isRows, keys);
-  const pick = pickBestTp(isPairs, isTrail);
+  // `_trail` argument is vestigial — scoreTp no longer consumes it. Keep
+  // signature stable for now; pass 0.
+  const pick = pickBestTp(isPairs, 0);
   if (!pick) return null;
-  const outOfSampleE = scoreTp(pick.tpR, oosPairs, isTrail);
+  const outOfSampleE = scoreTp(pick.tpR, oosPairs);
   const degradationPct = pick.expectancy > 0 ? (1 - outOfSampleE / pick.expectancy) * 100 : 0;
   // Report OOS pair count (true DoF for scoreTp), not raw row count.
   return { inSampleE: pick.expectancy, outOfSampleE, degradationPct, oosN: oosPairs.length };
@@ -414,6 +434,14 @@ export function computeBucket(
     .map((v) => Math.abs(v));
 
   const mfes = rows.map((t) => numericCf(t, keys.mfe)).filter((v): v is number => v != null);
+  // Paired (mfeR, rActual) for the empirical-miss tp1Star computation.
+  const tp1StarPairs: Array<{ mfeR: number; rActual: number | null }> = [];
+  for (const t of rows) {
+    const m = numericCf(t, keys.mfe);
+    if (m == null) continue;
+    tp1StarPairs.push({ mfeR: m, rActual: t.r_multiple_actual ?? null });
+  }
+  void mfes;
 
   // MAE is stored in TICKS. Convert to pips for the SL math, R for distribution.
   const maesR: number[] = [];
@@ -512,20 +540,28 @@ export function computeBucket(
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
   const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
   const suggestedRiskPct = n >= 10 ? quarterKellyPct(winRate, avgWinR, avgLossR) : null;
-  const tp1Star = computeTp1Star(mfes, avgLossR || 1);
+  const tp1Star = computeTp1Star(tp1StarPairs, avgLossR || 1);
 
-  // Prop-firm cap: the lower of (daily loss limit / max DD) translated to a
-  // single-trade risk %. Conservative — assumes 3-loss safety margin.
+  // Prop-firm cap — mirrors the client formula in src/lib/pairLabMath.ts:
+  //   ddCappedPct = (dailyLossDollars / balance) * 100 / max(3, worstLosingStreak)
+  //   clamped to [0.1, hardCap]; hardCap defaults to 2% (matches client default).
+  // The previous server formula used fixed /3 and /5 divisors and ignored
+  // losing-streak realism, drifting from the client recommendation.
   let suggestedRiskPctPropFirmCap: number | null = null;
   if (propFirm && propFirm.balance > 0) {
+    const HARD_CAP_PCT = 2;
+    const streak = Math.max(3, longestLossStreak(rows) || 0);
     const limits: number[] = [];
     if (propFirm.dailyLossDollars && propFirm.dailyLossDollars > 0) {
-      limits.push((propFirm.dailyLossDollars / propFirm.balance) * 100 / 3);
+      limits.push((propFirm.dailyLossDollars / propFirm.balance) * 100 / streak);
     }
     if (propFirm.maxDrawdownDollars && propFirm.maxDrawdownDollars > 0) {
-      limits.push((propFirm.maxDrawdownDollars / propFirm.balance) * 100 / 5);
+      // Max DD divided by 2× expected streak — slower-bleed cap.
+      limits.push((propFirm.maxDrawdownDollars / propFirm.balance) * 100 / (streak * 2));
     }
-    if (limits.length > 0) suggestedRiskPctPropFirmCap = +Math.min(...limits).toFixed(2);
+    if (limits.length > 0) {
+      suggestedRiskPctPropFirmCap = +Math.max(0.1, Math.min(HARD_CAP_PCT, Math.min(...limits))).toFixed(2);
+    }
   }
 
   const sorted = [...closed].sort((a, b) => (b.r_multiple_actual ?? 0) - (a.r_multiple_actual ?? 0));

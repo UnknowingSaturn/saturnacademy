@@ -38,7 +38,7 @@ export const STRATEGY_PRESETS: Strategy[] = [
     riskPct: 1,
     slRule: "original",
     exitRule: {
-      partials: [{ atR: 1, fraction: 0.34 }, { atR: 2, fraction: 0.33 }],
+      partials: [{ atR: 1, fraction: 0.33 }, { atR: 2, fraction: 0.33 }],
       runner: "trail_to_mfe",
     },
   },
@@ -86,7 +86,7 @@ export const STRATEGY_PRESETS: Strategy[] = [
     riskPct: 1,
     slRule: "tighten_to_ideal",
     exitRule: {
-      partials: [{ atR: 1, fraction: 0.34 }, { atR: 2, fraction: 0.33 }],
+      partials: [{ atR: 1, fraction: 0.33 }, { atR: 2, fraction: 0.33 }],
       runner: "trail_to_mfe",
     },
   },

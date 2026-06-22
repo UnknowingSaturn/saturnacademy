@@ -8,7 +8,8 @@
 import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
 import { pipSizeForSymbol, ticksToPips } from "./symbolMapping.ts";
 
-export const TRAIL_CAPTURE_FRAC = 0.8;
+/** Fallback when too few trades to estimate empirical trail capture. */
+export const DEFAULT_TRAIL_CAPTURE_FRAC = 0.7;
 export const MIN_ELIGIBLE_SAMPLE = 10;
 
 export type SlRule = "original" | "tighten_to_ideal" | "widen_to_mae_p75_x_1_15";
@@ -42,7 +43,7 @@ export const STRATEGY_PRESETS: Strategy[] = [
   { id: "scale-out", label: "Scale-out · 50% @1R + 50% @2R", riskPct: 1, slRule: "original",
     exitRule: { partials: [{ atR: 1, fraction: 0.5 }, { atR: 2, fraction: 0.5 }], runner: "be_after_first_tp" } },
   { id: "runner", label: "Runner · 33% @1R + 33% @2R + trail", riskPct: 1, slRule: "original",
-    exitRule: { partials: [{ atR: 1, fraction: 0.34 }, { atR: 2, fraction: 0.33 }], runner: "trail_to_mfe" } },
+    exitRule: { partials: [{ atR: 1, fraction: 0.33 }, { atR: 2, fraction: 0.33 }], runner: "trail_to_mfe" } },
   { id: "all-out-2r", label: "All-out @2R", riskPct: 1, slRule: "original",
     exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" } },
   { id: "all-out-3r", label: "All-out @3R", riskPct: 1, slRule: "original",
@@ -52,7 +53,7 @@ export const STRATEGY_PRESETS: Strategy[] = [
   { id: "tighten-scale", label: "Tighten SL → ideal · scale-out 50%@1R + 50%@2R", riskPct: 1, slRule: "tighten_to_ideal",
     exitRule: { partials: [{ atR: 1, fraction: 0.5 }, { atR: 2, fraction: 0.5 }], runner: "be_after_first_tp" } },
   { id: "tighten-runner", label: "Tighten SL → ideal · runner 33%@1R + 33%@2R + trail", riskPct: 1, slRule: "tighten_to_ideal",
-    exitRule: { partials: [{ atR: 1, fraction: 0.34 }, { atR: 2, fraction: 0.33 }], runner: "trail_to_mfe" } },
+    exitRule: { partials: [{ atR: 1, fraction: 0.33 }, { atR: 2, fraction: 0.33 }], runner: "trail_to_mfe" } },
   { id: "tighten-2r", label: "Tighten SL → ideal · all-out @2R", riskPct: 1, slRule: "tighten_to_ideal",
     exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" } },
   { id: "widen-2r", label: "Widen SL → MAE-p75 × 1.15 · all-out @2R", riskPct: 1, slRule: "widen_to_mae_p75_x_1_15",
@@ -122,6 +123,8 @@ interface BucketConstants {
   mfeP50: number | null;
   mfeP60: number | null;
   mfeP75: number | null;
+  /** Empirical trail-capture ratio (median r/mfe over winners with mfe-r ≥ 0.1). */
+  trailCapture: number;
 }
 
 function buildBucketConstants(trades: any[], keys: PairLabFieldKeys): BucketConstants {
@@ -134,11 +137,34 @@ function buildBucketConstants(trades: any[], keys: PairLabFieldKeys): BucketCons
       return v != null ? Math.max(0, v) : null;
     })
     .filter((v): v is number => v != null && Number.isFinite(v));
+
+  // Empirical trail-capture estimate: median of r/mfe over winners whose MFE
+  // gave the trail enough room (mfe − r ≥ 0.1) and ratio is in (0, 1.05).
+  // Falls back to DEFAULT_TRAIL_CAPTURE_FRAC for thin samples. Mirrors the
+  // client-side estimate so server and client agree on trail-runner expectancy.
+  const ratios: number[] = [];
+  for (const t of trades) {
+    if (t.is_open || t.is_archived) continue;
+    const mfe = numericCf(t, keys.mfe);
+    const r = t.r_multiple_actual;
+    if (mfe == null || r == null) continue;
+    if (!(mfe > 0) || !(r > 0)) continue;
+    if (mfe - r < 0.1) continue;
+    const ratio = r / mfe;
+    if (ratio > 0 && ratio < 1.05) ratios.push(ratio);
+  }
+  let trailCapture = DEFAULT_TRAIL_CAPTURE_FRAC;
+  if (ratios.length >= 10) {
+    const m = quantile(ratios, 0.5);
+    if (m != null && m > 0) trailCapture = Math.max(0.1, Math.min(0.95, m));
+  }
+
   return {
     maeP75: quantile(maes, 0.75),
     mfeP50: quantile(mfes, 0.5),
     mfeP60: quantile(mfes, 0.6),
     mfeP75: quantile(mfes, 0.75),
+    trailCapture,
   };
 }
 
@@ -214,14 +240,14 @@ function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucke
       else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail" };
         const mfeNewR = proof.loggedMfe / slScale;
-        booked += Math.max(-1, TRAIL_CAPTURE_FRAC * mfeNewR) * remainingFrac;
+        booked += Math.max(-1, bucket.trailCapture * mfeNewR) * remainingFrac;
       }
     } else {
       if (strategy.exitRule.runner === "be_after_first_tp") booked += 0;
       else if (strategy.exitRule.runner === "all_out_at_last_partial") booked += lastFilledAtR * remainingFrac;
       else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail" };
-        booked += TRAIL_CAPTURE_FRAC * (proof.loggedMfe / slScale) * remainingFrac;
+        booked += bucket.trailCapture * (proof.loggedMfe / slScale) * remainingFrac;
       }
     }
   }
