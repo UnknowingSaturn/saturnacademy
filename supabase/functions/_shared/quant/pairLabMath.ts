@@ -434,6 +434,14 @@ export function computeBucket(
     .map((v) => Math.abs(v));
 
   const mfes = rows.map((t) => numericCf(t, keys.mfe)).filter((v): v is number => v != null);
+  // Paired (mfeR, rActual) for the empirical-miss tp1Star computation.
+  const tp1StarPairs: Array<{ mfeR: number; rActual: number | null }> = [];
+  for (const t of rows) {
+    const m = numericCf(t, keys.mfe);
+    if (m == null) continue;
+    tp1StarPairs.push({ mfeR: m, rActual: t.r_multiple_actual ?? null });
+  }
+  void mfes;
 
   // MAE is stored in TICKS. Convert to pips for the SL math, R for distribution.
   const maesR: number[] = [];
@@ -532,20 +540,28 @@ export function computeBucket(
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
   const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
   const suggestedRiskPct = n >= 10 ? quarterKellyPct(winRate, avgWinR, avgLossR) : null;
-  const tp1Star = computeTp1Star(mfes, avgLossR || 1);
+  const tp1Star = computeTp1Star(tp1StarPairs, avgLossR || 1);
 
-  // Prop-firm cap: the lower of (daily loss limit / max DD) translated to a
-  // single-trade risk %. Conservative — assumes 3-loss safety margin.
+  // Prop-firm cap — mirrors the client formula in src/lib/pairLabMath.ts:
+  //   ddCappedPct = (dailyLossDollars / balance) * 100 / max(3, worstLosingStreak)
+  //   clamped to [0.1, hardCap]; hardCap defaults to 2% (matches client default).
+  // The previous server formula used fixed /3 and /5 divisors and ignored
+  // losing-streak realism, drifting from the client recommendation.
   let suggestedRiskPctPropFirmCap: number | null = null;
   if (propFirm && propFirm.balance > 0) {
+    const HARD_CAP_PCT = 2;
+    const streak = Math.max(3, longestLossStreak(rows) || 0);
     const limits: number[] = [];
     if (propFirm.dailyLossDollars && propFirm.dailyLossDollars > 0) {
-      limits.push((propFirm.dailyLossDollars / propFirm.balance) * 100 / 3);
+      limits.push((propFirm.dailyLossDollars / propFirm.balance) * 100 / streak);
     }
     if (propFirm.maxDrawdownDollars && propFirm.maxDrawdownDollars > 0) {
-      limits.push((propFirm.maxDrawdownDollars / propFirm.balance) * 100 / 5);
+      // Max DD divided by 2× expected streak — slower-bleed cap.
+      limits.push((propFirm.maxDrawdownDollars / propFirm.balance) * 100 / (streak * 2));
     }
-    if (limits.length > 0) suggestedRiskPctPropFirmCap = +Math.min(...limits).toFixed(2);
+    if (limits.length > 0) {
+      suggestedRiskPctPropFirmCap = +Math.max(0.1, Math.min(HARD_CAP_PCT, Math.min(...limits))).toFixed(2);
+    }
   }
 
   const sorted = [...closed].sort((a, b) => (b.r_multiple_actual ?? 0) - (a.r_multiple_actual ?? 0));
