@@ -475,7 +475,7 @@ export function StrategyLab({
               sub={trailingDD ? "trailing" : "static"}
             />
             <Stat
-              label="Risk of ruin"
+              label="Any-account bust prob"
               value={`${(active.result.riskOfRuin * 100).toFixed(0)}%`}
               sub={`per-acct ${(active.result.perAccountBustRate * 100).toFixed(0)}%`}
               tone="bad"
@@ -494,7 +494,7 @@ export function StrategyLab({
             <Stat
               label="Geom. growth / trade"
               value={`${active.result.geometricMeanGrowthPct >= 0 ? "+" : ""}${active.result.geometricMeanGrowthPct.toFixed(3)}%`}
-              sub="compounding edge"
+              sub="compounded equivalent"
               tone={active.result.geometricMeanGrowthPct >= 0 ? "good" : "bad"}
             />
           </div>
