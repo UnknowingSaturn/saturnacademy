@@ -374,7 +374,9 @@ export function StrategyLab({
                           "w-full rounded px-2 py-2 text-center transition-all",
                           "border",
                           isActive ? "border-primary ring-1 ring-primary" : "border-border/30 hover:border-border",
-                          isBest && !isActive && "border-emerald-500/50",
+                          isBest && !isActive && !provisional && "border-emerald-500/50",
+                          isBest && !isActive && provisional && "border-amber-500/50",
+
                         )}
                         style={{
                           backgroundColor: `hsl(150 70% 45% / ${bgAlpha})`,
