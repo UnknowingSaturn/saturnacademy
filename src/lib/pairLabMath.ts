@@ -719,10 +719,14 @@ function computeBucket(
   const tcEst = estimateTrailCapture(rows, keys, 5);
   const trailCapture = tcEst?.ratio ?? 0.7;
 
-  const recommendation = buildRecommendation(
+  const baseRec = buildRecommendation(
     stats, winR, lossR, mfes, baseline, propFirm,
     { mfeRPairs, winnersMaePips, trailCapture },
   );
+  const recommendation: BucketRecommendation = {
+    ...baseRec,
+    walkForward: runWalkForward(rows, keys),
+  };
 
   const sorted = [...closed].sort(
     (a, b) => (b.r_multiple_actual ?? 0) - (a.r_multiple_actual ?? 0),
