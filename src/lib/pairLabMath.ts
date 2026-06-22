@@ -374,19 +374,24 @@ export function bootstrapKellyCi(
   // anti-correlated within a resample (more wins ⇒ fewer losses by
   // construction), which understated CI width.
   // Win-rate is resampled separately as a fresh binomial(n, nW/n) per draw.
-  const rand = makeSeededRng((n * 1000003) ^ Math.floor((wins[0] ?? 0) * 1000));
+  // Two independent seeded streams so the payoff draws (avgW/avgL) don't
+  // bleed RNG state into the win-rate binomial draw within the same iteration.
+  // The single-stream version made `b` and `p` weakly correlated.
+  const seedBase = (n * 1000003) ^ Math.floor((wins[0] ?? 0) * 1000);
+  const randPayoff = makeSeededRng(seedBase);
+  const randBinom = makeSeededRng(seedBase ^ 0x5bd1e995);
   const ks: number[] = [];
   const baseP = nW / n;
   for (let i = 0; i < iters; i++) {
     let sw = 0;
-    for (let j = 0; j < nW; j++) sw += wins[Math.floor(rand() * nW)];
+    for (let j = 0; j < nW; j++) sw += wins[Math.floor(randPayoff() * nW)];
     let sl = 0;
-    for (let j = 0; j < nL; j++) sl += losses[Math.floor(rand() * nL)];
+    for (let j = 0; j < nL; j++) sl += losses[Math.floor(randPayoff() * nL)];
     const avgW = sw / nW;
     const avgL = sl / nL;
     if (!(avgW > 0) || !(avgL > 0)) continue;
     let w = 0;
-    for (let j = 0; j < n; j++) if (rand() < baseP) w += 1;
+    for (let j = 0; j < n; j++) if (randBinom() < baseP) w += 1;
     if (w === 0 || w === n) continue;
     const p = w / n;
     const b = avgW / avgL;
@@ -395,7 +400,7 @@ export function bootstrapKellyCi(
   }
   if (ks.length < 10) return null;
   ks.sort((a, b) => a - b);
-  return [ks[Math.floor(ks.length * 0.025)], ks[Math.floor(ks.length * 0.975)]];
+  return [percentileFromSorted(ks, 0.025), percentileFromSorted(ks, 0.975)];
 }
 
 /** Raw quarter-Kelly value (percent of account), uncapped. Null when edge is non-positive. */
