@@ -73,131 +73,37 @@ export function resolvePairLabFieldKeys(defs: CustomFieldDef[]): PairLabFieldKey
 }
 
 // --- robust stats ---
-export function quantile(values: number[], q: number): number | null {
-  const xs = values.filter((v) => Number.isFinite(v)).slice().sort((a, b) => a - b);
-  if (xs.length === 0) return null;
-  if (xs.length === 1) return xs[0];
-  const pos = (xs.length - 1) * q;
-  const lo = Math.floor(pos), hi = Math.ceil(pos), w = pos - lo;
-  return xs[lo] * (1 - w) + xs[hi] * w;
-}
-export function median(values: number[]): number | null { return quantile(values, 0.5); }
-export function mean(values: number[]): number {
-  const xs = values.filter((v) => Number.isFinite(v));
-  if (xs.length === 0) return 0;
-  return xs.reduce((s, v) => s + v, 0) / xs.length;
-}
-export function bootstrapMeanCi(values: number[], iters = BOOTSTRAP_ITERATIONS): [number, number] | null {
-  const xs = values.filter((v) => Number.isFinite(v));
-  if (xs.length < 5) return null;
-  let seed = xs.length * 1000003;
-  for (let i = 0; i < xs.length; i++) seed = (seed * 31 + Math.floor(xs[i] * 1000)) | 0;
-  if (seed === 0) seed = 0x9e3779b9;
-  const rand = () => {
-    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
-    return ((seed >>> 0) % 1_000_000) / 1_000_000;
-  };
-  const means: number[] = new Array(iters);
-  for (let i = 0; i < iters; i++) {
-    let sum = 0;
-    for (let j = 0; j < xs.length; j++) sum += xs[Math.floor(rand() * xs.length)];
-    means[i] = sum / xs.length;
-  }
-  means.sort((a, b) => a - b);
-  return [percentileFromSorted(means, 0.025), percentileFromSorted(means, 0.975)];
-}
-
-/** Standard NIST-type-7 percentile via linear interpolation. */
-function percentileFromSorted(sorted: number[], q: number): number {
-  if (sorted.length === 0) return NaN;
-  if (sorted.length === 1) return sorted[0];
-  const pos = (sorted.length - 1) * q;
-  const lo = Math.floor(pos), hi = Math.ceil(pos), w = pos - lo;
-  return sorted[lo] * (1 - w) + sorted[hi] * w;
-}
-
-/** One-sided bootstrap p-value that mean(values) > 0. Null when n < 5. */
-export function bootstrapPositivePValue(values: number[], iters = BOOTSTRAP_ITERATIONS): number | null {
-  const xs = values.filter((v) => Number.isFinite(v));
-  if (xs.length < 5) return null;
-  let seed = xs.length * 1000003 + 7;
-  for (let i = 0; i < xs.length; i++) seed = (seed * 31 + Math.floor(xs[i] * 1000)) | 0;
-  if (seed === 0) seed = 0x9e3779b9;
-  const rand = () => {
-    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
-    return ((seed >>> 0) % 1_000_000) / 1_000_000;
-  };
-  let nonPos = 0;
-  for (let i = 0; i < iters; i++) {
-    let sum = 0;
-    for (let j = 0; j < xs.length; j++) sum += xs[Math.floor(rand() * xs.length)];
-    if (sum / xs.length <= 0) nonPos += 1;
-  }
-  return Math.max(1 / iters, nonPos / iters);
-}
-
-/** Benjamini–Hochberg FDR. Returns boolean[] aligned to input order. */
-export function bhSignificant(pvals: Array<number | null>, alpha = BH_FDR_ALPHA): boolean[] {
-  const indexed = pvals
-    .map((p, i) => ({ p, i }))
-    .filter((x): x is { p: number; i: number } => x.p != null && Number.isFinite(x.p));
-  indexed.sort((a, b) => a.p - b.p);
-  const m = indexed.length;
-  const out = new Array<boolean>(pvals.length).fill(false);
-  if (m === 0) return out;
-  let kMax = -1;
-  for (let k = 1; k <= m; k++) {
-    if (indexed[k - 1].p <= (k / m) * alpha) kMax = k;
-  }
-  if (kMax < 0) return out;
-  for (let k = 0; k < kMax; k++) out[indexed[k].i] = true;
-  return out;
-}
-/** Raw quarter-Kelly value (percent of account), uncapped. Null when edge is non-positive.
- *  Mirrors src/lib/pairLabMath.ts:rawQuarterKellyPct. */
-export function rawQuarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
-  if (!(avgWinR > 0) || !(avgLossR > 0)) return null;
-  const b = avgWinR / avgLossR, p = winRate, q = 1 - p;
-  const kelly = (b * p - q) / b;
-  if (kelly <= 0) return null;
-  return kelly * KELLY_SCALE * 100;
-}
-
-/** Back-compat clamped wrapper. Prefer `rawQuarterKellyPct` + surface `riskBelowFloor`. */
-export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
-  const raw = rawQuarterKellyPct(winRate, avgWinR, avgLossR);
-  if (raw == null) return null;
-  return Math.max(KELLY_FLOOR_PCT, Math.min(KELLY_CEILING_PCT, raw));
-}
-
-const SESSION_LABELS: Record<string, string> = {
-  tokyo: "Tokyo", asia: "Tokyo", london: "London",
-  ny_am: "NY AM", new_york_am: "NY AM", ny_pm: "NY PM", new_york_pm: "NY PM",
-  new_york: "NY AM", ny: "NY AM",
+// Unified primitives live in shared/quant/stats so the client and edge
+// functions cannot drift. Re-exported here for back-compat with existing
+// callers that `import { quantile, ... } from "./pairLabMath.ts"`.
+import {
+  quantile,
+  median,
+  mean,
+  percentileFromSorted,
+  bootstrapMeanCi,
+  bootstrapPositivePValue,
+  bhSignificant,
+  rawQuarterKellyPct,
+  quarterKellyPct,
+  normalizeSession,
+  getCf,
+  numericCf,
+  multiSelectCf,
+} from "../../../../shared/quant/stats.ts";
+export {
+  quantile,
+  median,
+  mean,
+  bootstrapMeanCi,
+  bootstrapPositivePValue,
+  bhSignificant,
+  rawQuarterKellyPct,
+  quarterKellyPct,
+  normalizeSession,
+  numericCf,
+  multiSelectCf,
 };
-export function normalizeSession(raw: string | null | undefined): string {
-  if (!raw) return "Unknown";
-  return SESSION_LABELS[String(raw).toLowerCase()] ?? raw;
-}
-
-function getCf(t: any, key: string | null): unknown {
-  if (!key) return undefined;
-  const cf = t?.custom_fields;
-  if (!cf || typeof cf !== "object") return undefined;
-  return cf[key];
-}
-export function numericCf(t: any, key: string | null): number | null {
-  const v = getCf(t, key);
-  if (v === undefined || v === null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-export function multiSelectCf(t: any, key: string | null): string[] {
-  const v = getCf(t, key);
-  if (Array.isArray(v)) return v.map(String);
-  if (typeof v === "string" && v) return [v];
-  return [];
-}
 
 export function parseTpLabel(s: string): number | null {
   if (!s) return null;
