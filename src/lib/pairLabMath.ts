@@ -129,6 +129,19 @@ export interface BucketRecommendation {
     winRateDelta: number;        // percentage points
     expectedRDelta: number;
   } | null;
+  /**
+   * Quant provenance for the SL/TP suggestion.
+   *  - "validated": MAE-of-winners SL + MFE-based TP expectancy grid, bootstrap CI lower bound > 0
+   *  - "low": grid found a max but bootstrap CI lower bound ≤ 0 (overfit risk)
+   *  - "insufficient": fell back to legacy heuristic (winners<10 or MFE coverage<10)
+   */
+  recommendationConfidence: "validated" | "low" | "insufficient";
+  /** Expected R at the chosen (SL, TP) grid cell. null when fallback used. */
+  expectancyAtSuggested: number | null;
+  /** Bootstrap 95% CI on expectancy at the chosen cell. null when fallback used. */
+  expectancyAtSuggestedCi: [number, number] | null;
+  /** TP that wins the MFE-based expectancy grid (R). null when fallback used. */
+  suggestedTpR: number | null;
 }
 
 export interface BucketReport extends BucketStats {
