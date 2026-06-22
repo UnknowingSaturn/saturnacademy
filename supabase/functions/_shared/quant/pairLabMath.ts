@@ -39,6 +39,9 @@ export interface PropFirmContext {
   maxDrawdownDollars: number | null;
   /** Profit target as $. */
   profitTargetDollars: number | null;
+  /** Hard cap on suggested risk %. Mirrors src/lib/pairLabMath.ts PropFirmContext.hardCapPct
+   *  (sourced from user_settings.sim_hard_cap_pct, default 2). */
+  hardCapPct: number;
 }
 
 const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefixes: string[] }> = [
@@ -147,12 +150,21 @@ export function bhSignificant(pvals: Array<number | null>, alpha = 0.05): boolea
   for (let k = 0; k < kMax; k++) out[indexed[k].i] = true;
   return out;
 }
-export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
+/** Raw quarter-Kelly value (percent of account), uncapped. Null when edge is non-positive.
+ *  Mirrors src/lib/pairLabMath.ts:rawQuarterKellyPct. */
+export function rawQuarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
   if (!(avgWinR > 0) || !(avgLossR > 0)) return null;
   const b = avgWinR / avgLossR, p = winRate, q = 1 - p;
   const kelly = (b * p - q) / b;
   if (kelly <= 0) return null;
-  return Math.max(0.25, Math.min(1.5, kelly * 0.25 * 100));
+  return kelly * 0.25 * 100;
+}
+
+/** Back-compat clamped wrapper. Prefer `rawQuarterKellyPct` + surface `riskBelowFloor`. */
+export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
+  const raw = rawQuarterKellyPct(winRate, avgWinR, avgLossR);
+  if (raw == null) return null;
+  return Math.max(0.25, Math.min(1.5, raw));
 }
 
 const SESSION_LABELS: Record<string, string> = {
@@ -233,6 +245,8 @@ export interface BucketReport {
   walkForward: { inSampleE: number; outOfSampleE: number; degradationPct: number; oosN: number } | null;
   tp1Star: Tp1Star | null;
   suggestedRiskPct: number | null;
+  /** True when raw quarter-Kelly is positive but below 0.25% — edge too thin to size meaningfully. */
+  riskBelowFloor: boolean;
   /** Prop-firm-aware cap on suggested risk (% of balance). null when no prop-firm context. */
   suggestedRiskPctPropFirmCap: number | null;
   worstLosingStreak: number;
