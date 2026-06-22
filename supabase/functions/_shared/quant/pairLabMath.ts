@@ -15,6 +15,20 @@
 //   - client version has PropFirmContext, perRow, edgeVsBaseline (UI-only)
 
 import { tickSizeForSymbol, pipSizeForSymbol, pipLabelForSymbol, ticksToPips } from "./symbolMapping.ts";
+import {
+  TP1_STAR_MIN_HIT_RATE,
+  WINNERS_MAE_SL_QUANTILE,
+  WINNERS_MAE_SL_BUFFER,
+  MAE_P75_WIDEN_BUFFER,
+  SL_DRIFT_ALIGNED_MIN,
+  SL_DRIFT_ALIGNED_MAX,
+  KELLY_SCALE,
+  KELLY_FLOOR_PCT,
+  KELLY_CEILING_PCT,
+  BOOTSTRAP_ITERATIONS,
+  BH_FDR_ALPHA,
+  MIN_STREAK_FLOOR,
+} from "../../../../shared/quant/config.ts";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
