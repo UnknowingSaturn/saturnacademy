@@ -23,7 +23,10 @@ export function getRealPartialCloses(trade: Pick<Trade, "partial_closes" | "part
       time: f.occurred_at,
       lots: Number(f.lots),
       price: Number(f.price),
-      pnl: (Number(f.profit) || 0) - Math.abs(Number(f.commission) || 0) + (Number(f.swap) || 0),
+      // Signed addition — matches supabase/functions/_shared/pnl.ts. MT5 reports
+      // commission as already-signed; broker integrations that report commission
+      // as a positive cost must negate it at the ingest layer (single source of truth).
+      pnl: (Number(f.profit) || 0) + (Number(f.commission) || 0) + (Number(f.swap) || 0),
     }));
   }
   return (trade.partial_closes || []).filter(isRealFill);

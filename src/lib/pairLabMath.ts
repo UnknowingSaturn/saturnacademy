@@ -778,7 +778,9 @@ function computeBucket(
   // Winners' MAE in pips — drives the Sweeney SL recommendation.
   const winnersMaePips = sweepRows.filter((r) => r.rActual > 0).map((r) => r.maePips);
   // Bucket-local trail-capture estimate (low minSample; falls back to 0.7).
-  const tcEst = estimateTrailCapture(rows, keys, 5);
+  // minSample=10 mirrors the server (`estimateTrailCaptureRows`) so thin buckets
+  // fall back to the same 0.7 default on both sides.
+  const tcEst = estimateTrailCapture(rows, keys, 10);
   const trailCapture = tcEst?.ratio ?? 0.7;
 
   const baseRec = buildRecommendation(

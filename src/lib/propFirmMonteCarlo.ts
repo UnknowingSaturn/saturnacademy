@@ -143,7 +143,14 @@ function simulateOnePath(p: MCParams, rng: () => number): PathState {
         bbIdx = Math.floor(rng() * p.rSample.length);
       }
       const r = p.rSample[bbIdx] ?? 0;
-      bbIdx = (bbIdx + 1) % Math.max(1, p.rSample.length);
+      // Advance within the block. When the block walks off the end of rSample,
+      // start a fresh block at a uniformly-random index instead of deterministically
+      // wrapping to 0 — wrapping to 0 over-samples the head of the series by
+      // ~blockSize/N (Politis–Romano stationary bootstrap requires uniform starts).
+      if (p.rSample.length > 0) {
+        const next = bbIdx + 1;
+        bbIdx = next >= p.rSample.length ? Math.floor(rng() * p.rSample.length) : next;
+      }
       const pnl = r * dollarRisk;
 
       // Decide which accounts receive this trade.
