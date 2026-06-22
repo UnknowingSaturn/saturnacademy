@@ -111,8 +111,38 @@ export function StrategyLab({
   maxDrawdownDollars,
   hasPropFirmProfile,
 }: Props) {
-  const rSample = useMemo(() => extractRSample(trades), [trades]);
-  const detectedTpd = useMemo(() => autoTradesPerDay(trades), [trades]);
+  const [sampleWindow, setSampleWindow] = useState<SampleWindow>("all");
+
+  const filteredTrades = useMemo(() => {
+    const opt = SAMPLE_WINDOW_OPTIONS.find((o) => o.value === sampleWindow);
+    if (!opt || opt.days == null) return trades;
+    const cutoff = Date.now() - opt.days * 86_400_000;
+    return trades.filter((t) => {
+      if (!t.entry_time) return false;
+      const ts = new Date(t.entry_time).getTime();
+      return Number.isFinite(ts) && ts >= cutoff;
+    });
+  }, [trades, sampleWindow]);
+
+  const windowMeta = useMemo(() => {
+    let n = 0;
+    let first: number | null = null;
+    let last: number | null = null;
+    for (const t of filteredTrades) {
+      if (t.is_open || t.is_archived) continue;
+      if (t.r_multiple_actual == null) continue;
+      if (!t.entry_time) continue;
+      const ts = new Date(t.entry_time).getTime();
+      if (!Number.isFinite(ts)) continue;
+      n += 1;
+      if (first == null || ts < first) first = ts;
+      if (last == null || ts > last) last = ts;
+    }
+    return { n, first, last };
+  }, [filteredTrades]);
+
+  const rSample = useMemo(() => extractRSample(filteredTrades), [filteredTrades]);
+  const detectedTpd = useMemo(() => autoTradesPerDay(filteredTrades), [filteredTrades]);
   // Bootstrap 95% CI on mean R (block bootstrap, same block-size as engine).
   // Drives the edge-direction gate: when the CI lower bound is ≤ 0 the sample
   // doesn't statistically demonstrate a positive edge, and no sizing recommendation
