@@ -97,7 +97,13 @@ export function formatFullDateTimeET(utcTimestamp: string | Date): string {
  * via src/lib/brokerDst.ts, so consumers should always pass UTC timestamps here.
  */
 export function detectSessionFromUtc(utcTimestamp: string | Date): SessionType {
-  const hourET = getHourInET(utcTimestamp);
+  const date = new Date(utcTimestamp);
+  const hourStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: currentDisplayTimezone,
+    hour: 'numeric',
+    hour12: false,
+  }).format(date);
+  const hourET = parseInt(hourStr, 10);
   if (hourET >= 8 && hourET < 12) return 'overlap_london_ny';
   if (hourET >= 12 && hourET < 17) return 'new_york_pm';
   if (hourET >= 3 && hourET < 8) return 'london';
