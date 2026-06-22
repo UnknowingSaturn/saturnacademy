@@ -61,6 +61,12 @@ export interface BucketStats {
   maeP75Pips: number | null;      // pips, used for SL recommendation
   maeP50Ticks: number | null;     // raw ticks (user input from TradingView measure tool)
   maeP75Ticks: number | null;     // raw ticks
+  /** Min/max of logged MFE values (R). Null when no MFE samples. */
+  mfeMin: number | null;
+  mfeMax: number | null;
+  /** Min/max of logged MAE values (ticks). Null when no MAE samples. */
+  maeMinTicks: number | null;
+  maeMaxTicks: number | null;
   idealSlMedian: number | null;   // pips
   slInitialMedian: number | null; // pips
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
@@ -749,6 +755,10 @@ function computeBucket(
     maeP75Pips: quantile(maesPips, 0.75),
     maeP50Ticks: median(maesTicks),
     maeP75Ticks: quantile(maesTicks, 0.75),
+    mfeMin: mfes.length > 0 ? Math.min(...mfes) : null,
+    mfeMax: mfes.length > 0 ? Math.max(...mfes) : null,
+    maeMinTicks: maesTicks.length > 0 ? Math.min(...maesTicks) : null,
+    maeMaxTicks: maesTicks.length > 0 ? Math.max(...maesTicks) : null,
     idealSlMedian: idealMed,
     slInitialMedian: slInitMed,
     slDrift,
