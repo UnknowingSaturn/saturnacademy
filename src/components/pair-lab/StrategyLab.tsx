@@ -443,20 +443,3 @@ function Stat({ label, value, sub, tone }: { label: string; value: string; sub?:
     </div>
   );
 }
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
-  return (
-    <div>
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div
-        className={cn(
-          "font-mono-numbers font-semibold mt-0.5",
-          tone === "good" && "text-emerald-600 dark:text-emerald-400",
-          tone === "bad" && "text-destructive",
-        )}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
