@@ -349,7 +349,7 @@ function pickBestTp(
   for (const p of pairs) seed = (seed * 31 + Math.floor((p.mfeR * 1000 + p.rActual * 1000))) | 0;
   if (seed === 0) seed = 0x9e3779b9;
   const rand = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) % 1_000_000) / 1_000_000; };
-  const iters = 200;
+  const iters = 500;
   const samples: number[] = new Array(iters);
   const buf: MfePair[] = new Array(pairs.length);
   for (let i = 0; i < iters; i++) {
@@ -377,13 +377,15 @@ function runWalkForward(rows: any[], keys: PairLabFieldKeys):
   const isPairs = collectMfeRPairs(isRows, keys);
   const oosPairs = collectMfeRPairs(oosRows, keys);
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
+  // Walk-forward must not estimate trailCapture on the OOS slice (look-ahead
+  // leak): use the IS estimate on both sides.
   const isTrail = estimateTrailCaptureRows(isRows, keys);
-  const oosTrail = estimateTrailCaptureRows(oosRows, keys);
   const pick = pickBestTp(isPairs, isTrail);
   if (!pick) return null;
-  const outOfSampleE = scoreTp(pick.tpR, oosPairs, oosTrail);
+  const outOfSampleE = scoreTp(pick.tpR, oosPairs, isTrail);
   const degradationPct = pick.expectancy > 0 ? (1 - outOfSampleE / pick.expectancy) * 100 : 0;
-  return { inSampleE: pick.expectancy, outOfSampleE, degradationPct, oosN: oosRows.length };
+  // Report OOS pair count (true DoF for scoreTp), not raw row count.
+  return { inSampleE: pick.expectancy, outOfSampleE, degradationPct, oosN: oosPairs.length };
 }
 
 export function computeBucket(
