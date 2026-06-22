@@ -42,21 +42,10 @@ export interface PairLabFieldKeys {
 
 interface CustomFieldDef { key: string; label: string }
 
-export interface PropFirmContext {
-  /** prop firm id (e.g. "ftmo"), for labelling. */
-  firm: string;
-  /** balance starting value, used to translate % rules to R cap. */
-  balance: number;
-  /** Daily loss limit as $. */
-  dailyLossDollars: number | null;
-  /** Max drawdown as $. */
-  maxDrawdownDollars: number | null;
-  /** Profit target as $. */
-  profitTargetDollars: number | null;
-  /** Hard cap on suggested risk %. Mirrors src/lib/pairLabMath.ts PropFirmContext.hardCapPct
-   *  (sourced from user_settings.sim_hard_cap_pct, default 2). */
-  hardCapPct: number;
-}
+// Canonical PropFirmContext shape lives in shared/quant/types so the React
+// client and Supabase edge functions can never drift.
+export type { PropFirmContext } from "../../../../shared/quant/types.ts";
+import type { PropFirmContext } from "../../../../shared/quant/types.ts";
 
 const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefixes: string[] }> = [
   { alias: "mfe",              labels: ["mfe (rr)", "mfe", "max favourable excursion", "max favorable excursion"], prefixes: ["cf_mfe"] },

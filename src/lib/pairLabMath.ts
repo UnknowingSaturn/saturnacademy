@@ -21,7 +21,7 @@
 // ============================================================================
 
 import type { Trade } from "@/types/trading";
-import { tickSizeForSymbol, pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
+import { tickSizeForSymbol, pipSizeForSymbol, ticksToPips, pipLabelForSymbol } from "@/lib/symbolMapping";
 import {
   TP1_STAR_MIN_HIT_RATE,
   WINNERS_MAE_SL_QUANTILE,
@@ -121,19 +121,10 @@ export interface Tp1Star {
   expectancyR: number;
 }
 
-export interface PropFirmContext {
-  /** Account balance in money — used to translate DD limits to R. */
-  balance: number;
-  /** Daily loss limit as $ (already converted from % if needed). */
-  dailyLossDollars: number | null;
-  /** Max drawdown limit as $. */
-  maxDrawdownDollars: number | null;
-  /** User's planned risk per trade as a fraction (e.g. 0.01 for 1%). */
-  riskPerTradeFrac: number;
-  /** Hard cap on suggested risk %, e.g. account.risk_per_trade_cap or 2. */
-  hardCapPct: number;
-  firmName: string | null;
-}
+// Canonical PropFirmContext shape lives in shared/quant/types so the React
+// client and Supabase edge functions can never drift.
+export type { PropFirmContext } from "../../shared/quant/types";
+import type { PropFirmContext } from "../../shared/quant/types";
 
 export interface BucketRecommendation {
   suggestedSlPips: number | null;
@@ -182,6 +173,13 @@ export interface BucketReport extends BucketStats {
   // Best / worst trades for citation (most positive / most negative R).
   topTradeIds: string[];
   bottomTradeIds: string[];
+  /**
+   * Human-readable unit for SL/MAE distances in this bucket
+   * ("pips" for FX/metals/crypto, "points" for indices). Resolved from the
+   * bucket's symbol via pipLabelForSymbol(). Mirrors the server-side field
+   * on supabase/functions/_shared/quant/pairLabMath.ts BucketReport.
+   */
+  slUnit?: "pips" | "points";
 }
 
 // ----------------------------------------------------------------------------
@@ -825,7 +823,10 @@ function computeBucket(
   const topTradeIds = sorted.slice(0, 3).map((t) => t.id);
   const bottomTradeIds = sorted.slice(-3).reverse().map((t) => t.id);
 
-  return { ...stats, recommendation, topTradeIds, bottomTradeIds };
+  const slUnit: "pips" | "points" =
+    key.symbol && key.symbol !== "All" ? pipLabelForSymbol(key.symbol) : "pips";
+
+  return { ...stats, recommendation, topTradeIds, bottomTradeIds, slUnit };
 }
 
 // ----------------------------------------------------------------------------
