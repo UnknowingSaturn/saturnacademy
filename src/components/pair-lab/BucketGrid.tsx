@@ -58,7 +58,7 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
         {expR}
       </div>
       <div className="text-[10px] text-muted-foreground font-mono-numbers">
-        MFE {b.mfeP75 != null ? `${b.mfeP75.toFixed(2)}R` : "–"} · MAE {b.maeP75 != null ? `${b.maeP75.toFixed(2)}R` : "–"}
+        MFE {b.mfeP75 != null ? `${b.mfeP75.toFixed(2)}R` : "–"} · MAE {b.maeP75Ticks != null ? `${b.maeP75Ticks.toFixed(0)}t` : "–"}
       </div>
       <div
         className={cn("text-[10px] font-mono-numbers", mfeCovColor)}
