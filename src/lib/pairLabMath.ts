@@ -879,61 +879,13 @@ function buildRecommendation(
   let tpMethod: "mfe_grid" | "legacy" = "legacy";
   let tpLadderR: number[] = [];
 
-  const scoreTp = (
-    tp: number,
-    sample: Array<{ mfeR: number; rActual: number }>,
-    trail: number,
-  ): number => {
-    if (sample.length === 0) return 0;
-    let sum = 0;
-    for (const p of sample) {
-      if (p.mfeR >= tp) sum += tp;
-      else if (p.rActual >= 0) sum += p.rActual * trail;
-      else sum += p.rActual;
-    }
-    return sum / sample.length;
-  };
-
-  if (ctx.mfeRPairs.length >= 10) {
-    const grid: number[] = [];
-    for (let r = 0.5; r <= 4.0001; r += 0.25) grid.push(Math.round(r * 4) / 4);
-    const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, ctx.mfeRPairs, ctx.trailCapture) }));
-    let best: { tp: number; e: number } | null = null;
-    for (const c of scored) if (!best || c.e > best.e) best = c;
-    if (best && best.e > 0) {
-      suggestedTpR = best.tp;
-      expectancyAtSuggested = best.e;
-
-      // Bootstrap CI on expectancy at the winning TP cell.
-      let hash = ctx.mfeRPairs.length * 1000003;
-      for (const p of ctx.mfeRPairs) {
-        hash = (hash * 31 + Math.floor((p.mfeR * 1000 + p.rActual * 1000))) | 0;
-      }
-      const rand = makeSeededRng(hash);
-      const iters = 200;
-      const samples: number[] = new Array(iters);
-      const buf: Array<{ mfeR: number; rActual: number }> = new Array(ctx.mfeRPairs.length);
-      for (let i = 0; i < iters; i++) {
-        for (let j = 0; j < ctx.mfeRPairs.length; j++) {
-          buf[j] = ctx.mfeRPairs[Math.floor(rand() * ctx.mfeRPairs.length)];
-        }
-        samples[i] = scoreTp(best.tp, buf, ctx.trailCapture);
-      }
-      samples.sort((a, b) => a - b);
-      expectancyAtSuggestedCi = [
-        samples[Math.floor(0.025 * iters)],
-        samples[Math.floor(0.975 * iters)],
-      ];
-
-      // Ladder: top 3 distinct positive-expectancy TPs sorted ascending.
-      const top = [...scored]
-        .filter((c) => c.e > 0)
-        .sort((a, b) => b.e - a.e)
-        .slice(0, 3)
-        .map((c) => c.tp);
-      tpLadderR = Array.from(new Set(top)).sort((a, b) => a - b);
-      tpMethod = "mfe_grid";
-    }
+  const pick = pickBestTp(ctx.mfeRPairs, ctx.trailCapture);
+  if (pick) {
+    suggestedTpR = pick.tpR;
+    expectancyAtSuggested = pick.expectancy;
+    expectancyAtSuggestedCi = pick.ci;
+    tpLadderR = pick.ladder;
+    tpMethod = "mfe_grid";
   }
 
   if (tpMethod === "legacy") {
