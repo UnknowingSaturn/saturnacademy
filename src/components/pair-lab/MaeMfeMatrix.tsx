@@ -99,7 +99,7 @@ export function MaeMfeMatrix({ trades, fieldKeys }: Props) {
                     }
                     return (
                       <td key={sess} className="py-2 px-2 text-right font-mono-numbers">
-                        <div className="text-xs"><span className="text-destructive">MAE {cell.meanMae?.toFixed(2) ?? "—"}R</span></div>
+                        <div className="text-xs"><span className="text-destructive">MAE {cell.meanMaeTicks != null ? `${cell.meanMaeTicks.toFixed(0)}t` : "—"}</span></div>
                         <div className="text-xs"><span className="text-emerald-500">MFE {cell.meanMfe?.toFixed(2) ?? "—"}R</span></div>
                         <div className="text-[10px] text-muted-foreground">N {cell.n}</div>
                       </td>
