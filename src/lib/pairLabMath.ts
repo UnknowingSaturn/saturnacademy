@@ -21,7 +21,7 @@
 // ============================================================================
 
 import type { Trade } from "@/types/trading";
-import { tickSizeForSymbol, pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
+import { tickSizeForSymbol, pipSizeForSymbol, ticksToPips, pipLabelForSymbol } from "@/lib/symbolMapping";
 import {
   TP1_STAR_MIN_HIT_RATE,
   WINNERS_MAE_SL_QUANTILE,
@@ -823,7 +823,10 @@ function computeBucket(
   const topTradeIds = sorted.slice(0, 3).map((t) => t.id);
   const bottomTradeIds = sorted.slice(-3).reverse().map((t) => t.id);
 
-  return { ...stats, recommendation, topTradeIds, bottomTradeIds };
+  const slUnit: "pips" | "points" =
+    key.symbol && key.symbol !== "All" ? pipLabelForSymbol(key.symbol) : "pips";
+
+  return { ...stats, recommendation, topTradeIds, bottomTradeIds, slUnit };
 }
 
 // ----------------------------------------------------------------------------
