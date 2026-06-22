@@ -31,16 +31,8 @@ export function CopierDashboard() {
     ? formatDistanceToNow(new Date(lastExecution.executed_at), { addSuffix: true })
     : null;
   
-  // Calculate today's stats
-  const todayStats = React.useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    return {
-      todaySuccess: stats.totalExecutions > 0 ? Math.round(stats.successRate) : 0,
-      todayFailed: stats.failedCount,
-    };
-  }, [stats]);
+
+
   
   return (
     <div className="space-y-4">
