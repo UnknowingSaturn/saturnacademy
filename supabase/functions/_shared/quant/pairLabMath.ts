@@ -279,6 +279,101 @@ function ticksToR(ticks: number, t: any): number | null {
   return pips / slDistPips;
 }
 
+// ----- TP grid + walk-forward helpers (mirror src/lib/pairLabMath.ts) -----
+interface MfePair { mfeR: number; rActual: number }
+
+function scoreTp(tp: number, sample: MfePair[], trail: number): number {
+  if (sample.length === 0) return 0;
+  let sum = 0;
+  for (const p of sample) {
+    if (p.mfeR >= tp) sum += tp;
+    else if (p.rActual >= 0) sum += p.rActual * trail;
+    else sum += p.rActual;
+  }
+  return sum / sample.length;
+}
+
+function collectMfeRPairs(rows: any[], keys: PairLabFieldKeys): MfePair[] {
+  const out: MfePair[] = [];
+  for (const t of rows) {
+    const mfeR = numericCf(t, keys.mfe);
+    if (mfeR == null) continue;
+    if (t.r_multiple_actual == null || !Number.isFinite(t.r_multiple_actual)) continue;
+    out.push({ mfeR, rActual: t.r_multiple_actual });
+  }
+  return out;
+}
+
+function estimateTrailCaptureRows(rows: any[], keys: PairLabFieldKeys, minSample = 5): number {
+  const ratios: number[] = [];
+  for (const t of rows) {
+    if (t.is_open || t.is_archived) continue;
+    const mfe = numericCf(t, keys.mfe);
+    const r = t.r_multiple_actual;
+    if (mfe == null || r == null) continue;
+    if (!(mfe > 0) || !(r > 0)) continue;
+    if (mfe - r < 0.1) continue;
+    const ratio = r / mfe;
+    if (ratio > 0 && ratio < 1.05) ratios.push(ratio);
+  }
+  if (ratios.length < minSample) return 0.7;
+  const m = median(ratios);
+  if (m == null || !(m > 0)) return 0.7;
+  return Math.max(0.1, Math.min(0.95, m));
+}
+
+function pickBestTp(
+  pairs: MfePair[],
+  trail: number,
+): { tpR: number; expectancy: number; ladder: number[]; ci: [number, number] | null } | null {
+  if (pairs.length < 10) return null;
+  const grid: number[] = [];
+  for (let r = 0.5; r <= 4.0001; r += 0.25) grid.push(Math.round(r * 4) / 4);
+  const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs, trail) }));
+  let best: { tp: number; e: number } | null = null;
+  for (const c of scored) if (!best || c.e > best.e) best = c;
+  if (!best || !(best.e > 0)) return null;
+  let seed = pairs.length * 1000003;
+  for (const p of pairs) seed = (seed * 31 + Math.floor((p.mfeR * 1000 + p.rActual * 1000))) | 0;
+  if (seed === 0) seed = 0x9e3779b9;
+  const rand = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) % 1_000_000) / 1_000_000; };
+  const iters = 200;
+  const samples: number[] = new Array(iters);
+  const buf: MfePair[] = new Array(pairs.length);
+  for (let i = 0; i < iters; i++) {
+    for (let j = 0; j < pairs.length; j++) buf[j] = pairs[Math.floor(rand() * pairs.length)];
+    samples[i] = scoreTp(best.tp, buf, trail);
+  }
+  samples.sort((a, b) => a - b);
+  const ci: [number, number] = [samples[Math.floor(0.025 * iters)], samples[Math.floor(0.975 * iters)]];
+  const ladder = Array.from(
+    new Set([...scored].filter((c) => c.e > 0).sort((a, b) => b.e - a.e).slice(0, 3).map((c) => c.tp)),
+  ).sort((a, b) => a - b);
+  return { tpR: best.tp, expectancy: best.e, ladder, ci };
+}
+
+function runWalkForward(rows: any[], keys: PairLabFieldKeys):
+  | { inSampleE: number; outOfSampleE: number; degradationPct: number; oosN: number }
+  | null {
+  const closed = rows.filter((t) => t.net_pnl != null && t.entry_time);
+  if (closed.length < 30) return null;
+  const sorted = [...closed].sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)));
+  const cutoff = Math.floor(sorted.length * 0.7);
+  const isRows = sorted.slice(0, cutoff);
+  const oosRows = sorted.slice(cutoff);
+  if (oosRows.length < 9) return null;
+  const isPairs = collectMfeRPairs(isRows, keys);
+  const oosPairs = collectMfeRPairs(oosRows, keys);
+  if (isPairs.length < 10 || oosPairs.length < 5) return null;
+  const isTrail = estimateTrailCaptureRows(isRows, keys);
+  const oosTrail = estimateTrailCaptureRows(oosRows, keys);
+  const pick = pickBestTp(isPairs, isTrail);
+  if (!pick) return null;
+  const outOfSampleE = scoreTp(pick.tpR, oosPairs, oosTrail);
+  const degradationPct = pick.expectancy > 0 ? (1 - outOfSampleE / pick.expectancy) * 100 : 0;
+  return { inSampleE: pick.expectancy, outOfSampleE, degradationPct, oosN: oosRows.length };
+}
+
 export function computeBucket(
   key: BucketKey,
   rows: any[],
