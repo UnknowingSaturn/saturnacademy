@@ -1,20 +1,69 @@
-## Pass D — Status
+## Pass D Verification & Sidebar Color Fix
 
-### Quant fixes (shipped earlier in this pass)
-Q2 trail-capture parity, Q3 prop-firm cap parity, Q4 server raw-Kelly + `riskBelowFloor` flag, Q5 signed commission, Q6 fresh-restart block bootstrap, Q7 `Infinity` profit-factor sentinel. Q1 PnL reconciliation remains diagnostic-only (CSV exported) — awaits user decision on corrective migration.
+### Findings
 
-### Dead code cleanup (shipped this turn)
-- **D5** removed dead TradingView mapping (~80 lines) and dead alias-group exports (~140 lines) from `symbolMapping.ts`. File trimmed from 369 → 88 lines, only tick/pip helpers remain.
-- **D6** consolidated `normalizeSymbol` — `symbolAliasing.ts` is now the single source of truth. `useTradeCompliance.tsx` migrated.
-- **D7** deleted `src/lib/withForwardRef.tsx`. `tooltip.tsx` now re-exports Radix `Provider`/`Root` directly.
-- **D8** deleted `src/components/NavLink.tsx`. `AppSidebar.tsx` uses `react-router-dom`'s `NavLink` with the className-callback API.
-- **D12** replaced `(trade as any)[column]` in `Journal.tsx` with a typed `Record<string, unknown>` cast.
+**1. Sidebar regression — confirmed cause**
+Playwright probe of the live preview shows every sidebar link's `className` attribute literally contains the stringified function:
 
-### Deferred (large refactors — explicit follow-up)
-- **D3** `useCopierSetup()` selector extraction.
-- **D4** `TradeTable.tsx` (940 lines) split into `SortableHeader` + `useTradeTableMutations` + helpers.
-- **D10** 15 edge functions still inline CORS — migrate to `_shared/cors.ts` helpers.
-- **D11** regenerate Supabase types to drop ~17 `(supabase as any)` casts in `useCustomFields`/`useSimulatorProfile`.
+```
+... h-8 text-sm ({ isActive })=>cn("flex items-center gap-3 ... text-sidebar-foreground ...", isActive && "bg-sidebar-accent text-sidebar-primary font-medium")
+```
 
-### Open question
-**Q1**: 295 historical trades have `net_pnl` that no current formula reproduces. Decide: (a) keep diagnostic-only, (b) corrective migration to overwrite from `trade_partial_fills`, or (c) only enforce going forward via constraint.
+`SidebarMenuButton asChild` wraps the child in Radix `Slot`. `Slot` merges `className` by string-concatenation; it cannot evaluate the function-as-className API React Router exposes. The function gets coerced to a string and dumped into the `class` attribute, so:
+- Our `text-sidebar-foreground` baseline is never applied.
+- The anchor falls back to Chromium's dark-mode default `<a>` color `rgb(51,129,255)` (≈ primary blue).
+- `isActive` styling never fires either, so the active item also looks identical.
+
+**2. Suggested MAE / MFE math — already correct**
+Ripgrep across `src/lib/pairLabMath.ts`, `src/lib/pairLabSimulator.ts`, and `supabase/functions/_shared/quant/pairLabMath.ts` shows MAE/MFE are **never** averaged:
+- Bucket stats: `median()`, `quantile(_, 0.5/0.6/0.75)`.
+- SL recommendation: `quantile(winnersMaePips, 0.90) * 1.10`.
+- TP recommendation: `argmax E[R]` over an MFE grid, not mean MFE.
+- Only one `mean`-shaped term exists — the conditional `r_actual` mean when `MFE < TP target` (legitimate miss-cost estimator, not a distribution collapse).
+
+No code change required; we'll add a one-shot diagnostic that prints the bucket-level p50/p75/p90 alongside a recomputation directly from `trade_partial_fills` so you have evidence the simulator output matches the underlying ticks.
+
+**3. Pass D cleanups — verified intact**
+`withForwardRef`, `NavLink.tsx` wrapper, and the dead `symbolMapping` exports are gone. `useTradeCompliance` resolves `normalizeSymbol` from `symbolAliasing`. Tooltip still mounts (Radix Provider/Root re-exported directly).
+
+---
+
+### Plan
+
+**Fix 1 — Sidebar colors (`src/components/layout/AppSidebar.tsx`)**
+
+Replace the function-className pattern with the existing `SidebarMenuButton.isActive` data-attribute that `sidebarMenuButtonVariants` already understands:
+
+```text
+import { NavLink, useLocation } from "react-router-dom";
+
+const { pathname } = useLocation();
+...
+<SidebarMenuButton asChild tooltip={item.title} isActive={pathname === item.url || pathname.startsWith(item.url + "/")}>
+  <NavLink to={item.url} className="flex items-center gap-3">
+    <item.icon className="w-5 h-5 shrink-0" />
+    {!collapsed && <span className="flex-1">{item.title}</span>}
+    {item.url === '/live-trades' && openTradesCount > 0 && (
+      <Badge variant="secondary" className="ml-auto h-5 min-w-5 px-1.5 text-xs">{openTradesCount}</Badge>
+    )}
+  </NavLink>
+</SidebarMenuButton>
+```
+
+This delegates inactive (`text-sidebar-foreground` via variant base) and active (`data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground`) styling to the component variants — which is what every other shadcn sidebar consumer does. No more function-className passing through Slot.
+
+Apply the same treatment to both `mainItems` and `toolItems` loops.
+
+**Fix 2 — MAE/MFE verification script (read-only)**
+
+Add a throwaway `scripts/verify_pair_lab_math.ts` (not bundled) that:
+- Loads the closed trades for the current user via psql.
+- For each bucket (symbol × session) computes MAE p50/p75/p90 in pips and MFE p50/p75 in R directly from `trade_partial_fills` + `cf_mae`/`cf_ideal_stop_loss`.
+- Calls `buildBucket()` from `src/lib/pairLabMath.ts` on the same input.
+- Asserts both sides agree to within float epsilon and prints a one-line PASS/FAIL per bucket.
+
+Run it once, attach the output, then delete the script. Purpose is to prove (not promise) the simulator and the raw data agree.
+
+**Out of scope**
+- No changes to the simulator math itself — the audit found nothing averaged.
+- Remaining Pass D items (D3 selector extraction, D4 TradeTable split, D10 edge-function CORS migration, D11 type regen) and the Q1 PnL historical reconciliation decision still stand and will be addressed when you choose to bundle them.
