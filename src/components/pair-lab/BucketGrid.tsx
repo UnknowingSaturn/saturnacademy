@@ -245,5 +245,6 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
         </tbody>
       </table>
     </Card>
+    </TooltipProvider>
   );
 }
