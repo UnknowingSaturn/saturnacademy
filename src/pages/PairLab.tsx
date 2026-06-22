@@ -15,9 +15,7 @@ import { SymbolAliasManager } from "@/components/pair-lab/SymbolAliasManager";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
 import { SimulatorProfileSettings } from "@/components/pair-lab/SimulatorProfileSettings";
-import { RiskOptimizationLab } from "@/components/pair-lab/RiskOptimizationLab";
-import { RotationSimulator } from "@/components/pair-lab/RotationSimulator";
-import { MaeMfeMatrix } from "@/components/pair-lab/MaeMfeMatrix";
+import { StrategyLab } from "@/components/pair-lab/StrategyLab";
 import { normalizeSession } from "@/lib/pairLabMath";
 
 export default function PairLab() {
