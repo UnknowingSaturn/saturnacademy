@@ -129,6 +129,19 @@ export interface BucketRecommendation {
     winRateDelta: number;        // percentage points
     expectedRDelta: number;
   } | null;
+  /**
+   * Quant provenance for the SL/TP suggestion.
+   *  - "validated": MAE-of-winners SL + MFE-based TP expectancy grid, bootstrap CI lower bound > 0
+   *  - "low": grid found a max but bootstrap CI lower bound ≤ 0 (overfit risk)
+   *  - "insufficient": fell back to legacy heuristic (winners<10 or MFE coverage<10)
+   */
+  recommendationConfidence: "validated" | "low" | "insufficient";
+  /** Expected R at the chosen (SL, TP) grid cell. null when fallback used. */
+  expectancyAtSuggested: number | null;
+  /** Bootstrap 95% CI on expectancy at the chosen cell. null when fallback used. */
+  expectancyAtSuggestedCi: [number, number] | null;
+  /** TP that wins the MFE-based expectancy grid (R). null when fallback used. */
+  suggestedTpR: number | null;
 }
 
 export interface BucketReport extends BucketStats {
@@ -680,7 +693,24 @@ function computeBucket(
 
 
 
-  const recommendation = buildRecommendation(stats, winR, lossR, mfes, baseline, propFirm);
+  // Per-trade (MFE_R, r_actual) pairs for the MFE-expectancy TP grid.
+  const mfeRPairs: Array<{ mfeR: number; rActual: number }> = [];
+  for (const t of rows) {
+    const mfeR = numericCf(t as any, keys.mfe);
+    if (mfeR == null) continue;
+    if (t.r_multiple_actual == null || !Number.isFinite(t.r_multiple_actual)) continue;
+    mfeRPairs.push({ mfeR, rActual: t.r_multiple_actual });
+  }
+  // Winners' MAE in pips — drives the Sweeney SL recommendation.
+  const winnersMaePips = sweepRows.filter((r) => r.rActual > 0).map((r) => r.maePips);
+  // Bucket-local trail-capture estimate (low minSample; falls back to 0.7).
+  const tcEst = estimateTrailCapture(rows, keys, 5);
+  const trailCapture = tcEst?.ratio ?? 0.7;
+
+  const recommendation = buildRecommendation(
+    stats, winR, lossR, mfes, baseline, propFirm,
+    { mfeRPairs, winnersMaePips, trailCapture },
+  );
 
   const sorted = [...closed].sort(
     (a, b) => (b.r_multiple_actual ?? 0) - (a.r_multiple_actual ?? 0),
@@ -698,25 +728,125 @@ function buildRecommendation(
   mfes: number[],
   baseline: BucketReport | null,
   propFirm: PropFirmContext | null,
+  ctx: {
+    mfeRPairs: Array<{ mfeR: number; rActual: number }>;
+    winnersMaePips: number[];
+    trailCapture: number;
+  },
 ): BucketRecommendation {
-  // SL: max of (p75(MAE pips) × 1.15, median(ideal SL pips)). Both in pips.
+  // ----- SL: MAE-of-winners (Sweeney / van Tharp) -----
+  // Tightest SL that preserves ~90% of winners, plus a 10% noise buffer.
+  // Losers' MAE is meaningless (they were stopped); only winners tell us how
+  // much heat the edge needs to absorb before reverting.
   let suggestedSlPips: number | null = null;
-  const maeCandidate = s.maeP75Pips != null ? s.maeP75Pips * 1.15 : null;
-  if (maeCandidate != null || s.idealSlMedian != null) {
-    suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
+  let slMethod: "winners_mae" | "legacy" = "legacy";
+  const slWinners = ctx.winnersMaePips.length >= 10
+    ? quantile(ctx.winnersMaePips, 0.90)
+    : null;
+  if (slWinners != null && slWinners > 0) {
+    suggestedSlPips = slWinners * 1.10;
+    slMethod = "winners_mae";
+  } else {
+    const maeCandidate = s.maeP75Pips != null ? s.maeP75Pips * 1.15 : null;
+    if (maeCandidate != null || s.idealSlMedian != null) {
+      suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
+    }
   }
 
-  // TP ladder from win-R quantiles (conservative / median / aggressive).
-  const ladder: number[] = [];
-  const pConservative = quantile(winR, 0.3);
-  const pMedian       = quantile(winR, 0.5);
-  const pAggressive   = quantile(winR, 0.75);
-  for (const v of [pConservative, pMedian, pAggressive]) {
-    if (v == null || v <= 0) continue;
-    ladder.push(v);
-  }
-  const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
+  // ----- TP: MFE-based expectancy grid (not realized win-R) -----
+  // Replays each trade against candidate TPs using its MFE:
+  //   MFE >= TP  → realized +TP (would have hit)
+  //   MFE < TP & winner → r_actual × trailCapture (kept a fraction of the move)
+  //   loser → r_actual (stop unchanged)
+  // This sees TP levels we've never tried, unlike win-R quantiles.
+  let suggestedTpR: number | null = null;
+  let expectancyAtSuggested: number | null = null;
+  let expectancyAtSuggestedCi: [number, number] | null = null;
+  let tpMethod: "mfe_grid" | "legacy" = "legacy";
+  let tpLadderR: number[] = [];
 
+  const scoreTp = (
+    tp: number,
+    sample: Array<{ mfeR: number; rActual: number }>,
+    trail: number,
+  ): number => {
+    if (sample.length === 0) return 0;
+    let sum = 0;
+    for (const p of sample) {
+      if (p.mfeR >= tp) sum += tp;
+      else if (p.rActual >= 0) sum += p.rActual * trail;
+      else sum += p.rActual;
+    }
+    return sum / sample.length;
+  };
+
+  if (ctx.mfeRPairs.length >= 10) {
+    const grid: number[] = [];
+    for (let r = 0.5; r <= 4.0001; r += 0.25) grid.push(Math.round(r * 4) / 4);
+    const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, ctx.mfeRPairs, ctx.trailCapture) }));
+    let best: { tp: number; e: number } | null = null;
+    for (const c of scored) if (!best || c.e > best.e) best = c;
+    if (best && best.e > 0) {
+      suggestedTpR = best.tp;
+      expectancyAtSuggested = best.e;
+
+      // Bootstrap CI on expectancy at the winning TP cell.
+      let hash = ctx.mfeRPairs.length * 1000003;
+      for (const p of ctx.mfeRPairs) {
+        hash = (hash * 31 + Math.floor((p.mfeR * 1000 + p.rActual * 1000))) | 0;
+      }
+      const rand = makeSeededRng(hash);
+      const iters = 200;
+      const samples: number[] = new Array(iters);
+      const buf: Array<{ mfeR: number; rActual: number }> = new Array(ctx.mfeRPairs.length);
+      for (let i = 0; i < iters; i++) {
+        for (let j = 0; j < ctx.mfeRPairs.length; j++) {
+          buf[j] = ctx.mfeRPairs[Math.floor(rand() * ctx.mfeRPairs.length)];
+        }
+        samples[i] = scoreTp(best.tp, buf, ctx.trailCapture);
+      }
+      samples.sort((a, b) => a - b);
+      expectancyAtSuggestedCi = [
+        samples[Math.floor(0.025 * iters)],
+        samples[Math.floor(0.975 * iters)],
+      ];
+
+      // Ladder: top 3 distinct positive-expectancy TPs sorted ascending.
+      const top = [...scored]
+        .filter((c) => c.e > 0)
+        .sort((a, b) => b.e - a.e)
+        .slice(0, 3)
+        .map((c) => c.tp);
+      tpLadderR = Array.from(new Set(top)).sort((a, b) => a - b);
+      tpMethod = "mfe_grid";
+    }
+  }
+
+  if (tpMethod === "legacy") {
+    // Legacy fallback: win-R quantiles (survivorship-biased but works at low n).
+    const ladder: number[] = [];
+    const pConservative = quantile(winR, 0.3);
+    const pMedian       = quantile(winR, 0.5);
+    const pAggressive   = quantile(winR, 0.75);
+    for (const v of [pConservative, pMedian, pAggressive]) {
+      if (v == null || v <= 0) continue;
+      ladder.push(v);
+    }
+    tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
+  }
+
+  // Confidence:
+  //  - "validated"  : both upgrades active AND bootstrap lower CI > 0
+  //  - "low"        : both upgrades active but CI lower bound ≤ 0 (overfit risk)
+  //  - "insufficient": at least one fallback fired (low winner/MFE coverage)
+  let recommendationConfidence: BucketRecommendation["recommendationConfidence"];
+  if (slMethod === "legacy" || tpMethod === "legacy") {
+    recommendationConfidence = "insufficient";
+  } else if (expectancyAtSuggestedCi && expectancyAtSuggestedCi[0] > 0) {
+    recommendationConfidence = "validated";
+  } else {
+    recommendationConfidence = "low";
+  }
 
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
   const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
@@ -768,6 +898,10 @@ function buildRecommendation(
     suggestedRiskPctPropFirm,
     bindingConstraint,
     edgeVsBaseline,
+    recommendationConfidence,
+    expectancyAtSuggested,
+    expectancyAtSuggestedCi,
+    suggestedTpR,
   };
 }
 
