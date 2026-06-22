@@ -554,20 +554,42 @@ function longestLossStreak(rows: Trade[]): number {
   return worst;
 }
 
-function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
-  if (mfes.length < 5) return null;
+/**
+ * Search the R candidate grid for the TP that maximises *empirical* expectancy.
+ *
+ * `pairs` are (mfeR, rActual?) tuples: rActual is the trade's realized R.
+ * For each candidate r:
+ *   - hits: MFE ≥ r  → would have closed at +r
+ *   - misses: MFE < r → would have exited at the empirical r_actual (BE / partial /
+ *     full stop). Falls back to `−avgLossR` when r_actual is missing or the
+ *     conditional-miss sample is < 5 (too few to estimate cleanly).
+ *
+ * The prior version treated every miss as a full `−avgLossR` stop-out, which
+ * overstated the downside of conservative TPs and pushed the argmax low.
+ */
+function computeTp1Star(
+  pairs: Array<{ mfeR: number; rActual: number | null }>,
+  avgLossR: number,
+): Tp1Star | null {
+  if (pairs.length < 5) return null;
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
-  // Select on expectancyR directly — the prior `hitRate × log(1+r)` was an
-  // ad-hoc utility, not an economic objective. expectancyR is the quantity
-  // a trader actually compounds.
+  const fallbackMiss = -Math.abs(avgLossR);
   for (const r of candidates) {
-    const hits = mfes.filter((v) => v >= r).length;
-    const hitRate = hits / mfes.length;
+    let hits = 0;
+    const missRs: number[] = [];
+    for (const p of pairs) {
+      if (p.mfeR >= r) hits += 1;
+      else if (p.rActual != null && Number.isFinite(p.rActual)) missRs.push(p.rActual);
+    }
+    const hitRate = hits / pairs.length;
     if (hitRate < 0.4) continue;
-    const expectancyR = hitRate * r - (1 - hitRate) * avgLossR;
+    const missMean = missRs.length >= 5
+      ? missRs.reduce((s, v) => s + v, 0) / missRs.length
+      : fallbackMiss;
+    const expectancyR = hitRate * r + (1 - hitRate) * missMean;
     if (!best || expectancyR > best.expectancyR) {
-      best = { r, hitRate, hitRateCi: wilsonCi(hits, mfes.length), expectancyR };
+      best = { r, hitRate, hitRateCi: wilsonCi(hits, pairs.length), expectancyR };
     }
   }
   return best;
