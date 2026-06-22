@@ -491,7 +491,7 @@ export function StrategyRanker({
         </div>
 
         {winner && baselineCurrent && winner.strategy.id !== "current" &&
-          winner.eligibleCount >= MIN_ELIGIBLE_SAMPLE && (
+          replayTier(winner) === "validated" && (
           <div className="space-y-1 pt-2">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground px-2">
               Equity curve — {winner.strategy.label} vs current behavior
@@ -499,6 +499,7 @@ export function StrategyRanker({
             <EquityCurveOverlay results={[winner, baselineCurrent]} />
           </div>
         )}
+
 
         <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed flex items-start gap-1.5">
           <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
