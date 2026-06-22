@@ -74,6 +74,12 @@ export interface ReplayPerTrade {
   cumulativeEquity: number;
 }
 
+export interface AppliedTpLeg {
+  atR: number;
+  fraction: number;
+  source: AtRSource;
+}
+
 export interface ReplayResult {
   strategy: Strategy;
   n: number;
@@ -103,7 +109,36 @@ export interface ReplayResult {
   bustNote: string | null;
   expectancyRCi: [number, number] | null;
   totalDollarsCi: [number, number] | null;
+  /** Median SL distance actually applied to eligible trades, in pips. */
+  appliedSlPipsMedian: number | null;
+  /** Inter-quartile range (p25, p75) of applied SL in pips. */
+  appliedSlPipsRange: [number, number] | null;
+  /** Resolved TP ladder. For adaptive presets, atR reflects the bucket statistic. */
+  appliedTpLadder: AppliedTpLeg[];
+  /** Plain-English label for the SL rule. */
+  slRuleLabel: string;
+  /** Plain-English label for the runner rule. */
+  runnerLabel: string;
 }
+
+export const SL_RULE_LABELS: Record<SlRule, string> = {
+  original: "Use original stop",
+  tighten_to_ideal: "Tighten to recorded ideal-SL",
+  widen_to_mae_p75_x_1_15: "Widen to bucket MAE p75 × 1.15",
+};
+
+export const RUNNER_LABELS: Record<RunnerRule, string> = {
+  trail_to_mfe: "Trail runner to MFE",
+  be_after_first_tp: "Move runner to breakeven after first TP",
+  all_out_at_last_partial: "Close runner with last partial",
+};
+
+export const TP_SOURCE_LABELS: Record<AtRSource, string> = {
+  fixed: "fixed",
+  bucket_mfe_p50: "adaptive · MFE p50",
+  bucket_mfe_p60: "adaptive · MFE p60",
+  bucket_mfe_p75: "adaptive · MFE p75",
+};
 
 // ----------------------------------------------------------------------------
 // Field readers
@@ -212,7 +247,7 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
 // Single-trade proof-based replay
 // ----------------------------------------------------------------------------
 
-type ReplayOutcome = { r: number } | { ineligible: string };
+type ReplayOutcome = { r: number; slPips: number | null } | { ineligible: string };
 
 interface BucketConstants {
   maeP75: number | null;
@@ -263,7 +298,8 @@ function replayOneTrade(
   ctx: ReplayContext,
 ): ReplayOutcome {
   if (strategy.useActualOutcome) {
-    return proof.hasActualR ? { r: proof.rActual } : { ineligible: "no recorded r_actual" };
+    if (!proof.hasActualR) return { ineligible: "no recorded r_actual" };
+    return { r: proof.rActual, slPips: slDistancePips(trade) };
   }
 
   // BE-after-TP runner needs at least one partial to have a TP to move stops
@@ -360,7 +396,9 @@ function replayOneTrade(
 
   }
 
-  return { r: booked };
+  const baseSlPips = slDistancePips(trade);
+  const slPipsApplied = baseSlPips != null ? baseSlPips * slScale : null;
+  return { r: booked, slPips: slPipsApplied };
 }
 
 // ----------------------------------------------------------------------------
@@ -379,10 +417,11 @@ export const MIN_MATCHED_SAMPLE = 5;
 
 function buildResult(
   strategy: Strategy,
-  replayed: Array<{ trade: Trade; r: number; reachedR?: number }>,
+  replayed: Array<{ trade: Trade; r: number; reachedR?: number; slPips?: number | null }>,
   ineligibleReasons: Record<string, number>,
   totalTradeCount: number,
   opts: ReplayOpts,
+  appliedTpLadder: AppliedTpLeg[],
 ): ReplayResult {
   const dollarRisk = (opts.balance * strategy.riskPct) / 100;
   const perTrade: ReplayPerTrade[] = [];
@@ -471,6 +510,15 @@ function buildResult(
 
   const ineligibleCount = Object.values(ineligibleReasons).reduce((a, b) => a + b, 0);
 
+  const slPipsSamples = replayed
+    .map((x) => x.slPips)
+    .filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
+  const appliedSlPipsMedian = slPipsSamples.length ? quantile(slPipsSamples, 0.5) : null;
+  const slP25 = slPipsSamples.length ? quantile(slPipsSamples, 0.25) : null;
+  const slP75 = slPipsSamples.length ? quantile(slPipsSamples, 0.75) : null;
+  const appliedSlPipsRange: [number, number] | null =
+    slP25 != null && slP75 != null ? [slP25, slP75] : null;
+
   return {
     strategy,
     n,
@@ -497,6 +545,11 @@ function buildResult(
     bustNote,
     expectancyRCi,
     totalDollarsCi,
+    appliedSlPipsMedian,
+    appliedSlPipsRange,
+    appliedTpLadder,
+    slRuleLabel: SL_RULE_LABELS[strategy.slRule],
+    runnerLabel: RUNNER_LABELS[strategy.exitRule.runner],
   };
 }
 
@@ -516,6 +569,21 @@ function ctxFor(opts: ReplayOpts, bucket: BucketConstants): ReplayContext {
   };
 }
 
+/** Resolve the displayable TP ladder for a strategy given a bucket. Adaptive
+ *  partials get their bucket-resolved atR. Returns [] when the bucket lacks the
+ *  required stat (UI shows "—"). */
+function buildAppliedTpLadder(strategy: Strategy, bucket: BucketConstants): AppliedTpLeg[] {
+  if (strategy.useActualOutcome) return [];
+  const out: AppliedTpLeg[] = [];
+  for (const p of strategy.exitRule.partials) {
+    const source: AtRSource = p.atRSource ?? "fixed";
+    const resolved = resolvePartialAtR(p, bucket);
+    if (resolved == null) continue;
+    out.push({ atR: resolved, fraction: p.fraction, source });
+  }
+  return out.sort((a, b) => a.atR - b.atR);
+}
+
 export function replayBucket(
   trades: Trade[],
   keys: PairLabFieldKeys,
@@ -525,18 +593,18 @@ export function replayBucket(
   const all = preparedTrades(trades);
   const bucket = buildBucketConstants(all, keys);
   const ctx = ctxFor(opts, bucket);
-  const replayed: Array<{ trade: Trade; r: number; reachedR: number }> = [];
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null }> = [];
   const reasons: Record<string, number> = {};
 
   for (const t of all) {
     const proof = extractProof(t, keys);
     const out = replayOneTrade(strategy, t, proof, ctx);
-    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR });
+    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips });
     else reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
   }
 
-
-  return buildResult(strategy, replayed, reasons, all.length, opts);
+  const ladder = buildAppliedTpLadder(strategy, bucket);
+  return buildResult(strategy, replayed, reasons, all.length, opts, ladder);
 }
 
 export interface MatchedReplay {
@@ -576,11 +644,15 @@ export function replayBucketMatched(
   const matchedIdSet = new Set(matchedIds);
 
   const results: ReplayResult[] = strategies.map((strategy, idx) => {
-    const replayed = matched.map((t) => ({
-      trade: t,
-      r: (perStrategy[idx].get(t.id) as { r: number }).r,
-      reachedR: proofs.get(t.id)?.reachedR ?? 0,
-    }));
+    const replayed = matched.map((t) => {
+      const o = perStrategy[idx].get(t.id) as { r: number; slPips: number | null };
+      return {
+        trade: t,
+        r: o.r,
+        reachedR: proofs.get(t.id)?.reachedR ?? 0,
+        slPips: o.slPips,
+      };
+    });
     // Intersection-only reasons: count only trades that this strategy excluded
     // AND that are NOT in the matched intersection (i.e. trades that genuinely
     // caused the intersection to shrink because of this strategy).
@@ -590,7 +662,8 @@ export function replayBucketMatched(
         reasons[o.ineligible] = (reasons[o.ineligible] ?? 0) + 1;
       }
     });
-    return buildResult(strategy, replayed, reasons, all.length, opts);
+    const ladder = buildAppliedTpLadder(strategy, bucket);
+    return buildResult(strategy, replayed, reasons, all.length, opts, ladder);
   });
 
 

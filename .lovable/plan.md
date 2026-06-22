@@ -1,31 +1,71 @@
-# Remove the Recommendation card
+# Expandable strategy rows with SL/TP details
 
-The card is broken (Suggested SL = 0 pips because MAE/Ideal-SL ticks→pips conversion collapses to zero on this data) and structurally redundant: the **Auto-ranker** already produces a TP / SL / risk recommendation per scope, proof-replayed across 12 strategies. Two answers to the same question = confusion.
+Users can't read what each preset actually does. The ranker shows totals but hides the rules (slRule, exit ladder, runner) and never surfaces "if I run this preset, what stop and TPs am I using". Fix by making each row expandable into a parameters panel, and by computing the **applied SL (in pips) and TP ladder (in R)** during replay so we can show them.
 
-## Changes
+## What the user sees
 
-**Delete the component and its render site:**
-- `src/components/pair-lab/RecommendationCard.tsx` — delete.
-- `src/pages/PairLab.tsx` — remove the import and the `<RecommendationCard>` mount in the grid tab.
+Per row in `StrategyRanker`: a chevron toggles a slide-out detail panel with three blocks.
 
-**Promote the AI quant note to the full row** when a cell is selected (it currently shares a 2-col grid with the recommendation):
-- In `PairLab.tsx`, replace the `grid lg:grid-cols-2` wrapper around `RecommendationCard` + `QuantNotePanel` with a single full-width `QuantNotePanel`.
+```text
+▸ Tighten SL → ideal · runner 33%@1R + 33%@2R + trail        5/55   …
+  ────────────────────────────────────────────────────────────────────
+  ▼ click to expand
+  ────────────────────────────────────────────────────────────────────
+   STOP LOSS                    TAKE PROFITS                RUNNER
+   Rule  tighten to ideal       1R   33%  fixed             Trail to MFE
+   Median applied  6 pips       2R   33%  fixed             (capture 38%)
+   Range  4 – 9 pips            trail third — see runner    BE after TPs:
+   (≈ 60 ticks · 1 pip = 10t)                                no
+```
 
-**Surface the bucket's raw stats inside the quant-note card** so the user still sees N / win rate / expected R / MFE / MAE / SL drift without scrolling back to the grid:
-- Add a compact stats strip at the top of `QuantNotePanel.tsx` (above the Generate button) listing: `N`, `Win rate`, `Expected R ± CI`, `MFE p50/p75`, `MAE p50/p75`, `SL drift` badge. Same data, no recommendations.
+Includes a one-line legend at the top of the ranker:
 
-**Keep intact:**
-- `BucketGrid` — selection still drives the rest of the page.
-- `QuantNotePanel` — still the AI write-up entry point.
-- `StrategyRanker` — already the single source of truth for actionable parameters.
-- Math layer (`pairLabMath.ts`) — `recommendation` field stays computed (still consumed by `pair-lab-report` edge function); only the UI surface is removed.
+> MAE & Ideal-SL are stored in **ticks** (TradingView long/short tool). MFE & TP targets are **R-multiples** (1R = the initial stop distance).
+
+## Technical changes
+
+### 1. Engine: surface applied SL / TP per replay
+
+`src/lib/pairLabSimulator.ts`
+- Extend `ReplayResult` with:
+  ```ts
+  appliedSlPipsMedian: number | null;
+  appliedSlPipsRange: [number, number] | null;
+  appliedTpLadder: Array<{ atR: number; fraction: number; source: "fixed" | "bucket_mfe_p50" | "bucket_mfe_p60" | "bucket_mfe_p75" }>;
+  runnerLabel: string;            // plain English
+  slRuleLabel: string;            // plain English
+  ```
+- In `replayOneTrade` (or its caller), for each eligible trade capture the SL distance actually used (original × scale for `tighten_to_ideal` / `widen_to_mae_p75_x_1_15`). Aggregate p25/p50/p75 across the eligible set after the loop.
+- Resolve adaptive partial targets once at the bucket level (`resolvePartialAtR`) and emit them into `appliedTpLadder` so the UI shows e.g. "2.8R · adaptive (MFE p60)".
+- Add a small `slRuleLabel` / `runnerLabel` map so the UI doesn't carry rule strings.
+
+### 2. UI: expandable rows
+
+`src/components/pair-lab/StrategyRanker.tsx`
+- Track `openId: string | null` in local state.
+- Wrap each `<tr>` in a Fragment; render a second `<tr>` with `colSpan={9}` that contains the detail panel when `openId === r.strategy.id`.
+- Strategy name becomes a `<button>` with chevron icon; tapping toggles. Keyboard accessible.
+- Detail panel layout — three columns: **Stop loss**, **Take profits**, **Runner** + a short description line above them (re-uses `r.strategy.description`).
+- TP table rows: `{atR}R · {fraction*100}% · {source === "fixed" ? "fixed" : `adaptive (${source.replace("bucket_mfe_", "MFE ")})`}`.
+- For ineligible / insufficient-sample strategies, still show the rules block (it's static) but render SL/TP medians as "—".
+
+### 3. Units legend
+
+Single line under the ranker header, before the toolbar:
+
+> MAE & Ideal-SL in **ticks** · MFE & TP targets in **R**.
 
 ## Out of scope
 
-No engine, math, or DB changes. The underlying ticks→pips conversion bug stays unresolved on this branch (it only affected the removed card; the ranker uses R-multiples, not pips). I'll flag it as a follow-up if you want it fixed separately.
+- No changes to the math layer (`pairLabMath.ts`).
+- No changes to the AI quant note or bucket grid.
+- No edge-function changes (`pair-lab-report` consumer is unaffected — fields are additive).
 
 ## Verification
 
-- Playwright `/pair-lab`: select a cell, confirm only the quant-note card renders below the grid (full width), and the new stats strip shows N / WR / E[R] / MFE / MAE / SL drift.
-- No console errors; no broken imports.
-- Auto-ranker still renders 12 rows and the inline equity overlay.
+- Playwright on `/pair-lab` simulator tab:
+  - Expand the winner row, screenshot, confirm SL median in pips renders and TP ladder lists fractions + sources.
+  - Expand an "insufficient sample" row, confirm rules render with SL/TP medians as `—`.
+  - Click again to collapse.
+- Console errors: none.
+- Type check passes (new `ReplayResult` fields propagate through `StrategyRanker`, `EquityCurveOverlay`, walk-forward).

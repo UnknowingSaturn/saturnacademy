@@ -6,18 +6,19 @@
 // Sort by expectancy R, tiebreak by Sharpe-of-R (mean / std).
 // ============================================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Trophy, AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { Trophy, AlertTriangle, CheckCircle2, Info, ChevronRight } from "lucide-react";
 import {
   replayBucket,
   walkForwardEvaluate,
   MIN_ELIGIBLE_SAMPLE,
+  TP_SOURCE_LABELS,
   type ReplayResult,
 } from "@/lib/pairLabSimulator";
 import { STRATEGY_PRESETS } from "@/lib/pairLabPresets";
@@ -60,12 +61,89 @@ function topReasons(reasons: Record<string, number>, k = 3): Array<[string, numb
   return Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, k);
 }
 
+function StrategyDetailPanel({ result }: { result: ReplayResult }) {
+  const s = result.strategy;
+  const sl = result.appliedSlPipsMedian;
+  const slRange = result.appliedSlPipsRange;
+  const isActual = !!s.useActualOutcome;
+  return (
+    <div className="space-y-3">
+      {s.description && (
+        <p className="text-xs text-muted-foreground italic leading-relaxed">{s.description}</p>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Stop loss */}
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Stop loss</div>
+          <div className="text-sm">
+            {isActual ? (
+              <span className="text-muted-foreground">Uses each trade's recorded stop.</span>
+            ) : (
+              <span>{result.slRuleLabel}</span>
+            )}
+          </div>
+          <div className="text-xs font-mono-numbers text-muted-foreground">
+            {sl != null ? (
+              <>
+                Median applied: <span className="text-foreground font-semibold">{sl.toFixed(1)} pips</span>
+                {slRange && (
+                  <span> · IQR {slRange[0].toFixed(1)}–{slRange[1].toFixed(1)}</span>
+                )}
+              </>
+            ) : (
+              <span>SL distance unavailable (missing entry/SL price).</span>
+            )}
+          </div>
+        </div>
+        {/* Take profits */}
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Take profits</div>
+          {isActual ? (
+            <div className="text-sm text-muted-foreground">Uses each trade's recorded exits.</div>
+          ) : result.appliedTpLadder.length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              No partials — runner handles entire position.
+            </div>
+          ) : (
+            <ul className="space-y-1 text-sm font-mono-numbers">
+              {result.appliedTpLadder.map((leg, i) => (
+                <li key={i} className="flex items-baseline gap-2">
+                  <span className="font-semibold text-foreground">{leg.atR.toFixed(2)}R</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span>{Math.round(leg.fraction * 100)}%</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="text-[11px] text-muted-foreground">{TP_SOURCE_LABELS[leg.source]}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {/* Runner */}
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Runner</div>
+          <div className="text-sm">
+            {isActual ? (
+              <span className="text-muted-foreground">N/A — replays actual outcome.</span>
+            ) : (
+              <span>{result.runnerLabel}</span>
+            )}
+          </div>
+          <div className="text-xs font-mono-numbers text-muted-foreground">
+            Risk per trade: <span className="text-foreground font-semibold">{s.riskPct.toFixed(2)}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function StrategyRanker({
   trades, fieldKeys, balance, propFirm, scopeLabel,
   defaultRiskPct = 1, trailCapture, effectiveTrailCapture,
 }: Props) {
   const [riskPct, setRiskPct] = useState<number>(defaultRiskPct);
   const [walkForward, setWalkForward] = useState<boolean>(false);
+  const [openId, setOpenId] = useState<string | null>(null);
   useEffect(() => { setRiskPct(defaultRiskPct); }, [defaultRiskPct]);
 
   const replayOpts = useMemo(
@@ -129,6 +207,12 @@ export function StrategyRanker({
             <p className="text-xs text-muted-foreground mt-1">
               Quant mode — each preset is replayed only on trades whose recorded data proves
               the rules would have triggered. No guessing.
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              <span className="font-medium text-foreground/80">Units:</span>{" "}
+              MAE & Ideal-SL in <span className="font-medium">ticks</span> (TradingView long/short tool) ·
+              MFE & TP targets in <span className="font-medium">R</span> (1R = initial stop distance).
+              Click a row to see its stop & TP details.
             </p>
             <p className="text-[10px] text-muted-foreground mt-0.5 font-mono-numbers">{trailLabel}</p>
           </div>
@@ -266,83 +350,103 @@ export function StrategyRanker({
                 const insufficient = r.eligibleCount < MIN_ELIGIBLE_SAMPLE;
                 const ci = r.expectancyRCi;
                 const halfCi = ci ? (ci[1] - ci[0]) / 2 : null;
+                const isOpen = openId === r.strategy.id;
+                const toggle = () => setOpenId(isOpen ? null : r.strategy.id);
                 return (
-                  <tr
-                    key={r.strategy.id}
-                    className={`border-b border-border/30 ${isWinner ? "bg-primary/5" : ""} ${isBust || insufficient ? "opacity-60" : ""}`}
-                  >
-                    <td className="py-2 pr-2 font-mono-numbers text-xs text-muted-foreground">{i + 1}</td>
-                    <td className="py-2 pr-2">
-                      <div className={`font-medium ${isWinner ? "text-primary" : ""}`}>{r.strategy.label}</div>
-                    </td>
-                    <td className="py-2 px-2">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex items-center gap-1.5 text-xs font-mono-numbers cursor-help">
-                            <span className={`w-1.5 h-1.5 rounded-full ${coverageDotClass(r.eligibleCount, r.totalTradeCount)}`} />
-                            {r.eligibleCount}/{r.totalTradeCount}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-xs text-xs">
-                          {r.ineligibleCount === 0 ? (
-                            <span>All trades have the data this preset needs.</span>
-                          ) : (
-                            <div className="space-y-1">
-                              <div className="font-medium">
-                                {r.ineligibleCount} trades excluded — top reasons:
-                              </div>
-                              <ul className="space-y-0.5">
-                                {topReasons(r.ineligibleReasons).map(([reason, count]) => (
-                                  <li key={reason} className="font-mono-numbers">
-                                    · {reason} <span className="text-muted-foreground">×{count}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
-                    </td>
-                    <td
-                      className={`py-2 px-2 text-right font-mono-numbers font-semibold ${r.totalDollars >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}
+                  <Fragment key={r.strategy.id}>
+                    <tr
+                      className={`border-b border-border/30 ${isWinner ? "bg-primary/5" : ""} ${isBust || insufficient ? "opacity-60" : ""} ${isOpen ? "bg-muted/30" : ""}`}
                     >
-                      {insufficient ? "—" : fmtMoney(r.totalDollars)}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono-numbers">
-                      {insufficient ? "—" : `${(r.winRate * 100).toFixed(0)}%`}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono-numbers">
-                      {insufficient ? (
-                        <span className="text-muted-foreground text-xs">need ≥{MIN_ELIGIBLE_SAMPLE}</span>
-                      ) : (
-                        <>
-                          {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
-                          {halfCi != null && (
-                            <span className="text-muted-foreground"> ±{halfCi.toFixed(2)}</span>
-                          )}
-                        </>
-                      )}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono-numbers">
-                      {insufficient || r.sharpeR == null ? "—" : r.sharpeR.toFixed(2)}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono-numbers text-destructive">
-                      {insufficient ? "—" : fmtMoney(r.maxDrawdownDollars)}
-                    </td>
-                    <td className="py-2 pl-2">
-                      {r.propFirmVerdict === "n/a" || insufficient ? (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      ) : isBust ? (
-                        <Badge variant="destructive" className="text-xs">
-                          {r.propFirmVerdict === "bust_daily" ? "bust daily" : "bust total"}
-                        </Badge>
-                      ) : (
-                        <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">
-                          pass
-                        </Badge>
-                      )}
-                    </td>
-                  </tr>
+                      <td className="py-2 pr-2 font-mono-numbers text-xs text-muted-foreground">{i + 1}</td>
+                      <td className="py-2 pr-2">
+                        <button
+                          type="button"
+                          onClick={toggle}
+                          aria-expanded={isOpen}
+                          className={`inline-flex items-center gap-1.5 text-left font-medium hover:underline focus:outline-none focus:ring-1 focus:ring-ring rounded ${isWinner ? "text-primary" : ""}`}
+                        >
+                          <ChevronRight
+                            className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
+                          />
+                          {r.strategy.label}
+                        </button>
+                      </td>
+                      <td className="py-2 px-2">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-1.5 text-xs font-mono-numbers cursor-help">
+                              <span className={`w-1.5 h-1.5 rounded-full ${coverageDotClass(r.eligibleCount, r.totalTradeCount)}`} />
+                              {r.eligibleCount}/{r.totalTradeCount}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs text-xs">
+                            {r.ineligibleCount === 0 ? (
+                              <span>All trades have the data this preset needs.</span>
+                            ) : (
+                              <div className="space-y-1">
+                                <div className="font-medium">
+                                  {r.ineligibleCount} trades excluded — top reasons:
+                                </div>
+                                <ul className="space-y-0.5">
+                                  {topReasons(r.ineligibleReasons).map(([reason, count]) => (
+                                    <li key={reason} className="font-mono-numbers">
+                                      · {reason} <span className="text-muted-foreground">×{count}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      </td>
+                      <td
+                        className={`py-2 px-2 text-right font-mono-numbers font-semibold ${r.totalDollars >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}
+                      >
+                        {insufficient ? "—" : fmtMoney(r.totalDollars)}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono-numbers">
+                        {insufficient ? "—" : `${(r.winRate * 100).toFixed(0)}%`}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono-numbers">
+                        {insufficient ? (
+                          <span className="text-muted-foreground text-xs">need ≥{MIN_ELIGIBLE_SAMPLE}</span>
+                        ) : (
+                          <>
+                            {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
+                            {halfCi != null && (
+                              <span className="text-muted-foreground"> ±{halfCi.toFixed(2)}</span>
+                            )}
+                          </>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono-numbers">
+                        {insufficient || r.sharpeR == null ? "—" : r.sharpeR.toFixed(2)}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono-numbers text-destructive">
+                        {insufficient ? "—" : fmtMoney(r.maxDrawdownDollars)}
+                      </td>
+                      <td className="py-2 pl-2">
+                        {r.propFirmVerdict === "n/a" || insufficient ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : isBust ? (
+                          <Badge variant="destructive" className="text-xs">
+                            {r.propFirmVerdict === "bust_daily" ? "bust daily" : "bust total"}
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">
+                            pass
+                          </Badge>
+                        )}
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="bg-muted/20 border-b border-border/30">
+                        <td colSpan={9} className="py-3 px-3">
+                          <StrategyDetailPanel result={r} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
