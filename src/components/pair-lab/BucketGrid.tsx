@@ -58,9 +58,42 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
       <div className={cn("text-sm font-mono-numbers font-semibold", b.expectedR >= 0 ? "text-profit" : "text-loss")}>
         {expR}
       </div>
-      <div className="text-[10px] text-muted-foreground font-mono-numbers">
-        MFE {b.mfeP75 != null ? `${b.mfeP75.toFixed(2)}R` : "–"} · MAE {b.maeP75Ticks != null ? `${b.maeP75Ticks.toFixed(0)}t` : "–"}
-      </div>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="text-[10px] text-muted-foreground font-mono-numbers cursor-help">
+            MFE {b.mfeP75 != null ? `${b.mfeP75.toFixed(2)}R` : "–"} · MAE {b.maeP75Ticks != null ? `${b.maeP75Ticks.toFixed(0)}t` : "–"}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs font-mono-numbers max-w-xs">
+          <div className="space-y-1">
+            <div>
+              <span className="font-semibold">MFE</span> (n={b.loggedMfeCount})
+              {b.loggedMfeCount > 0 ? (
+                <div className="text-muted-foreground">
+                  p75 {b.mfeP75?.toFixed(2)}R · med {b.mfeP50?.toFixed(2)}R · range {b.mfeMin?.toFixed(2)}–{b.mfeMax?.toFixed(2)}R
+                </div>
+              ) : (
+                <div className="text-muted-foreground">no samples</div>
+              )}
+            </div>
+            <div>
+              <span className="font-semibold">MAE</span> (n={b.loggedMaeCount})
+              {b.maeMinTicks != null ? (
+                <div className="text-muted-foreground">
+                  p75 {b.maeP75Ticks?.toFixed(0)}t · med {b.maeP50Ticks?.toFixed(0)}t · range {b.maeMinTicks.toFixed(0)}–{b.maeMaxTicks?.toFixed(0)}t
+                </div>
+              ) : (
+                <div className="text-muted-foreground">no samples</div>
+              )}
+            </div>
+            {(b.loggedMfeCount < 10 || b.loggedMaeCount < 10) && (
+              <div className="text-amber-500 text-[10px] pt-1 border-t border-border/40">
+                Low sample — p75 is noisy below n=10.
+              </div>
+            )}
+          </div>
+        </TooltipContent>
+      </Tooltip>
       {b.n >= 10 && b.recommendation.suggestedTpR != null && (
         <div
           className={cn(
