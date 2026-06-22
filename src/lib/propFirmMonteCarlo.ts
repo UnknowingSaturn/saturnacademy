@@ -157,8 +157,13 @@ function simulateOnePath(p: MCParams, rng: () => number): PathState {
         if (dd > peakDD[i]) peakDD[i] = dd;
 
         // Bust checks.
-        if (maxLossCap != null && p.accountSize - equity[i] >= maxLossCap) {
-          busted[i] = true;
+        // Static mode: drawdown is measured from the *starting* balance.
+        // Trailing mode: drawdown is measured from the running *peak* equity.
+        if (maxLossCap != null) {
+          const reference = p.maxLossMode === "trailing" ? peak[i] : p.accountSize;
+          if (reference - equity[i] >= maxLossCap) {
+            busted[i] = true;
+          }
         }
         if (dailyCap != null && -dayPnL[i] >= dailyCap) {
           busted[i] = true;
