@@ -22,7 +22,6 @@ import {
 
 import { AccountSettingsDialog } from "./AccountSettingsDialog";
 import { NavLink } from "react-router-dom";
-import { cn } from "@/lib/utils";
 
 import {
   Sidebar,
