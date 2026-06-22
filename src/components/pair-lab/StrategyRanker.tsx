@@ -375,9 +375,14 @@ export function StrategyRanker({
             </thead>
             <tbody>
               {ranked.map((r, i) => {
-                const isWinner = i === 0 && r.eligibleCount >= MIN_ELIGIBLE_SAMPLE;
+                const tier = replayTier(r);
+                // "Winner" crown / highlight is reserved for VALIDATED rows only.
+                // A provisional top row is still ranked #1 but doesn't get the
+                // primary-color treatment that implies "use this".
+                const isWinner = i === 0 && tier === "validated";
                 const isBust = busted(r);
-                const insufficient = r.eligibleCount < MIN_ELIGIBLE_SAMPLE;
+                const insufficient = tier === "insufficient";
+                const provisional = tier === "provisional";
                 const ci = r.expectancyRCi;
                 const halfCi = ci ? (ci[1] - ci[0]) / 2 : null;
                 const isOpen = openId === r.strategy.id;
@@ -385,8 +390,9 @@ export function StrategyRanker({
                 return (
                   <Fragment key={r.strategy.id}>
                     <tr
-                      className={`border-b border-border/30 ${isWinner ? "bg-primary/5" : ""} ${isBust || insufficient ? "opacity-60" : ""} ${isOpen ? "bg-muted/30" : ""}`}
+                      className={`border-b border-border/30 ${isWinner ? "bg-primary/5" : ""} ${isBust || insufficient ? "opacity-60" : provisional ? "opacity-80" : ""} ${isOpen ? "bg-muted/30" : ""}`}
                     >
+
                       <td className="py-2 pr-2 font-mono-numbers text-xs text-muted-foreground">{i + 1}</td>
                       <td className="py-2 pr-2">
                         <button
