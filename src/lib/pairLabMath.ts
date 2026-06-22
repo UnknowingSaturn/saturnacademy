@@ -59,6 +59,8 @@ export interface BucketStats {
   maeP50: number | null;          // R-multiple (per-trade ticks→R)
   maeP75: number | null;          // R-multiple
   maeP75Pips: number | null;      // pips, used for SL recommendation
+  maeP50Ticks: number | null;     // raw ticks (user input from TradingView measure tool)
+  maeP75Ticks: number | null;     // raw ticks
   idealSlMedian: number | null;   // pips
   slInitialMedian: number | null; // pips
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
@@ -549,9 +551,12 @@ function computeBucket(
   const maesPips: number[] = [];
   /** Per-trade tuples used by the SL sweep — needs MAE-pips, planned SL-pips, and actual R. */
   const sweepRows: Array<{ maePips: number; slPips: number; rActual: number }> = [];
+  const maesTicks: number[] = [];
   for (const t of rows) {
     const maeTicks = numericCf(t as any, keys.mae);
-    if (maeTicks == null || !t.symbol) continue;
+    if (maeTicks == null) continue;
+    maesTicks.push(Math.abs(maeTicks));
+    if (!t.symbol) continue;
     const pip = pipSizeForSymbol(t.symbol);
     if (!(pip > 0)) continue;
     const maePips = ticksToPips(t.symbol, Math.abs(maeTicks));
@@ -655,6 +660,8 @@ function computeBucket(
     maeP50: median(maesR),
     maeP75: quantile(maesR, 0.75),
     maeP75Pips: quantile(maesPips, 0.75),
+    maeP50Ticks: median(maesTicks),
+    maeP75Ticks: quantile(maesTicks, 0.75),
     idealSlMedian: idealMed,
     slInitialMedian: slInitMed,
     slDrift,
