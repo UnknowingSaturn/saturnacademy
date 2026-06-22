@@ -554,7 +554,9 @@ function computeBucket(
   const maesTicks: number[] = [];
   for (const t of rows) {
     const maeTicks = numericCf(t as any, keys.mae);
-    if (maeTicks == null || !t.symbol) continue;
+    if (maeTicks == null) continue;
+    maesTicks.push(Math.abs(maeTicks));
+    if (!t.symbol) continue;
     const pip = pipSizeForSymbol(t.symbol);
     if (!(pip > 0)) continue;
     const maePips = ticksToPips(t.symbol, Math.abs(maeTicks));
