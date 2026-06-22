@@ -73,7 +73,18 @@ export interface MCResult {
   finalEquityDistributionPct: number[];
   /** Mean expected return as % of starting balance, per account, at path end. */
   expectedReturnPct: number;
-  /** Stationary block bootstrap block size (sqrt(N)). 0 when rSample empty. */
+  /**
+   * CVaR-5%: mean of the worst 5% of final equity outcomes (% of starting balance).
+   * More informative than mean DD for tail-risk-averse traders.
+   */
+  cvar5Pct: number;
+  /**
+   * Per-trade geometric mean growth at the chosen risk fraction, expressed as %.
+   * Computed as (Π(1 + f·r))^(1/N) − 1 over the historical R sample. Positive ⇒
+   * compounding edge; negative ⇒ Kelly-overshoot (high arithmetic mean still loses).
+   */
+  geometricMeanGrowthPct: number;
+  /** Stationary block bootstrap block size (N^(1/3)). 0 when rSample empty. */
   blockSize: number;
 }
 
