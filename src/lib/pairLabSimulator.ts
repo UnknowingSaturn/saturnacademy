@@ -26,6 +26,7 @@ import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
 import { pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
+import { MAE_P75_WIDEN_BUFFER } from "../../shared/quant/config";
 
 /** Default fraction of MFE captured by a trailing stop when no empirical estimate is available.
  *  Unified with `supabase/functions/_shared/quant/pairLabSimulator.ts:DEFAULT_TRAIL_CAPTURE_FRAC`.
@@ -336,7 +337,7 @@ function replayOneTrade(
     slScale = proof.idealSlScale;
   } else {
     if (ctx.bucket.maeP75 == null) return { ineligible: "no MAE samples in bucket for widen rule" };
-    slScale = Math.max(1, ctx.bucket.maeP75 * 1.15);
+    slScale = Math.max(1, ctx.bucket.maeP75 * MAE_P75_WIDEN_BUFFER);
   }
 
   let stoppedUnderNewSl: boolean | null;

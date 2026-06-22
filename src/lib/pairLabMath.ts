@@ -22,6 +22,21 @@
 
 import type { Trade } from "@/types/trading";
 import { tickSizeForSymbol, pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
+import {
+  TP1_STAR_MIN_HIT_RATE,
+  WINNERS_MAE_SL_QUANTILE,
+  WINNERS_MAE_SL_BUFFER,
+  MAE_P75_WIDEN_BUFFER,
+  SL_DRIFT_ALIGNED_MIN,
+  SL_DRIFT_ALIGNED_MAX,
+  KELLY_SCALE,
+  KELLY_FLOOR_PCT,
+  KELLY_CEILING_PCT,
+  BOOTSTRAP_ITERATIONS,
+  BH_FDR_ALPHA,
+  MIN_STREAK_FLOOR,
+  SL_SWEEP_QUANTILES,
+} from "../../shared/quant/config";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
@@ -286,7 +301,7 @@ function makeSeededRng(seedBase: number) {
 // Bootstrap mean CI (2.5% / 97.5%). Deterministic seed derived from both
 // sample size and a value hash so two buckets with the same N but different
 // values don't share an artificial CI alignment.
-export function bootstrapMeanCi(values: number[], iters = 500): [number, number] | null {
+export function bootstrapMeanCi(values: number[], iters = BOOTSTRAP_ITERATIONS): [number, number] | null {
   const xs = values.filter((v) => Number.isFinite(v));
   if (xs.length < 5) return null;
   let hash = xs.length * 1000003;
@@ -318,7 +333,7 @@ function percentileFromSorted(sorted: number[], q: number): number {
  * Resamples with replacement; p = fraction of resampled means ≤ 0.
  * Returns null when n < 5. Floor at 1/iters to avoid log(0) downstream.
  */
-export function bootstrapPositivePValue(values: number[], iters = 500): number | null {
+export function bootstrapPositivePValue(values: number[], iters = BOOTSTRAP_ITERATIONS): number | null {
   const xs = values.filter((v) => Number.isFinite(v));
   if (xs.length < 5) return null;
   let hash = xs.length * 1000003 + 7;
@@ -340,7 +355,7 @@ export function bootstrapPositivePValue(values: number[], iters = 500): number |
  * marking which hypotheses are significant at level `alpha` after BH correction.
  * Entries with null p-value are treated as non-significant.
  */
-export function bhSignificant(pvals: Array<number | null>, alpha = 0.05): boolean[] {
+export function bhSignificant(pvals: Array<number | null>, alpha = BH_FDR_ALPHA): boolean[] {
   const indexed = pvals
     .map((p, i) => ({ p, i }))
     .filter((x): x is { p: number; i: number } => x.p != null && Number.isFinite(x.p));
@@ -365,7 +380,7 @@ export function bhSignificant(pvals: Array<number | null>, alpha = 0.05): boolea
 export function bootstrapKellyCi(
   winR: number[],
   lossR: number[],
-  iters = 500,
+  iters = BOOTSTRAP_ITERATIONS,
 ): [number, number] | null {
   const wins = winR.filter((v) => Number.isFinite(v) && v > 0);
   const losses = lossR.filter((v) => Number.isFinite(v) && v > 0);
@@ -402,7 +417,7 @@ export function bootstrapKellyCi(
     const p = w / n;
     const b = avgW / avgL;
     const kelly = (b * p - (1 - p)) / b;
-    ks.push(kelly * 0.25 * 100);
+    ks.push(kelly * KELLY_SCALE * 100);
   }
   if (ks.length < 10) return null;
   ks.sort((a, b) => a - b);
@@ -417,14 +432,14 @@ export function rawQuarterKellyPct(winRate: number, avgWinR: number, avgLossR: n
   const q = 1 - p;
   const kelly = (b * p - q) / b;
   if (kelly <= 0) return null;
-  return kelly * 0.25 * 100;
+  return kelly * KELLY_SCALE * 100;
 }
 
 /** Back-compat wrapper that clamps to the historical floor/ceiling. */
 export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
   const raw = rawQuarterKellyPct(winRate, avgWinR, avgLossR);
   if (raw == null) return null;
-  return Math.max(0.25, Math.min(1.5, raw));
+  return Math.max(KELLY_FLOOR_PCT, Math.min(KELLY_CEILING_PCT, raw));
 }
 
 // ----------------------------------------------------------------------------
@@ -589,7 +604,7 @@ function computeTp1Star(
       else if (p.rActual != null && Number.isFinite(p.rActual)) missRs.push(p.rActual);
     }
     const hitRate = hits / pairs.length;
-    if (hitRate < 0.4) continue;
+    if (hitRate < TP1_STAR_MIN_HIT_RATE) continue;
     const missMean = missRs.length >= 5
       ? missRs.reduce((s, v) => s + v, 0) / missRs.length
       : fallbackMiss;
@@ -698,8 +713,8 @@ function computeBucket(
   let slDrift: BucketStats["slDrift"] = null;
   if (idealMed != null && slInitMed != null && slInitMed > 0) {
     const ratio = idealMed / slInitMed;
-    if (ratio < 0.8) slDrift = "too_wide";
-    else if (ratio > 1.2) slDrift = "too_tight";
+    if (ratio < SL_DRIFT_ALIGNED_MIN) slDrift = "too_wide";
+    else if (ratio > SL_DRIFT_ALIGNED_MAX) slDrift = "too_tight";
     else slDrift = "aligned";
   }
 
@@ -709,7 +724,7 @@ function computeBucket(
   let slSweep: SlSweepRow[] | null = null;
   if (sweepRows.length >= 10) {
     const maePipsForQ = sweepRows.map((r) => r.maePips);
-    const quants = [0.25, 0.4, 0.55, 0.7, 0.9];
+    const quants = SL_SWEEP_QUANTILES;
     const seen = new Set<string>();
     const sweepOut: SlSweepRow[] = [];
     for (const q of quants) {
@@ -871,7 +886,7 @@ function pickBestTp(
     hash = (hash * 31 + Math.floor((p.mfeR * 1000 + p.rActual * 1000))) | 0;
   }
   const rand = makeSeededRng(hash);
-  const iters = 500;
+  const iters = BOOTSTRAP_ITERATIONS;
   const samples: number[] = new Array(iters);
   const buf: MfePair[] = new Array(pairs.length);
   for (let i = 0; i < iters; i++) {
@@ -951,13 +966,13 @@ function buildRecommendation(
   let suggestedSlPips: number | null = null;
   let slMethod: "winners_mae" | "legacy" = "legacy";
   const slWinners = ctx.winnersMaePips.length >= 10
-    ? quantile(ctx.winnersMaePips, 0.90)
+    ? quantile(ctx.winnersMaePips, WINNERS_MAE_SL_QUANTILE)
     : null;
   if (slWinners != null && slWinners > 0) {
-    suggestedSlPips = slWinners * 1.10;
+    suggestedSlPips = slWinners * WINNERS_MAE_SL_BUFFER;
     slMethod = "winners_mae";
   } else {
-    const maeCandidate = s.maeP75Pips != null ? s.maeP75Pips * 1.15 : null;
+    const maeCandidate = s.maeP75Pips != null ? s.maeP75Pips * MAE_P75_WIDEN_BUFFER : null;
     if (maeCandidate != null || s.idealSlMedian != null) {
       suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
     }
@@ -1013,8 +1028,8 @@ function buildRecommendation(
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
   const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
   const rawKelly = s.n >= 10 ? rawQuarterKellyPct(s.winRate, avgWinR, avgLossR) : null;
-  const suggestedRiskPct = rawKelly != null ? Math.min(1.5, rawKelly) : null;
-  const riskBelowFloor = rawKelly != null && rawKelly < 0.25;
+  const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
+  const riskBelowFloor = rawKelly != null && rawKelly < KELLY_FLOOR_PCT;
   const suggestedRiskPctCi = s.n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
 
   const tp1Star = computeTp1Star(ctx.tp1StarPairs, avgLossR || 1);
@@ -1024,7 +1039,7 @@ function buildRecommendation(
   let suggestedRiskPctPropFirm: number | null = null;
   let bindingConstraint: BucketRecommendation["bindingConstraint"] = null;
   if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null) {
-    const streak = Math.max(3, s.worstLosingStreak || 0);
+    const streak = Math.max(MIN_STREAK_FLOOR, s.worstLosingStreak || 0);
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
     const ddCappedPct = dailyBudgetPct / streak;
     suggestedRiskPctPropFirm = Math.max(0.1, Math.min(propFirm.hardCapPct, ddCappedPct));

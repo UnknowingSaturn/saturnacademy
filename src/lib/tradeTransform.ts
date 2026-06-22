@@ -1,4 +1,5 @@
 import { Trade, TradeReview, PartialClose, PartialFill, RepairEvent, ActionableStep } from "@/types/trading";
+import { computeNetPnl } from "../../shared/quant/pnl";
 
 // Helper to normalize embedded trade_reviews (could be object or array from Supabase)
 export function normalizeReviews(raw: any): any[] {
@@ -59,8 +60,8 @@ export function transformTrade(row: any): Trade {
     time: f.occurred_at,
     lots: f.lots,
     price: f.price,
-    // Signed addition — matches supabase/functions/_shared/pnl.ts.
-    pnl: (f.profit ?? 0) + (f.commission ?? 0) + (f.swap ?? 0),
+    // Centralized signed-addition formula — see shared/quant/pnl.ts.
+    pnl: computeNetPnl(f.profit ?? 0, f.commission ?? 0, f.swap ?? 0),
   }));
 
   // Keep any legacy *repair markers* (objects without a `lots` field) so the

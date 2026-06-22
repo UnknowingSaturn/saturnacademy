@@ -1,4 +1,5 @@
 import type { Trade, PartialClose } from "@/types/trading";
+import { computeNetPnl } from "../../shared/quant/pnl";
 
 export interface CloseFill {
   time: string;
@@ -23,10 +24,11 @@ export function getRealPartialCloses(trade: Pick<Trade, "partial_closes" | "part
       time: f.occurred_at,
       lots: Number(f.lots),
       price: Number(f.price),
-      // Signed addition — matches supabase/functions/_shared/pnl.ts. MT5 reports
-      // commission as already-signed; broker integrations that report commission
-      // as a positive cost must negate it at the ingest layer (single source of truth).
-      pnl: (Number(f.profit) || 0) + (Number(f.commission) || 0) + (Number(f.swap) || 0),
+      // Centralized signed-addition formula — single source of truth.
+      // See shared/quant/pnl.ts for the sign-convention rationale. MT5 reports
+      // commission/swap already-signed; brokers that report commission as a
+      // positive cost must negate at the ingest layer.
+      pnl: computeNetPnl(Number(f.profit) || 0, Number(f.commission) || 0, Number(f.swap) || 0),
     }));
   }
   return (trade.partial_closes || []).filter(isRealFill);

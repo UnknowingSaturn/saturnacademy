@@ -15,6 +15,20 @@
 //   - client version has PropFirmContext, perRow, edgeVsBaseline (UI-only)
 
 import { tickSizeForSymbol, pipSizeForSymbol, pipLabelForSymbol, ticksToPips } from "./symbolMapping.ts";
+import {
+  TP1_STAR_MIN_HIT_RATE,
+  WINNERS_MAE_SL_QUANTILE,
+  WINNERS_MAE_SL_BUFFER,
+  MAE_P75_WIDEN_BUFFER,
+  SL_DRIFT_ALIGNED_MIN,
+  SL_DRIFT_ALIGNED_MAX,
+  KELLY_SCALE,
+  KELLY_FLOOR_PCT,
+  KELLY_CEILING_PCT,
+  BOOTSTRAP_ITERATIONS,
+  BH_FDR_ALPHA,
+  MIN_STREAK_FLOOR,
+} from "../../../../shared/quant/config.ts";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
@@ -84,7 +98,7 @@ export function mean(values: number[]): number {
   if (xs.length === 0) return 0;
   return xs.reduce((s, v) => s + v, 0) / xs.length;
 }
-export function bootstrapMeanCi(values: number[], iters = 500): [number, number] | null {
+export function bootstrapMeanCi(values: number[], iters = BOOTSTRAP_ITERATIONS): [number, number] | null {
   const xs = values.filter((v) => Number.isFinite(v));
   if (xs.length < 5) return null;
   let seed = xs.length * 1000003;
@@ -114,7 +128,7 @@ function percentileFromSorted(sorted: number[], q: number): number {
 }
 
 /** One-sided bootstrap p-value that mean(values) > 0. Null when n < 5. */
-export function bootstrapPositivePValue(values: number[], iters = 500): number | null {
+export function bootstrapPositivePValue(values: number[], iters = BOOTSTRAP_ITERATIONS): number | null {
   const xs = values.filter((v) => Number.isFinite(v));
   if (xs.length < 5) return null;
   let seed = xs.length * 1000003 + 7;
@@ -134,7 +148,7 @@ export function bootstrapPositivePValue(values: number[], iters = 500): number |
 }
 
 /** Benjamini–Hochberg FDR. Returns boolean[] aligned to input order. */
-export function bhSignificant(pvals: Array<number | null>, alpha = 0.05): boolean[] {
+export function bhSignificant(pvals: Array<number | null>, alpha = BH_FDR_ALPHA): boolean[] {
   const indexed = pvals
     .map((p, i) => ({ p, i }))
     .filter((x): x is { p: number; i: number } => x.p != null && Number.isFinite(x.p));
@@ -157,14 +171,14 @@ export function rawQuarterKellyPct(winRate: number, avgWinR: number, avgLossR: n
   const b = avgWinR / avgLossR, p = winRate, q = 1 - p;
   const kelly = (b * p - q) / b;
   if (kelly <= 0) return null;
-  return kelly * 0.25 * 100;
+  return kelly * KELLY_SCALE * 100;
 }
 
 /** Back-compat clamped wrapper. Prefer `rawQuarterKellyPct` + surface `riskBelowFloor`. */
 export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
   const raw = rawQuarterKellyPct(winRate, avgWinR, avgLossR);
   if (raw == null) return null;
-  return Math.max(0.25, Math.min(1.5, raw));
+  return Math.max(KELLY_FLOOR_PCT, Math.min(KELLY_CEILING_PCT, raw));
 }
 
 const SESSION_LABELS: Record<string, string> = {
@@ -302,7 +316,7 @@ function computeTp1Star(
       else if (p.rActual != null && Number.isFinite(p.rActual)) missRs.push(p.rActual);
     }
     const hitRate = hits / pairs.length;
-    if (hitRate < 0.4) continue;
+    if (hitRate < TP1_STAR_MIN_HIT_RATE) continue;
     const missMean = missRs.length >= 5
       ? missRs.reduce((s, v) => s + v, 0) / missRs.length
       : fallbackMiss;
@@ -384,7 +398,7 @@ function pickBestTp(
   for (const p of pairs) seed = (seed * 31 + Math.floor((p.mfeR * 1000 + p.rActual * 1000))) | 0;
   if (seed === 0) seed = 0x9e3779b9;
   const rand = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) % 1_000_000) / 1_000_000; };
-  const iters = 500;
+  const iters = BOOTSTRAP_ITERATIONS;
   const samples: number[] = new Array(iters);
   const buf: MfePair[] = new Array(pairs.length);
   for (let i = 0; i < iters; i++) {
@@ -492,8 +506,8 @@ export function computeBucket(
   let slDrift: BucketReport["slDrift"] = null;
   if (idealMed != null && slInitMed != null && slInitMed > 0) {
     const ratio = idealMed / slInitMed;
-    if (ratio < 0.8) slDrift = "too_wide";
-    else if (ratio > 1.2) slDrift = "too_tight";
+    if (ratio < SL_DRIFT_ALIGNED_MIN) slDrift = "too_wide";
+    else if (ratio > SL_DRIFT_ALIGNED_MAX) slDrift = "too_tight";
     else slDrift = "aligned";
   }
 
@@ -509,12 +523,12 @@ export function computeBucket(
   }
   let suggestedSlPips: number | null = null;
   let slMethod: "winners_mae" | "legacy" = "legacy";
-  const slWinners = winnersMaePips.length >= 10 ? quantile(winnersMaePips, 0.90) : null;
+  const slWinners = winnersMaePips.length >= 10 ? quantile(winnersMaePips, WINNERS_MAE_SL_QUANTILE) : null;
   if (slWinners != null && slWinners > 0) {
-    suggestedSlPips = slWinners * 1.10;
+    suggestedSlPips = slWinners * WINNERS_MAE_SL_BUFFER;
     slMethod = "winners_mae";
   } else {
-    const maeCandidate = maeP75Pips != null ? maeP75Pips * 1.15 : null;
+    const maeCandidate = maeP75Pips != null ? maeP75Pips * MAE_P75_WIDEN_BUFFER : null;
     if (maeCandidate != null || idealMed != null) {
       suggestedSlPips = Math.max(maeCandidate ?? 0, idealMed ?? 0);
     }
@@ -557,8 +571,8 @@ export function computeBucket(
   // `riskBelowFloor` signal when raw < 0.25%. The previous server clamp at 0.25%
   // silently inflated tiny edges to a 0.25% recommendation.
   const rawKelly = n >= 10 ? rawQuarterKellyPct(winRate, avgWinR, avgLossR) : null;
-  const suggestedRiskPct = rawKelly != null ? Math.min(1.5, rawKelly) : null;
-  const riskBelowFloor = rawKelly != null && rawKelly < 0.25;
+  const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
+  const riskBelowFloor = rawKelly != null && rawKelly < KELLY_FLOOR_PCT;
   const tp1Star = computeTp1Star(tp1StarPairs, avgLossR || 1);
 
   // Prop-firm cap — mirrors src/lib/pairLabMath.ts exactly:
@@ -567,7 +581,7 @@ export function computeBucket(
   //   client's daily-loss budget is the authoritative survival constraint.
   let suggestedRiskPctPropFirmCap: number | null = null;
   if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null && propFirm.dailyLossDollars > 0) {
-    const streak = Math.max(3, longestLossStreak(rows) || 0);
+    const streak = Math.max(MIN_STREAK_FLOOR, longestLossStreak(rows) || 0);
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
     const ddCappedPct = dailyBudgetPct / streak;
     const hardCap = propFirm.hardCapPct > 0 ? propFirm.hardCapPct : 2;
