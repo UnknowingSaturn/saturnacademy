@@ -447,13 +447,14 @@ export function StrategyRanker({
                         {insufficient ? (
                           <span className="text-muted-foreground text-xs">need ≥{MIN_ELIGIBLE_SAMPLE}</span>
                         ) : (
-                          <>
-                            {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
+                          <span className={provisional ? "text-muted-foreground" : ""}>
+                            {provisional ? "~" : ""}{r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
                             {halfCi != null && (
                               <span className="text-muted-foreground"> ±{halfCi.toFixed(2)}</span>
                             )}
-                          </>
+                          </span>
                         )}
+
                       </td>
                       <td className="py-2 px-2 text-right font-mono-numbers">
                         {insufficient || r.perTradeEdgeRatio == null ? "—" : r.perTradeEdgeRatio.toFixed(2)}
