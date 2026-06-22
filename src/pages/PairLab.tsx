@@ -129,7 +129,6 @@ export default function PairLab() {
           <TabsTrigger value="simulator">Simulator</TabsTrigger>
           <TabsTrigger value="strategy">Strategy lab</TabsTrigger>
           <TabsTrigger value="aliases">Symbol aliases</TabsTrigger>
-          <TabsTrigger value="aliases">Symbol aliases</TabsTrigger>
         </TabsList>
 
         <TabsContent value="grid" className="space-y-6 mt-4">
