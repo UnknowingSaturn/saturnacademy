@@ -255,10 +255,30 @@ export function runMonteCarlo(params: MCParams): MCResult {
       perAccountBustRate: 0,
       finalEquityDistributionPct: [],
       expectedReturnPct: 0,
+      cvar5Pct: 0,
+      geometricMeanGrowthPct: 0,
       blockSize: 0,
     };
   }
   const blockSize = Math.max(3, Math.round(Math.pow(params.rSample.length, 1 / 3)));
+
+  // Geometric-mean per-trade growth at the chosen risk fraction.
+  // Defined as exp(mean(log(1 + f·r))) − 1. If ever 1+f·r ≤ 0 the path is
+  // wiped out → growth is −100%.
+  let geomGrowthPct = 0;
+  {
+    const f = params.riskPerTradeFrac;
+    let sumLog = 0;
+    let count = 0;
+    let blown = false;
+    for (const r of params.rSample) {
+      const factor = 1 + f * r;
+      if (factor <= 0) { blown = true; break; }
+      sumLog += Math.log(factor);
+      count += 1;
+    }
+    geomGrowthPct = blown ? -100 : (Math.exp(sumLog / Math.max(1, count)) - 1) * 100;
+  }
 
   let passes = 0;
   let fails = 0;
