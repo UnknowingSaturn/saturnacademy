@@ -59,7 +59,7 @@ export function transformTrade(row: any): Trade {
     time: f.occurred_at,
     lots: f.lots,
     price: f.price,
-    pnl: (f.profit ?? 0) - (f.commission ?? 0) - Math.abs(f.swap ?? 0),
+    pnl: (f.profit ?? 0) - Math.abs(f.commission ?? 0) + (f.swap ?? 0),
   }));
 
   // Keep any legacy *repair markers* (objects without a `lots` field) so the
