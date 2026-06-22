@@ -87,7 +87,7 @@ export function MaeMfeMatrix({ trades, fieldKeys }: Props) {
           </thead>
           <tbody>
             {data.setups.map((setup) => {
-              const rowMean = mean(data.rowMaes[setup]);
+              const rowMean = mean(data.rowRatios[setup]);
               const v = verdict(rowMean);
               return (
                 <tr key={setup} className="border-b border-border/30">
