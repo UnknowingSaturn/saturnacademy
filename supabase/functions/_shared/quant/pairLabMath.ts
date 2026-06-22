@@ -600,6 +600,7 @@ export function buildBuckets(
     const [symbol, session] = k.split("__");
     perCell.push(computeBucket({ symbol, session }, rows, keys, propFirm));
   });
-  perCell.sort((a, b) => b.expectedR * b.n - a.expectedR * a.n);
+  // Match client ordering: sort by N descending (stable, sample-size first).
+  perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
   return { perCell, baseline };
 }
