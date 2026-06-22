@@ -810,18 +810,15 @@ interface MfePair { mfeR: number; rActual: number; }
  *
  * Cases:
  *  - MFE reached the candidate TP → trade would have closed at `tp` (gain = tp R).
- *  - MFE never reached TP → no hypothetical TP fires, so the trade exits at its
- *    *actual* realized outcome (`rActual`). The `trail` factor is intentionally
- *    NOT applied here: discounting an already-realized exit by trailCapture
- *    biases the TP-grid argmax low. The trail model belongs to a *different*
- *    counterfactual (no fixed TP, trailing stop from MFE); if surfaced, score
- *    that separately rather than mixing the two.
+ *  - MFE never reached TP → trade exits at its *actual* realized outcome.
+ *
+ * Trail-capture is NOT mixed into the TP grid: that's a separate counterfactual
+ * (no fixed TP, trailing stop from MFE). The old `trail` parameter was a
+ * leftover from when the grid attempted to discount realized exits — removed
+ * because it biased argmax low.
  */
-function scoreTp(tp: number, sample: MfePair[], trail: number): number {
+function scoreTp(tp: number, sample: MfePair[]): number {
   if (sample.length === 0) return 0;
-  // `trail` is reserved for the dedicated trailing-stop counterfactual; the
-  // grid below uses pure realized outcomes when no TP would have fired.
-  void trail;
   let sum = 0;
   for (const p of sample) {
     if (p.mfeR >= tp) sum += tp;
@@ -844,12 +841,12 @@ function collectMfeRPairs(rows: Trade[], keys: PairLabFieldKeys): MfePair[] {
 /** Grid-search the best TP in R-space against MFE pairs. */
 function pickBestTp(
   pairs: MfePair[],
-  trail: number,
+  _trail: number,
 ): { tpR: number; expectancy: number; ladder: number[]; ci: [number, number] | null } | null {
   if (pairs.length < 10) return null;
   const grid: number[] = [];
   for (let r = 0.5; r <= 4.0001; r += 0.25) grid.push(Math.round(r * 4) / 4);
-  const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs, trail) }));
+  const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs) }));
   let best: { tp: number; e: number } | null = null;
   for (const c of scored) if (!best || c.e > best.e) best = c;
   if (!best || !(best.e > 0)) return null;
@@ -865,12 +862,12 @@ function pickBestTp(
   const buf: MfePair[] = new Array(pairs.length);
   for (let i = 0; i < iters; i++) {
     for (let j = 0; j < pairs.length; j++) buf[j] = pairs[Math.floor(rand() * pairs.length)];
-    samples[i] = scoreTp(best.tp, buf, trail);
+    samples[i] = scoreTp(best.tp, buf);
   }
   samples.sort((a, b) => a - b);
   const ci: [number, number] = [
-    samples[Math.floor(0.025 * iters)],
-    samples[Math.floor(0.975 * iters)],
+    percentileFromSorted(samples, 0.025),
+    percentileFromSorted(samples, 0.975),
   ];
   const ladder = Array.from(
     new Set([...scored].filter((c) => c.e > 0).sort((a, b) => b.e - a.e).slice(0, 3).map((c) => c.tp)),
@@ -901,15 +898,14 @@ export function runWalkForward(
   const oosPairs = collectMfeRPairs(oosRows, keys);
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
 
-  // Walk-forward must not estimate trailCapture on the OOS slice (look-ahead
-  // leak): use the IS estimate on both sides. Standardize on the same
-  // minSample=10 the bucket-local estimate uses.
-  const isTrail = estimateTrailCapture(isRows, keys, 10)?.ratio ?? 0.7;
-
-  const isPick = pickBestTp(isPairs, isTrail);
+  // Walk-forward must not estimate trailCapture on the OOS slice. We no
+  // longer pass `trail` into `scoreTp`/`pickBestTp` (dead parameter removed),
+  // but `pickBestTp`'s signature still accepts it as `_trail` for API
+  // stability — passing 0 is a no-op.
+  const isPick = pickBestTp(isPairs, 0);
   if (!isPick) return null;
   const inSampleE = isPick.expectancy;
-  const outOfSampleE = scoreTp(isPick.tpR, oosPairs, isTrail);
+  const outOfSampleE = scoreTp(isPick.tpR, oosPairs);
   const degradationPct = inSampleE > 0 ? (1 - outOfSampleE / inSampleE) * 100 : 0;
   // Report N as the OOS *pairs* that actually feed `scoreTp` — these are the
   // true degrees of freedom. `oosRows.length` (total OOS trades) can be much
