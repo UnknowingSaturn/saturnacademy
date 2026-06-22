@@ -624,6 +624,13 @@ function computeBucket(
     .map((v) => Math.abs(v));
 
   const mfes = rows.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
+  // Paired (mfeR, rActual) used by computeTp1Star for empirical miss-cost.
+  const mfeRPairsForTp1: Array<{ mfeR: number; rActual: number | null }> = [];
+  for (const t of rows) {
+    const m = numericCf(t as any, keys.mfe);
+    if (m == null) continue;
+    mfeRPairsForTp1.push({ mfeR: m, rActual: t.r_multiple_actual ?? null });
+  }
 
   // MAE is stored in TICKS. Convert each value to pips for the SL math and to
   // R for the distribution display.
@@ -999,7 +1006,7 @@ function buildRecommendation(
   const riskBelowFloor = rawKelly != null && rawKelly < 0.25;
   const suggestedRiskPctCi = s.n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
 
-  const tp1Star = computeTp1Star(mfes, avgLossR || 1);
+  const tp1Star = computeTp1Star(mfeRPairsForTp1, avgLossR || 1);
 
   // Prop-firm-aware risk cap. Uses observed worst losing streak (floored at 3)
   // to distribute the daily-loss budget over N consecutive full stops.
