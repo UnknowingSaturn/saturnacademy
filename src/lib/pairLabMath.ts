@@ -142,6 +142,18 @@ export interface BucketRecommendation {
   expectancyAtSuggestedCi: [number, number] | null;
   /** TP that wins the MFE-based expectancy grid (R). null when fallback used. */
   suggestedTpR: number | null;
+  /**
+   * Walk-forward validation: fit SL/TP on first 70% of trades by entry_time,
+   * score on last 30%. Honest defense against curve-fitting.
+   * null when total closed N < 30 or OOS pairs < 5.
+   */
+  walkForward: {
+    inSampleE: number;
+    outOfSampleE: number;
+    /** (1 − OOS/IS) × 100. Positive = OOS worse than IS. */
+    degradationPct: number;
+    oosN: number;
+  } | null;
 }
 
 export interface BucketReport extends BucketStats {
