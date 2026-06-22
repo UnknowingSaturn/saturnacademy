@@ -42,10 +42,21 @@ const ROTATION_MODELS: RotationModel[] = ["one_only", "simultaneous", "stay_on_w
 const TARGET_PRESETS = [6, 8, 10, 12];
 const WINDOW_PRESETS = [30, 60, 90];
 
-// Recommendation score: reward pass prob × survival, penalise drawdown over 5%.
-function scoreCell(r: MCResult): number {
+// Score components (exposed for the breakdown line).
+function scoreCellParts(r: MCResult, inconclusiveWeight = 0.1) {
+  const survival = 1 - r.riskOfRuin;
   const ddPenalty = 0.5 * Math.max(0, r.avgDrawdownPct - 5) / 100;
-  return r.passProb * (1 - r.riskOfRuin) - ddPenalty;
+  const inconclusivePenalty = inconclusiveWeight * r.inconclusiveProb;
+  const score = r.passProb * survival - ddPenalty - inconclusivePenalty;
+  return { passProb: r.passProb, survival, ddPenalty, inconclusivePenalty, score };
+}
+
+// Deterministic but distinct seed per cell — prevents the heatmap from showing
+// artificial similarity between cells that happen to walk the same sample path.
+function cellSeed(model: RotationModel, risk: number): number {
+  const modelIdx = ROTATION_MODELS.indexOf(model);
+  // Encode model in high bits, risk×100 in low bits.
+  return ((modelIdx + 1) * 100003) ^ Math.round(risk * 1000) ^ 0x5f3759df;
 }
 
 // Auto-detect average trades/day from the user's history.
@@ -79,6 +90,7 @@ export function StrategyLab({
   const [targetPct, setTargetPct] = useState<number>(8);
   const [windowDays, setWindowDays] = useState<number>(30);
   const [tradesPerDay, setTradesPerDay] = useState<number>(detectedTpd);
+  const [trailingDD, setTrailingDD] = useState<boolean>(false);
   // Custom limits used only when no prop-firm profile is selected.
   const [customDailyPct, setCustomDailyPct] = useState<number>(5);
   const [customMaxPct, setCustomMaxPct] = useState<number>(10);
@@ -86,17 +98,29 @@ export function StrategyLab({
   // Selected detail cell — defaults to recommended after compute.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  // Resolve loss limits: pull from prop-firm profile when present, else custom.
-  const dailyLossPct = hasPropFirmProfile && dailyLossDollars != null && accountSize > 0
-    ? dailyLossDollars / accountSize
+  // Firm $ limits are absolute. If the user simulates a different account size,
+  // scale them by the size ratio so the firm's % rules apply at the override
+  // balance (e.g. $5k daily on $100k = 5% → $2.5k on $50k override).
+  const sizeRatio = defaultAccountSize > 0 ? accountSize / defaultAccountSize : 1;
+  const effDailyDollars = hasPropFirmProfile && dailyLossDollars != null
+    ? dailyLossDollars * sizeRatio
+    : null;
+  const effMaxDollars = hasPropFirmProfile && maxDrawdownDollars != null
+    ? maxDrawdownDollars * sizeRatio
+    : null;
+  const dailyLossPct = effDailyDollars != null && accountSize > 0
+    ? effDailyDollars / accountSize
     : customDailyPct / 100;
-  const maxLossPct = hasPropFirmProfile && maxDrawdownDollars != null && accountSize > 0
-    ? maxDrawdownDollars / accountSize
+  const maxLossPct = effMaxDollars != null && accountSize > 0
+    ? effMaxDollars / accountSize
     : customMaxPct / 100;
 
   const cells = useMemo(() => {
     if (rSample.length < 10) return [];
-    const out: Array<{ key: string; risk: number; model: RotationModel; result: MCResult; score: number }> = [];
+    const out: Array<{
+      key: string; risk: number; model: RotationModel; result: MCResult;
+      score: number; parts: ReturnType<typeof scoreCellParts>;
+    }> = [];
     for (const model of ROTATION_MODELS) {
       for (const risk of RISK_TIERS) {
         const params: MCParams = {
@@ -110,21 +134,26 @@ export function StrategyLab({
           tradesPerDay,
           maxDays: windowDays,
           rotationModel: model,
+          maxLossMode: trailingDD ? "trailing" : "static",
           paths: 1200,
-          seed: 1337,
+          // Deterministic per cell so two cells with similar means don't show
+          // artificial closeness from sharing the same sampled paths.
+          seed: cellSeed(model, risk),
         };
         const result = runMonteCarlo(params);
+        const parts = scoreCellParts(result);
         out.push({
           key: `${model}|${risk}`,
           risk,
           model,
           result,
-          score: scoreCell(result),
+          score: parts.score,
+          parts,
         });
       }
     }
     return out;
-  }, [rSample, numAccounts, accountSize, dailyLossPct, maxLossPct, targetPct, tradesPerDay, windowDays]);
+  }, [rSample, numAccounts, accountSize, dailyLossPct, maxLossPct, targetPct, tradesPerDay, windowDays, trailingDD]);
 
   const best = cells.length > 0
     ? cells.reduce((a, b) => (b.score > a.score ? b : a), cells[0])
@@ -225,10 +254,13 @@ export function StrategyLab({
         </div>
 
         {hasPropFirmProfile ? (
-          <div className="col-span-2 text-xs text-muted-foreground self-end pb-1">
-            Daily-loss & max-loss caps come from the active prop-firm profile
-            {dailyLossDollars != null && (
-              <> (<span className="text-foreground">${dailyLossDollars.toFixed(0)}/day · ${maxDrawdownDollars?.toFixed(0) ?? "—"} total</span>)</>
+          <div className="col-span-2 text-xs text-muted-foreground self-end pb-1 leading-relaxed">
+            Loss caps from the active prop-firm profile, scaled to override balance:{" "}
+            <span className="text-foreground font-mono-numbers">
+              ${effDailyDollars?.toFixed(0) ?? "—"}/day · ${effMaxDollars?.toFixed(0) ?? "—"} total
+            </span>
+            {Math.abs(sizeRatio - 1) > 0.01 && (
+              <span className="ml-1 italic">(firm % rules applied to ${accountSize.toLocaleString()})</span>
             )}
             .
           </div>
@@ -244,6 +276,19 @@ export function StrategyLab({
             </div>
           </>
         )}
+
+        <div className="col-span-2 md:col-span-4 flex items-center gap-2 pt-1">
+          <input
+            id="trailing-dd"
+            type="checkbox"
+            checked={trailingDD}
+            onChange={(e) => setTrailingDD(e.target.checked)}
+            className="h-4 w-4 rounded border-border accent-primary"
+          />
+          <Label htmlFor="trailing-dd" className="text-xs cursor-pointer">
+            Trailing drawdown (FTMO / MyFF style — max-loss line follows peak equity)
+          </Label>
+        </div>
       </div>
 
       {/* Heatmap */}
@@ -271,6 +316,8 @@ export function StrategyLab({
                   const ratio = maxPass === minPass ? 0.5 : (cell.result.passProb - minPass) / (maxPass - minPass);
                   // Emerald-ish gradient by pass prob.
                   const bgAlpha = 0.05 + ratio * 0.35;
+                  const ciHalfPp = ((cell.result.passProbCI[1] - cell.result.passProbCI[0]) / 2) * 100;
+                  const noisy = ciHalfPp > 3;
                   return (
                     <td key={risk} className="p-0.5">
                       <button
@@ -285,12 +332,16 @@ export function StrategyLab({
                         style={{
                           backgroundColor: `hsl(150 70% 45% / ${bgAlpha})`,
                         }}
+                        title={`95% CI: ${(cell.result.passProbCI[0] * 100).toFixed(0)}–${(cell.result.passProbCI[1] * 100).toFixed(0)}%`}
                       >
                         <div className="font-mono-numbers font-semibold text-sm">
                           {(cell.result.passProb * 100).toFixed(0)}%
                         </div>
-                        <div className="font-mono-numbers text-[10px] text-muted-foreground">
-                          DD {cell.result.avgDrawdownPct.toFixed(1)}%
+                        <div className={cn(
+                          "font-mono-numbers text-[10px]",
+                          noisy ? "text-amber-500" : "text-muted-foreground",
+                        )}>
+                          {noisy ? `±${ciHalfPp.toFixed(0)}pp` : `DD ${cell.result.avgDrawdownPct.toFixed(1)}%`}
                         </div>
                       </button>
                     </td>
@@ -322,17 +373,39 @@ export function StrategyLab({
             </div>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 text-sm">
-            <Stat label="Pass prob" value={`${(active.result.passProb * 100).toFixed(0)}%`} tone="good" />
+            <Stat
+              label="Pass prob"
+              value={`${(active.result.passProb * 100).toFixed(0)}%`}
+              sub={`95% CI ${(active.result.passProbCI[0] * 100).toFixed(0)}–${(active.result.passProbCI[1] * 100).toFixed(0)}%`}
+              tone="good"
+            />
             <Stat label="Fail prob" value={`${(active.result.failProb * 100).toFixed(0)}%`} tone="bad" />
             <Stat label="Inconclusive" value={`${(active.result.inconclusiveProb * 100).toFixed(0)}%`} />
             <Stat label="Avg days to pass" value={active.result.avgDaysToPass != null ? active.result.avgDaysToPass.toFixed(1) : "—"} />
-            <Stat label="Avg drawdown" value={`${active.result.avgDrawdownPct.toFixed(1)}%`} />
-            <Stat label="Risk of ruin" value={`${(active.result.riskOfRuin * 100).toFixed(0)}%`} tone="bad" />
+            <Stat
+              label="Avg drawdown"
+              value={`${active.result.avgDrawdownPct.toFixed(1)}%`}
+              sub={trailingDD ? "trailing" : "static"}
+            />
+            <Stat
+              label="Risk of ruin"
+              value={`${(active.result.riskOfRuin * 100).toFixed(0)}%`}
+              sub={`per-acct ${(active.result.perAccountBustRate * 100).toFixed(0)}%`}
+              tone="bad"
+            />
             <Stat
               label="Expected return"
               value={`${active.result.expectedReturnPct >= 0 ? "+" : ""}${active.result.expectedReturnPct.toFixed(1)}%`}
               tone={active.result.expectedReturnPct >= 0 ? "good" : "bad"}
             />
+          </div>
+          {/* Score breakdown */}
+          <div className="text-[11px] text-muted-foreground font-mono-numbers mt-3 pt-3 border-t border-border/40 leading-relaxed">
+            score = pass {active.parts.passProb.toFixed(2)}
+            {" × "}survival {active.parts.survival.toFixed(2)}
+            {" − "}DD penalty {active.parts.ddPenalty.toFixed(3)}
+            {" − "}incon penalty {active.parts.inconclusivePenalty.toFixed(3)}
+            {" = "}<span className="text-foreground font-semibold">{active.parts.score.toFixed(3)}</span>
           </div>
         </div>
       )}
@@ -341,15 +414,17 @@ export function StrategyLab({
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
         <span>
           Stationary block bootstrap (block size √N) of your R-history preserves loss-streak clustering.
-          Recommendation maximises <code>passProb × (1 − riskOfRuin) − 0.5 × max(0, DD − 5%)</code>,
-          so a slightly lower pass prob with much lower drawdown can win.
+          Each cell uses an independent seed so similar-looking cells aren't artificially correlated.
+          Recommendation maximises <code>passProb × (1 − RoR) − 0.5·max(0, DD − 5%) − 0.1·P(inconclusive)</code>,
+          so a slightly lower pass prob with much lower drawdown — or fewer time-outs — can win.
+          Risk-of-ruin is per-path (any account busts); "per-acct" sub-stat shows the legacy account-level rate.
         </span>
       </p>
     </Card>
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
+function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "good" | "bad" }) {
   return (
     <div>
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
@@ -362,6 +437,9 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "go
       >
         {value}
       </div>
+      {sub && (
+        <div className="text-[10px] text-muted-foreground font-mono-numbers mt-0.5">{sub}</div>
+      )}
     </div>
   );
 }

@@ -37,12 +37,22 @@ export interface MCParams {
   paths?: number;
   /** Optional deterministic seed for reproducibility. */
   seed?: number;
+  /**
+   * Max-loss accounting mode.
+   *  - `static` (default): bust when account is `maxLossPct` below the *starting* balance.
+   *    Matches firms with a fixed daily/overall drawdown line (e.g. The Funded Trader static).
+   *  - `trailing`: bust when account is `maxLossPct` below its *peak equity since start*.
+   *    Matches FTMO / MyForexFunds / most modern trailing-DD firms.
+   */
+  maxLossMode?: "static" | "trailing";
 }
 
 export interface MCResult {
   paths: number;
   /** Probability that at least one account reaches the target before all accounts bust. */
   passProb: number;
+  /** Wilson 95% CI for passProb (Monte-Carlo sampling noise only). */
+  passProbCI: [number, number];
   /** Probability that every account busts before any hits the target (within maxDays). */
   failProb: number;
   /** Probability that maxDays elapsed with neither pass nor full fail. */
@@ -53,8 +63,10 @@ export interface MCResult {
   avgDrawdownPct: number;
   /** Mean fraction of accounts surviving at path end (not busted). */
   accountSurvivalRate: number;
-  /** Probability any single account hits maxLoss (risk of ruin per account). */
+  /** Probability that AT LEAST ONE account busts within a path (per-path ruin). */
   riskOfRuin: number;
+  /** Per-account bust rate across all accounts × paths (legacy metric, kept for compatibility). */
+  perAccountBustRate: number;
   /** Distribution of final equity (% of starting balance) — aggregated per-account across all paths. */
   finalEquityDistributionPct: number[];
   /** Mean expected return as % of starting balance, per account, at path end. */
@@ -145,8 +157,13 @@ function simulateOnePath(p: MCParams, rng: () => number): PathState {
         if (dd > peakDD[i]) peakDD[i] = dd;
 
         // Bust checks.
-        if (maxLossCap != null && p.accountSize - equity[i] >= maxLossCap) {
-          busted[i] = true;
+        // Static mode: drawdown is measured from the *starting* balance.
+        // Trailing mode: drawdown is measured from the running *peak* equity.
+        if (maxLossCap != null) {
+          const reference = p.maxLossMode === "trailing" ? peak[i] : p.accountSize;
+          if (reference - equity[i] >= maxLossCap) {
+            busted[i] = true;
+          }
         }
         if (dailyCap != null && -dayPnL[i] >= dailyCap) {
           busted[i] = true;
@@ -215,12 +232,14 @@ export function runMonteCarlo(params: MCParams): MCResult {
     return {
       paths: 0,
       passProb: 0,
+      passProbCI: [0, 0],
       failProb: 0,
       inconclusiveProb: 0,
       avgDaysToPass: null,
       avgDrawdownPct: 0,
       accountSurvivalRate: 0,
       riskOfRuin: 0,
+      perAccountBustRate: 0,
       finalEquityDistributionPct: [],
       expectedReturnPct: 0,
       blockSize: 0,
@@ -230,6 +249,7 @@ export function runMonteCarlo(params: MCParams): MCResult {
 
   let passes = 0;
   let fails = 0;
+  let pathsWithAnyBust = 0;
   let daysToPassSum = 0;
   let ddSum = 0;
   let ddCount = 0;
@@ -247,33 +267,54 @@ export function runMonteCarlo(params: MCParams): MCResult {
     } else if (s.failed) {
       fails += 1;
     }
+    let anyBust = false;
     for (const acc of s.perAccount) {
       totalAccounts += 1;
       if (!acc.busted) survivors += 1;
-      if (acc.busted) ruinedAccounts += 1;
+      if (acc.busted) {
+        ruinedAccounts += 1;
+        anyBust = true;
+      }
       ddSum += acc.peakDrawdown / params.accountSize;
       ddCount += 1;
       const pct = (acc.finalEquity / params.accountSize - 1) * 100;
       finalEqPct.push(pct);
       returnSumPct += pct;
     }
+    if (anyBust) pathsWithAnyBust += 1;
   }
 
   const passProb = passes / paths;
   const failProb = fails / paths;
+  const passProbCI = wilsonCI95(passes, paths);
   return {
     paths,
     passProb,
+    passProbCI,
     failProb,
     inconclusiveProb: 1 - passProb - failProb,
     avgDaysToPass: passes > 0 ? daysToPassSum / passes : null,
     avgDrawdownPct: ddCount > 0 ? (ddSum / ddCount) * 100 : 0,
     accountSurvivalRate: totalAccounts > 0 ? survivors / totalAccounts : 0,
-    riskOfRuin: totalAccounts > 0 ? ruinedAccounts / totalAccounts : 0,
+    // Per-path RoR = probability that AT LEAST ONE account busts during a path.
+    riskOfRuin: pathsWithAnyBust / paths,
+    perAccountBustRate: totalAccounts > 0 ? ruinedAccounts / totalAccounts : 0,
     finalEquityDistributionPct: finalEqPct,
     expectedReturnPct: totalAccounts > 0 ? returnSumPct / totalAccounts : 0,
     blockSize,
   };
+}
+
+// Wilson score 95% CI for a binomial proportion. Tight at extremes, well-behaved
+// when k ∈ {0, n}. Used to expose Monte-Carlo sampling noise on passProb.
+function wilsonCI95(successes: number, trials: number): [number, number] {
+  if (trials <= 0) return [0, 0];
+  const z = 1.96;
+  const p = successes / trials;
+  const denom = 1 + (z * z) / trials;
+  const centre = (p + (z * z) / (2 * trials)) / denom;
+  const halfWidth = (z * Math.sqrt((p * (1 - p)) / trials + (z * z) / (4 * trials * trials))) / denom;
+  return [Math.max(0, centre - halfWidth), Math.min(1, centre + halfWidth)];
 }
 
 // ----------------------------------------------------------------------------
