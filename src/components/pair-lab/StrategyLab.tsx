@@ -45,6 +45,17 @@ const ROTATION_MODELS: RotationModel[] = ["one_only", "simultaneous", "stay_on_w
 const TARGET_PRESETS = [6, 8, 10, 12];
 const WINDOW_PRESETS = [30, 60, 90];
 
+// Sample window — restricts the trade history fed into the sweep. "All" preserves
+// the historical default. Short windows let the user inspect current-regime edge
+// without changing any downstream math; the existing edge-gate handles small-n.
+type SampleWindow = "all" | "30d" | "60d" | "90d";
+const SAMPLE_WINDOW_OPTIONS: { value: SampleWindow; label: string; days: number | null }[] = [
+  { value: "all", label: "All", days: null },
+  { value: "30d", label: "30d", days: 30 },
+  { value: "60d", label: "60d", days: 60 },
+  { value: "90d", label: "90d", days: 90 },
+];
+
 // Score components (exposed for the breakdown line).
 //
 // All three terms live on the 0–1 probability scale so the additive form is
@@ -100,8 +111,38 @@ export function StrategyLab({
   maxDrawdownDollars,
   hasPropFirmProfile,
 }: Props) {
-  const rSample = useMemo(() => extractRSample(trades), [trades]);
-  const detectedTpd = useMemo(() => autoTradesPerDay(trades), [trades]);
+  const [sampleWindow, setSampleWindow] = useState<SampleWindow>("all");
+
+  const filteredTrades = useMemo(() => {
+    const opt = SAMPLE_WINDOW_OPTIONS.find((o) => o.value === sampleWindow);
+    if (!opt || opt.days == null) return trades;
+    const cutoff = Date.now() - opt.days * 86_400_000;
+    return trades.filter((t) => {
+      if (!t.entry_time) return false;
+      const ts = new Date(t.entry_time).getTime();
+      return Number.isFinite(ts) && ts >= cutoff;
+    });
+  }, [trades, sampleWindow]);
+
+  const windowMeta = useMemo(() => {
+    let n = 0;
+    let first: number | null = null;
+    let last: number | null = null;
+    for (const t of filteredTrades) {
+      if (t.is_open || t.is_archived) continue;
+      if (t.r_multiple_actual == null) continue;
+      if (!t.entry_time) continue;
+      const ts = new Date(t.entry_time).getTime();
+      if (!Number.isFinite(ts)) continue;
+      n += 1;
+      if (first == null || ts < first) first = ts;
+      if (last == null || ts > last) last = ts;
+    }
+    return { n, first, last };
+  }, [filteredTrades]);
+
+  const rSample = useMemo(() => extractRSample(filteredTrades), [filteredTrades]);
+  const detectedTpd = useMemo(() => autoTradesPerDay(filteredTrades), [filteredTrades]);
   // Bootstrap 95% CI on mean R (block bootstrap, same block-size as engine).
   // Drives the edge-direction gate: when the CI lower bound is ≤ 0 the sample
   // doesn't statistically demonstrate a positive edge, and no sizing recommendation
@@ -213,12 +254,39 @@ export function StrategyLab({
       <div className="flex items-start gap-2 flex-wrap">
         <Sparkles className="w-4 h-4 text-primary mt-0.5" />
         <div className="flex-1 min-w-[260px]">
-          <h3 className="font-semibold">Strategy Lab</h3>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h3 className="font-semibold">Strategy Lab</h3>
+            <div className="flex items-center gap-1 rounded-md border border-border/60 bg-muted/20 p-0.5">
+              {SAMPLE_WINDOW_OPTIONS.map((opt) => (
+                <Button
+                  key={opt.value}
+                  size="sm"
+                  variant={sampleWindow === opt.value ? "default" : "ghost"}
+                  className="h-6 px-2 text-xs"
+                  onClick={() => setSampleWindow(opt.value)}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          </div>
           <p className="text-xs text-muted-foreground mt-1">
             {ROTATION_MODELS.length} rotation models × {RISK_TIERS.length} risk tiers ={" "}
             {ROTATION_MODELS.length * RISK_TIERS.length} configurations. Each runs 1,200 Monte-Carlo
             paths over your real R history (N {rSample.length}) and the firm rules below. Click a
             cell to inspect.
+          </p>
+          <p className="text-[11px] text-muted-foreground mt-1 font-mono-numbers">
+            Sample: {windowMeta.n} trades
+            {windowMeta.first != null && windowMeta.last != null && (
+              <>
+                {" · "}
+                {new Date(windowMeta.first).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                {" → "}
+                {new Date(windowMeta.last).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+              </>
+            )}
+            {sampleWindow !== "all" && <span className="ml-2 italic">(filtered)</span>}
           </p>
         </div>
         {best && edgePositive && !provisional && (
@@ -254,6 +322,11 @@ export function StrategyLab({
               {edge.n < 30
                 ? `Need ≥30 closed trades with R-multiples before edge can be tested (have ${edge.n}).`
                 : "The 95% confidence interval crosses zero, so any pass-prob ranking on this sample reflects path luck — not a tradeable edge. Heatmap stays visible for comparison, but no risk % is recommended. Fix the playbook (entries, exits, R per trade) before tuning size."}
+              {sampleWindow !== "all" && (
+                <span className="block mt-1 italic">
+                  Narrow window selected — switch to <strong>All</strong> for the full sample.
+                </span>
+              )}
             </div>
           </div>
         </div>
