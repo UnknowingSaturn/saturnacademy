@@ -233,7 +233,18 @@ export function stddev(values: number[]): number {
   return Math.sqrt(ss / (xs.length - 1));
 }
 
-/** Downside deviation (penalises only sub-target outcomes). */
+/**
+ * Downside deviation (penalises only sub-target outcomes).
+ *
+ * Convention: divides squared *downside* deviations by the *total* observation
+ * count − 1 (the "all-observations" Sortino denominator used by most published
+ * tearsheets). The alternative — dividing by the count of sub-target
+ * observations − 1 — yields a larger downside σ and a smaller Sortino ratio
+ * for skewed-positive return streams. We pick the all-observations convention
+ * because (a) it matches Bloomberg/Quantopian Sortino, (b) it stays defined
+ * when a sample has only one losing trade, and (c) the per-trade R series
+ * here is already centered on 0 by construction (target = 0).
+ */
 export function downsideStddev(values: number[], target = 0): number {
   const xs = values.filter((v) => Number.isFinite(v));
   if (xs.length < 2) return 0;
@@ -284,7 +295,16 @@ export function bootstrapMeanCi(values: number[], iters = 500): [number, number]
     means[i] = sum / xs.length;
   }
   means.sort((a, b) => a - b);
-  return [means[Math.floor(iters * 0.025)], means[Math.floor(iters * 0.975)]];
+  return [percentileFromSorted(means, 0.025), percentileFromSorted(means, 0.975)];
+}
+
+/** Standard linear-interpolation percentile (NIST type 7). Input must be sorted ascending. */
+function percentileFromSorted(sorted: number[], q: number): number {
+  if (sorted.length === 0) return NaN;
+  if (sorted.length === 1) return sorted[0];
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos), hi = Math.ceil(pos), w = pos - lo;
+  return sorted[lo] * (1 - w) + sorted[hi] * w;
 }
 
 /**
