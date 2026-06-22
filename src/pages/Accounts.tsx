@@ -6,6 +6,7 @@ import { useArchiveAllTrades } from '@/hooks/useTrades';
 import { AccountCard } from '@/components/accounts/AccountCard';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
 import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
+import { ChallengePlannerCard } from '@/components/accounts/ChallengePlannerCard';
 import { PageIntroBanner } from '@/components/tutorial/PageIntroBanner';
 import { TutorialDialog } from '@/components/tutorial/TutorialDialog';
 import { useFirstVisit } from '@/hooks/useFirstVisit';
