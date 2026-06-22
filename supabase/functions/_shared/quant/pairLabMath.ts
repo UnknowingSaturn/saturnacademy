@@ -316,7 +316,7 @@ function collectMfeRPairs(rows: any[], keys: PairLabFieldKeys): MfePair[] {
   return out;
 }
 
-function estimateTrailCaptureRows(rows: any[], keys: PairLabFieldKeys, minSample = 5): number {
+function estimateTrailCaptureRows(rows: any[], keys: PairLabFieldKeys, minSample = 10): number {
   const ratios: number[] = [];
   for (const t of rows) {
     if (t.is_open || t.is_archived) continue;
