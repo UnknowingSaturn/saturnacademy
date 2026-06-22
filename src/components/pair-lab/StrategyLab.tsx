@@ -254,12 +254,39 @@ export function StrategyLab({
       <div className="flex items-start gap-2 flex-wrap">
         <Sparkles className="w-4 h-4 text-primary mt-0.5" />
         <div className="flex-1 min-w-[260px]">
-          <h3 className="font-semibold">Strategy Lab</h3>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h3 className="font-semibold">Strategy Lab</h3>
+            <div className="flex items-center gap-1 rounded-md border border-border/60 bg-muted/20 p-0.5">
+              {SAMPLE_WINDOW_OPTIONS.map((opt) => (
+                <Button
+                  key={opt.value}
+                  size="sm"
+                  variant={sampleWindow === opt.value ? "default" : "ghost"}
+                  className="h-6 px-2 text-xs"
+                  onClick={() => setSampleWindow(opt.value)}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          </div>
           <p className="text-xs text-muted-foreground mt-1">
             {ROTATION_MODELS.length} rotation models × {RISK_TIERS.length} risk tiers ={" "}
             {ROTATION_MODELS.length * RISK_TIERS.length} configurations. Each runs 1,200 Monte-Carlo
             paths over your real R history (N {rSample.length}) and the firm rules below. Click a
             cell to inspect.
+          </p>
+          <p className="text-[11px] text-muted-foreground mt-1 font-mono-numbers">
+            Sample: {windowMeta.n} trades
+            {windowMeta.first != null && windowMeta.last != null && (
+              <>
+                {" · "}
+                {new Date(windowMeta.first).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                {" → "}
+                {new Date(windowMeta.last).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+              </>
+            )}
+            {sampleWindow !== "all" && <span className="ml-2 italic">(filtered)</span>}
           </p>
         </div>
         {best && edgePositive && !provisional && (
