@@ -1,59 +1,64 @@
-// Shared helpers for ingest-events and reprocess-trades.
-// Keep these two functions in lock-step — both must derive R from the same model.
+// Shared R-multiple helper for ingest-events and reprocess-trades.
+//
+// Pip size + classification come from the single canonical source
+// (`./quant/symbolMapping.ts`). The previous file had its own divergent
+// table that returned 0.01 for NAS100/SPX (should be 1.0) and 0.1 for DAX
+// (should be 1.0), producing 10–100× R errors on the fallback path.
+//
+// Pip *value* (USD per pip per lot) is still a small local table because
+// the canonical symbol-mapping module deliberately does not embed broker
+// economics. Index pip values here are calibrated to standard contract
+// specs and only fire when the grossPnl-derived path is unavailable.
 
-export function getPipSize(symbol: string): number {
-  const n = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (n.includes("JPY")) return 0.01;
-  if (n.includes("XAU") || n.includes("GOLD")) return 0.1;
-  if (n.includes("XAG") || n.includes("SILVER")) return 0.01;
-  if (n.includes("SP500") || n.includes("SPX") || n.includes("US500")) return 0.01;
-  if (n.includes("NAS") || n.includes("USTEC") || n.includes("US100")) return 0.01;
-  if (n.includes("US30") || n.includes("DJ30") || n.includes("DOW")) return 1.0;
-  if (n.includes("DAX") || n.includes("DE40") || n.includes("GER40")) return 0.1;
-  if (n.includes("FTSE") || n.includes("UK100")) return 0.1;
-  if (n.includes("OIL") || n.includes("BRENT") || n.includes("WTI") ||
-      n.includes("USOIL") || n.includes("XTIUSD")) return 0.01;
-  if (n.includes("BTC") || n.includes("BITCOIN")) return 1.0;
-  if (n.includes("ETH")) return 0.01;
-  return 0.0001;
-}
+import { pipSizeForSymbol, classifySymbol } from "./quant/symbolMapping.ts";
 
 /**
- * Approximate USD pip value per lot. Used ONLY as a fallback when the primary
- * gross-PnL-derived $/point path is unavailable — that path is broker-agnostic
+ * Approximate USD pip value per lot. Used ONLY as a fallback when the
+ * grossPnl-derived $/point path is unavailable — that path is broker-agnostic
  * and exact, so prefer it whenever possible.
  *
  * Returns `null` for symbols whose pip value depends on a live FX rate we
- * don't have at hand (JPY crosses): better to skip R-multiple than to publish
- * a 10–35%-biased number. The caller should treat `null` as "no fallback
- * available" and skip the R computation.
+ * don't have at hand (cross-JPY pairs): better to skip R-multiple than to
+ * publish a 10–35%-biased number.
  */
 export function getPipValue(
   symbol: string,
   lots: number,
   ctx?: { exitPrice?: number | null },
 ): number | null {
-  const n = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (n.includes("JPY")) {
+  const n = (symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const cls = classifySymbol(symbol);
+
+  if (cls === "fx3" || n.includes("JPY")) {
     // USD/JPY: pip value (USD) per lot = (0.01 / quote) * 100,000 = 1000 / quote.
-    // For cross-JPY pairs (EURJPY etc.) we don't have USDJPY here; skip.
-    const looksLikeUsdJpy = n.startsWith("USDJPY") || n === "USDJPY" || n.startsWith("USDJPYM") || n.startsWith("USDJPY.");
+    // For other JPY crosses we don't have USDJPY here; skip.
+    const looksLikeUsdJpy = n.startsWith("USDJPY");
     const quote = ctx?.exitPrice;
     if (looksLikeUsdJpy && typeof quote === "number" && quote > 0) {
       return (lots * 1000) / quote;
     }
     return null;
   }
-  if (n.includes("XAU") || n.includes("GOLD")) return lots * 10;
-  if (n.includes("XAG") || n.includes("SILVER")) return lots * 50;
-  if (n.includes("SP500") || n.includes("SPX") || n.includes("US500")) return lots * 0.50;
-  if (n.includes("NAS") || n.includes("USTEC") || n.includes("US100")) return lots * 0.20;
-  if (n.includes("US30") || n.includes("DJ30") || n.includes("DOW")) return lots * 0.10;
-  if (n.includes("DAX") || n.includes("DE40") || n.includes("GER40")) return lots * 0.10;
-  if (n.includes("OIL") || n.includes("BRENT") || n.includes("WTI") ||
-      n.includes("USOIL") || n.includes("XTIUSD")) return lots * 10;
-  if (n.includes("BTC") || n.includes("BITCOIN")) return lots * 1.0;
-  if (n.includes("ETH")) return lots * 1.0;
+  if (cls === "metal_xau") return lots * 10;       // XAUUSD: 1 pip = $0.10/oz × 100 oz
+  if (cls === "metal_xag") return lots * 50;       // XAGUSD: 1 pip = $0.01/oz × 5000 oz
+  if (cls === "crypto") {
+    if (n.includes("BTC")) return lots * 1.0;
+    return lots * 1.0;
+  }
+  if (cls === "oil") return lots * 10;
+  if (cls === "index") {
+    // 1 point of an index ≈ $1 × contract multiplier × lots. Standard CFD
+    // multipliers per broker convention (FTMO/IC/etc.):
+    if (n.includes("SP500") || n.includes("SPX") || n.includes("US500")) return lots * 50;
+    if (n.includes("NAS") || n.includes("USTEC") || n.includes("US100") || n.includes("NDX")) return lots * 20;
+    if (n.includes("US30") || n.includes("DJ30") || n.includes("DJI") || n.includes("DOW")) return lots * 5;
+    if (n.includes("DAX") || n.includes("DE40") || n.includes("GER40") || n.includes("DE30") || n.includes("GER30")) return lots * 25;
+    if (n.includes("FTSE") || n.includes("UK100")) return lots * 10;
+    if (n.includes("JP225") || n.includes("JPN225") || n.includes("NIKKEI") || n.includes("N225")) return lots * 5;
+    return lots * 10;
+  }
+  // fx5 default: 1 pip ≈ $10 per standard lot (quote-currency dependent;
+  // close enough for non-JPY majors where USD is the quote currency).
   return lots * 10;
 }
 
@@ -101,6 +106,7 @@ export function computeRMultiple(opts: ComputeROpts): number | null {
       else if (allFills.length === 0) allFills.push({ price: exitPrice, lots });
     }
 
+    // Primary: broker-agnostic via realized $/point.
     if (grossPnl && grossPnl !== 0 && allFills.length) {
       let totalPointLots = 0;
       for (const f of allFills) totalPointLots += (f.price - entryPrice) * dirSign * f.lots;
@@ -111,11 +117,17 @@ export function computeRMultiple(opts: ComputeROpts): number | null {
       }
     }
 
-    const pipSize = getPipSize(symbol);
+    // Fallback: canonical pip size × symbol-class pip value.
+    const pipSize = pipSizeForSymbol(symbol);
     const pipValue = getPipValue(symbol, lots, { exitPrice });
-    if (pipValue == null) return null;
+    if (pipValue == null || !(pipSize > 0)) return null;
     const risk = (stopDistance / pipSize) * pipValue;
-    if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
+    if (risk > 0) {
+      // One-line warning so we can audit how often the fallback fires in prod.
+      // Filter logs by "[rMultiple] fallback path" to surface affected symbols.
+      try { console.warn(`[rMultiple] fallback path used for symbol=${symbol} risk=${risk.toFixed(2)}`); } catch { /* ignore */ }
+      return Math.round((netPnl / risk) * 100) / 100;
+    }
   }
 
   return null;
