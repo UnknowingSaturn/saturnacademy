@@ -25,8 +25,13 @@ import { ticksToPips, pipLabelForSymbol } from "../shared/quant/symbolMapping";
 import fs from "node:fs";
 
 const trades = JSON.parse(fs.readFileSync("/tmp/verify/trades.json", "utf8"));
-const aliases = JSON.parse(fs.readFileSync("/tmp/verify/aliases.json", "utf8") || "[]") || [];
-const fields = JSON.parse(fs.readFileSync("/tmp/verify/fields.json", "utf8") || "[]") || [];
+const readJsonOrEmpty = (p: string) => {
+  const raw = fs.readFileSync(p, "utf8").trim();
+  if (!raw || raw === "null") return [];
+  return JSON.parse(raw);
+};
+const aliases = readJsonOrEmpty("/tmp/verify/aliases.json");
+const fields = readJsonOrEmpty("/tmp/verify/fields.json");
 
 console.log(`Loaded ${trades.length} trades, ${aliases.length} aliases, ${fields.length} CF defs`);
 
