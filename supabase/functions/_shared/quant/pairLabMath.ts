@@ -314,10 +314,9 @@ function ticksToR(ticks: number, t: any): number | null {
 // ----- TP grid + walk-forward helpers (mirror src/lib/pairLabMath.ts) -----
 interface MfePair { mfeR: number; rActual: number }
 
-// `trail` is reserved for the dedicated trailing-stop counterfactual; the grid
-// here uses pure realized outcomes when no TP would have fired. See client
-// `scoreTp` for the rationale (discounting realized exits biases argmax low).
-function scoreTp(tp: number, sample: MfePair[], _trail: number): number {
+// Trail-capture is intentionally not threaded into scoreTp; mixing it with
+// realized exits biases the TP-grid argmax low. See client scoreTp.
+function scoreTp(tp: number, sample: MfePair[]): number {
   if (sample.length === 0) return 0;
   let sum = 0;
   for (const p of sample) {
@@ -358,12 +357,12 @@ function estimateTrailCaptureRows(rows: any[], keys: PairLabFieldKeys, minSample
 
 function pickBestTp(
   pairs: MfePair[],
-  trail: number,
+  _trail: number,
 ): { tpR: number; expectancy: number; ladder: number[]; ci: [number, number] | null } | null {
   if (pairs.length < 10) return null;
   const grid: number[] = [];
   for (let r = 0.5; r <= 4.0001; r += 0.25) grid.push(Math.round(r * 4) / 4);
-  const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs, trail) }));
+  const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs) }));
   let best: { tp: number; e: number } | null = null;
   for (const c of scored) if (!best || c.e > best.e) best = c;
   if (!best || !(best.e > 0)) return null;
@@ -376,10 +375,10 @@ function pickBestTp(
   const buf: MfePair[] = new Array(pairs.length);
   for (let i = 0; i < iters; i++) {
     for (let j = 0; j < pairs.length; j++) buf[j] = pairs[Math.floor(rand() * pairs.length)];
-    samples[i] = scoreTp(best.tp, buf, trail);
+    samples[i] = scoreTp(best.tp, buf);
   }
   samples.sort((a, b) => a - b);
-  const ci: [number, number] = [samples[Math.floor(0.025 * iters)], samples[Math.floor(0.975 * iters)]];
+  const ci: [number, number] = [percentileFromSorted(samples, 0.025), percentileFromSorted(samples, 0.975)];
   const ladder = Array.from(
     new Set([...scored].filter((c) => c.e > 0).sort((a, b) => b.e - a.e).slice(0, 3).map((c) => c.tp)),
   ).sort((a, b) => a - b);
@@ -399,12 +398,11 @@ function runWalkForward(rows: any[], keys: PairLabFieldKeys):
   const isPairs = collectMfeRPairs(isRows, keys);
   const oosPairs = collectMfeRPairs(oosRows, keys);
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
-  // Walk-forward must not estimate trailCapture on the OOS slice (look-ahead
-  // leak): use the IS estimate on both sides.
-  const isTrail = estimateTrailCaptureRows(isRows, keys);
-  const pick = pickBestTp(isPairs, isTrail);
+  // `_trail` argument is vestigial — scoreTp no longer consumes it. Keep
+  // signature stable for now; pass 0.
+  const pick = pickBestTp(isPairs, 0);
   if (!pick) return null;
-  const outOfSampleE = scoreTp(pick.tpR, oosPairs, isTrail);
+  const outOfSampleE = scoreTp(pick.tpR, oosPairs);
   const degradationPct = pick.expectancy > 0 ? (1 - outOfSampleE / pick.expectancy) * 100 : 0;
   // Report OOS pair count (true DoF for scoreTp), not raw row count.
   return { inSampleE: pick.expectancy, outOfSampleE, degradationPct, oosN: oosPairs.length };
