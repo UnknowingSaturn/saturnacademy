@@ -335,6 +335,20 @@ export interface DashboardMetrics {
   worstTrade: number;
   currentStreak: { type: 'win' | 'loss'; count: number };
   bySession: Record<SessionType, SessionMetrics>;
+  /** Sharpe ratio of per-trade R series (mean / stddev). Null if <2 R samples. */
+  sharpeR: number | null;
+  /** Recovery factor — total $ P&L / abs(max drawdown $). Null if no drawdown. */
+  recoveryFactor: number | null;
+  /** Max consecutive wins observed. */
+  maxConsecutiveWins: number;
+  /** Max consecutive losses observed. */
+  maxConsecutiveLosses: number;
+  /** Largest peak-to-trough drawdown in $ (≤ 0). */
+  maxDrawdownDollars: number;
+  /** Per-trade R-multiple sample for histogram (closed trades with r_multiple_actual). */
+  rMultiples: number[];
+  /** Monthly cumulative P&L for heatmap, keyed YYYY-MM → $ P&L. */
+  monthlyPnl: Record<string, number>;
 }
 
 export interface SessionMetrics {
