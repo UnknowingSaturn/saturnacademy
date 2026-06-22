@@ -37,6 +37,43 @@ import {
   MIN_STREAK_FLOOR,
   SL_SWEEP_QUANTILES,
 } from "../../shared/quant/config";
+// Statistical primitives are unified across client + edge in shared/quant/stats.
+// Re-exported here so existing callers (`import { quantile, ... } from "@/lib/pairLabMath"`)
+// keep working unchanged.
+import {
+  quantile,
+  median,
+  mean,
+  stddev,
+  downsideStddev,
+  wilsonCi,
+  percentileFromSorted,
+  bootstrapMeanCi,
+  bootstrapPositivePValue,
+  bootstrapKellyCi,
+  bhSignificant,
+  rawQuarterKellyPct,
+  quarterKellyPct,
+  normalizeSession,
+  getCf,
+  numericCf,
+  multiSelectCf,
+} from "../../shared/quant/stats";
+export {
+  quantile,
+  median,
+  mean,
+  stddev,
+  downsideStddev,
+  wilsonCi,
+  bootstrapMeanCi,
+  bootstrapPositivePValue,
+  bootstrapKellyCi,
+  bhSignificant,
+  rawQuarterKellyPct,
+  quarterKellyPct,
+  normalizeSession,
+};
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
