@@ -241,20 +241,32 @@ export function getSuggestedSymbols(masterSymbol: string): string[] {
     .sort((a, b) => a.length - b.length);
 }
 
-/** Calculate similarity score between two symbols (0-1). */
+/**
+ * Normalized Levenshtein similarity in [0,1] (1 = identical).
+ * Replaces the previous "character-set overlap / maxLen" metric which
+ * misfired on FX pairs sharing characters (EURUSD↔GBPUSD scored 0.5 from
+ * the shared U/S/D).
+ */
 function calculateSimilarity(s1: string, s2: string): number {
   const a = normalizeSymbol(s1);
   const b = normalizeSymbol(s2);
   if (a === b) return 1;
   const maxLen = Math.max(a.length, b.length);
   if (maxLen === 0) return 1;
-  let matches = 0;
-  const shorter = a.length < b.length ? a : b;
-  const longer = a.length < b.length ? b : a;
-  for (let i = 0; i < shorter.length; i++) {
-    if (longer.includes(shorter[i])) matches++;
+  // Standard iterative Levenshtein with two rows.
+  const m = a.length, n = b.length;
+  let prev = new Array(n + 1).fill(0);
+  let curr = new Array(n + 1).fill(0);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
   }
-  return matches / maxLen;
+  return 1 - prev[n] / maxLen;
 }
 
 /** Suggest the best matching receiver symbol from available options. */
