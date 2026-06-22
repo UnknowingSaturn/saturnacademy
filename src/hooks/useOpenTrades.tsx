@@ -59,7 +59,6 @@ export function useOpenTrades() {
 
       if (error) throw error;
 
-      if (error) throw error;
 
       const trades = (data || []).map(transformTrade);
       

@@ -21,13 +21,6 @@ export function setDismissed(key: string): void {
   }
 }
 
-export function clearDismissed(key: string): void {
-  try {
-    localStorage.removeItem(PREFIX + key);
-  } catch {
-    /* ignore */
-  }
-}
 
 /** Remove every tutorial.* key — wired to a "Reset tutorials" action later. */
 export function resetAllTutorials(): void {

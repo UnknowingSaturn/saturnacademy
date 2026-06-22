@@ -59,7 +59,8 @@ export function transformTrade(row: any): Trade {
     time: f.occurred_at,
     lots: f.lots,
     price: f.price,
-    pnl: (f.profit ?? 0) - Math.abs(f.commission ?? 0) + (f.swap ?? 0),
+    // Signed addition — matches supabase/functions/_shared/pnl.ts.
+    pnl: (f.profit ?? 0) + (f.commission ?? 0) + (f.swap ?? 0),
   }));
 
   // Keep any legacy *repair markers* (objects without a `lots` field) so the

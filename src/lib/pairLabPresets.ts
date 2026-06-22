@@ -121,6 +121,3 @@ export const STRATEGY_PRESETS: Strategy[] = [
   },
 ];
 
-export function getPreset(id: string): Strategy | undefined {
-  return STRATEGY_PRESETS.find((p) => p.id === id);
-}

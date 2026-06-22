@@ -27,8 +27,10 @@ import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
 import { pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
 
-/** Default fraction of MFE captured by a trailing stop when no empirical estimate is available. */
-export const TRAIL_CAPTURE_FRAC = 0.8;
+/** Default fraction of MFE captured by a trailing stop when no empirical estimate is available.
+ *  Unified with `supabase/functions/_shared/quant/pairLabSimulator.ts:DEFAULT_TRAIL_CAPTURE_FRAC`.
+ *  Lower (more conservative) than the historical 0.8 so client and server replays agree. */
+export const TRAIL_CAPTURE_FRAC = 0.7;
 
 // ----------------------------------------------------------------------------
 // Strategy types (unchanged shape for picker/preset back-compat)

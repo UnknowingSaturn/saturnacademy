@@ -39,6 +39,9 @@ export interface PropFirmContext {
   maxDrawdownDollars: number | null;
   /** Profit target as $. */
   profitTargetDollars: number | null;
+  /** Hard cap on suggested risk %. Mirrors src/lib/pairLabMath.ts PropFirmContext.hardCapPct
+   *  (sourced from user_settings.sim_hard_cap_pct, default 2). */
+  hardCapPct: number;
 }
 
 const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefixes: string[] }> = [
@@ -147,12 +150,21 @@ export function bhSignificant(pvals: Array<number | null>, alpha = 0.05): boolea
   for (let k = 0; k < kMax; k++) out[indexed[k].i] = true;
   return out;
 }
-export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
+/** Raw quarter-Kelly value (percent of account), uncapped. Null when edge is non-positive.
+ *  Mirrors src/lib/pairLabMath.ts:rawQuarterKellyPct. */
+export function rawQuarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
   if (!(avgWinR > 0) || !(avgLossR > 0)) return null;
   const b = avgWinR / avgLossR, p = winRate, q = 1 - p;
   const kelly = (b * p - q) / b;
   if (kelly <= 0) return null;
-  return Math.max(0.25, Math.min(1.5, kelly * 0.25 * 100));
+  return kelly * 0.25 * 100;
+}
+
+/** Back-compat clamped wrapper. Prefer `rawQuarterKellyPct` + surface `riskBelowFloor`. */
+export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: number): number | null {
+  const raw = rawQuarterKellyPct(winRate, avgWinR, avgLossR);
+  if (raw == null) return null;
+  return Math.max(0.25, Math.min(1.5, raw));
 }
 
 const SESSION_LABELS: Record<string, string> = {
@@ -233,6 +245,8 @@ export interface BucketReport {
   walkForward: { inSampleE: number; outOfSampleE: number; degradationPct: number; oosN: number } | null;
   tp1Star: Tp1Star | null;
   suggestedRiskPct: number | null;
+  /** True when raw quarter-Kelly is positive but below 0.25% — edge too thin to size meaningfully. */
+  riskBelowFloor: boolean;
   /** Prop-firm-aware cap on suggested risk (% of balance). null when no prop-firm context. */
   suggestedRiskPctPropFirmCap: number | null;
   worstLosingStreak: number;
@@ -539,29 +553,25 @@ export function computeBucket(
 
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
   const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
-  const suggestedRiskPct = n >= 10 ? quarterKellyPct(winRate, avgWinR, avgLossR) : null;
+  // Mirror client: raw quarter-Kelly clipped only at 1.5% ceiling, with a
+  // `riskBelowFloor` signal when raw < 0.25%. The previous server clamp at 0.25%
+  // silently inflated tiny edges to a 0.25% recommendation.
+  const rawKelly = n >= 10 ? rawQuarterKellyPct(winRate, avgWinR, avgLossR) : null;
+  const suggestedRiskPct = rawKelly != null ? Math.min(1.5, rawKelly) : null;
+  const riskBelowFloor = rawKelly != null && rawKelly < 0.25;
   const tp1Star = computeTp1Star(tp1StarPairs, avgLossR || 1);
 
-  // Prop-firm cap — mirrors the client formula in src/lib/pairLabMath.ts:
+  // Prop-firm cap — mirrors src/lib/pairLabMath.ts exactly:
   //   ddCappedPct = (dailyLossDollars / balance) * 100 / max(3, worstLosingStreak)
-  //   clamped to [0.1, hardCap]; hardCap defaults to 2% (matches client default).
-  // The previous server formula used fixed /3 and /5 divisors and ignored
-  // losing-streak realism, drifting from the client recommendation.
+  //   clamped to [0.1, propFirm.hardCapPct]. No extra maxDD/(2*streak) cap — the
+  //   client's daily-loss budget is the authoritative survival constraint.
   let suggestedRiskPctPropFirmCap: number | null = null;
-  if (propFirm && propFirm.balance > 0) {
-    const HARD_CAP_PCT = 2;
+  if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null && propFirm.dailyLossDollars > 0) {
     const streak = Math.max(3, longestLossStreak(rows) || 0);
-    const limits: number[] = [];
-    if (propFirm.dailyLossDollars && propFirm.dailyLossDollars > 0) {
-      limits.push((propFirm.dailyLossDollars / propFirm.balance) * 100 / streak);
-    }
-    if (propFirm.maxDrawdownDollars && propFirm.maxDrawdownDollars > 0) {
-      // Max DD divided by 2× expected streak — slower-bleed cap.
-      limits.push((propFirm.maxDrawdownDollars / propFirm.balance) * 100 / (streak * 2));
-    }
-    if (limits.length > 0) {
-      suggestedRiskPctPropFirmCap = +Math.max(0.1, Math.min(HARD_CAP_PCT, Math.min(...limits))).toFixed(2);
-    }
+    const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
+    const ddCappedPct = dailyBudgetPct / streak;
+    const hardCap = propFirm.hardCapPct > 0 ? propFirm.hardCapPct : 2;
+    suggestedRiskPctPropFirmCap = +Math.max(0.1, Math.min(hardCap, ddCappedPct)).toFixed(2);
   }
 
   const sorted = [...closed].sort((a, b) => (b.r_multiple_actual ?? 0) - (a.r_multiple_actual ?? 0));
@@ -598,6 +608,7 @@ export function computeBucket(
     walkForward,
     tp1Star,
     suggestedRiskPct,
+    riskBelowFloor,
     suggestedRiskPctPropFirmCap,
     worstLosingStreak: longestLossStreak(rows),
     loggedMfeCount: closed.filter((t) => numericCf(t, keys.mfe) != null).length,
