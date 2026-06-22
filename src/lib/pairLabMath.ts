@@ -783,7 +783,7 @@ function computeBucket(
 
   const baseRec = buildRecommendation(
     stats, winR, lossR, mfes, baseline, propFirm,
-    { mfeRPairs, winnersMaePips, trailCapture },
+    { mfeRPairs, winnersMaePips, trailCapture, tp1StarPairs: mfeRPairsForTp1 },
   );
   const recommendation: BucketRecommendation = {
     ...baseRec,
@@ -931,6 +931,7 @@ function buildRecommendation(
     mfeRPairs: Array<{ mfeR: number; rActual: number }>;
     winnersMaePips: number[];
     trailCapture: number;
+    tp1StarPairs: Array<{ mfeR: number; rActual: number | null }>;
   },
 ): BucketRecommendation {
   // ----- SL: MAE-of-winners (Sweeney / van Tharp) -----
@@ -1006,7 +1007,7 @@ function buildRecommendation(
   const riskBelowFloor = rawKelly != null && rawKelly < 0.25;
   const suggestedRiskPctCi = s.n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
 
-  const tp1Star = computeTp1Star(mfeRPairsForTp1, avgLossR || 1);
+  const tp1Star = computeTp1Star(ctx.tp1StarPairs, avgLossR || 1);
 
   // Prop-firm-aware risk cap. Uses observed worst losing streak (floored at 3)
   // to distribute the daily-loss budget over N consecutive full stops.
