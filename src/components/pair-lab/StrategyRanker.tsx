@@ -25,6 +25,19 @@ import { STRATEGY_PRESETS } from "@/lib/pairLabPresets";
 import { EquityCurveOverlay } from "./EquityCurveOverlay";
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext, TrailCaptureEstimate } from "@/lib/pairLabMath";
+import { classifyDataTier, DATA_TIER_VALIDATED_N } from "../../../shared/quant/config";
+
+// A replay row is "validated" only when its eligible sample passes the central
+// tier helper. Provisional rows still render numbers but lose the winner crown
+// and the highlight, so the user can't mistake "best of 12 thin samples" for
+// "best strategy".
+function replayTier(r: ReplayResult) {
+  return classifyDataTier({
+    n: r.eligibleCount,
+    ciLow: r.expectancyRCi ? r.expectancyRCi[0] : null,
+  });
+}
+
 
 interface Props {
   trades: Trade[];
