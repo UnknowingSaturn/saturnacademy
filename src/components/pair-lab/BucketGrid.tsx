@@ -2,6 +2,25 @@ import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { bhSignificant, type BucketReport } from "@/lib/pairLabMath";
+import {
+  classifyDataTier,
+  DATA_TIER_INSUFFICIENT_N,
+  type DataTier,
+} from "../../../shared/quant/config";
+
+function tierFor(b: BucketReport | null): DataTier | "empty" {
+  if (!b || b.n === 0) return "empty";
+  const coverage = b.n > 0
+    ? Math.max(b.loggedMfeCount, b.loggedMaeCount) / b.n
+    : 0;
+  return classifyDataTier({
+    n: b.n,
+    pValue: b.expectancyPValue,
+    ciLow: b.expectedRCi ? b.expectedRCi[0] : null,
+    coverage,
+  });
+}
+
 
 interface Props {
   symbols: string[];
