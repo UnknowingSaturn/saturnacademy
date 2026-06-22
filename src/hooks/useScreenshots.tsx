@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from "sonner";
 
 export function useScreenshots() {
   const [isUploading, setIsUploading] = useState(false);
-  const { toast } = useToast();
-
   const uploadScreenshot = async (
     file: File, 
     contextId: string, 
@@ -32,11 +30,7 @@ export function useScreenshots() {
       return data.publicUrl;
     } catch (error) {
       console.error('Screenshot upload error:', error);
-      toast({
-        title: 'Upload failed',
-        description: error instanceof Error ? error.message : 'Could not upload screenshot',
-        variant: 'destructive',
-      });
+      toast.error('Upload failed', { description: error instanceof Error ? error.message : 'Could not upload screenshot' });
       return null;
     } finally {
       setIsUploading(false);
@@ -58,11 +52,7 @@ export function useScreenshots() {
       return true;
     } catch (error) {
       console.error('Screenshot delete error:', error);
-      toast({
-        title: 'Delete failed',
-        description: error instanceof Error ? error.message : 'Could not delete screenshot',
-        variant: 'destructive',
-      });
+      toast.error('Delete failed', { description: error instanceof Error ? error.message : 'Could not delete screenshot' });
       return false;
     }
   };

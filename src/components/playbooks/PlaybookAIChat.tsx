@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { Loader2, Send, Sparkles, CheckCircle2, RotateCcw, Lightbulb, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from "sonner";
 
 interface PlaybookSuggestion {
   name?: string;
@@ -55,7 +55,6 @@ const INITIAL_MESSAGE: Message = {
 };
 
 export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: PlaybookAIChatProps) {
-  const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -99,19 +98,11 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
       if (error) {
         // Check for rate limit or payment errors
         if (error.message?.includes('429') || error.message?.includes('Rate limit')) {
-          toast({
-            title: "Rate Limited",
-            description: "Too many requests. Please wait a moment and try again.",
-            variant: "destructive"
-          });
+          toast.error("Rate Limited", { description: "Too many requests. Please wait a moment and try again." });
           throw new Error('Rate limit exceeded');
         }
         if (error.message?.includes('402') || error.message?.includes('Payment')) {
-          toast({
-            title: "Credits Required",
-            description: "Please add credits to your workspace to continue using AI.",
-            variant: "destructive"
-          });
+          toast.error("Credits Required", { description: "Please add credits to your workspace to continue using AI." });
           throw new Error('Payment required');
         }
         throw error;
@@ -128,10 +119,7 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
       
       if (data.suggestions && Object.keys(data.suggestions).length > 0) {
         setPendingSuggestions(data.suggestions);
-        toast({
-          title: "Suggestions Ready",
-          description: "Click 'Apply' to add these to your playbook form.",
-        });
+        toast.success("Suggestions Ready", { description: "Click 'Apply' to add these to your playbook form." });
       }
     } catch (error) {
       console.error('Error calling playbook assistant:', error);
@@ -154,10 +142,7 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
         content: '✅ Suggestions applied to the form! You can continue adding more details, or review the form to make adjustments.',
         followUpPrompts: ["Add entry confirmations", "Define failure modes", "Set risk limits"]
       }]);
-      toast({
-        title: "Applied!",
-        description: "AI suggestions have been added to your playbook form.",
-      });
+      toast.success("Applied!", { description: "AI suggestions have been added to your playbook form." });
     }
   };
 
@@ -166,10 +151,7 @@ export function PlaybookAIChat({ onApplySuggestions, currentPlaybook }: Playbook
     setPendingSuggestions(null);
     setShowQuickPrompts(true);
     setInput('');
-    toast({
-      title: "Conversation Reset",
-      description: "Starting fresh. Your form data is preserved.",
-    });
+    toast.success("Conversation Reset", { description: "Starting fresh. Your form data is preserved." });
   };
 
   const handleQuickPrompt = (prompt: string) => {

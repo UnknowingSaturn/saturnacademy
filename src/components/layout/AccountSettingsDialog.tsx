@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { Loader2, CheckCircle } from "lucide-react";
 
 const passwordSchema = z.object({
@@ -38,8 +38,6 @@ export const AccountSettingsDialog = React.forwardRef<
   const [isSuccess, setIsSuccess] = useState(false);
   const [errors, setErrors] = useState<{ newPassword?: string; confirmPassword?: string }>({});
   const { updatePassword, user } = useAuth();
-  const { toast } = useToast();
-
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrors({});
@@ -62,10 +60,10 @@ export const AccountSettingsDialog = React.forwardRef<
     setIsLoading(false);
 
     if (error) {
-      toast({ title: "Failed to change password", description: error.message, variant: "destructive" });
+      toast.error("Failed to change password", { description: error.message });
     } else {
       setIsSuccess(true);
-      toast({ title: "Password changed", description: "Your password has been updated successfully." });
+      toast.success("Password changed", { description: "Your password has been updated successfully." });
       setTimeout(() => {
         setIsSuccess(false);
         onOpenChange(false);

@@ -8,7 +8,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Send, Image as ImageIcon, X, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 interface TradeCommentsProps {
   tradeId: string;
@@ -18,8 +18,6 @@ export function TradeComments({ tradeId }: TradeCommentsProps) {
   const [newComment, setNewComment] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   const { data: comments = [], isLoading } = useQuery({
     queryKey: ["trade-comments", tradeId],
     queryFn: async () => {
@@ -53,7 +51,7 @@ export function TradeComments({ tradeId }: TradeCommentsProps) {
       setNewComment("");
     },
     onError: (error) => {
-      toast({ title: "Failed to add comment", description: error.message, variant: "destructive" });
+      toast.error("Failed to add comment", { description: error.message });
     },
   });
 
@@ -86,7 +84,7 @@ export function TradeComments({ tradeId }: TradeCommentsProps) {
 
       addComment.mutate({ content: "📸 Screenshot", screenshotUrl: publicUrl });
     } catch (error: any) {
-      toast({ title: "Failed to upload image", description: error.message, variant: "destructive" });
+      toast.error("Failed to upload image", { description: error.message });
     } finally {
       setIsUploading(false);
     }

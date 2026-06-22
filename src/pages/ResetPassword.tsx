@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { TrendingUp, Loader2, CheckCircle } from "lucide-react";
 
 const passwordSchema = z.object({
@@ -25,16 +25,10 @@ export default function ResetPassword() {
   const [errors, setErrors] = useState<{ password?: string; confirmPassword?: string }>({});
   const { updatePassword, session, loading } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
-
   // Redirect if no session (user didn't come from reset email)
   useEffect(() => {
     if (!loading && !session) {
-      toast({
-        title: "Invalid reset link",
-        description: "Please request a new password reset link.",
-        variant: "destructive",
-      });
+      toast.error("Invalid reset link", { description: "Please request a new password reset link." });
       navigate("/auth");
     }
   }, [session, loading, navigate, toast]);
@@ -61,7 +55,7 @@ export default function ResetPassword() {
     setIsLoading(false);
 
     if (error) {
-      toast({ title: "Failed to reset password", description: error.message, variant: "destructive" });
+      toast.error("Failed to reset password", { description: error.message });
     } else {
       setIsSuccess(true);
       setTimeout(() => {

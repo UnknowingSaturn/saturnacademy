@@ -10,7 +10,7 @@ import { Plus, Trash2, GripVertical, Clock, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SessionDefinition } from "@/types/settings";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -260,11 +260,7 @@ export function SessionConfigPanel() {
                 });
                 queryClient.invalidateQueries({ queryKey: ["trades"] });
               } catch (err) {
-                toast({
-                  title: "Reclassify failed",
-                  description: err instanceof Error ? err.message : "Unknown error",
-                  variant: "destructive",
-                });
+                toast.error("Reclassify failed", { description: err instanceof Error ? err.message : "Unknown error" });
               } finally {
                 setReclassifying(false);
               }

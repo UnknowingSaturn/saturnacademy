@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Account, AccountType, PropFirm } from '@/types/trading';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from "sonner";
 
 export function useAccounts() {
   return useQuery({
@@ -39,8 +39,6 @@ export function useAccount(accountId: string | undefined) {
 
 export function useCreateAccount() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (account: Omit<Account, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'api_key'>) => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -64,18 +62,16 @@ export function useCreateAccount() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      toast({ title: 'Account created successfully' });
+      toast.success('Account created successfully');
     },
     onError: (error) => {
-      toast({ title: 'Failed to create account', description: error.message, variant: 'destructive' });
+      toast.error('Failed to create account', { description: error.message });
     },
   });
 }
 
 export function useUpdateAccount() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Account> & { id: string }) => {
       const { data, error } = await supabase
@@ -91,18 +87,16 @@ export function useUpdateAccount() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       queryClient.invalidateQueries({ queryKey: ['account', variables.id] });
-      toast({ title: 'Account updated successfully' });
+      toast.success('Account updated successfully');
     },
     onError: (error) => {
-      toast({ title: 'Failed to update account', description: error.message, variant: 'destructive' });
+      toast.error('Failed to update account', { description: error.message });
     },
   });
 }
 
 export function useDeleteAccount() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (accountId: string) => {
       const { error } = await supabase
@@ -114,18 +108,16 @@ export function useDeleteAccount() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      toast({ title: 'Account deleted successfully' });
+      toast.success('Account deleted successfully');
     },
     onError: (error) => {
-      toast({ title: 'Failed to delete account', description: error.message, variant: 'destructive' });
+      toast.error('Failed to delete account', { description: error.message });
     },
   });
 }
 
 export function useUpdateSyncSettings() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async ({ 
       accountId, 
@@ -148,10 +140,10 @@ export function useUpdateSyncSettings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      toast({ title: 'Sync settings saved' });
+      toast.success('Sync settings saved');
     },
     onError: (error) => {
-      toast({ title: 'Failed to save sync settings', description: error.message, variant: 'destructive' });
+      toast.error('Failed to save sync settings', { description: error.message });
     },
   });
 }
@@ -163,8 +155,6 @@ export function useUpdateSyncSettings() {
  */
 export function useForceResync() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async ({
       accountIds,
@@ -194,7 +184,7 @@ export function useForceResync() {
       });
     },
     onError: (error) => {
-      toast({ title: 'Failed to queue resync', description: error.message, variant: 'destructive' });
+      toast.error('Failed to queue resync', { description: error.message });
     },
   });
 }
@@ -206,8 +196,6 @@ export function useForceResync() {
  */
 export function useStopResync() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (accountIds: string[]) => {
       if (accountIds.length === 0) return { count: 0 };
@@ -220,10 +208,10 @@ export function useStopResync() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      toast({ title: 'Resync stopped' });
+      toast.success('Resync stopped');
     },
     onError: (error) => {
-      toast({ title: 'Failed to stop resync', description: error.message, variant: 'destructive' });
+      toast.error('Failed to stop resync', { description: error.message });
     },
   });
 }

@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from "sonner";
 import { supabase } from '@/integrations/supabase/client';
 
 interface QuickConnectDialogProps {
@@ -46,8 +46,6 @@ export const QuickConnectDialog = React.forwardRef<HTMLDivElement, QuickConnectD
   const [copied, setCopied] = useState(false);
   const [importHistory, setImportHistory] = useState(true);
   const [historyPreset, setHistoryPreset] = useState<HistoryPreset>('1month');
-  const { toast } = useToast();
-
   // Generate setup token when dialog opens
   useEffect(() => {
     if (open && !setupToken) {
@@ -67,7 +65,7 @@ export const QuickConnectDialog = React.forwardRef<HTMLDivElement, QuickConnectD
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        toast({ title: 'Not authenticated', variant: 'destructive' });
+        toast.error('Not authenticated');
         return;
       }
 
@@ -96,11 +94,7 @@ export const QuickConnectDialog = React.forwardRef<HTMLDivElement, QuickConnectD
       setSetupToken(token);
     } catch (error) {
       console.error('Failed to generate setup token:', error);
-      toast({ 
-        title: 'Failed to generate setup token', 
-        description: error instanceof Error ? error.message : 'Unknown error',
-        variant: 'destructive' 
-      });
+      toast.error('Failed to generate setup token', { description: error instanceof Error ? error.message : 'Unknown error' });
     } finally {
       setIsLoading(false);
     }
@@ -112,10 +106,10 @@ export const QuickConnectDialog = React.forwardRef<HTMLDivElement, QuickConnectD
     try {
       await navigator.clipboard.writeText(setupToken);
       setCopied(true);
-      toast({ title: 'API Key copied to clipboard' });
+      toast.success('API Key copied to clipboard');
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast({ title: 'Failed to copy', variant: 'destructive' });
+      toast.error('Failed to copy');
     }
   };
 
@@ -126,7 +120,7 @@ export const QuickConnectDialog = React.forwardRef<HTMLDivElement, QuickConnectD
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast({ title: 'EA file download started' });
+    toast.success('EA file download started');
   };
 
   const handleClose = () => {
