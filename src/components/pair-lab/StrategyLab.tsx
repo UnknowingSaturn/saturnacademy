@@ -316,6 +316,8 @@ export function StrategyLab({
                   const ratio = maxPass === minPass ? 0.5 : (cell.result.passProb - minPass) / (maxPass - minPass);
                   // Emerald-ish gradient by pass prob.
                   const bgAlpha = 0.05 + ratio * 0.35;
+                  const ciHalfPp = ((cell.result.passProbCI[1] - cell.result.passProbCI[0]) / 2) * 100;
+                  const noisy = ciHalfPp > 3;
                   return (
                     <td key={risk} className="p-0.5">
                       <button
@@ -330,12 +332,16 @@ export function StrategyLab({
                         style={{
                           backgroundColor: `hsl(150 70% 45% / ${bgAlpha})`,
                         }}
+                        title={`95% CI: ${(cell.result.passProbCI[0] * 100).toFixed(0)}–${(cell.result.passProbCI[1] * 100).toFixed(0)}%`}
                       >
                         <div className="font-mono-numbers font-semibold text-sm">
                           {(cell.result.passProb * 100).toFixed(0)}%
                         </div>
-                        <div className="font-mono-numbers text-[10px] text-muted-foreground">
-                          DD {cell.result.avgDrawdownPct.toFixed(1)}%
+                        <div className={cn(
+                          "font-mono-numbers text-[10px]",
+                          noisy ? "text-amber-500" : "text-muted-foreground",
+                        )}>
+                          {noisy ? `±${ciHalfPp.toFixed(0)}pp` : `DD ${cell.result.avgDrawdownPct.toFixed(1)}%`}
                         </div>
                       </button>
                     </td>
