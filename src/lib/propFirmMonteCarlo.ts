@@ -1,10 +1,12 @@
 // ============================================================================
-// Prop-firm Monte-Carlo engine — shared by Risk Optimization, Rotation
-// Simulator, and Challenge Planner.
+// Prop-firm Monte-Carlo engine — shared by the Strategy Lab (joint risk ×
+// rotation sweep) and the Challenge Planner card.
 //
 // Bootstraps the user's actual per-trade R sample into synthetic paths and
 // scores them against prop-firm daily-loss / max-loss / profit-target rules
-// under different multi-account rotation models.
+// under different multi-account rotation models. Uses a stationary block
+// bootstrap (Politis–Romano) to preserve short-horizon autocorrelation in
+// the R sample.
 // ============================================================================
 
 export type RotationModel =

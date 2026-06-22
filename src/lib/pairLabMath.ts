@@ -527,13 +527,15 @@ function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
   if (mfes.length < 5) return null;
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
+  // Select on expectancyR directly — the prior `hitRate × log(1+r)` was an
+  // ad-hoc utility, not an economic objective. expectancyR is the quantity
+  // a trader actually compounds.
   for (const r of candidates) {
     const hits = mfes.filter((v) => v >= r).length;
     const hitRate = hits / mfes.length;
     if (hitRate < 0.4) continue;
-    const score = hitRate * Math.log(1 + r);
     const expectancyR = hitRate * r - (1 - hitRate) * avgLossR;
-    if (!best || score > best.hitRate * Math.log(1 + best.r)) {
+    if (!best || expectancyR > best.expectancyR) {
       best = { r, hitRate, hitRateCi: wilsonCi(hits, mfes.length), expectancyR };
     }
   }
@@ -743,13 +745,26 @@ function computeBucket(
 
 interface MfePair { mfeR: number; rActual: number; }
 
-/** Replay a candidate TP against (MFE_R, r_actual) pairs. */
+/**
+ * Replay a candidate TP against (MFE_R, r_actual) pairs.
+ *
+ * Cases:
+ *  - MFE reached the candidate TP → trade would have closed at `tp` (gain = tp R).
+ *  - MFE never reached TP → no hypothetical TP fires, so the trade exits at its
+ *    *actual* realized outcome (`rActual`). The `trail` factor is intentionally
+ *    NOT applied here: discounting an already-realized exit by trailCapture
+ *    biases the TP-grid argmax low. The trail model belongs to a *different*
+ *    counterfactual (no fixed TP, trailing stop from MFE); if surfaced, score
+ *    that separately rather than mixing the two.
+ */
 function scoreTp(tp: number, sample: MfePair[], trail: number): number {
   if (sample.length === 0) return 0;
+  // `trail` is reserved for the dedicated trailing-stop counterfactual; the
+  // grid below uses pure realized outcomes when no TP would have fired.
+  void trail;
   let sum = 0;
   for (const p of sample) {
     if (p.mfeR >= tp) sum += tp;
-    else if (p.rActual >= 0) sum += p.rActual * trail;
     else sum += p.rActual;
   }
   return sum / sample.length;

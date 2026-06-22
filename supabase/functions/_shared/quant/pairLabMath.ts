@@ -188,7 +188,7 @@ export function parseTpLabel(s: string): number | null {
 }
 
 export interface BucketKey { symbol: string; session: string }
-export interface Tp1Star { r: number; hitRate: number; expectancyR: number }
+export interface Tp1Star { r: number; hitRate: number; hitRateCi: [number, number] | null; expectancyR: number }
 
 export interface BucketReport {
   key: BucketKey;
@@ -251,18 +251,28 @@ function longestLossStreak(rows: any[]): number {
   }
   return worst;
 }
+function wilsonCi(successes: number, n: number, z = 1.96): [number, number] | null {
+  if (n <= 0) return null;
+  const p = successes / n;
+  const denom = 1 + (z * z) / n;
+  const centre = (p + (z * z) / (2 * n)) / denom;
+  const margin = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denom;
+  return [Math.max(0, centre - margin), Math.min(1, centre + margin)];
+}
+
 function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
   if (mfes.length < 5) return null;
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
+  // Use expectancyR directly as the selection objective — the prior
+  // `hitRate × log(1+r)` was an ad-hoc utility, not an economic criterion.
   for (const r of candidates) {
     const hits = mfes.filter((v) => v >= r).length;
     const hitRate = hits / mfes.length;
     if (hitRate < 0.4) continue;
-    const score = hitRate * Math.log(1 + r);
     const expectancyR = hitRate * r - (1 - hitRate) * avgLossR;
-    if (!best || score > best.hitRate * Math.log(1 + best.r)) {
-      best = { r, hitRate, expectancyR };
+    if (!best || expectancyR > best.expectancyR) {
+      best = { r, hitRate, hitRateCi: wilsonCi(hits, mfes.length), expectancyR };
     }
   }
   return best;
@@ -282,12 +292,14 @@ function ticksToR(ticks: number, t: any): number | null {
 // ----- TP grid + walk-forward helpers (mirror src/lib/pairLabMath.ts) -----
 interface MfePair { mfeR: number; rActual: number }
 
-function scoreTp(tp: number, sample: MfePair[], trail: number): number {
+// `trail` is reserved for the dedicated trailing-stop counterfactual; the grid
+// here uses pure realized outcomes when no TP would have fired. See client
+// `scoreTp` for the rationale (discounting realized exits biases argmax low).
+function scoreTp(tp: number, sample: MfePair[], _trail: number): number {
   if (sample.length === 0) return 0;
   let sum = 0;
   for (const p of sample) {
     if (p.mfeR >= tp) sum += tp;
-    else if (p.rActual >= 0) sum += p.rActual * trail;
     else sum += p.rActual;
   }
   return sum / sample.length;

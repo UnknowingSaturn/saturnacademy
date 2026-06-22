@@ -18,9 +18,32 @@ export function getPipSize(symbol: string): number {
   return 0.0001;
 }
 
-export function getPipValue(symbol: string, lots: number): number {
+/**
+ * Approximate USD pip value per lot. Used ONLY as a fallback when the primary
+ * gross-PnL-derived $/point path is unavailable — that path is broker-agnostic
+ * and exact, so prefer it whenever possible.
+ *
+ * Returns `null` for symbols whose pip value depends on a live FX rate we
+ * don't have at hand (JPY crosses): better to skip R-multiple than to publish
+ * a 10–35%-biased number. The caller should treat `null` as "no fallback
+ * available" and skip the R computation.
+ */
+export function getPipValue(
+  symbol: string,
+  lots: number,
+  ctx?: { exitPrice?: number | null },
+): number | null {
   const n = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (n.includes("JPY")) return lots * 7.5;
+  if (n.includes("JPY")) {
+    // USD/JPY: pip value (USD) per lot = (0.01 / quote) * 100,000 = 1000 / quote.
+    // For cross-JPY pairs (EURJPY etc.) we don't have USDJPY here; skip.
+    const looksLikeUsdJpy = n.startsWith("USDJPY") || n === "USDJPY" || n.startsWith("USDJPYM") || n.startsWith("USDJPY.");
+    const quote = ctx?.exitPrice;
+    if (looksLikeUsdJpy && typeof quote === "number" && quote > 0) {
+      return (lots * 1000) / quote;
+    }
+    return null;
+  }
   if (n.includes("XAU") || n.includes("GOLD")) return lots * 10;
   if (n.includes("XAG") || n.includes("SILVER")) return lots * 50;
   if (n.includes("SP500") || n.includes("SPX") || n.includes("US500")) return lots * 0.50;
@@ -49,9 +72,14 @@ export interface ComputeROpts {
 
 // Derive R-multiple. Prefers deriving $/point from the trade's own realized PnL across
 // ALL fills (broker-agnostic, works for indices/metals/crypto and partial closes).
-// Falls back to the pip table, then to equity-based R%.
+// Falls back to the pip table when grossPnl isn't usable.
+//
+// Returns `null` when neither path can produce an *honest* R. The equity-based
+// fallback (`netPnl / equity * 100`) is deliberately removed because it is a
+// percent-return on account, not an R-multiple — storing it in the R field
+// poisoned every downstream bucket statistic.
 export function computeRMultiple(opts: ComputeROpts): number | null {
-  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, equityAtEntry, direction, fills } = opts;
+  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, direction, fills } = opts;
   if (netPnl === null || netPnl === undefined) return null;
 
   if (slPrice && entryPrice && slPrice !== entryPrice && lots && lots > 0) {
@@ -84,13 +112,11 @@ export function computeRMultiple(opts: ComputeROpts): number | null {
     }
 
     const pipSize = getPipSize(symbol);
-    const pipValue = getPipValue(symbol, lots);
+    const pipValue = getPipValue(symbol, lots, { exitPrice });
+    if (pipValue == null) return null;
     const risk = (stopDistance / pipSize) * pipValue;
     if (risk > 0) return Math.round((netPnl / risk) * 100) / 100;
   }
 
-  if (equityAtEntry && equityAtEntry > 0) {
-    return Math.round((netPnl / equityAtEntry) * 10000) / 100;
-  }
   return null;
 }
