@@ -256,30 +256,14 @@ export default function PairLab() {
           })()}
         </TabsContent>
 
-        <TabsContent value="risk" className="mt-4">
-          <RiskOptimizationLab
-            trades={data.trades}
-            balance={data.simBalance}
-            dailyLossDollars={data.propFirm?.dailyLossDollars ?? null}
-            maxDrawdownDollars={data.propFirm?.maxDrawdownDollars ?? null}
-          />
-        </TabsContent>
-
-        <TabsContent value="rotation" className="mt-4">
-          <RotationSimulator
+        <TabsContent value="strategy" className="mt-4">
+          <StrategyLab
             trades={data.trades}
             defaultAccountSize={data.simBalance > 0 ? data.simBalance : 100_000}
-            defaultDailyLossPct={data.propFirm && data.propFirm.dailyLossDollars != null && data.simBalance > 0
-              ? (data.propFirm.dailyLossDollars / data.simBalance) * 100
-              : 5}
-            defaultMaxLossPct={data.propFirm && data.propFirm.maxDrawdownDollars != null && data.simBalance > 0
-              ? (data.propFirm.maxDrawdownDollars / data.simBalance) * 100
-              : 10}
+            dailyLossDollars={propFirmMode ? (data.propFirm?.dailyLossDollars ?? null) : null}
+            maxDrawdownDollars={propFirmMode ? (data.propFirm?.maxDrawdownDollars ?? null) : null}
+            hasPropFirmProfile={propFirmMode && data.propFirm != null && data.propFirm.dailyLossDollars != null}
           />
-        </TabsContent>
-
-        <TabsContent value="excursions" className="mt-4">
-          <MaeMfeMatrix trades={data.trades} fieldKeys={data.fieldKeys} />
         </TabsContent>
 
         <TabsContent value="aliases" className="mt-4">
