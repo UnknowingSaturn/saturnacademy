@@ -37,12 +37,22 @@ export interface MCParams {
   paths?: number;
   /** Optional deterministic seed for reproducibility. */
   seed?: number;
+  /**
+   * Max-loss accounting mode.
+   *  - `static` (default): bust when account is `maxLossPct` below the *starting* balance.
+   *    Matches firms with a fixed daily/overall drawdown line (e.g. The Funded Trader static).
+   *  - `trailing`: bust when account is `maxLossPct` below its *peak equity since start*.
+   *    Matches FTMO / MyForexFunds / most modern trailing-DD firms.
+   */
+  maxLossMode?: "static" | "trailing";
 }
 
 export interface MCResult {
   paths: number;
   /** Probability that at least one account reaches the target before all accounts bust. */
   passProb: number;
+  /** Wilson 95% CI for passProb (Monte-Carlo sampling noise only). */
+  passProbCI: [number, number];
   /** Probability that every account busts before any hits the target (within maxDays). */
   failProb: number;
   /** Probability that maxDays elapsed with neither pass nor full fail. */
@@ -53,8 +63,10 @@ export interface MCResult {
   avgDrawdownPct: number;
   /** Mean fraction of accounts surviving at path end (not busted). */
   accountSurvivalRate: number;
-  /** Probability any single account hits maxLoss (risk of ruin per account). */
+  /** Probability that AT LEAST ONE account busts within a path (per-path ruin). */
   riskOfRuin: number;
+  /** Per-account bust rate across all accounts × paths (legacy metric, kept for compatibility). */
+  perAccountBustRate: number;
   /** Distribution of final equity (% of starting balance) — aggregated per-account across all paths. */
   finalEquityDistributionPct: number[];
   /** Mean expected return as % of starting balance, per account, at path end. */
