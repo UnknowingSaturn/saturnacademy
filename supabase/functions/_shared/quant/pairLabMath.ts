@@ -212,6 +212,16 @@ export interface BucketReport {
   /** "pips" for FX/metals/crypto/oil, "points" for indices. */
   slUnit: "pips" | "points";
   tpLadderR: number[];
+  /** TP that wins the MFE-grid expectancy search (R). null when fallback used. */
+  suggestedTpR: number | null;
+  /** Expectancy at the chosen TP cell. null when fallback used. */
+  expectancyAtSuggested: number | null;
+  /** Bootstrap 95% CI on expectancyAtSuggested. null when fallback used. */
+  expectancyAtSuggestedCi: [number, number] | null;
+  /** "validated" (CI > 0) | "low" (CI ≤ 0) | "insufficient" (fallback used). */
+  recommendationConfidence: "validated" | "low" | "insufficient";
+  /** Walk-forward IS/OOS check on the SL/TP recommendation. null when N<30 or OOS<5. */
+  walkForward: { inSampleE: number; outOfSampleE: number; degradationPct: number; oosN: number } | null;
   tp1Star: Tp1Star | null;
   suggestedRiskPct: number | null;
   /** Prop-firm-aware cap on suggested risk (% of balance). null when no prop-firm context. */
