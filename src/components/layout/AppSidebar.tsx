@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 
 import { AccountSettingsDialog } from "./AccountSettingsDialog";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 
 import {
   Sidebar,
@@ -75,7 +75,9 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
     const { signOut, user } = useAuth();
     const openTradesCount = useOpenTradesCount();
     const { selectedAccountId, setSelectedAccountId, selectedAccount, accounts } = useAccountFilter();
+    const { pathname } = useLocation();
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const isActive = (url: string) => pathname === url || pathname.startsWith(url + "/");
     
 
     const getCopierRoleBadge = (role: string) => {
@@ -198,14 +200,8 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
               <SidebarMenu>
                 {mainItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild tooltip={item.title}>
-                      <NavLink
-                        to={item.url}
-                        className={({ isActive }) => cn(
-                          "flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors",
-                          isActive && "bg-sidebar-accent text-sidebar-primary font-medium",
-                        )}
-                      >
+                    <SidebarMenuButton asChild tooltip={item.title} isActive={isActive(item.url)}>
+                      <NavLink to={item.url} className="flex items-center gap-3">
                         <item.icon className="w-5 h-5 shrink-0" />
                         {!collapsed && <span className="flex-1">{item.title}</span>}
                         {item.url === '/live-trades' && openTradesCount > 0 && (
@@ -230,14 +226,8 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
               <SidebarMenu>
                 {toolItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild tooltip={item.title}>
-                      <NavLink
-                        to={item.url}
-                        className={({ isActive }) => cn(
-                          "flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors",
-                          isActive && "bg-sidebar-accent text-sidebar-primary font-medium",
-                        )}
-                      >
+                    <SidebarMenuButton asChild tooltip={item.title} isActive={isActive(item.url)}>
+                      <NavLink to={item.url} className="flex items-center gap-3">
                         <item.icon className="w-5 h-5 shrink-0" />
                         {!collapsed && <span>{item.title}</span>}
                       </NavLink>
