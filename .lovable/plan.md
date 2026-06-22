@@ -1,71 +1,74 @@
-# Expandable strategy rows with SL/TP details
+# Feature-list audit + minimum additions
 
-Users can't read what each preset actually does. The ranker shows totals but hides the rules (slRule, exit ladder, runner) and never surfaces "if I run this preset, what stop and TPs am I using". Fix by making each row expandable into a parameters panel, and by computing the **applied SL (in pips) and TP ladder (in R)** during replay so we can show them.
+Most of this is already shipped. Below is what you have, what's missing, and the smallest set of additions to close the gap.
 
-## What the user sees
+## Already covered — do nothing
 
-Per row in `StrategyRanker`: a chevron toggles a slide-out detail panel with three blocks.
+| Spec item | Where it lives today |
+| --- | --- |
+| Trade fields (date, pair, session, direction, setup, market condition, entry/stop/target, risk %, R, MAE, MFE, notes, screenshot) | `trades` table (48 cols) + Journal page + custom fields |
+| CSV import with column mapping | `src/pages/Import.tsx` |
+| Win rate, avg winner/loser, expectancy, profit factor, avg R, P&L, current streak, per-session breakdown | `useDashboardMetrics` + `SessionBreakdown` |
+| Equity curve | `components/dashboard/EquityCurve.tsx` |
+| Exit-strategy comparison (Strategies A–E + custom) | Pair Lab **Auto-ranker** with 12 presets, walk-forward, equity overlay, prop-firm verdict, per-strategy SL/TP detail panel (just shipped) |
+| MAE/MFE analysis per bucket + AI recommendation ("stops too tight / wide") | `QuantNotePanel`, `BucketGrid`, `pairLabMath.ts` (`driftBadge`, SL drift) |
+| Insights engine (best session/setup/RR, recommendations) | `QuantNotePanel` per-bucket AI note + Reports `TradeHighlights` |
+| Single-risk-% prop-firm sim with bust verdict | Pair Lab Auto-ranker (risk slider, pass/bust badge) |
 
-```text
-▸ Tighten SL → ideal · runner 33%@1R + 33%@2R + trail        5/55   …
-  ────────────────────────────────────────────────────────────────────
-  ▼ click to expand
-  ────────────────────────────────────────────────────────────────────
-   STOP LOSS                    TAKE PROFITS                RUNNER
-   Rule  tighten to ideal       1R   33%  fixed             Trail to MFE
-   Median applied  6 pips       2R   33%  fixed             (capture 38%)
-   Range  4 – 9 pips            trail third — see runner    BE after TPs:
-   (≈ 60 ticks · 1 pip = 10t)                                no
-```
+## Missing — add these (5 focused pieces)
 
-Includes a one-line legend at the top of the ranker:
+### 1. Dashboard metric expansion *(small)*
+Extend `useDashboardMetrics` and add three small cards/charts to Dashboard:
+- Sharpe ratio, recovery factor, max consecutive wins, max consecutive losses, max drawdown $/% (currently only "current streak" exists).
+- **Monthly returns** heatmap (year × month grid).
+- **Win/Loss distribution** histogram (R-multiple bins).
 
-> MAE & Ideal-SL are stored in **ticks** (TradingView long/short tool). MFE & TP targets are **R-multiples** (1R = the initial stop distance).
+### 2. MAE/MFE cross-tab page *(small)*
+New tab under Dashboard (or a section in Pair Lab) showing a matrix:
+- Rows = setup type, Columns = session, Cell = avg MAE / avg MFE in R.
+- One verdict line per row: "Stop too wide / too tight / aligned" using the existing `driftBadge` math in `pairLabMath.ts`.
+- Reuses everything from `pairLabMath`; pure presentation layer.
 
-## Technical changes
+### 3. Challenge Planner card *(small — Accounts page)*
+For each account flagged as prop-firm, render one card:
+- Inputs (already on `accounts` table or `prop_firm_rules`): daily-loss %, max-loss %, phase target %.
+- Live outputs: current equity, distance to target (%, $), remaining DD (%, $), **required net R to pass** at the account's average risk %, **historical pass probability** = % of past N-trade windows in the user's journal that hit the target without breaching limits (bootstrap over closed trades).
+- No Monte-Carlo here — just empirical resampling. Fast, deterministic, no new infra.
 
-### 1. Engine: surface applied SL / TP per replay
+### 4. Risk Optimization grid *(new — Pair Lab tab)*
+New tab "Risk lab" in `PairLab.tsx`:
+- Fixed rows: 1.0%, 1.25%, 1.5%, 2.0% (configurable list).
+- Columns: expected return, prob. of challenge pass, avg days to pass, **risk of ruin**, max expected DD.
+- Engine: bootstrap the user's actual per-trade R sample (`r_multiple_actual`) into 5000 synthetic equity paths per risk %, applying the active prop-firm limits and target. Reuse `bootstrapMeanCi` infrastructure from `pairLabMath.ts`.
+- Output a single "Recommended" pill on the best row by `pass_prob × (1 − risk_of_ruin)`.
 
-`src/lib/pairLabSimulator.ts`
-- Extend `ReplayResult` with:
-  ```ts
-  appliedSlPipsMedian: number | null;
-  appliedSlPipsRange: [number, number] | null;
-  appliedTpLadder: Array<{ atR: number; fraction: number; source: "fixed" | "bucket_mfe_p50" | "bucket_mfe_p60" | "bucket_mfe_p75" }>;
-  runnerLabel: string;            // plain English
-  slRuleLabel: string;            // plain English
-  ```
-- In `replayOneTrade` (or its caller), for each eligible trade capture the SL distance actually used (original × scale for `tighten_to_ideal` / `widen_to_mae_p75_x_1_15`). Aggregate p25/p50/p75 across the eligible set after the loop.
-- Resolve adaptive partial targets once at the bucket level (`resolvePartialAtR`) and emit them into `appliedTpLadder` so the UI shows e.g. "2.8R · adaptive (MFE p60)".
-- Add a small `slRuleLabel` / `runnerLabel` map so the UI doesn't carry rule strings.
+### 5. Rotation Simulator *(new — Pair Lab tab, the marquee piece)*
+New tab "Rotation lab" in `PairLab.tsx`:
+- Inputs: # accounts, account size, risk %, daily-loss %, max-loss %, target %, rotation model.
+- Rotation models: `one_only`, `simultaneous`, `stay_on_winner_switch_on_loss`, `round_robin`, `custom` (later).
+- Engine: Monte-Carlo (default 2000 paths) sampling per-trade R from the user's actual journal (same bootstrap pool as Risk Optimization). Each path simulates account selection per rotation model and tracks per-account equity, daily and total caps.
+- Outputs: pass probability, avg days to pass, avg DD, account survival rate, failure probability — plus a small distribution chart of final equity per account.
 
-### 2. UI: expandable rows
+## Shared engine
 
-`src/components/pair-lab/StrategyRanker.tsx`
-- Track `openId: string | null` in local state.
-- Wrap each `<tr>` in a Fragment; render a second `<tr>` with `colSpan={9}` that contains the detail panel when `openId === r.strategy.id`.
-- Strategy name becomes a `<button>` with chevron icon; tapping toggles. Keyboard accessible.
-- Detail panel layout — three columns: **Stop loss**, **Take profits**, **Runner** + a short description line above them (re-uses `r.strategy.description`).
-- TP table rows: `{atR}R · {fraction*100}% · {source === "fixed" ? "fixed" : `adaptive (${source.replace("bucket_mfe_", "MFE ")})`}`.
-- For ineligible / insufficient-sample strategies, still show the rules block (it's static) but render SL/TP medians as "—".
+One new file `src/lib/propFirmMonteCarlo.ts` houses the bootstrap + per-rule simulator, consumed by **#3, #4, #5**. Single source of truth so a change to "risk of ruin" math updates every surface.
 
-### 3. Units legend
+## Out of scope (explicitly)
 
-Single line under the ranker header, before the toolbar:
+- No new exit-strategy presets — Auto-ranker already covers A–E and 7 more.
+- No new MAE/MFE math — `pairLabMath.ts` already computes percentiles & drift badges.
+- No standalone "Insights Engine" page — existing `QuantNotePanel` AI note already lists best session / best setup / best RR with citations.
+- No design overhaul — reuse existing tokens, cards, and the institutional dark theme already in place.
 
-> MAE & Ideal-SL in **ticks** · MFE & TP targets in **R**.
+## Open question (one) before I build
 
-## Out of scope
+The Rotation Simulator and Risk Optimization engines both need 2,000–5,000 Monte-Carlo paths per change. Two options:
 
-- No changes to the math layer (`pairLabMath.ts`).
-- No changes to the AI quant note or bucket grid.
-- No edge-function changes (`pair-lab-report` consumer is unaffected — fields are additive).
+- **(a) Run in browser** with a Web Worker — instant, no infra, ~200 ms per recompute on a 300-trade sample.
+- **(b) Run in a Supabase edge function** — keeps `PairLab.tsx` thin, can cache results, easier to share via reports later.
+
+My recommendation is **(a)** for v1 — faster iteration, no cold starts, identical math to existing client engines. We can promote to an edge function later if reports need it. Confirm (a) or pick (b).
 
 ## Verification
 
-- Playwright on `/pair-lab` simulator tab:
-  - Expand the winner row, screenshot, confirm SL median in pips renders and TP ladder lists fractions + sources.
-  - Expand an "insufficient sample" row, confirm rules render with SL/TP medians as `—`.
-  - Click again to collapse.
-- Console errors: none.
-- Type check passes (new `ReplayResult` fields propagate through `StrategyRanker`, `EquityCurveOverlay`, walk-forward).
+After build: Playwright on `/dashboard`, `/accounts`, `/pair-lab` (Risk lab + Rotation lab tabs) — confirm metric cards render, MC outputs converge across re-runs, no console errors.

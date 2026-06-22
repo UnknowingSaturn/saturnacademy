@@ -15,6 +15,9 @@ import { SymbolAliasManager } from "@/components/pair-lab/SymbolAliasManager";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
 import { SimulatorProfileSettings } from "@/components/pair-lab/SimulatorProfileSettings";
+import { RiskOptimizationLab } from "@/components/pair-lab/RiskOptimizationLab";
+import { RotationSimulator } from "@/components/pair-lab/RotationSimulator";
+import { MaeMfeMatrix } from "@/components/pair-lab/MaeMfeMatrix";
 import { normalizeSession } from "@/lib/pairLabMath";
 
 export default function PairLab() {
@@ -126,6 +129,9 @@ export default function PairLab() {
         <TabsList>
           <TabsTrigger value="grid">Grid</TabsTrigger>
           <TabsTrigger value="simulator">Simulator</TabsTrigger>
+          <TabsTrigger value="risk">Risk lab</TabsTrigger>
+          <TabsTrigger value="rotation">Rotation lab</TabsTrigger>
+          <TabsTrigger value="excursions">MAE/MFE</TabsTrigger>
           <TabsTrigger value="aliases">Symbol aliases</TabsTrigger>
         </TabsList>
 
@@ -252,6 +258,32 @@ export default function PairLab() {
               </>
             );
           })()}
+        </TabsContent>
+
+        <TabsContent value="risk" className="mt-4">
+          <RiskOptimizationLab
+            trades={data.trades}
+            balance={data.simBalance}
+            dailyLossDollars={data.propFirm?.dailyLossDollars ?? null}
+            maxDrawdownDollars={data.propFirm?.maxDrawdownDollars ?? null}
+          />
+        </TabsContent>
+
+        <TabsContent value="rotation" className="mt-4">
+          <RotationSimulator
+            trades={data.trades}
+            defaultAccountSize={data.simBalance > 0 ? data.simBalance : 100_000}
+            defaultDailyLossPct={data.propFirm && data.propFirm.dailyLossDollars != null && data.simBalance > 0
+              ? (data.propFirm.dailyLossDollars / data.simBalance) * 100
+              : 5}
+            defaultMaxLossPct={data.propFirm && data.propFirm.maxDrawdownDollars != null && data.simBalance > 0
+              ? (data.propFirm.maxDrawdownDollars / data.simBalance) * 100
+              : 10}
+          />
+        </TabsContent>
+
+        <TabsContent value="excursions" className="mt-4">
+          <MaeMfeMatrix trades={data.trades} fieldKeys={data.fieldKeys} />
         </TabsContent>
 
         <TabsContent value="aliases" className="mt-4">

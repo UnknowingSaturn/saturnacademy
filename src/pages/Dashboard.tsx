@@ -10,6 +10,7 @@ import { ExportControls } from '@/components/reports/ExportControls';
 import { EquityCurve } from '@/components/dashboard/EquityCurve';
 import { SessionBreakdown } from '@/components/dashboard/SessionBreakdown';
 import { PlaybookCompliance } from '@/components/dashboard/PlaybookCompliance';
+import { ExtendedDashboardMetrics } from '@/components/dashboard/ExtendedDashboardMetrics';
 
 import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
 import { useBalanceHistory } from '@/hooks/useBalanceHistory';
@@ -228,6 +229,10 @@ function Dashboard() {
         />
         <SessionBreakdown bySession={dashboardMetrics.bySession} />
       </div>
+
+      <ExtendedDashboardMetrics metrics={dashboardMetrics} startingBalance={periodStartingBalance} />
+
+
 
 
       {/* Main Content */}

@@ -6,6 +6,7 @@ import { useArchiveAllTrades } from '@/hooks/useTrades';
 import { AccountCard } from '@/components/accounts/AccountCard';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
 import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
+import { ChallengePlannerCard } from '@/components/accounts/ChallengePlannerCard';
 import { PageIntroBanner } from '@/components/tutorial/PageIntroBanner';
 import { TutorialDialog } from '@/components/tutorial/TutorialDialog';
 import { useFirstVisit } from '@/hooks/useFirstVisit';
@@ -91,6 +92,19 @@ export default function Accounts() {
               />
             ))}
           </div>
+
+          {accounts && accounts.some((a) => a.prop_firm) && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Challenge planners</h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                {accounts.filter((a) => a.prop_firm).map((a) => (
+                  <ChallengePlannerCard key={a.id} account={a} />
+                ))}
+              </div>
+            </div>
+          )}
+
+
 
           <div className="mt-8 border border-destructive/30 rounded-lg overflow-hidden">
             <div className="flex items-center gap-2 p-4 bg-destructive/5 border-b border-destructive/20">
