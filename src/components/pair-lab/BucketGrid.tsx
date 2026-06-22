@@ -60,6 +60,21 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
       <div className="text-[10px] text-muted-foreground font-mono-numbers">
         MFE {b.mfeP75 != null ? `${b.mfeP75.toFixed(2)}R` : "–"} · MAE {b.maeP75Ticks != null ? `${b.maeP75Ticks.toFixed(0)}t` : "–"}
       </div>
+      {b.n >= 10 && b.recommendation.suggestedTpR != null && (
+        <div
+          className={cn(
+            "text-[10px] font-mono-numbers",
+            b.recommendation.recommendationConfidence === "validated"
+              ? "text-profit"
+              : b.recommendation.recommendationConfidence === "low"
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-muted-foreground",
+          )}
+          title={`Suggested TP ${b.recommendation.suggestedTpR.toFixed(2)}R · SL ${b.recommendation.suggestedSlPips?.toFixed(0) ?? "–"} pips · confidence ${b.recommendation.recommendationConfidence}`}
+        >
+          → TP {b.recommendation.suggestedTpR.toFixed(2)}R
+        </div>
+      )}
       <div
         className={cn("text-[10px] font-mono-numbers", mfeCovColor)}
         title={`${b.loggedMfeCount} of ${b.n} trades have an MFE value recorded. Preset simulations need ≥10 logged trades to be meaningful.`}

@@ -59,6 +59,8 @@ export interface MCResult {
   finalEquityDistributionPct: number[];
   /** Mean expected return as % of starting balance, per account, at path end. */
   expectedReturnPct: number;
+  /** Stationary block bootstrap block size (sqrt(N)). 0 when rSample empty. */
+  blockSize: number;
 }
 
 // ----------------------------------------------------------------------------
@@ -100,11 +102,23 @@ function simulateOnePath(p: MCParams, rng: () => number): PathState {
   const busted = new Array(numAccounts).fill(false);
   let cursor = 0; // for round-robin / stay-on-winner
 
+  // Stationary block bootstrap (Politis–Romano). Block size = sqrt(N), and at
+  // each step we reset the block with probability 1/blockSize — this preserves
+  // serial correlation (loss clusters stay clustered) without locking block
+  // boundaries the way a fixed-block bootstrap would.
+  const blockSize = Math.max(3, Math.round(Math.sqrt(p.rSample.length || 1)));
+  const blockReset = 1 / blockSize;
+  let bbIdx = p.rSample.length > 0 ? Math.floor(rng() * p.rSample.length) : 0;
+
   for (let day = 1; day <= p.maxDays; day += 1) {
     const dayPnL = new Array(numAccounts).fill(0);
     for (let tradeIdx = 0; tradeIdx < p.tradesPerDay; tradeIdx += 1) {
-      // Sample one R from the historical pool.
-      const r = p.rSample[Math.floor(rng() * p.rSample.length)] ?? 0;
+      // Sample one R from the historical pool via stationary block bootstrap.
+      if (rng() < blockReset && p.rSample.length > 0) {
+        bbIdx = Math.floor(rng() * p.rSample.length);
+      }
+      const r = p.rSample[bbIdx] ?? 0;
+      bbIdx = (bbIdx + 1) % Math.max(1, p.rSample.length);
       const pnl = r * dollarRisk;
 
       // Decide which accounts receive this trade.
@@ -209,8 +223,10 @@ export function runMonteCarlo(params: MCParams): MCResult {
       riskOfRuin: 0,
       finalEquityDistributionPct: [],
       expectedReturnPct: 0,
+      blockSize: 0,
     };
   }
+  const blockSize = Math.max(3, Math.round(Math.sqrt(params.rSample.length)));
 
   let passes = 0;
   let fails = 0;
@@ -256,6 +272,7 @@ export function runMonteCarlo(params: MCParams): MCResult {
     riskOfRuin: totalAccounts > 0 ? ruinedAccounts / totalAccounts : 0,
     finalEquityDistributionPct: finalEqPct,
     expectedReturnPct: totalAccounts > 0 ? returnSumPct / totalAccounts : 0,
+    blockSize,
   };
 }
 
