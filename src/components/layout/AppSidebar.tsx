@@ -21,7 +21,8 @@ import {
 } from "lucide-react";
 
 import { AccountSettingsDialog } from "./AccountSettingsDialog";
-import { NavLink } from "@/components/NavLink";
+import { NavLink } from "react-router-dom";
+import { cn } from "@/lib/utils";
 
 import {
   Sidebar,
@@ -199,10 +200,12 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
                 {mainItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild tooltip={item.title}>
-                      <NavLink 
-                        to={item.url} 
-                        className="flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                        activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                      <NavLink
+                        to={item.url}
+                        className={({ isActive }) => cn(
+                          "flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors",
+                          isActive && "bg-sidebar-accent text-sidebar-primary font-medium",
+                        )}
                       >
                         <item.icon className="w-5 h-5 shrink-0" />
                         {!collapsed && <span className="flex-1">{item.title}</span>}
@@ -229,10 +232,12 @@ export const AppSidebar = React.forwardRef<HTMLDivElement, object>(
                 {toolItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild tooltip={item.title}>
-                      <NavLink 
-                        to={item.url} 
-                        className="flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                        activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                      <NavLink
+                        to={item.url}
+                        className={({ isActive }) => cn(
+                          "flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors",
+                          isActive && "bg-sidebar-accent text-sidebar-primary font-medium",
+                        )}
                       >
                         <item.icon className="w-5 h-5 shrink-0" />
                         {!collapsed && <span>{item.title}</span>}

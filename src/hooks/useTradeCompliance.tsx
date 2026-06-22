@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Trade, Playbook, SessionType } from "@/types/trading";
 import { useTrades } from "./useTrades";
 import { startOfDay, endOfDay, parseISO, format } from "date-fns";
-import { normalizeSymbol } from "@/lib/symbolMapping";
+import { normalizeSymbol } from "@/lib/symbolAliasing";
 
 export interface ComplianceRule {
   id: string;
