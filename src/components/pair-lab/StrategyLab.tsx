@@ -221,19 +221,45 @@ export function StrategyLab({
             cell to inspect.
           </p>
         </div>
-        {best && !provisional && (
+        {best && edgePositive && !provisional && (
           <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
             Recommended: {ROTATION_LABELS[best.model]} @ {best.risk.toFixed(2)}%
           </Badge>
         )}
-        {best && provisional && (
+        {best && edgePositive && provisional && (
           <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">
             Provisional top: {ROTATION_LABELS[best.model]} @ {best.risk.toFixed(2)}%
           </Badge>
         )}
+        {!edgePositive && (
+          <Badge className="bg-destructive/15 text-destructive border-destructive/30">
+            Edge not positive — sizing analysis suppressed
+          </Badge>
+        )}
       </div>
 
-      {provisional && (
+      {!edgePositive && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs flex items-start gap-2">
+          <Info className="w-3.5 h-3.5 text-destructive mt-0.5 flex-shrink-0" />
+          <div className="space-y-1">
+            <div className="font-medium text-destructive">
+              Your historical edge isn't statistically positive.
+            </div>
+            <div className="text-muted-foreground font-mono-numbers">
+              Mean R = {edge.mean >= 0 ? "+" : ""}{edge.mean.toFixed(3)} &middot;{" "}
+              95% CI [{edge.ciLow >= 0 ? "+" : ""}{edge.ciLow.toFixed(3)},{" "}
+              {edge.ciHigh >= 0 ? "+" : ""}{edge.ciHigh.toFixed(3)}] &middot; N {edge.n}
+            </div>
+            <div className="text-muted-foreground">
+              {edge.n < 30
+                ? `Need ≥30 closed trades with R-multiples before edge can be tested (have ${edge.n}).`
+                : "The 95% confidence interval crosses zero, so any pass-prob ranking on this sample reflects path luck — not a tradeable edge. Heatmap stays visible for comparison, but no risk % is recommended. Fix the playbook (entries, exits, R per trade) before tuning size."}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {edgePositive && provisional && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs flex items-start gap-2">
           <Info className="w-3.5 h-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
           <div>
