@@ -442,17 +442,58 @@ export function computeBucket(
   }
 
   const maeP75Pips = quantile(maesPips, 0.75);
+
+  // ----- SL: MAE-of-winners (Sweeney). Tightest SL preserving 90% of winners. -----
+  const winnersMaePips: number[] = [];
+  for (const t of rows) {
+    if (t.r_multiple_actual == null || !(t.r_multiple_actual > 0)) continue;
+    const maeTicks = numericCf(t, keys.mae);
+    if (maeTicks == null || !t.symbol) continue;
+    winnersMaePips.push(Math.abs(ticksToPips(t.symbol, Math.abs(maeTicks))));
+  }
   let suggestedSlPips: number | null = null;
-  const maeCandidate = maeP75Pips != null ? maeP75Pips * 1.15 : null;
-  if (maeCandidate != null || idealMed != null) {
-    suggestedSlPips = Math.max(maeCandidate ?? 0, idealMed ?? 0);
+  let slMethod: "winners_mae" | "legacy" = "legacy";
+  const slWinners = winnersMaePips.length >= 10 ? quantile(winnersMaePips, 0.90) : null;
+  if (slWinners != null && slWinners > 0) {
+    suggestedSlPips = slWinners * 1.10;
+    slMethod = "winners_mae";
+  } else {
+    const maeCandidate = maeP75Pips != null ? maeP75Pips * 1.15 : null;
+    if (maeCandidate != null || idealMed != null) {
+      suggestedSlPips = Math.max(maeCandidate ?? 0, idealMed ?? 0);
+    }
   }
-  const ladder: number[] = [];
-  for (const v of [quantile(winR, 0.3), quantile(winR, 0.5), quantile(winR, 0.75)]) {
-    if (v == null || v <= 0) continue;
-    ladder.push(v);
+
+  // ----- TP: MFE-based expectancy grid (no survivorship bias). -----
+  const mfeRPairs = collectMfeRPairs(rows, keys);
+  const trailCapture = estimateTrailCaptureRows(rows, keys);
+  const pick = pickBestTp(mfeRPairs, trailCapture);
+  let suggestedTpR: number | null = null;
+  let expectancyAtSuggested: number | null = null;
+  let expectancyAtSuggestedCi: [number, number] | null = null;
+  let tpLadderR: number[];
+  let tpMethod: "mfe_grid" | "legacy" = "legacy";
+  if (pick) {
+    suggestedTpR = pick.tpR;
+    expectancyAtSuggested = pick.expectancy;
+    expectancyAtSuggestedCi = pick.ci;
+    tpLadderR = pick.ladder;
+    tpMethod = "mfe_grid";
+  } else {
+    const ladder: number[] = [];
+    for (const v of [quantile(winR, 0.3), quantile(winR, 0.5), quantile(winR, 0.75)]) {
+      if (v == null || v <= 0) continue;
+      ladder.push(v);
+    }
+    tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
   }
-  const tpLadderR = Array.from(new Set(ladder.map((v) => Math.round(v * 4) / 4))).slice(0, 3);
+
+  let recommendationConfidence: "validated" | "low" | "insufficient";
+  if (slMethod === "legacy" || tpMethod === "legacy") recommendationConfidence = "insufficient";
+  else if (expectancyAtSuggestedCi && expectancyAtSuggestedCi[0] > 0) recommendationConfidence = "validated";
+  else recommendationConfidence = "low";
+
+  const walkForward = runWalkForward(rows, keys);
 
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
   const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
