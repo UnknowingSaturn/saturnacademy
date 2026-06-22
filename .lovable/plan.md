@@ -1,69 +1,53 @@
-## Pass D Verification & Sidebar Color Fix
 
-### Findings
+## Problem
+Grid cells and simulator outputs render the same way no matter how thin the underlying data is. A cell with N=3 currently shows `+0.42R`, `33%`, `→ TP 1.25R` — visually indistinguishable from a cell with N=120. The user reads it as a result.
 
-**1. Sidebar regression — confirmed cause**
-Playwright probe of the live preview shows every sidebar link's `className` attribute literally contains the stringified function:
+What's already in place: confidence dots (🟢🟡🔴), FDR badge, low-sample tooltip, MFE/MAE coverage colors, `MIN_ELIGIBLE_SAMPLE=10` in the ranker. These are *labels next to numbers* — the numbers are still the loudest thing on screen.
 
+## Principle
+**If the data can't support a conclusion, don't render a conclusion.** Replace the number with a state, not a decoration around the number.
+
+## Proposed approach — three tiers, applied everywhere
+
+Define three data states centrally (in `shared/quant/config.ts`) and have every surface honor them:
+
+| State | Trigger | What the UI shows |
+|---|---|---|
+| `insufficient` | n < 10 OR coverage < 30% | dashes (`—`) + "need ≥10" hint. **No** expectancy, win%, TP suggestion, simulator row, equity curve. |
+| `provisional` | 10 ≤ n < 30 OR FDR `ns` OR CI crosses 0 | numbers shown but **muted** (opacity, no color, no bold), prefixed `~`, plus a "provisional" pill. No TP recommendation, no "winner" crown, excluded from ranker top slot. |
+| `validated` | n ≥ 30 AND FDR `sig` AND CI > 0 | full color treatment as today. |
+
+### Where this applies
+1. **BucketGrid cells** — `insufficient` cells render only `N=x — too few` (no expR, no win%, no TP). `provisional` cells render muted numbers, no TP arrow.
+2. **Row totals** — same gating.
+3. **StrategyRanker** — `insufficient` rows already dashed; extend: `provisional` rows can't be the winner and lose the green highlight + crown.
+4. **StrategyLab simulator** — if the eligible R-sample feeding the Monte Carlo is `insufficient`, replace the whole grid with an empty-state card ("Need ≥10 eligible trades to simulate — currently X"). If `provisional`, keep the grid but add a banner: "Based on N=X trades — treat as directional, not predictive" and hide pass-rate %s, show only bust/no-bust.
+5. **Equity curve overlay** — same gate; don't draw a curve from <10 samples.
+
+### Thresholds — single source of truth
+Add to `shared/quant/config.ts`:
+```ts
+export const DATA_TIER = {
+  insufficient: { maxN: 9, minCoverage: 0.3 },
+  provisional:  { maxN: 29 },  // validated = n>=30 + FDR sig + CI>0
+};
 ```
-... h-8 text-sm ({ isActive })=>cn("flex items-center gap-3 ... text-sidebar-foreground ...", isActive && "bg-sidebar-accent text-sidebar-primary font-medium")
-```
+Add a helper `classifyBucket(b): "insufficient" | "provisional" | "validated"` next to it. Every surface calls that one function — no scattered `n < 10` checks.
 
-`SidebarMenuButton asChild` wraps the child in Radix `Slot`. `Slot` merges `className` by string-concatenation; it cannot evaluate the function-as-className API React Router exposes. The function gets coerced to a string and dumped into the `class` attribute, so:
-- Our `text-sidebar-foreground` baseline is never applied.
-- The anchor falls back to Chromium's dark-mode default `<a>` color `rgb(51,129,255)` (≈ primary blue).
-- `isActive` styling never fires either, so the active item also looks identical.
+## Out of scope
+- No changes to the math itself (Sprint C already proved it correct).
+- No new aggregation modes, no new bucketing — purely a presentation gate.
 
-**2. Suggested MAE / MFE math — already correct**
-Ripgrep across `src/lib/pairLabMath.ts`, `src/lib/pairLabSimulator.ts`, and `supabase/functions/_shared/quant/pairLabMath.ts` shows MAE/MFE are **never** averaged:
-- Bucket stats: `median()`, `quantile(_, 0.5/0.6/0.75)`.
-- SL recommendation: `quantile(winnersMaePips, 0.90) * 1.10`.
-- TP recommendation: `argmax E[R]` over an MFE grid, not mean MFE.
-- Only one `mean`-shaped term exists — the conditional `r_actual` mean when `MFE < TP target` (legitimate miss-cost estimator, not a distribution collapse).
+## Files touched
+- `shared/quant/config.ts` — add tiers + `classifyBucket`
+- `src/components/pair-lab/BucketGrid.tsx` — gate cell rendering
+- `src/components/pair-lab/StrategyRanker.tsx` — extend existing insufficient handling to provisional
+- `src/components/pair-lab/StrategyLab.tsx` — gate simulator + add banner
+- `src/components/pair-lab/EquityCurveOverlay.tsx` — early-return on insufficient
 
-No code change required; we'll add a one-shot diagnostic that prints the bucket-level p50/p75/p90 alongside a recomputation directly from `trade_partial_fills` so you have evidence the simulator output matches the underlying ticks.
+## One decision needed
+The `validated` threshold of **n ≥ 30 + FDR sig + CI > 0** is the conservative quant-stats default. If you'd rather:
+- **(a)** keep it strict at 30 (default proposal), or
+- **(b)** loosen to n ≥ 20 so more buckets graduate (you have 25 buckets / 408 trades),
 
-**3. Pass D cleanups — verified intact**
-`withForwardRef`, `NavLink.tsx` wrapper, and the dead `symbolMapping` exports are gone. `useTradeCompliance` resolves `normalizeSymbol` from `symbolAliasing`. Tooltip still mounts (Radix Provider/Root re-exported directly).
-
----
-
-### Plan
-
-**Fix 1 — Sidebar colors (`src/components/layout/AppSidebar.tsx`)**
-
-Replace the function-className pattern with the existing `SidebarMenuButton.isActive` data-attribute that `sidebarMenuButtonVariants` already understands:
-
-```text
-import { NavLink, useLocation } from "react-router-dom";
-
-const { pathname } = useLocation();
-...
-<SidebarMenuButton asChild tooltip={item.title} isActive={pathname === item.url || pathname.startsWith(item.url + "/")}>
-  <NavLink to={item.url} className="flex items-center gap-3">
-    <item.icon className="w-5 h-5 shrink-0" />
-    {!collapsed && <span className="flex-1">{item.title}</span>}
-    {item.url === '/live-trades' && openTradesCount > 0 && (
-      <Badge variant="secondary" className="ml-auto h-5 min-w-5 px-1.5 text-xs">{openTradesCount}</Badge>
-    )}
-  </NavLink>
-</SidebarMenuButton>
-```
-
-This delegates inactive (`text-sidebar-foreground` via variant base) and active (`data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground`) styling to the component variants — which is what every other shadcn sidebar consumer does. No more function-className passing through Slot.
-
-Apply the same treatment to both `mainItems` and `toolItems` loops.
-
-**Fix 2 — MAE/MFE verification script (read-only)**
-
-Add a throwaway `scripts/verify_pair_lab_math.ts` (not bundled) that:
-- Loads the closed trades for the current user via psql.
-- For each bucket (symbol × session) computes MAE p50/p75/p90 in pips and MFE p50/p75 in R directly from `trade_partial_fills` + `cf_mae`/`cf_ideal_stop_loss`.
-- Calls `buildBucket()` from `src/lib/pairLabMath.ts` on the same input.
-- Asserts both sides agree to within float epsilon and prints a one-line PASS/FAIL per bucket.
-
-Run it once, attach the output, then delete the script. Purpose is to prove (not promise) the simulator and the raw data agree.
-
-**Out of scope**
-- No changes to the simulator math itself — the audit found nothing averaged.
-- Remaining Pass D items (D3 selector extraction, D4 TradeTable split, D10 edge-function CORS migration, D11 type regen) and the Q1 PnL historical reconciliation decision still stand and will be addressed when you choose to bundle them.
+say (a) or (b) and I'll wire it up. Everything else proceeds as written.
