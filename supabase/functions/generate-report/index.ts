@@ -1087,6 +1087,18 @@ async function computeQuantBlock(
       suggested_sl_pips: b.suggestedSlPips != null ? +b.suggestedSlPips.toFixed(1) : null,
       sl_unit: b.slUnit,
       tp_ladder_r: b.tpLadderR,
+      suggested_tp_r: b.suggestedTpR,
+      expectancy_at_suggested_r: b.expectancyAtSuggested != null ? +b.expectancyAtSuggested.toFixed(3) : null,
+      expectancy_ci: b.expectancyAtSuggestedCi
+        ? [+b.expectancyAtSuggestedCi[0].toFixed(3), +b.expectancyAtSuggestedCi[1].toFixed(3)]
+        : null,
+      recommendation_confidence: b.recommendationConfidence,
+      walk_forward: b.walkForward ? {
+        in_sample_e: +b.walkForward.inSampleE.toFixed(3),
+        out_of_sample_e: +b.walkForward.outOfSampleE.toFixed(3),
+        degradation_pct: +b.walkForward.degradationPct.toFixed(1),
+        oos_n: b.walkForward.oosN,
+      } : null,
       tp1_star: b.tp1Star ? { r: b.tp1Star.r, hit_rate_pct: +(b.tp1Star.hitRate * 100).toFixed(1), expectancy_r: +b.tp1Star.expectancyR.toFixed(2) } : null,
       suggested_risk_pct: b.suggestedRiskPct != null ? +b.suggestedRiskPct.toFixed(2) : null,
       suggested_risk_pct_propfirm_cap: b.suggestedRiskPctPropFirmCap,
