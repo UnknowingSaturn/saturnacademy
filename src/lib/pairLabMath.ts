@@ -660,6 +660,8 @@ function computeBucket(
     maeP50: median(maesR),
     maeP75: quantile(maesR, 0.75),
     maeP75Pips: quantile(maesPips, 0.75),
+    maeP50Ticks: median(maesTicks),
+    maeP75Ticks: quantile(maesTicks, 0.75),
     idealSlMedian: idealMed,
     slInitialMedian: slInitMed,
     slDrift,
