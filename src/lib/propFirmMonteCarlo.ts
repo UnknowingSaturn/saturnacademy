@@ -59,6 +59,8 @@ export interface MCResult {
   finalEquityDistributionPct: number[];
   /** Mean expected return as % of starting balance, per account, at path end. */
   expectedReturnPct: number;
+  /** Stationary block bootstrap block size (sqrt(N)). 0 when rSample empty. */
+  blockSize: number;
 }
 
 // ----------------------------------------------------------------------------
