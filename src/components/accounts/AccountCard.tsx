@@ -3,7 +3,7 @@ import { Copy, Eye, EyeOff, Settings, Trash2, Terminal, History, Activity, Alert
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from "sonner";
 import { useDeleteAccount, useStopResync } from '@/hooks/useAccounts';
 import { useAccountStatus } from '@/hooks/useAccountStatus';
 import { usePendingRepairs } from '@/hooks/usePendingRepairs';
@@ -38,7 +38,6 @@ interface AccountCardProps {
 }
 
 export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
-  const { toast } = useToast();
   const deleteAccount = useDeleteAccount();
   const stopResync = useStopResync();
   const { data: status } = useAccountStatus(account.id);
@@ -57,11 +56,11 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
         body: { action: 'repair', account_id: account.id },
       });
       if (error) throw error;
-      toast({ title: (data as any)?.message || 'Repair complete' });
+      toast.success((data as any)?.message || 'Repair complete');
       queryClient.invalidateQueries({ queryKey: ['pending-repairs'] });
       queryClient.invalidateQueries({ queryKey: ['trades'] });
     } catch (err: any) {
-      toast({ title: 'Repair failed', description: err?.message, variant: 'destructive' });
+      toast.error('Repair failed', { description: err?.message });
     } finally {
       setRepairing(false);
     }
@@ -75,7 +74,7 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
   const copyApiKey = async () => {
     if (account.api_key) {
       await navigator.clipboard.writeText(account.api_key);
-      toast({ title: 'API key copied to clipboard' });
+      toast.success('API key copied to clipboard');
     }
   };
 

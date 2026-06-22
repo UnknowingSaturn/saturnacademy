@@ -7,7 +7,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from "sonner";
 import { Account } from '@/types/trading';
 
 interface MT5SetupDialogProps {
@@ -18,13 +18,11 @@ interface MT5SetupDialogProps {
 const CLOUD_URL = 'https://soosdjmnpcyuqppdjsse.supabase.co';
 
 export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
-  const { toast } = useToast();
-
   if (!account) return null;
 
   const copyToClipboard = async (text: string, label: string) => {
     await navigator.clipboard.writeText(text);
-    toast({ title: `${label} copied to clipboard` });
+    toast.success(`${label} copied to clipboard`);
   };
 
   return (

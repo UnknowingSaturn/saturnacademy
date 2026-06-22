@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Plus, Lightbulb, FileText, Clock, CheckCircle, Percent, Hash } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { NoAccountsEmptyState } from "@/components/shared/NoAccountsEmptyState";
 import { MultiAccountPicker } from "@/components/shared/MultiAccountPicker";
 
@@ -37,8 +37,6 @@ export function ManualTradeForm() {
   const createTrade = useCreateTrade();
   const { data: playbooks } = usePlaybooks();
   const { selectedAccountId, accounts } = useAccountFilter();
-  const { toast } = useToast();
-
   const [tradeType, setTradeType] = useState<TradeType>("executed");
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [symbol, setSymbol] = useState("");
@@ -167,13 +165,11 @@ export function ManualTradeForm() {
     }
 
     if (successCount > 1) {
-      toast({ title: `Trade logged on ${successCount} accounts` });
+      toast.success(`Trade logged on ${successCount} accounts`);
     }
     if (errors.length > 0) {
-      toast({
-        title: `Failed on ${errors.length} account${errors.length > 1 ? "s" : ""}`,
+      toast.error(`Failed on ${errors.length} account${errors.length > 1 ? "s" : ""}`, {
         description: errors.join(", "),
-        variant: "destructive",
       });
     }
 

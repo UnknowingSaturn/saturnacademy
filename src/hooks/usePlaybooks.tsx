@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Playbook, ChecklistQuestion, SessionType, RegimeType, EntryZoneRules, TradeScreenshot } from '@/types/trading';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from "sonner";
 import { Json } from '@/integrations/supabase/types';
 
 function transformPlaybook(row: any): Playbook {
@@ -54,8 +54,6 @@ export function usePlaybook(playbookId: string | undefined) {
 
 export function useCreatePlaybook() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (playbook: Partial<Playbook> & { name: string }) => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -91,18 +89,16 @@ export function useCreatePlaybook() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['playbooks'] });
-      toast({ title: 'Playbook created successfully' });
+      toast.success('Playbook created successfully');
     },
     onError: (error) => {
-      toast({ title: 'Failed to create playbook', description: error.message, variant: 'destructive' });
+      toast.error('Failed to create playbook', { description: error.message });
     },
   });
 }
 
 export function useUpdatePlaybook() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Playbook> & { id: string }) => {
       const updateData: Record<string, unknown> = {};
@@ -139,18 +135,16 @@ export function useUpdatePlaybook() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['playbooks'] });
       queryClient.invalidateQueries({ queryKey: ['playbook', variables.id] });
-      toast({ title: 'Playbook updated successfully' });
+      toast.success('Playbook updated successfully');
     },
     onError: (error) => {
-      toast({ title: 'Failed to update playbook', description: error.message, variant: 'destructive' });
+      toast.error('Failed to update playbook', { description: error.message });
     },
   });
 }
 
 export function useDeletePlaybook() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (playbookId: string) => {
       const { error } = await supabase.from('playbooks').update({ is_active: false }).eq('id', playbookId);
@@ -158,10 +152,10 @@ export function useDeletePlaybook() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['playbooks'] });
-      toast({ title: 'Playbook deleted successfully' });
+      toast.success('Playbook deleted successfully');
     },
     onError: (error) => {
-      toast({ title: 'Failed to delete playbook', description: error.message, variant: 'destructive' });
+      toast.error('Failed to delete playbook', { description: error.message });
     },
   });
 }

@@ -25,7 +25,7 @@ import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { TrendingUp, TrendingDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { NoAccountsEmptyState } from "@/components/shared/NoAccountsEmptyState";
 import { MultiAccountPicker } from "@/components/shared/MultiAccountPicker";
 
@@ -55,8 +55,6 @@ export const StartLiveTradeDialog = React.forwardRef<unknown, StartLiveTradeDial
   const { data: accounts = [] } = useAccounts();
   const { data: playbooks = [] } = usePlaybooks();
   const { selectedAccountId } = useAccountFilter();
-  const { toast } = useToast();
-
   const defaultAccountId = useMemo(() => {
     if (selectedAccountId && selectedAccountId !== "all") return selectedAccountId;
     return accounts[0]?.id ?? "";
@@ -168,13 +166,11 @@ export const StartLiveTradeDialog = React.forwardRef<unknown, StartLiveTradeDial
     }
 
     if (successCount > 1) {
-      toast({ title: `Live trade opened on ${successCount} accounts` });
+      toast.success(`Live trade opened on ${successCount} accounts`);
     }
     if (errors.length > 0) {
-      toast({
-        title: `Failed on ${errors.length} account${errors.length > 1 ? "s" : ""}`,
+      toast.error(`Failed on ${errors.length} account${errors.length > 1 ? "s" : ""}`, {
         description: errors.join(", "),
-        variant: "destructive",
       });
     }
 

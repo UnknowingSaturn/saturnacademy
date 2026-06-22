@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { Upload, FileSpreadsheet, ArrowRight, Loader2, Check, AlertCircle } from "lucide-react";
 import { format, parse } from "date-fns";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
@@ -83,7 +83,6 @@ export default function Import() {
   const [headers, setHeaders] = useState<string[]>([]);
   const [mappings, setMappings] = useState<ColumnMapping[]>([]);
   const [importProgress, setImportProgress] = useState(0);
-  const { toast } = useToast();
   const createTrade = useCreateTrade();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,7 +95,7 @@ export default function Import() {
       const lines = text.split("\n").filter(line => line.trim());
       
       if (lines.length < 2) {
-        toast({ title: "Invalid CSV", description: "File must have at least a header row and one data row", variant: "destructive" });
+        toast.error("Invalid CSV", { description: "File must have at least a header row and one data row" });
         return;
       }
 
@@ -265,8 +264,7 @@ export default function Import() {
       setImportProgress(((i + 1) / csvData.length) * 100);
     }
 
-    toast({
-      title: "Import complete",
+    toast.success("Import complete", {
       description: `${imported} trades imported, ${failed} failed`,
     });
 

@@ -10,7 +10,7 @@ import { Plus, Trash2, GripVertical, Clock, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SessionDefinition } from "@/types/settings";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -254,17 +254,12 @@ export function SessionConfigPanel() {
               try {
                 const { data, error } = await supabase.functions.invoke("trade-rebuild", { body: { mode: "reclassify-sessions" } });
                 if (error) throw error;
-                toast({
-                  title: "Sessions reclassified",
+                toast.success("Sessions reclassified", {
                   description: `Updated ${data?.updated ?? 0} of ${data?.scanned ?? 0} trade${data?.scanned === 1 ? "" : "s"}.`,
                 });
                 queryClient.invalidateQueries({ queryKey: ["trades"] });
               } catch (err) {
-                toast({
-                  title: "Reclassify failed",
-                  description: err instanceof Error ? err.message : "Unknown error",
-                  variant: "destructive",
-                });
+                toast.error("Reclassify failed", { description: err instanceof Error ? err.message : "Unknown error" });
               } finally {
                 setReclassifying(false);
               }

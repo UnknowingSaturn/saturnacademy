@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { TrendingUp, Loader2, ArrowLeft } from "lucide-react";
 
 const authSchema = z.object({
@@ -32,8 +32,6 @@ export default function Auth() {
   const [resetEmailSent, setResetEmailSent] = useState(false);
   const { signIn, signUp, resetPassword } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
-
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrors({});
@@ -56,7 +54,7 @@ export default function Auth() {
     setIsLoading(false);
 
     if (error) {
-      toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
+      toast.error("Sign in failed", { description: error.message });
     } else {
       navigate("/dashboard");
     }
@@ -85,9 +83,9 @@ export default function Auth() {
     setIsLoading(false);
 
     if (error) {
-      toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
+      toast.error("Sign up failed", { description: error.message });
     } else {
-      toast({ title: "Account created", description: "You can now sign in." });
+      toast.success("Account created", { description: "You can now sign in." });
       navigate("/dashboard");
     }
   };
@@ -113,7 +111,7 @@ export default function Auth() {
     setIsLoading(false);
 
     if (error) {
-      toast({ title: "Failed to send reset email", description: error.message, variant: "destructive" });
+      toast.error("Failed to send reset email", { description: error.message });
     } else {
       setResetEmailSent(true);
     }
@@ -126,7 +124,7 @@ export default function Auth() {
     });
     if (result.error) {
       setIsLoading(false);
-      toast({ title: "Google sign in failed", description: String(result.error), variant: "destructive" });
+      toast.error("Google sign in failed", { description: String(result.error) });
     } else if (!result.redirected) {
       setIsLoading(false);
       navigate("/dashboard");

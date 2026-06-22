@@ -32,7 +32,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useUpdateAccount } from '@/hooks/useAccounts';
 import { Account, AccountType, PropFirm } from '@/types/trading';
 import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from "sonner";
 import { BROKER_DST_PROFILE_OPTIONS, BrokerDstProfile, brokerLocalToUtc, resolveBrokerOffsetHours } from '@/lib/brokerDst';
 import { formatFullDateTimeET } from '@/lib/time';
 import { useQuery } from '@tanstack/react-query';
@@ -59,7 +59,6 @@ interface EditAccountDialogProps {
 
 export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDialogProps) {
   const updateAccount = useUpdateAccount();
-  const { toast } = useToast();
   const [isSyncing, setIsSyncing] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
 
@@ -84,7 +83,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
   const copyApiKey = async () => {
     if (account.api_key) {
       await navigator.clipboard.writeText(account.api_key);
-      toast({ title: 'API key copied to clipboard' });
+      toast.success('API key copied to clipboard');
     }
   };
 
@@ -215,10 +214,7 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       const failures = (restoreData?.failures ?? []) as Array<{ ticket: number; reason: string }>;
 
       if (tradesUpdated === 0) {
-        toast({
-          title: 'No trades updated',
-          description: restoreMessage || 'No matching trades found to update.',
-        });
+        toast.success('No trades updated', { description: restoreMessage || 'No matching trades found to update.' });
         return;
       }
 
@@ -228,17 +224,14 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
 
       if (reprocessError) {
         console.error('Reprocess error after successful restore:', reprocessError);
-        toast({
-          title: 'Times restored, recompute failed',
+        toast.error('Times restored, recompute failed', {
           description: `${tradesUpdated} trades got UTC times, but session/R recompute failed: ${reprocessError.message}. Try the reprocess action again.`,
-          variant: 'destructive',
         });
         return;
       }
 
       const failureNote = failures.length > 0 ? ` (${failures.length} skipped)` : '';
-      toast({
-        title: 'Trade data synced',
+      toast.success('Trade data synced', {
         description: `Synced ${tradesUpdated} trades with DST-aware UTC conversion and recalculated sessions${failureNote}.`,
       });
     } catch (error) {
@@ -246,10 +239,8 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       const message = error instanceof Error
         ? error.message
         : (typeof error === 'object' && error && 'message' in error ? String((error as any).message) : 'Unknown error');
-      toast({
-        title: 'Failed to sync trade data',
+      toast.error('Failed to sync trade data', {
         description: message,
-        variant: 'destructive',
       });
     } finally {
       setIsSyncing(false);

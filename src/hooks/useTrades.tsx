@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Trade, TradeReview, SessionType } from '@/types/trading';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from "sonner";
 import { Json } from '@/integrations/supabase/types';
 import { transformTrade } from '@/lib/tradeTransform';
 import { TRADE_SELECT, tradeKeys, invalidateAllTradeCaches } from './_shared/tradeQueries';
@@ -63,8 +63,6 @@ export function useTrade(tradeId: string | undefined) {
 
 export function useCreateTrade() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (trade: Partial<Trade> & { symbol: string; direction: 'buy' | 'sell'; total_lots: number; entry_price: number; entry_time: string; risk_percent?: number }) => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -100,18 +98,16 @@ export function useCreateTrade() {
     },
     onSuccess: () => {
       invalidateAllTradeCaches(queryClient);
-      toast({ title: 'Trade created successfully' });
+      toast.success('Trade created successfully');
     },
     onError: (error) => {
-      toast({ title: 'Failed to create trade', description: error.message, variant: 'destructive' });
+      toast.error('Failed to create trade', { description: error.message });
     },
   });
 }
 
 export function useUpdateTrade() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Trade> & { id: string }) => {
       const updateData: Record<string, unknown> = {};
@@ -156,18 +152,16 @@ export function useUpdateTrade() {
     },
     onSuccess: (_, variables) => {
       invalidateAllTradeCaches(queryClient, { tradeId: variables.id });
-      toast({ title: 'Trade updated successfully' });
+      toast.success('Trade updated successfully');
     },
     onError: (error) => {
-      toast({ title: 'Failed to update trade', description: error.message, variant: 'destructive' });
+      toast.error('Failed to update trade', { description: error.message });
     },
   });
 }
 
 export function useDeleteTrade() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (tradeId: string) => {
       const { error } = await supabase.from('trades').delete().eq('id', tradeId);
@@ -175,18 +169,16 @@ export function useDeleteTrade() {
     },
     onSuccess: () => {
       invalidateAllTradeCaches(queryClient);
-      toast({ title: 'Trade deleted successfully' });
+      toast.success('Trade deleted successfully');
     },
     onError: (error) => {
-      toast({ title: 'Failed to delete trade', description: error.message, variant: 'destructive' });
+      toast.error('Failed to delete trade', { description: error.message });
     },
   });
 }
 
 export function useBulkArchiveTrades() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (tradeIds: string[]) => {
       const { error } = await supabase
@@ -198,18 +190,16 @@ export function useBulkArchiveTrades() {
     },
     onSuccess: (count) => {
       invalidateAllTradeCaches(queryClient);
-      toast({ title: `${count} trade${count !== 1 ? 's' : ''} archived` });
+      toast.success(`${count} trade${count !== 1 ? 's' : ''} archived`);
     },
     onError: (error) => {
-      toast({ title: 'Failed to archive trades', description: error.message, variant: 'destructive' });
+      toast.error('Failed to archive trades', { description: error.message });
     },
   });
 }
 
 export function useRestoreTrades() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (tradeIds: string[]) => {
       const { error } = await supabase
@@ -221,18 +211,16 @@ export function useRestoreTrades() {
     },
     onSuccess: (count) => {
       invalidateAllTradeCaches(queryClient);
-      toast({ title: `${count} trade${count !== 1 ? 's' : ''} restored` });
+      toast.success(`${count} trade${count !== 1 ? 's' : ''} restored`);
     },
     onError: (error) => {
-      toast({ title: 'Failed to restore trades', description: error.message, variant: 'destructive' });
+      toast.error('Failed to restore trades', { description: error.message });
     },
   });
 }
 
 export function useArchiveAllTrades() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (accountId: string) => {
       const { data, error } = await supabase
@@ -247,10 +235,10 @@ export function useArchiveAllTrades() {
     },
     onSuccess: (count) => {
       invalidateAllTradeCaches(queryClient);
-      toast({ title: `${count} trade${count !== 1 ? 's' : ''} archived` });
+      toast.success(`${count} trade${count !== 1 ? 's' : ''} archived`);
     },
     onError: (error) => {
-      toast({ title: 'Failed to archive trades', description: error.message, variant: 'destructive' });
+      toast.error('Failed to archive trades', { description: error.message });
     },
   });
 }
@@ -274,8 +262,6 @@ export function useArchivedTrades() {
 // Upsert hook - creates or updates review by trade_id (idempotent, prevents duplicates)
 export function useUpsertTradeReview() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   return useMutation({
     mutationFn: async (params: { review: Partial<TradeReview> & { trade_id: string }; silent?: boolean }) => {
       const { review, silent } = params;
@@ -312,11 +298,11 @@ export function useUpsertTradeReview() {
     onSuccess: (result, variables) => {
       invalidateAllTradeCaches(queryClient, { tradeId: variables.review.trade_id });
       if (!result.silent) {
-        toast({ title: 'Review saved successfully' });
+        toast.success('Review saved successfully');
       }
     },
     onError: (error) => {
-      toast({ title: 'Failed to save review', description: error.message, variant: 'destructive' });
+      toast.error('Failed to save review', { description: error.message });
     },
   });
 }
