@@ -44,14 +44,23 @@ export function getAllCloseFills(trade: Trade): CloseFill[] {
   if (!trade.is_open && trade.exit_price != null && trade.exit_time) {
     const partialLots = partials.reduce((s, f) => s + f.lots, 0);
     // Final fill lots = original_lots - sum(partials). On closed trades total_lots is 0,
-    // so original_lots is the correct total. If original_lots is unknown (legacy rows),
-    // assume the final fill carried whatever lots remained beyond partials, defaulting to
-    // the partial total (so a single-fill trade still gets a sensible weight of 1×lots).
-    const finalLots = trade.original_lots != null
-      ? Math.max(0, trade.original_lots - partialLots)
-      : Math.max(partialLots, 0.01);
+    // so original_lots is the correct total.
+    //
+    // Legacy rows (original_lots null):
+    //  - No partials → single-fill trade. Use lots=1 as a sentinel so VWAP collapses
+    //    to exit_price (the only fill). VWAP is ratio-based, so the absolute weight is
+    //    immaterial; the full gross_pnl is preserved on this fill.
+    //  - With partials → the final fill lots are genuinely unknown. Don't synthesize a
+    //    spurious fill (it would double-count partial volume in the VWAP); the consumer
+    //    will get a partials-only VWAP, which is the most honest answer available.
+    let finalLots: number | null = null;
+    if (trade.original_lots != null) {
+      finalLots = Math.max(0, trade.original_lots - partialLots);
+    } else if (partialLots === 0) {
+      finalLots = 1;
+    }
 
-    if (finalLots > 0) {
+    if (finalLots != null && finalLots > 0) {
       const partialPnl = partials.reduce((s, f) => s + (f.pnl || 0), 0);
       partials.push({
         time: trade.exit_time,

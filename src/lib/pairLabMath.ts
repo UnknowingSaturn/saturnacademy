@@ -755,10 +755,12 @@ function computeBucket(
     maeP75Pips: quantile(maesPips, 0.75),
     maeP50Ticks: median(maesTicks),
     maeP75Ticks: quantile(maesTicks, 0.75),
-    mfeMin: mfes.length > 0 ? Math.min(...mfes) : null,
-    mfeMax: mfes.length > 0 ? Math.max(...mfes) : null,
-    maeMinTicks: maesTicks.length > 0 ? Math.min(...maesTicks) : null,
-    maeMaxTicks: maesTicks.length > 0 ? Math.max(...maesTicks) : null,
+    // Use reduce instead of Math.min(...arr) — the spread form hits V8's
+    // argument-count limit (~125k) and throws on large MAE/MFE samples.
+    mfeMin: mfes.length > 0 ? mfes.reduce((a, b) => (a < b ? a : b)) : null,
+    mfeMax: mfes.length > 0 ? mfes.reduce((a, b) => (a > b ? a : b)) : null,
+    maeMinTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a < b ? a : b)) : null,
+    maeMaxTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a > b ? a : b)) : null,
     idealSlMedian: idealMed,
     slInitialMedian: slInitMed,
     slDrift,

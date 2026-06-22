@@ -107,6 +107,13 @@ export function computeRMultiple(opts: ComputeROpts): number | null {
     }
 
     // Primary: broker-agnostic via realized $/point.
+    //
+    // The `grossPnl !== 0` guard skips break-even trades because the inferred
+    // $/point would be 0/X = 0, producing zero risk and a divide-by-zero R.
+    // Breakeven gross then falls through to the pip-table fallback below, which
+    // is accurate for FX majors but may diverge from broker-realized $/point on
+    // indices/CFDs with non-standard pip values (off by the ratio of actual-to-
+    // canonical pip value). Acceptable trade-off given gross==0 is rare.
     if (grossPnl && grossPnl !== 0 && allFills.length) {
       let totalPointLots = 0;
       for (const f of allFills) totalPointLots += (f.price - entryPrice) * dirSign * f.lots;

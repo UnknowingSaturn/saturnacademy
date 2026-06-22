@@ -1,5 +1,5 @@
 // ============================================================================
-// Extended dashboard metrics: Sharpe, recovery factor, max DD, consecutive
+// Extended dashboard metrics: per-trade edge ratio, recovery factor, max DD, consecutive
 // wins/losses; monthly returns heatmap; R-multiple distribution histogram.
 // ============================================================================
 
@@ -72,7 +72,7 @@ export function ExtendedDashboardMetrics({ metrics, startingBalance }: Props) {
       <Card className="p-4 space-y-3">
         <h3 className="text-sm font-semibold">Risk & consistency</h3>
         <div className="grid grid-cols-2 gap-3 text-sm">
-          <Stat label="Sharpe (R)" value={metrics.sharpeR != null ? metrics.sharpeR.toFixed(2) : "—"} />
+          <Stat label="Edge (R/σ)" value={metrics.perTradeEdgeRatio != null ? metrics.perTradeEdgeRatio.toFixed(2) : "—"} />
           <Stat
             label="Recovery factor"
             value={metrics.recoveryFactor != null && Number.isFinite(metrics.recoveryFactor) ? metrics.recoveryFactor.toFixed(2) : "—"}

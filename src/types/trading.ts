@@ -335,8 +335,11 @@ export interface DashboardMetrics {
   worstTrade: number;
   currentStreak: { type: 'win' | 'loss'; count: number };
   bySession: Record<SessionType, SessionMetrics>;
-  /** Sharpe ratio of per-trade R series (mean / stddev). Null if <2 R samples. */
-  sharpeR: number | null;
+  /**
+   * Per-trade R edge ratio = mean(R) / stddev(R). NOT annualized Sharpe —
+   * no frequency scaling. Null if <2 R samples or σ = 0.
+   */
+  perTradeEdgeRatio: number | null;
   /** Recovery factor — total $ P&L / abs(max drawdown $). Null if no drawdown. */
   recoveryFactor: number | null;
   /** Max consecutive wins observed. */

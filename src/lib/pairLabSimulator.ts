@@ -99,10 +99,17 @@ export interface ReplayResult {
   maxDrawdownPct: number;
   worstLosingStreak: number;
   meanReachedR: number | null;
-  /** Sharpe ratio of the per-trade R series — mean / stddev. */
-  sharpeR: number | null;
-  /** Sortino ratio — mean / downside stddev (target = 0). */
-  sortinoR: number | null;
+  /**
+   * Per-trade R info ratio = mean(R) / stddev(R).
+   * NOT an annualized Sharpe — no frequency scaling is applied. Use for
+   * relative comparison between presets within this simulator only.
+   */
+  perTradeEdgeRatio: number | null;
+  /**
+   * Per-trade R Sortino-style ratio = mean(R) / downside-stddev(R, target=0).
+   * NOT annualized. Use for relative comparison within this simulator only.
+   */
+  perTradeSortinoRatio: number | null;
   equityCurve: Array<{ i: number; equity: number; at: string | null }>;
   /** Underwater equity curve: equity - runningMax(equity). Always ≤ 0. */
   underwaterCurve: Array<{ i: number; underwater: number }>;
@@ -479,8 +486,8 @@ function buildResult(
   const meanReachedR = reachedCount > 0 ? reachedSum / reachedCount : null;
   const sd = stddev(rs);
   const sdDown = downsideStddev(rs, 0);
-  const sharpeR = sd > 0 ? expectancyR / sd : null;
-  const sortinoR = sdDown > 0 ? expectancyR / sdDown : null;
+  const perTradeEdgeRatio = sd > 0 ? expectancyR / sd : null;
+  const perTradeSortinoRatio = sdDown > 0 ? expectancyR / sdDown : null;
 
   let verdict: ReplayResult["propFirmVerdict"] = "n/a";
   let bustNote: string | null = null;
@@ -546,8 +553,8 @@ function buildResult(
     maxDrawdownPct: opts.balance > 0 ? (maxDD / opts.balance) * 100 : 0,
     worstLosingStreak: worstStreak,
     meanReachedR,
-    sharpeR,
-    sortinoR,
+    perTradeEdgeRatio,
+    perTradeSortinoRatio,
     equityCurve,
     underwaterCurve: underwater,
     perTrade,
@@ -725,12 +732,12 @@ export function walkForwardEvaluate(
     const aOk = a.eligibleCount >= MIN_ELIGIBLE_SAMPLE ? 1 : 0;
     const bOk = b.eligibleCount >= MIN_ELIGIBLE_SAMPLE ? 1 : 0;
     if (aOk !== bOk) return bOk - aOk;
-    // Tiebreak on Sharpe when IS expectancies are within 0.05R — prevents a
-    // noisy IS winner from being chosen over a slightly-lower-mean preset with
-    // tighter variance, mirroring the main ranker's tiebreak.
+    // Tiebreak on per-trade edge ratio (mean R / σ R) when IS expectancies are
+    // within 0.05R — prevents a noisy IS winner from being chosen over a slightly
+    // -lower-mean preset with tighter variance, mirroring the main ranker.
     if (Math.abs(b.expectancyR - a.expectancyR) > 0.05) return b.expectancyR - a.expectancyR;
-    const aS = a.sharpeR ?? -Infinity;
-    const bS = b.sharpeR ?? -Infinity;
+    const aS = a.perTradeEdgeRatio ?? -Infinity;
+    const bS = b.perTradeEdgeRatio ?? -Infinity;
     if (bS !== aS) return bS - aS;
     return b.expectancyR - a.expectancyR;
   });
