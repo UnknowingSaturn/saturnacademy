@@ -320,6 +320,17 @@ export function runMonteCarlo(params: MCParams): MCResult {
   const passProb = passes / paths;
   const failProb = fails / paths;
   const passProbCI = wilsonCI95(passes, paths);
+
+  // CVaR-5%: mean of worst 5% final equity outcomes (per-account, all paths).
+  let cvar5Pct = 0;
+  if (finalEqPct.length > 0) {
+    const sorted = finalEqPct.slice().sort((a, b) => a - b);
+    const cutoff = Math.max(1, Math.floor(sorted.length * 0.05));
+    let s = 0;
+    for (let i = 0; i < cutoff; i += 1) s += sorted[i];
+    cvar5Pct = s / cutoff;
+  }
+
   return {
     paths,
     passProb,
@@ -334,6 +345,8 @@ export function runMonteCarlo(params: MCParams): MCResult {
     perAccountBustRate: totalAccounts > 0 ? ruinedAccounts / totalAccounts : 0,
     finalEquityDistributionPct: finalEqPct,
     expectedReturnPct: totalAccounts > 0 ? returnSumPct / totalAccounts : 0,
+    cvar5Pct,
+    geometricMeanGrowthPct: geomGrowthPct,
     blockSize,
   };
 }
