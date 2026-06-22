@@ -188,7 +188,7 @@ export function parseTpLabel(s: string): number | null {
 }
 
 export interface BucketKey { symbol: string; session: string }
-export interface Tp1Star { r: number; hitRate: number; expectancyR: number }
+export interface Tp1Star { r: number; hitRate: number; hitRateCi: [number, number] | null; expectancyR: number }
 
 export interface BucketReport {
   key: BucketKey;
@@ -251,18 +251,28 @@ function longestLossStreak(rows: any[]): number {
   }
   return worst;
 }
+function wilsonCi(successes: number, n: number, z = 1.96): [number, number] | null {
+  if (n <= 0) return null;
+  const p = successes / n;
+  const denom = 1 + (z * z) / n;
+  const centre = (p + (z * z) / (2 * n)) / denom;
+  const margin = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denom;
+  return [Math.max(0, centre - margin), Math.min(1, centre + margin)];
+}
+
 function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
   if (mfes.length < 5) return null;
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
+  // Use expectancyR directly as the selection objective — the prior
+  // `hitRate × log(1+r)` was an ad-hoc utility, not an economic criterion.
   for (const r of candidates) {
     const hits = mfes.filter((v) => v >= r).length;
     const hitRate = hits / mfes.length;
     if (hitRate < 0.4) continue;
-    const score = hitRate * Math.log(1 + r);
     const expectancyR = hitRate * r - (1 - hitRate) * avgLossR;
-    if (!best || score > best.hitRate * Math.log(1 + best.r)) {
-      best = { r, hitRate, expectancyR };
+    if (!best || expectancyR > best.expectancyR) {
+      best = { r, hitRate, hitRateCi: wilsonCi(hits, mfes.length), expectancyR };
     }
   }
   return best;
@@ -282,12 +292,14 @@ function ticksToR(ticks: number, t: any): number | null {
 // ----- TP grid + walk-forward helpers (mirror src/lib/pairLabMath.ts) -----
 interface MfePair { mfeR: number; rActual: number }
 
-function scoreTp(tp: number, sample: MfePair[], trail: number): number {
+// `trail` is reserved for the dedicated trailing-stop counterfactual; the grid
+// here uses pure realized outcomes when no TP would have fired. See client
+// `scoreTp` for the rationale (discounting realized exits biases argmax low).
+function scoreTp(tp: number, sample: MfePair[], _trail: number): number {
   if (sample.length === 0) return 0;
   let sum = 0;
   for (const p of sample) {
     if (p.mfeR >= tp) sum += tp;
-    else if (p.rActual >= 0) sum += p.rActual * trail;
     else sum += p.rActual;
   }
   return sum / sample.length;
@@ -304,7 +316,7 @@ function collectMfeRPairs(rows: any[], keys: PairLabFieldKeys): MfePair[] {
   return out;
 }
 
-function estimateTrailCaptureRows(rows: any[], keys: PairLabFieldKeys, minSample = 5): number {
+function estimateTrailCaptureRows(rows: any[], keys: PairLabFieldKeys, minSample = 10): number {
   const ratios: number[] = [];
   for (const t of rows) {
     if (t.is_open || t.is_archived) continue;
@@ -337,7 +349,7 @@ function pickBestTp(
   for (const p of pairs) seed = (seed * 31 + Math.floor((p.mfeR * 1000 + p.rActual * 1000))) | 0;
   if (seed === 0) seed = 0x9e3779b9;
   const rand = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) % 1_000_000) / 1_000_000; };
-  const iters = 200;
+  const iters = 500;
   const samples: number[] = new Array(iters);
   const buf: MfePair[] = new Array(pairs.length);
   for (let i = 0; i < iters; i++) {
@@ -365,13 +377,15 @@ function runWalkForward(rows: any[], keys: PairLabFieldKeys):
   const isPairs = collectMfeRPairs(isRows, keys);
   const oosPairs = collectMfeRPairs(oosRows, keys);
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
+  // Walk-forward must not estimate trailCapture on the OOS slice (look-ahead
+  // leak): use the IS estimate on both sides.
   const isTrail = estimateTrailCaptureRows(isRows, keys);
-  const oosTrail = estimateTrailCaptureRows(oosRows, keys);
   const pick = pickBestTp(isPairs, isTrail);
   if (!pick) return null;
-  const outOfSampleE = scoreTp(pick.tpR, oosPairs, oosTrail);
+  const outOfSampleE = scoreTp(pick.tpR, oosPairs, isTrail);
   const degradationPct = pick.expectancy > 0 ? (1 - outOfSampleE / pick.expectancy) * 100 : 0;
-  return { inSampleE: pick.expectancy, outOfSampleE, degradationPct, oosN: oosRows.length };
+  // Report OOS pair count (true DoF for scoreTp), not raw row count.
+  return { inSampleE: pick.expectancy, outOfSampleE, degradationPct, oosN: oosPairs.length };
 }
 
 export function computeBucket(
@@ -586,6 +600,7 @@ export function buildBuckets(
     const [symbol, session] = k.split("__");
     perCell.push(computeBucket({ symbol, session }, rows, keys, propFirm));
   });
-  perCell.sort((a, b) => b.expectedR * b.n - a.expectedR * a.n);
+  // Match client ordering: sort by N descending (stable, sample-size first).
+  perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
   return { perCell, baseline };
 }

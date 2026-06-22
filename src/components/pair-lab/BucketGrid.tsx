@@ -97,11 +97,12 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
   const rowLookup = new Map<string, BucketReport>();
   perRow.forEach((r) => rowLookup.set(r.key.symbol, r));
 
-  // BH FDR across every displayed bucket (cells + row totals). Only buckets
-  // with n ≥ 10 and a positive expectancy enter the test — others can't be
-  // significant by construction and would just inflate `m`.
-  const fdrPool = [...perCell, ...perRow];
-  const fdrEligible = fdrPool
+  // BH FDR across per-cell buckets ONLY. Row totals aggregate the same trades
+  // contained in their constituent cells (non-independent tests); mixing them
+  // into the BH pool inflates `m` and over-corrects, hiding real edges.
+  // Only buckets with n ≥ 10 and a positive expectancy enter the test —
+  // others can't be significant by construction and would just inflate `m`.
+  const fdrEligible = perCell
     .map((b, idx) => ({ b, idx }))
     .filter(({ b }) => b.n >= 10 && b.expectedR > 0 && b.expectancyPValue != null);
   const sig = bhSignificant(fdrEligible.map(({ b }) => b.expectancyPValue), 0.05);

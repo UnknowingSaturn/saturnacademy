@@ -23,7 +23,7 @@ export function getRealPartialCloses(trade: Pick<Trade, "partial_closes" | "part
       time: f.occurred_at,
       lots: Number(f.lots),
       price: Number(f.price),
-      pnl: (Number(f.profit) || 0) - (Number(f.commission) || 0) - Math.abs(Number(f.swap) || 0),
+      pnl: (Number(f.profit) || 0) - Math.abs(Number(f.commission) || 0) + (Number(f.swap) || 0),
     }));
   }
   return (trade.partial_closes || []).filter(isRealFill);

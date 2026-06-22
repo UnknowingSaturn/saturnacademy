@@ -1,10 +1,12 @@
 // ============================================================================
-// Prop-firm Monte-Carlo engine — shared by Risk Optimization, Rotation
-// Simulator, and Challenge Planner.
+// Prop-firm Monte-Carlo engine — shared by the Strategy Lab (joint risk ×
+// rotation sweep) and the Challenge Planner card.
 //
 // Bootstraps the user's actual per-trade R sample into synthetic paths and
 // scores them against prop-firm daily-loss / max-loss / profit-target rules
-// under different multi-account rotation models.
+// under different multi-account rotation models. Uses a stationary block
+// bootstrap (Politis–Romano) to preserve short-horizon autocorrelation in
+// the R sample.
 // ============================================================================
 
 export type RotationModel =
@@ -114,11 +116,11 @@ function simulateOnePath(p: MCParams, rng: () => number): PathState {
   const busted = new Array(numAccounts).fill(false);
   let cursor = 0; // for round-robin / stay-on-winner
 
-  // Stationary block bootstrap (Politis–Romano). Block size = sqrt(N), and at
-  // each step we reset the block with probability 1/blockSize — this preserves
-  // serial correlation (loss clusters stay clustered) without locking block
-  // boundaries the way a fixed-block bootstrap would.
-  const blockSize = Math.max(3, Math.round(Math.sqrt(p.rSample.length || 1)));
+  // Stationary block bootstrap (Politis–Romano 1994). Optimal block length
+  // for MSE of the stationary distribution scales as N^(1/3); the prior
+  // sqrt(N) preserved too much autocorrelation and inflated path variance,
+  // producing more simulated busts than reality at the same risk %.
+  const blockSize = Math.max(3, Math.round(Math.pow(p.rSample.length || 1, 1 / 3)));
   const blockReset = 1 / blockSize;
   let bbIdx = p.rSample.length > 0 ? Math.floor(rng() * p.rSample.length) : 0;
 
@@ -245,7 +247,7 @@ export function runMonteCarlo(params: MCParams): MCResult {
       blockSize: 0,
     };
   }
-  const blockSize = Math.max(3, Math.round(Math.sqrt(params.rSample.length)));
+  const blockSize = Math.max(3, Math.round(Math.pow(params.rSample.length, 1 / 3)));
 
   let passes = 0;
   let fails = 0;

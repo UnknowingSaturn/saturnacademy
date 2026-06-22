@@ -43,9 +43,18 @@ const TARGET_PRESETS = [6, 8, 10, 12];
 const WINDOW_PRESETS = [30, 60, 90];
 
 // Score components (exposed for the breakdown line).
+//
+// All three terms live on the 0–1 probability scale so the additive form is
+// dimensionally consistent:
+//   passProb × survival  → 0–1 probability of finishing in the money
+//   ddPenalty            → 0.02 per 1pp of avgDD above 5%, capped at 0.4
+//                          (so a 25% avg DD costs 0.4, comparable to passProb)
+//   inconclusivePenalty  → fraction of paths that neither passed nor fully
+//                          failed within the window
 function scoreCellParts(r: MCResult, inconclusiveWeight = 0.1) {
   const survival = 1 - r.riskOfRuin;
-  const ddPenalty = 0.5 * Math.max(0, r.avgDrawdownPct - 5) / 100;
+  const ddPenaltyRaw = 0.02 * Math.max(0, r.avgDrawdownPct - 5);
+  const ddPenalty = Math.min(0.4, ddPenaltyRaw);
   const inconclusivePenalty = inconclusiveWeight * r.inconclusiveProb;
   const score = r.passProb * survival - ddPenalty - inconclusivePenalty;
   return { passProb: r.passProb, survival, ddPenalty, inconclusivePenalty, score };
@@ -60,19 +69,29 @@ function cellSeed(model: RotationModel, risk: number): number {
 }
 
 // Auto-detect average trades/day from the user's history.
+//
+// Denominator is *calendar* days between first and last trade (not just days
+// with at least one trade). Using active-days-only inflates TPD for traders
+// who skip Fridays/weekends, which then inflates simulated pass probabilities.
 function autoTradesPerDay(trades: Trade[]): number {
-  const days = new Set<string>();
   let n = 0;
+  let minD: string | null = null;
+  let maxD: string | null = null;
   for (const t of trades) {
     if (t.is_open || t.is_archived) continue;
     if (t.r_multiple_actual == null) continue;
     if (!t.entry_time) continue;
     const d = String(t.entry_time).slice(0, 10);
-    days.add(d);
+    if (minD == null || d < minD) minD = d;
+    if (maxD == null || d > maxD) maxD = d;
     n += 1;
   }
-  if (days.size === 0) return 2;
-  return Math.max(1, Math.min(8, Math.round(n / days.size)));
+  if (n === 0 || minD == null || maxD == null) return 2;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const spanDays = Math.max(1, Math.round((Date.parse(maxD) - Date.parse(minD)) / dayMs) + 1);
+  // Trading days ≈ 5/7 of calendar span; convert and clamp to a sane range.
+  const tradingDays = Math.max(1, Math.round(spanDays * 5 / 7));
+  return Math.max(1, Math.min(8, Math.round(n / tradingDays)));
 }
 
 export function StrategyLab({

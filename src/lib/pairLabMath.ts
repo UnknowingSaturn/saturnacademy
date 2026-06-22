@@ -343,26 +343,32 @@ export function bootstrapKellyCi(
 ): [number, number] | null {
   const wins = winR.filter((v) => Number.isFinite(v) && v > 0);
   const losses = lossR.filter((v) => Number.isFinite(v) && v > 0);
-  const n = wins.length + losses.length;
-  if (n < 10) return null;
-  // Combined draw with outcome labels.
-  const pool: Array<{ r: number; win: boolean }> = [
-    ...wins.map((r) => ({ r, win: true })),
-    ...losses.map((r) => ({ r, win: false })),
-  ];
+  const nW = wins.length;
+  const nL = losses.length;
+  const n = nW + nL;
+  if (n < 10 || nW === 0 || nL === 0) return null;
+
+  // Resample wins and losses INDEPENDENTLY (preserving the empirical win/loss
+  // counts) so the bootstrap estimates the variance of `b = avgW/avgL`
+  // honestly. The old combined-pool draw forced wins and losses to be
+  // anti-correlated within a resample (more wins ⇒ fewer losses by
+  // construction), which understated CI width.
+  // Win-rate is resampled separately as a fresh binomial(n, nW/n) per draw.
   const rand = makeSeededRng((n * 1000003) ^ Math.floor((wins[0] ?? 0) * 1000));
   const ks: number[] = [];
+  const baseP = nW / n;
   for (let i = 0; i < iters; i++) {
-    let w = 0, l = 0, sw = 0, sl = 0;
-    for (let j = 0; j < n; j++) {
-      const pick = pool[Math.floor(rand() * n)];
-      if (pick.win) { w += 1; sw += pick.r; }
-      else { l += 1; sl += pick.r; }
-    }
-    if (w === 0 || l === 0) continue;
-    const avgW = sw / w;
-    const avgL = sl / l;
-    const p = w / (w + l);
+    let sw = 0;
+    for (let j = 0; j < nW; j++) sw += wins[Math.floor(rand() * nW)];
+    let sl = 0;
+    for (let j = 0; j < nL; j++) sl += losses[Math.floor(rand() * nL)];
+    const avgW = sw / nW;
+    const avgL = sl / nL;
+    if (!(avgW > 0) || !(avgL > 0)) continue;
+    let w = 0;
+    for (let j = 0; j < n; j++) if (rand() < baseP) w += 1;
+    if (w === 0 || w === n) continue;
+    const p = w / n;
     const b = avgW / avgL;
     const kelly = (b * p - (1 - p)) / b;
     ks.push(kelly * 0.25 * 100);
@@ -527,13 +533,15 @@ function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
   if (mfes.length < 5) return null;
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
+  // Select on expectancyR directly — the prior `hitRate × log(1+r)` was an
+  // ad-hoc utility, not an economic objective. expectancyR is the quantity
+  // a trader actually compounds.
   for (const r of candidates) {
     const hits = mfes.filter((v) => v >= r).length;
     const hitRate = hits / mfes.length;
     if (hitRate < 0.4) continue;
-    const score = hitRate * Math.log(1 + r);
     const expectancyR = hitRate * r - (1 - hitRate) * avgLossR;
-    if (!best || score > best.hitRate * Math.log(1 + best.r)) {
+    if (!best || expectancyR > best.expectancyR) {
       best = { r, hitRate, hitRateCi: wilsonCi(hits, mfes.length), expectancyR };
     }
   }
@@ -743,13 +751,26 @@ function computeBucket(
 
 interface MfePair { mfeR: number; rActual: number; }
 
-/** Replay a candidate TP against (MFE_R, r_actual) pairs. */
+/**
+ * Replay a candidate TP against (MFE_R, r_actual) pairs.
+ *
+ * Cases:
+ *  - MFE reached the candidate TP → trade would have closed at `tp` (gain = tp R).
+ *  - MFE never reached TP → no hypothetical TP fires, so the trade exits at its
+ *    *actual* realized outcome (`rActual`). The `trail` factor is intentionally
+ *    NOT applied here: discounting an already-realized exit by trailCapture
+ *    biases the TP-grid argmax low. The trail model belongs to a *different*
+ *    counterfactual (no fixed TP, trailing stop from MFE); if surfaced, score
+ *    that separately rather than mixing the two.
+ */
 function scoreTp(tp: number, sample: MfePair[], trail: number): number {
   if (sample.length === 0) return 0;
+  // `trail` is reserved for the dedicated trailing-stop counterfactual; the
+  // grid below uses pure realized outcomes when no TP would have fired.
+  void trail;
   let sum = 0;
   for (const p of sample) {
     if (p.mfeR >= tp) sum += tp;
-    else if (p.rActual >= 0) sum += p.rActual * trail;
     else sum += p.rActual;
   }
   return sum / sample.length;
@@ -785,7 +806,7 @@ function pickBestTp(
     hash = (hash * 31 + Math.floor((p.mfeR * 1000 + p.rActual * 1000))) | 0;
   }
   const rand = makeSeededRng(hash);
-  const iters = 200;
+  const iters = 500;
   const samples: number[] = new Array(iters);
   const buf: MfePair[] = new Array(pairs.length);
   for (let i = 0; i < iters; i++) {
@@ -826,15 +847,21 @@ export function runWalkForward(
   const oosPairs = collectMfeRPairs(oosRows, keys);
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
 
-  const isTrail = estimateTrailCapture(isRows, keys, 5)?.ratio ?? 0.7;
-  const oosTrail = estimateTrailCapture(oosRows, keys, 5)?.ratio ?? isTrail;
+  // Walk-forward must not estimate trailCapture on the OOS slice (look-ahead
+  // leak): use the IS estimate on both sides. Standardize on the same
+  // minSample=10 the bucket-local estimate uses.
+  const isTrail = estimateTrailCapture(isRows, keys, 10)?.ratio ?? 0.7;
 
   const isPick = pickBestTp(isPairs, isTrail);
   if (!isPick) return null;
   const inSampleE = isPick.expectancy;
-  const outOfSampleE = scoreTp(isPick.tpR, oosPairs, oosTrail);
+  const outOfSampleE = scoreTp(isPick.tpR, oosPairs, isTrail);
   const degradationPct = inSampleE > 0 ? (1 - outOfSampleE / inSampleE) * 100 : 0;
-  return { inSampleE, outOfSampleE, degradationPct, oosN: oosRows.length };
+  // Report N as the OOS *pairs* that actually feed `scoreTp` — these are the
+  // true degrees of freedom. `oosRows.length` (total OOS trades) can be much
+  // larger than oosPairs.length when MFE coverage is sparse, which would
+  // mislead the reader about how robust the OOS read is.
+  return { inSampleE, outOfSampleE, degradationPct, oosN: oosPairs.length };
 }
 
 
