@@ -108,7 +108,12 @@ export interface ReplayResult {
   propFirmVerdict: "pass" | "bust_daily" | "bust_total" | "n/a";
   bustNote: string | null;
   expectancyRCi: [number, number] | null;
-  totalDollarsCi: [number, number] | null;
+  /**
+   * Bootstrap 95% CI on mean per-trade $ P&L (= expectancyR × dollarRisk).
+   * Replaces the old `totalDollarsCi` which incorrectly scaled a mean-CI
+   * by `n` (CI width grew with sample size instead of shrinking).
+   */
+  meanDollarsCi: [number, number] | null;
   /** Median SL distance actually applied to eligible trades, in pips. */
   appliedSlPipsMedian: number | null;
   /** Inter-quartile range (p25, p75) of applied SL in pips. */
@@ -504,8 +509,11 @@ function buildResult(
   ];
 
   const expectancyRCi = bootstrapMeanCi(rs);
-  const totalDollarsCi: [number, number] | null = expectancyRCi
-    ? [expectancyRCi[0] * n * dollarRisk, expectancyRCi[1] * n * dollarRisk]
+  // Mean per-trade dollars CI = mean-R CI × dollarRisk. Shrinks with n as
+  // expected. The earlier `totalDollarsCi = expectancyRCi × n × dollarRisk`
+  // was a category error (CI on a mean is not the same as CI on a sum).
+  const meanDollarsCi: [number, number] | null = expectancyRCi
+    ? [expectancyRCi[0] * dollarRisk, expectancyRCi[1] * dollarRisk]
     : null;
 
   const ineligibleCount = Object.values(ineligibleReasons).reduce((a, b) => a + b, 0);
@@ -544,7 +552,7 @@ function buildResult(
     propFirmVerdict: verdict,
     bustNote,
     expectancyRCi,
-    totalDollarsCi,
+    meanDollarsCi,
     appliedSlPipsMedian,
     appliedSlPipsRange,
     appliedTpLadder,
