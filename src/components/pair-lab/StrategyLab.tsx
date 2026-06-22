@@ -19,6 +19,7 @@ import type { Trade } from "@/types/trading";
 import {
   runMonteCarlo,
   extractRSample,
+  meanRWithCI,
   ROTATION_LABELS,
   type RotationModel,
   type MCParams,
@@ -72,28 +73,24 @@ function cellSeed(model: RotationModel, risk: number): number {
 
 // Auto-detect average trades/day from the user's history.
 //
-// Denominator is *calendar* days between first and last trade (not just days
-// with at least one trade). Using active-days-only inflates TPD for traders
-// who skip Fridays/weekends, which then inflates simulated pass probabilities.
+// Denominator is the count of *distinct dates with at least one closed trade*.
+// Prior versions used calendar span × 5/7 which under-counted for traders
+// who skip many sessions (e.g. only trading London open), biasing simulated
+// pass-prob downward. Distinct-active-days is the right denominator because
+// the simulator's `tradesPerDay` should describe *days on which trading
+// happens*, not days on the wall calendar.
 function autoTradesPerDay(trades: Trade[]): number {
+  const activeDays = new Set<string>();
   let n = 0;
-  let minD: string | null = null;
-  let maxD: string | null = null;
   for (const t of trades) {
     if (t.is_open || t.is_archived) continue;
     if (t.r_multiple_actual == null) continue;
     if (!t.entry_time) continue;
-    const d = String(t.entry_time).slice(0, 10);
-    if (minD == null || d < minD) minD = d;
-    if (maxD == null || d > maxD) maxD = d;
+    activeDays.add(String(t.entry_time).slice(0, 10));
     n += 1;
   }
-  if (n === 0 || minD == null || maxD == null) return 2;
-  const dayMs = 24 * 60 * 60 * 1000;
-  const spanDays = Math.max(1, Math.round((Date.parse(maxD) - Date.parse(minD)) / dayMs) + 1);
-  // Trading days ≈ 5/7 of calendar span; convert and clamp to a sane range.
-  const tradingDays = Math.max(1, Math.round(spanDays * 5 / 7));
-  return Math.max(1, Math.min(8, Math.round(n / tradingDays)));
+  if (n === 0 || activeDays.size === 0) return 2;
+  return Math.max(1, Math.min(12, Math.round(n / activeDays.size)));
 }
 
 export function StrategyLab({
@@ -105,6 +102,15 @@ export function StrategyLab({
 }: Props) {
   const rSample = useMemo(() => extractRSample(trades), [trades]);
   const detectedTpd = useMemo(() => autoTradesPerDay(trades), [trades]);
+  // Bootstrap 95% CI on mean R (block bootstrap, same block-size as engine).
+  // Drives the edge-direction gate: when the CI lower bound is ≤ 0 the sample
+  // doesn't statistically demonstrate a positive edge, and no sizing recommendation
+  // should be presented regardless of pass-prob heatmap colouring.
+  const edge = useMemo(
+    () => meanRWithCI(rSample, { resamples: 1500, seed: 0xC0FFEE }),
+    [rSample],
+  );
+  const edgePositive = edge.n >= 30 && edge.ciLow > 0;
 
   const [numAccounts, setNumAccounts] = useState<number>(2);
   const [accountSize, setAccountSize] = useState<number>(defaultAccountSize > 0 ? defaultAccountSize : 100_000);
@@ -215,19 +221,45 @@ export function StrategyLab({
             cell to inspect.
           </p>
         </div>
-        {best && !provisional && (
+        {best && edgePositive && !provisional && (
           <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
             Recommended: {ROTATION_LABELS[best.model]} @ {best.risk.toFixed(2)}%
           </Badge>
         )}
-        {best && provisional && (
+        {best && edgePositive && provisional && (
           <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">
             Provisional top: {ROTATION_LABELS[best.model]} @ {best.risk.toFixed(2)}%
           </Badge>
         )}
+        {!edgePositive && (
+          <Badge className="bg-destructive/15 text-destructive border-destructive/30">
+            Edge not positive — sizing analysis suppressed
+          </Badge>
+        )}
       </div>
 
-      {provisional && (
+      {!edgePositive && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs flex items-start gap-2">
+          <Info className="w-3.5 h-3.5 text-destructive mt-0.5 flex-shrink-0" />
+          <div className="space-y-1">
+            <div className="font-medium text-destructive">
+              Your historical edge isn't statistically positive.
+            </div>
+            <div className="text-muted-foreground font-mono-numbers">
+              Mean R = {edge.mean >= 0 ? "+" : ""}{edge.mean.toFixed(3)} &middot;{" "}
+              95% CI [{edge.ciLow >= 0 ? "+" : ""}{edge.ciLow.toFixed(3)},{" "}
+              {edge.ciHigh >= 0 ? "+" : ""}{edge.ciHigh.toFixed(3)}] &middot; N {edge.n}
+            </div>
+            <div className="text-muted-foreground">
+              {edge.n < 30
+                ? `Need ≥30 closed trades with R-multiples before edge can be tested (have ${edge.n}).`
+                : "The 95% confidence interval crosses zero, so any pass-prob ranking on this sample reflects path luck — not a tradeable edge. Heatmap stays visible for comparison, but no risk % is recommended. Fix the playbook (entries, exits, R per trade) before tuning size."}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {edgePositive && provisional && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs flex items-start gap-2">
           <Info className="w-3.5 h-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
           <div>
@@ -411,12 +443,12 @@ export function StrategyLab({
               <span className="font-medium">{ROTATION_LABELS[active.model]}</span>
               <span className="text-muted-foreground"> @ </span>
               <span className="font-mono-numbers font-semibold">{active.risk.toFixed(2)}%</span>
-              {best && active.key === best.key && !provisional && (
+              {best && active.key === best.key && edgePositive && !provisional && (
                 <Badge className="ml-2 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">
                   Recommended
                 </Badge>
               )}
-              {best && active.key === best.key && provisional && (
+              {best && active.key === best.key && edgePositive && provisional && (
                 <Badge className="ml-2 bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 text-xs">
                   Provisional top
                 </Badge>
@@ -443,7 +475,7 @@ export function StrategyLab({
               sub={trailingDD ? "trailing" : "static"}
             />
             <Stat
-              label="Risk of ruin"
+              label="Any-account bust prob"
               value={`${(active.result.riskOfRuin * 100).toFixed(0)}%`}
               sub={`per-acct ${(active.result.perAccountBustRate * 100).toFixed(0)}%`}
               tone="bad"
@@ -462,7 +494,7 @@ export function StrategyLab({
             <Stat
               label="Geom. growth / trade"
               value={`${active.result.geometricMeanGrowthPct >= 0 ? "+" : ""}${active.result.geometricMeanGrowthPct.toFixed(3)}%`}
-              sub="compounding edge"
+              sub="compounded equivalent"
               tone={active.result.geometricMeanGrowthPct >= 0 ? "good" : "bad"}
             />
           </div>
@@ -482,10 +514,13 @@ export function StrategyLab({
         <span>
           Stationary block bootstrap (block size ≈ N<sup>1/3</sup>, Politis–Romano optimal) of your R-history preserves loss-streak clustering.
           Each cell uses an independent seed so similar-looking cells aren't artificially correlated.
-          Recommendation maximises <code>passProb × (1 − RoR) − 0.02·max(0, DD% − 5) − 0.1·P(inconclusive)</code>,
+          Recommendation maximises <code>passProb × (1 − bust) − 0.02·max(0, DD% − 5) − 0.1·P(inconclusive)</code>,
           so a slightly lower pass prob with much lower drawdown — or fewer time-outs — can win.
-          Risk-of-ruin is per-path (any account busts); "per-acct" sub-stat shows the legacy account-level rate.
-          CVaR-5% is the mean of the worst 5% of final-equity outcomes; geometric growth/trade is the compounding edge at the chosen risk %.
+          "Any-account bust prob" is per-path (≥1 account busts); "per-acct" sub-stat shows the legacy account-level rate.
+          Recommendations are suppressed unless the bootstrap 95% CI on your mean R is strictly &gt; 0 (positive edge).
+          "Simultaneous" assumes the same R hits every live account on the same trade (mirror-trading); cross-account correlation &lt; 1 in real broker flow would soften joint-bust risk.
+          Path equity uses fixed-$ risk (prop-firm style); "Geom. growth / trade" reports the compounded-equivalent edge at the chosen risk %.
+          CVaR-5% is the mean of the worst 5% of final-equity outcomes.
         </span>
       </p>
     </Card>

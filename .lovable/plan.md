@@ -1,53 +1,70 @@
 
-## Problem
-Grid cells and simulator outputs render the same way no matter how thin the underlying data is. A cell with N=3 currently shows `+0.42R`, `33%`, `→ TP 1.25R` — visually indistinguishable from a cell with N=120. The user reads it as a result.
+## Audit — Strategy Lab, against your live data
 
-What's already in place: confidence dots (🟢🟡🔴), FDR badge, low-sample tooltip, MFE/MAE coverage colors, `MIN_ELIGIBLE_SAMPLE=10` in the ranker. These are *labels next to numbers* — the numbers are still the loudest thing on screen.
+**Your real R-sample (296 closed trades, Dec 29 → Jun 22):**
+- Mean R = **−0.046** (negative)
+- SD R = 1.18
+- Win rate = 41%
+- Profit factor (R) = **0.915** (lose 9 cents per dollar risked, on R basis)
+- Trade span: 176 calendar days, 63 active trading days (you trade ~36% of calendar days, not 5/7)
 
-## Principle
-**If the data can't support a conclusion, don't render a conclusion.** Replace the number with a state, not a decoration around the number.
+## What's correct
 
-## Proposed approach — three tiers, applied everywhere
+The math primitives are sound:
+- **Stationary block bootstrap** (Politis–Romano, block ≈ N^(1/3)) — correct implementation, uniform restarts, no head-of-series bias.
+- **Wilson 95% CI** on pass-prob — correct formula, well-behaved at 0/1.
+- **CVaR-5%** on final equity — correct (mean of worst 5%).
+- **Static vs trailing max-loss** modes — both correct against the reference (starting balance vs running peak).
+- **Daily-loss check** uses net intra-day P&L, resets correctly.
+- **Per-path risk-of-ruin** (≥1 account busts) is correctly computed; just mislabeled in the UI (see issue G below).
+- **Geometric-mean growth** formula `(Π(1+f·r))^(1/N) − 1` is correct.
 
-Define three data states centrally (in `shared/quant/config.ts`) and have every surface honor them:
+## What's wrong or misleading (ranked by severity)
 
-| State | Trigger | What the UI shows |
-|---|---|---|
-| `insufficient` | n < 10 OR coverage < 30% | dashes (`—`) + "need ≥10" hint. **No** expectancy, win%, TP suggestion, simulator row, equity curve. |
-| `provisional` | 10 ≤ n < 30 OR FDR `ns` OR CI crosses 0 | numbers shown but **muted** (opacity, no color, no bold), prefixed `~`, plus a "provisional" pill. No TP recommendation, no "winner" crown, excluded from ranker top slot. |
-| `validated` | n ≥ 30 AND FDR `sig` AND CI > 0 | full color treatment as today. |
+### 🔴 Critical: simulator runs on a negative-edge sample with no guard
+Your mean R is −0.046. The 95% bootstrap CI on mean R almost certainly straddles zero (likely [−0.18, +0.08]). At **every** risk %, expected long-run growth is negative. The heatmap will still color cells emerald-ish, and the Lab still shows a **"Recommended"** badge for whichever rotation/risk pair busts least. That's not a recommendation — it's "least bad path on a losing system." Last sprint's tier gate only checks n < 30; n = 296 passes, so no warning fires.
 
-### Where this applies
-1. **BucketGrid cells** — `insufficient` cells render only `N=x — too few` (no expR, no win%, no TP). `provisional` cells render muted numbers, no TP arrow.
-2. **Row totals** — same gating.
-3. **StrategyRanker** — `insufficient` rows already dashed; extend: `provisional` rows can't be the winner and lose the green highlight + crown.
-4. **StrategyLab simulator** — if the eligible R-sample feeding the Monte Carlo is `insufficient`, replace the whole grid with an empty-state card ("Need ≥10 eligible trades to simulate — currently X"). If `provisional`, keep the grid but add a banner: "Based on N=X trades — treat as directional, not predictive" and hide pass-rate %s, show only bust/no-bust.
-5. **Equity curve overlay** — same gate; don't draw a curve from <10 samples.
+**Fix:** add an edge-direction gate alongside the sample-size gate. If bootstrap CI on mean R doesn't clear 0 by some margin, switch the Lab to a different mode: show the heatmap for comparison but replace the "Recommended" badge with **"Edge not positive — sizing analysis suppressed"** and the headline number with mean-R + CI.
 
-### Thresholds — single source of truth
-Add to `shared/quant/config.ts`:
-```ts
-export const DATA_TIER = {
-  insufficient: { maxN: 9, minCoverage: 0.3 },
-  provisional:  { maxN: 29 },  // validated = n>=30 + FDR sig + CI>0
-};
-```
-Add a helper `classifyBucket(b): "insufficient" | "provisional" | "validated"` next to it. Every surface calls that one function — no scattered `n < 10` checks.
+### 🟡 Wrong: `autoTradesPerDay` denominator
+Code does `spanDays × 5/7` to approximate trading days. Reality: you have 63 active days out of 176 calendar days (~36%, not 71%). For you it computes `296 / 126 ≈ 2.3/day` when actual is `296 / 63 ≈ 4.7/day`. **Pass-prob is biased low because the simulator thinks you trade half as often as you do.**
 
-## Out of scope
-- No changes to the math itself (Sprint C already proved it correct).
-- No new aggregation modes, no new bucketing — purely a presentation gate.
+**Fix:** use `COUNT(DISTINCT entry_date)` directly. One-line change.
+
+### 🟡 Inconsistency: fixed-$ risk vs geometric-growth metric
+The path simulator uses constant $ risk (`accountSize × riskPerTradeFrac`), realistic for prop-firm fixed-stake. But the `geometricMeanGrowthPct` metric assumes compounded multiplicative `(1+f·r)`. These describe two different worlds. The number isn't wrong in isolation, but pairing them in one card invites misreading.
+
+**Fix:** either (a) compute geometric growth from realized log-returns inside the same fixed-$ paths, or (b) re-label as "compounded equivalent — what this edge would do under fractional Kelly." Pick (b); cheaper.
+
+### 🟡 Trade-order assumption in block bootstrap
+`extractRSample` filters but doesn't sort by `entry_time`. Block bootstrap's autocorrelation-preservation claim only holds if the input is time-ordered. If `trades` arrives sorted (verify), fine. If not, the block bootstrap degenerates to plain bootstrap and the block-size logic is theatre.
+
+**Fix:** sort by `entry_time` inside `extractRSample`, or add an assertion + comment that the caller must pre-sort.
+
+### 🟢 Label: "Risk of ruin" vs what's measured
+`riskOfRuin` is `P(≥1 account busts in a path)`. For numAccounts=1 that *is* RoR; for >1 it's "any-bust prob." Stat tooltip already exposes the per-account version. Just rename the headline label to **"Any-account bust prob"** to match the math.
+
+### 🟢 `simultaneous` rotation assumes perfect cross-account correlation
+The same R is applied to every live account in `simultaneous` mode. That's correct if you literally mirror-trade; over-conservative (max joint bust) otherwise. Worth a single-line tooltip note, not a math change.
+
+## Recommended minimal fix set (in order)
+
+1. **Edge-direction gate** in `StrategyLab.tsx` — compute bootstrap CI on mean R, replace "Recommended" with "Edge not positive" when CI lower bound ≤ 0 (or upper bound < some small ε). Add a clear "Your edge isn't statistically positive — fix the playbook before tuning size" message. This is the user-asked-for guard.
+2. **Active-days fix** in `autoTradesPerDay` — use distinct entry dates.
+3. **Time-sort** `extractRSample`.
+4. **Rename** `riskOfRuin` label and add the simultaneous-correlation tooltip note.
+5. **Re-label** geometric growth as "compounded equivalent."
+
+No changes to the core math primitives — they're correct. The bugs are at the **decision/presentation layer** where the engine doesn't refuse to recommend on a losing sample.
 
 ## Files touched
-- `shared/quant/config.ts` — add tiers + `classifyBucket`
-- `src/components/pair-lab/BucketGrid.tsx` — gate cell rendering
-- `src/components/pair-lab/StrategyRanker.tsx` — extend existing insufficient handling to provisional
-- `src/components/pair-lab/StrategyLab.tsx` — gate simulator + add banner
-- `src/components/pair-lab/EquityCurveOverlay.tsx` — early-return on insufficient
+- `src/lib/propFirmMonteCarlo.ts` — sort in `extractRSample`, expose a tiny `meanRWithCI` helper
+- `src/components/pair-lab/StrategyLab.tsx` — edge gate, active-days TPD, relabel, tooltip
 
-## One decision needed
-The `validated` threshold of **n ≥ 30 + FDR sig + CI > 0** is the conservative quant-stats default. If you'd rather:
-- **(a)** keep it strict at 30 (default proposal), or
-- **(b)** loosen to n ≥ 20 so more buckets graduate (you have 25 buckets / 408 trades),
+## Out of scope
+- Bayesian shrinkage of mean R toward 0 (would help here but adds priors-tuning surface).
+- Switching to a regime-aware bootstrap (overkill at N=296).
+- Replacing fixed-$ risk with compounding (changes contract; ask separately).
 
-say (a) or (b) and I'll wire it up. Everything else proceeds as written.
+## Decision needed
+Proceed with the 5-item minimal fix, or only the critical edge gate (item 1) plus active-days (item 2)?

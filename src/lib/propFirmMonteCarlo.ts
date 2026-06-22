@@ -374,16 +374,79 @@ function wilsonCI95(successes: number, trials: number): [number, number] {
 // Helpers used by UI surfaces
 // ----------------------------------------------------------------------------
 
-/** Pull all numeric r_multiple_actual values from closed trades. */
-export function extractRSample(trades: Array<{ r_multiple_actual: number | null; is_open?: boolean | null; is_archived?: boolean | null }>): number[] {
+/**
+ * Pull all numeric r_multiple_actual values from closed trades, sorted by
+ * entry_time ascending. Sort is required for the stationary block bootstrap
+ * to preserve any short-horizon autocorrelation; an unordered sample makes
+ * the block-length logic meaningless (degenerates to plain bootstrap).
+ */
+export function extractRSample(
+  trades: Array<{
+    r_multiple_actual: number | null;
+    is_open?: boolean | null;
+    is_archived?: boolean | null;
+    entry_time?: string | Date | null;
+  }>,
+): number[] {
   return trades
-    .filter((t) => !t.is_open && !t.is_archived && t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual))
+    .filter(
+      (t) =>
+        !t.is_open &&
+        !t.is_archived &&
+        t.r_multiple_actual != null &&
+        Number.isFinite(t.r_multiple_actual),
+    )
+    .slice()
+    .sort((a, b) => {
+      const at = a.entry_time ? +new Date(a.entry_time as string | Date) : 0;
+      const bt = b.entry_time ? +new Date(b.entry_time as string | Date) : 0;
+      return at - bt;
+    })
     .map((t) => t.r_multiple_actual as number);
+}
+
+/**
+ * Stationary block-bootstrap 95% CI for the mean of an R-sample. Uses the
+ * same block-size rule as the path simulator so the edge-direction gate and
+ * the path engine speak the same statistical language.
+ *
+ * Returns [lower, upper, mean]. If n < 2 returns [mean, mean, mean].
+ */
+export function meanRWithCI(
+  rSample: number[],
+  opts: { resamples?: number; seed?: number } = {},
+): { mean: number; ciLow: number; ciHigh: number; n: number } {
+  const n = rSample.length;
+  if (n === 0) return { mean: 0, ciLow: 0, ciHigh: 0, n: 0 };
+  const mean = rSample.reduce((a, b) => a + b, 0) / n;
+  if (n < 2) return { mean, ciLow: mean, ciHigh: mean, n };
+
+  const resamples = Math.max(200, opts.resamples ?? 1000);
+  const rng = mulberry32(opts.seed ?? 0x9E3779B9);
+  const blockSize = Math.max(3, Math.round(Math.pow(n, 1 / 3)));
+  const blockReset = 1 / blockSize;
+
+  const means: number[] = new Array(resamples);
+  for (let b = 0; b < resamples; b += 1) {
+    let idx = Math.floor(rng() * n);
+    let sum = 0;
+    for (let k = 0; k < n; k += 1) {
+      if (rng() < blockReset) idx = Math.floor(rng() * n);
+      sum += rSample[idx];
+      const next = idx + 1;
+      idx = next >= n ? Math.floor(rng() * n) : next;
+    }
+    means[b] = sum / n;
+  }
+  means.sort((a, b) => a - b);
+  const lo = means[Math.floor(0.025 * resamples)];
+  const hi = means[Math.min(resamples - 1, Math.floor(0.975 * resamples))];
+  return { mean, ciLow: lo, ciHigh: hi, n };
 }
 
 export const ROTATION_LABELS: Record<RotationModel, string> = {
   one_only: "Trade one account only",
-  simultaneous: "Trade all accounts simultaneously",
+  simultaneous: "Trade all accounts simultaneously (mirror)",
   stay_on_winner: "Stay on winner, switch on loss",
   round_robin: "Round-robin rotation",
 };
