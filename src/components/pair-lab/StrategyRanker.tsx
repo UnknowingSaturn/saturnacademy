@@ -264,7 +264,7 @@ export function StrategyRanker({
         </div>
 
 
-        {winner && winner.eligibleCount >= MIN_ELIGIBLE_SAMPLE && (
+        {winner && replayTier(winner) === "validated" && (
           <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <Trophy className="w-3.5 h-3.5 text-primary" />
@@ -304,6 +304,23 @@ export function StrategyRanker({
             </p>
           </div>
         )}
+
+        {winner && replayTier(winner) === "provisional" && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs flex items-start gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5" />
+            <div>
+              <div className="font-medium text-sm text-amber-700 dark:text-amber-400">
+                Provisional ranking — no "best" yet
+              </div>
+              <div className="text-muted-foreground mt-1">
+                Top preset's eligible sample (N {winner.eligibleCount}) is under{" "}
+                {DATA_TIER_VALIDATED_N} trades or its 95% CI hasn't ruled out zero edge.
+                Numbers below are directional, not a recommendation.
+              </div>
+            </div>
+          </div>
+        )}
+
 
         {walkForwardResult && (
           <div className={`rounded-md border p-3 text-xs ${
