@@ -159,6 +159,7 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
   }
 
   return (
+    <TooltipProvider delayDuration={150}>
     <Card className="p-0 overflow-x-auto">
       <div className="flex items-center justify-end gap-3 px-3 py-1.5 text-[10px] text-muted-foreground border-b border-border/60 bg-muted/10">
         <span className="uppercase tracking-wider">MFE/MAE coverage</span>
