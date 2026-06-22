@@ -76,16 +76,6 @@ export function getDayNameET(utcTimestamp: string | Date): string {
   }).format(date);
 }
 
-/** Get hour (0-23) in the active display timezone for session detection */
-export function getHourInET(utcTimestamp: string | Date): number {
-  const date = new Date(utcTimestamp);
-  const etTime = new Intl.DateTimeFormat('en-US', {
-    timeZone: currentDisplayTimezone,
-    hour: 'numeric',
-    hour12: false,
-  }).format(date);
-  return parseInt(etTime, 10);
-}
 
 /** Get full datetime in the active display timezone */
 export function formatFullDateTimeET(utcTimestamp: string | Date): string {
