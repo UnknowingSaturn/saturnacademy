@@ -514,10 +514,13 @@ export function StrategyLab({
         <span>
           Stationary block bootstrap (block size ≈ N<sup>1/3</sup>, Politis–Romano optimal) of your R-history preserves loss-streak clustering.
           Each cell uses an independent seed so similar-looking cells aren't artificially correlated.
-          Recommendation maximises <code>passProb × (1 − RoR) − 0.02·max(0, DD% − 5) − 0.1·P(inconclusive)</code>,
+          Recommendation maximises <code>passProb × (1 − bust) − 0.02·max(0, DD% − 5) − 0.1·P(inconclusive)</code>,
           so a slightly lower pass prob with much lower drawdown — or fewer time-outs — can win.
-          Risk-of-ruin is per-path (any account busts); "per-acct" sub-stat shows the legacy account-level rate.
-          CVaR-5% is the mean of the worst 5% of final-equity outcomes; geometric growth/trade is the compounding edge at the chosen risk %.
+          "Any-account bust prob" is per-path (≥1 account busts); "per-acct" sub-stat shows the legacy account-level rate.
+          Recommendations are suppressed unless the bootstrap 95% CI on your mean R is strictly &gt; 0 (positive edge).
+          "Simultaneous" assumes the same R hits every live account on the same trade (mirror-trading); cross-account correlation &lt; 1 in real broker flow would soften joint-bust risk.
+          Path equity uses fixed-$ risk (prop-firm style); "Geom. growth / trade" reports the compounded-equivalent edge at the chosen risk %.
+          CVaR-5% is the mean of the worst 5% of final-equity outcomes.
         </span>
       </p>
     </Card>
