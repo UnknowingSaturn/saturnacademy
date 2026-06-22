@@ -274,83 +274,103 @@ export function StrategyRanker({
                 const insufficient = r.eligibleCount < MIN_ELIGIBLE_SAMPLE;
                 const ci = r.expectancyRCi;
                 const halfCi = ci ? (ci[1] - ci[0]) / 2 : null;
+                const isOpen = openId === r.strategy.id;
+                const toggle = () => setOpenId(isOpen ? null : r.strategy.id);
                 return (
-                  <tr
-                    key={r.strategy.id}
-                    className={`border-b border-border/30 ${isWinner ? "bg-primary/5" : ""} ${isBust || insufficient ? "opacity-60" : ""}`}
-                  >
-                    <td className="py-2 pr-2 font-mono-numbers text-xs text-muted-foreground">{i + 1}</td>
-                    <td className="py-2 pr-2">
-                      <div className={`font-medium ${isWinner ? "text-primary" : ""}`}>{r.strategy.label}</div>
-                    </td>
-                    <td className="py-2 px-2">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex items-center gap-1.5 text-xs font-mono-numbers cursor-help">
-                            <span className={`w-1.5 h-1.5 rounded-full ${coverageDotClass(r.eligibleCount, r.totalTradeCount)}`} />
-                            {r.eligibleCount}/{r.totalTradeCount}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-xs text-xs">
-                          {r.ineligibleCount === 0 ? (
-                            <span>All trades have the data this preset needs.</span>
-                          ) : (
-                            <div className="space-y-1">
-                              <div className="font-medium">
-                                {r.ineligibleCount} trades excluded — top reasons:
-                              </div>
-                              <ul className="space-y-0.5">
-                                {topReasons(r.ineligibleReasons).map(([reason, count]) => (
-                                  <li key={reason} className="font-mono-numbers">
-                                    · {reason} <span className="text-muted-foreground">×{count}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
-                    </td>
-                    <td
-                      className={`py-2 px-2 text-right font-mono-numbers font-semibold ${r.totalDollars >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}
+                  <Fragment key={r.strategy.id}>
+                    <tr
+                      className={`border-b border-border/30 ${isWinner ? "bg-primary/5" : ""} ${isBust || insufficient ? "opacity-60" : ""} ${isOpen ? "bg-muted/30" : ""}`}
                     >
-                      {insufficient ? "—" : fmtMoney(r.totalDollars)}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono-numbers">
-                      {insufficient ? "—" : `${(r.winRate * 100).toFixed(0)}%`}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono-numbers">
-                      {insufficient ? (
-                        <span className="text-muted-foreground text-xs">need ≥{MIN_ELIGIBLE_SAMPLE}</span>
-                      ) : (
-                        <>
-                          {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
-                          {halfCi != null && (
-                            <span className="text-muted-foreground"> ±{halfCi.toFixed(2)}</span>
-                          )}
-                        </>
-                      )}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono-numbers">
-                      {insufficient || r.sharpeR == null ? "—" : r.sharpeR.toFixed(2)}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono-numbers text-destructive">
-                      {insufficient ? "—" : fmtMoney(r.maxDrawdownDollars)}
-                    </td>
-                    <td className="py-2 pl-2">
-                      {r.propFirmVerdict === "n/a" || insufficient ? (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      ) : isBust ? (
-                        <Badge variant="destructive" className="text-xs">
-                          {r.propFirmVerdict === "bust_daily" ? "bust daily" : "bust total"}
-                        </Badge>
-                      ) : (
-                        <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">
-                          pass
-                        </Badge>
-                      )}
-                    </td>
-                  </tr>
+                      <td className="py-2 pr-2 font-mono-numbers text-xs text-muted-foreground">{i + 1}</td>
+                      <td className="py-2 pr-2">
+                        <button
+                          type="button"
+                          onClick={toggle}
+                          aria-expanded={isOpen}
+                          className={`inline-flex items-center gap-1.5 text-left font-medium hover:underline focus:outline-none focus:ring-1 focus:ring-ring rounded ${isWinner ? "text-primary" : ""}`}
+                        >
+                          <ChevronRight
+                            className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
+                          />
+                          {r.strategy.label}
+                        </button>
+                      </td>
+                      <td className="py-2 px-2">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-1.5 text-xs font-mono-numbers cursor-help">
+                              <span className={`w-1.5 h-1.5 rounded-full ${coverageDotClass(r.eligibleCount, r.totalTradeCount)}`} />
+                              {r.eligibleCount}/{r.totalTradeCount}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs text-xs">
+                            {r.ineligibleCount === 0 ? (
+                              <span>All trades have the data this preset needs.</span>
+                            ) : (
+                              <div className="space-y-1">
+                                <div className="font-medium">
+                                  {r.ineligibleCount} trades excluded — top reasons:
+                                </div>
+                                <ul className="space-y-0.5">
+                                  {topReasons(r.ineligibleReasons).map(([reason, count]) => (
+                                    <li key={reason} className="font-mono-numbers">
+                                      · {reason} <span className="text-muted-foreground">×{count}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      </td>
+                      <td
+                        className={`py-2 px-2 text-right font-mono-numbers font-semibold ${r.totalDollars >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}
+                      >
+                        {insufficient ? "—" : fmtMoney(r.totalDollars)}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono-numbers">
+                        {insufficient ? "—" : `${(r.winRate * 100).toFixed(0)}%`}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono-numbers">
+                        {insufficient ? (
+                          <span className="text-muted-foreground text-xs">need ≥{MIN_ELIGIBLE_SAMPLE}</span>
+                        ) : (
+                          <>
+                            {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
+                            {halfCi != null && (
+                              <span className="text-muted-foreground"> ±{halfCi.toFixed(2)}</span>
+                            )}
+                          </>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono-numbers">
+                        {insufficient || r.sharpeR == null ? "—" : r.sharpeR.toFixed(2)}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono-numbers text-destructive">
+                        {insufficient ? "—" : fmtMoney(r.maxDrawdownDollars)}
+                      </td>
+                      <td className="py-2 pl-2">
+                        {r.propFirmVerdict === "n/a" || insufficient ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : isBust ? (
+                          <Badge variant="destructive" className="text-xs">
+                            {r.propFirmVerdict === "bust_daily" ? "bust daily" : "bust total"}
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">
+                            pass
+                          </Badge>
+                        )}
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="bg-muted/20 border-b border-border/30">
+                        <td colSpan={9} className="py-3 px-3">
+                          <StrategyDetailPanel result={r} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
