@@ -806,7 +806,7 @@ function pickBestTp(
     hash = (hash * 31 + Math.floor((p.mfeR * 1000 + p.rActual * 1000))) | 0;
   }
   const rand = makeSeededRng(hash);
-  const iters = 200;
+  const iters = 500;
   const samples: number[] = new Array(iters);
   const buf: MfePair[] = new Array(pairs.length);
   for (let i = 0; i < iters; i++) {
@@ -847,15 +847,21 @@ export function runWalkForward(
   const oosPairs = collectMfeRPairs(oosRows, keys);
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
 
-  const isTrail = estimateTrailCapture(isRows, keys, 5)?.ratio ?? 0.7;
-  const oosTrail = estimateTrailCapture(oosRows, keys, 5)?.ratio ?? isTrail;
+  // Walk-forward must not estimate trailCapture on the OOS slice (look-ahead
+  // leak): use the IS estimate on both sides. Standardize on the same
+  // minSample=10 the bucket-local estimate uses.
+  const isTrail = estimateTrailCapture(isRows, keys, 10)?.ratio ?? 0.7;
 
   const isPick = pickBestTp(isPairs, isTrail);
   if (!isPick) return null;
   const inSampleE = isPick.expectancy;
-  const outOfSampleE = scoreTp(isPick.tpR, oosPairs, oosTrail);
+  const outOfSampleE = scoreTp(isPick.tpR, oosPairs, isTrail);
   const degradationPct = inSampleE > 0 ? (1 - outOfSampleE / inSampleE) * 100 : 0;
-  return { inSampleE, outOfSampleE, degradationPct, oosN: oosRows.length };
+  // Report N as the OOS *pairs* that actually feed `scoreTp` — these are the
+  // true degrees of freedom. `oosRows.length` (total OOS trades) can be much
+  // larger than oosPairs.length when MFE coverage is sparse, which would
+  // mislead the reader about how robust the OOS read is.
+  return { inSampleE, outOfSampleE, degradationPct, oosN: oosPairs.length };
 }
 
 
