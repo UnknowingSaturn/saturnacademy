@@ -443,12 +443,12 @@ export function StrategyLab({
               <span className="font-medium">{ROTATION_LABELS[active.model]}</span>
               <span className="text-muted-foreground"> @ </span>
               <span className="font-mono-numbers font-semibold">{active.risk.toFixed(2)}%</span>
-              {best && active.key === best.key && !provisional && (
+              {best && active.key === best.key && edgePositive && !provisional && (
                 <Badge className="ml-2 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">
                   Recommended
                 </Badge>
               )}
-              {best && active.key === best.key && provisional && (
+              {best && active.key === best.key && edgePositive && provisional && (
                 <Badge className="ml-2 bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 text-xs">
                   Provisional top
                 </Badge>
