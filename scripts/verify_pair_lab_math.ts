@@ -59,9 +59,12 @@ function kellyIndep(p: number, w: number, l: number): number | null {
 }
 
 // -------- shape trades for buildBuckets --------
+// -------- shape trades for buildBuckets --------
+// Use the SAME symbol resolver on both sides so we're comparing apples to apples
+// (independent recomputation and buildBuckets must group identically).
 const resolveSym = buildSymbolResolver(aliases);
 
-const bucketed = buildBuckets(trades as any, keys, { closedOnly: true });
+const bucketed = buildBuckets(trades as any, keys, { closedOnly: true, symbolResolver: resolveSym });
 console.log(`buildBuckets → ${bucketed.perCell.length} cells, baseline n=${bucketed.baseline.n}`);
 
 // -------- independent recomputation per cell --------
