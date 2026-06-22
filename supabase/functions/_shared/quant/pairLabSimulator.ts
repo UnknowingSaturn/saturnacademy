@@ -240,14 +240,14 @@ function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucke
       else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail" };
         const mfeNewR = proof.loggedMfe / slScale;
-        booked += Math.max(-1, TRAIL_CAPTURE_FRAC * mfeNewR) * remainingFrac;
+        booked += Math.max(-1, bucket.trailCapture * mfeNewR) * remainingFrac;
       }
     } else {
       if (strategy.exitRule.runner === "be_after_first_tp") booked += 0;
       else if (strategy.exitRule.runner === "all_out_at_last_partial") booked += lastFilledAtR * remainingFrac;
       else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail" };
-        booked += TRAIL_CAPTURE_FRAC * (proof.loggedMfe / slScale) * remainingFrac;
+        booked += bucket.trailCapture * (proof.loggedMfe / slScale) * remainingFrac;
       }
     }
   }
