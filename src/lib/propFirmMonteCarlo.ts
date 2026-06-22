@@ -223,8 +223,10 @@ export function runMonteCarlo(params: MCParams): MCResult {
       riskOfRuin: 0,
       finalEquityDistributionPct: [],
       expectedReturnPct: 0,
+      blockSize: 0,
     };
   }
+  const blockSize = Math.max(3, Math.round(Math.sqrt(params.rSample.length)));
 
   let passes = 0;
   let fails = 0;
