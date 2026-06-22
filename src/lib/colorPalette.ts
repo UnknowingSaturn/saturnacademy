@@ -12,7 +12,3 @@ export const COLOR_PALETTE: readonly string[] = [
   "#EC4899", "#F43F5E", "#6B7280",
 ] as const;
 
-/** Pick a stable palette color by index (wraps with modulo). */
-export function paletteColorAt(index: number): string {
-  return COLOR_PALETTE[((index % COLOR_PALETTE.length) + COLOR_PALETTE.length) % COLOR_PALETTE.length];
-}

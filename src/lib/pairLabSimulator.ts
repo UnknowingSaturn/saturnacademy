@@ -428,7 +428,6 @@ export interface ReplayOpts {
 }
 
 export const MIN_ELIGIBLE_SAMPLE = 10;
-export const MIN_MATCHED_SAMPLE = 5;
 
 function buildResult(
   strategy: Strategy,
@@ -625,73 +624,13 @@ export function replayBucket(
   return buildResult(strategy, replayed, reasons, all.length, opts, ladder);
 }
 
-export interface MatchedReplay {
-  results: ReplayResult[];
-  matchedTradeIds: string[];
-  matchedCount: number;
-  totalTradeCount: number;
-}
-
-export function replayBucketMatched(
-  trades: Trade[],
-  keys: PairLabFieldKeys,
-  strategies: Strategy[],
-  opts: ReplayOpts,
-): MatchedReplay {
-  const all = preparedTrades(trades);
-  const bucket = buildBucketConstants(all, keys);
-  const ctx = ctxFor(opts, bucket);
-
-  const perStrategy: Array<Map<string, ReplayOutcome>> = strategies.map(() => new Map());
-  const proofs = new Map<string, TradeProof>();
-  for (const t of all) {
-    const proof = extractProof(t, keys);
-    proofs.set(t.id, proof);
-    strategies.forEach((s, idx) => {
-      perStrategy[idx].set(t.id, replayOneTrade(s, t, proof, ctx));
-    });
-  }
-
-  const matched: Trade[] = all.filter((t) =>
-    perStrategy.every((m) => {
-      const o = m.get(t.id);
-      return o && "r" in o;
-    }),
-  );
-  const matchedIds = matched.map((t) => t.id);
-  const matchedIdSet = new Set(matchedIds);
-
-  const results: ReplayResult[] = strategies.map((strategy, idx) => {
-    const replayed = matched.map((t) => {
-      const o = perStrategy[idx].get(t.id) as { r: number; slPips: number | null };
-      return {
-        trade: t,
-        r: o.r,
-        reachedR: proofs.get(t.id)?.reachedR ?? 0,
-        slPips: o.slPips,
-      };
-    });
-    // Intersection-only reasons: count only trades that this strategy excluded
-    // AND that are NOT in the matched intersection (i.e. trades that genuinely
-    // caused the intersection to shrink because of this strategy).
-    const reasons: Record<string, number> = {};
-    perStrategy[idx].forEach((o, tradeId) => {
-      if ("ineligible" in o && !matchedIdSet.has(tradeId)) {
-        reasons[o.ineligible] = (reasons[o.ineligible] ?? 0) + 1;
-      }
-    });
-    const ladder = buildAppliedTpLadder(strategy, bucket);
-    return buildResult(strategy, replayed, reasons, all.length, opts, ladder);
-  });
+// `replayBucketMatched` was an alternate matched-sample replay path that the
+// Compare view ended up not using (Sprint C2 audit, 2026-06: zero external
+// references). Deleted along with its types `MatchedReplay` and constant
+// `MIN_MATCHED_SAMPLE` — restore from git history if a future feature needs
+// the intersection-only-reasons aggregation.
 
 
-  return {
-    results,
-    matchedTradeIds: matchedIds,
-    matchedCount: matched.length,
-    totalTradeCount: all.length,
-  };
-}
 
 // ----------------------------------------------------------------------------
 // Walk-forward split (B7)

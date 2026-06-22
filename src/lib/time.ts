@@ -23,10 +23,6 @@ export function setDisplayTimezone(tz: string | null | undefined) {
   currentDisplayTimezone = tz && tz.length > 0 ? tz : DEFAULT_TIMEZONE;
 }
 
-/** Get the currently active display timezone. */
-export function getDisplayTimezone(): string {
-  return currentDisplayTimezone;
-}
 
 /**
  * Format a UTC timestamp in the user's display timezone (default ET).
@@ -80,16 +76,6 @@ export function getDayNameET(utcTimestamp: string | Date): string {
   }).format(date);
 }
 
-/** Get hour (0-23) in the active display timezone for session detection */
-export function getHourInET(utcTimestamp: string | Date): number {
-  const date = new Date(utcTimestamp);
-  const etTime = new Intl.DateTimeFormat('en-US', {
-    timeZone: currentDisplayTimezone,
-    hour: 'numeric',
-    hour12: false,
-  }).format(date);
-  return parseInt(etTime, 10);
-}
 
 /** Get full datetime in the active display timezone */
 export function formatFullDateTimeET(utcTimestamp: string | Date): string {
@@ -111,7 +97,13 @@ export function formatFullDateTimeET(utcTimestamp: string | Date): string {
  * via src/lib/brokerDst.ts, so consumers should always pass UTC timestamps here.
  */
 export function detectSessionFromUtc(utcTimestamp: string | Date): SessionType {
-  const hourET = getHourInET(utcTimestamp);
+  const date = new Date(utcTimestamp);
+  const hourStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: currentDisplayTimezone,
+    hour: 'numeric',
+    hour12: false,
+  }).format(date);
+  const hourET = parseInt(hourStr, 10);
   if (hourET >= 8 && hourET < 12) return 'overlap_london_ny';
   if (hourET >= 12 && hourET < 17) return 'new_york_pm';
   if (hourET >= 3 && hourET < 8) return 'london';
