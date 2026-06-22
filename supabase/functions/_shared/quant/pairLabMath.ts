@@ -98,7 +98,16 @@ export function bootstrapMeanCi(values: number[], iters = 500): [number, number]
     means[i] = sum / xs.length;
   }
   means.sort((a, b) => a - b);
-  return [means[Math.floor(iters * 0.025)], means[Math.floor(iters * 0.975)]];
+  return [percentileFromSorted(means, 0.025), percentileFromSorted(means, 0.975)];
+}
+
+/** Standard NIST-type-7 percentile via linear interpolation. */
+function percentileFromSorted(sorted: number[], q: number): number {
+  if (sorted.length === 0) return NaN;
+  if (sorted.length === 1) return sorted[0];
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos), hi = Math.ceil(pos), w = pos - lo;
+  return sorted[lo] * (1 - w) + sorted[hi] * w;
 }
 
 /** One-sided bootstrap p-value that mean(values) > 0. Null when n < 5. */
@@ -260,19 +269,32 @@ function wilsonCi(successes: number, n: number, z = 1.96): [number, number] | nu
   return [Math.max(0, centre - margin), Math.min(1, centre + margin)];
 }
 
-function computeTp1Star(mfes: number[], avgLossR: number): Tp1Star | null {
-  if (mfes.length < 5) return null;
+function computeTp1Star(
+  pairs: Array<{ mfeR: number; rActual: number | null }>,
+  avgLossR: number,
+): Tp1Star | null {
+  if (pairs.length < 5) return null;
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
-  // Use expectancyR directly as the selection objective — the prior
-  // `hitRate × log(1+r)` was an ad-hoc utility, not an economic criterion.
+  const fallbackMiss = -Math.abs(avgLossR);
+  // Empirical miss cost: when MFE < r, use the conditional mean r_actual of
+  // missing trades (BE / partial / full stop) rather than the worst-case
+  // avgLossR. Falls back to −avgLossR when fewer than 5 misses with rActual.
   for (const r of candidates) {
-    const hits = mfes.filter((v) => v >= r).length;
-    const hitRate = hits / mfes.length;
+    let hits = 0;
+    const missRs: number[] = [];
+    for (const p of pairs) {
+      if (p.mfeR >= r) hits += 1;
+      else if (p.rActual != null && Number.isFinite(p.rActual)) missRs.push(p.rActual);
+    }
+    const hitRate = hits / pairs.length;
     if (hitRate < 0.4) continue;
-    const expectancyR = hitRate * r - (1 - hitRate) * avgLossR;
+    const missMean = missRs.length >= 5
+      ? missRs.reduce((s, v) => s + v, 0) / missRs.length
+      : fallbackMiss;
+    const expectancyR = hitRate * r + (1 - hitRate) * missMean;
     if (!best || expectancyR > best.expectancyR) {
-      best = { r, hitRate, hitRateCi: wilsonCi(hits, mfes.length), expectancyR };
+      best = { r, hitRate, hitRateCi: wilsonCi(hits, pairs.length), expectancyR };
     }
   }
   return best;
