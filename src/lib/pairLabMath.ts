@@ -551,6 +551,7 @@ function computeBucket(
   const maesPips: number[] = [];
   /** Per-trade tuples used by the SL sweep — needs MAE-pips, planned SL-pips, and actual R. */
   const sweepRows: Array<{ maePips: number; slPips: number; rActual: number }> = [];
+  const maesTicks: number[] = [];
   for (const t of rows) {
     const maeTicks = numericCf(t as any, keys.mae);
     if (maeTicks == null || !t.symbol) continue;
