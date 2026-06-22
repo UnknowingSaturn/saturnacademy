@@ -272,6 +272,7 @@ export function runMonteCarlo(params: MCParams): MCResult {
     riskOfRuin: totalAccounts > 0 ? ruinedAccounts / totalAccounts : 0,
     finalEquityDistributionPct: finalEqPct,
     expectedReturnPct: totalAccounts > 0 ? returnSumPct / totalAccounts : 0,
+    blockSize,
   };
 }
 
