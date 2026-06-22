@@ -72,8 +72,8 @@ export function MaeMfeMatrix({ trades, fieldKeys }: Props) {
       <div>
         <h3 className="font-semibold text-sm">MAE / MFE matrix · setup × session</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          Cells show mean MAE / mean MFE in R for that setup × session combination.
-          Verdict per row uses mean MAE: ≤0.4R = stops too wide; ≥0.85R = stops too tight.
+          Cells show mean MAE in ticks and mean MFE in R for each setup × session combo.
+          Row verdict compares MAE vs planned-SL ratio: ≤0.4 = stops too wide; ≥0.85 = stops too tight.
         </p>
       </div>
       <div className="overflow-x-auto">
