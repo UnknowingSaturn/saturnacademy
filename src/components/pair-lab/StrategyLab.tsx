@@ -322,6 +322,11 @@ export function StrategyLab({
               {edge.n < 30
                 ? `Need ≥30 closed trades with R-multiples before edge can be tested (have ${edge.n}).`
                 : "The 95% confidence interval crosses zero, so any pass-prob ranking on this sample reflects path luck — not a tradeable edge. Heatmap stays visible for comparison, but no risk % is recommended. Fix the playbook (entries, exits, R per trade) before tuning size."}
+              {sampleWindow !== "all" && (
+                <span className="block mt-1 italic">
+                  Narrow window selected — switch to <strong>All</strong> for the full sample.
+                </span>
+              )}
             </div>
           </div>
         </div>
