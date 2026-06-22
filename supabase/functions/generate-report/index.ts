@@ -996,12 +996,23 @@ async function fetchPropFirmContext(
       else if (r.rule_type === 'max_drawdown') maxDrawdownDollars = toDollars(r);
       else if (r.rule_type === 'profit_target') profitTargetDollars = toDollars(r);
     }
+    // Hard cap mirrors src/hooks/usePairLab.tsx — sourced from user_settings.sim_hard_cap_pct.
+    let hardCapPct = 2;
+    try {
+      const { data: settings } = await admin
+        .from('user_settings')
+        .select('sim_hard_cap_pct')
+        .maybeSingle();
+      const v = Number((settings as any)?.sim_hard_cap_pct);
+      if (isFinite(v) && v > 0) hardCapPct = v;
+    } catch { /* fall through to default */ }
     return {
       firm: acct.prop_firm,
       balance,
       dailyLossDollars,
       maxDrawdownDollars,
       profitTargetDollars,
+      hardCapPct,
     };
   } catch (e) {
     console.warn('prop firm context fetch failed:', e);
