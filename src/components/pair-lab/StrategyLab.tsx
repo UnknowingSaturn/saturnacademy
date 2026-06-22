@@ -417,6 +417,18 @@ export function StrategyLab({
               value={`${active.result.expectedReturnPct >= 0 ? "+" : ""}${active.result.expectedReturnPct.toFixed(1)}%`}
               tone={active.result.expectedReturnPct >= 0 ? "good" : "bad"}
             />
+            <Stat
+              label="CVaR-5%"
+              value={`${active.result.cvar5Pct >= 0 ? "+" : ""}${active.result.cvar5Pct.toFixed(1)}%`}
+              sub="worst 5% tail"
+              tone="bad"
+            />
+            <Stat
+              label="Geom. growth / trade"
+              value={`${active.result.geometricMeanGrowthPct >= 0 ? "+" : ""}${active.result.geometricMeanGrowthPct.toFixed(3)}%`}
+              sub="compounding edge"
+              tone={active.result.geometricMeanGrowthPct >= 0 ? "good" : "bad"}
+            />
           </div>
           {/* Score breakdown */}
           <div className="text-[11px] text-muted-foreground font-mono-numbers mt-3 pt-3 border-t border-border/40 leading-relaxed">
@@ -432,11 +444,12 @@ export function StrategyLab({
       <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed flex items-start gap-1.5">
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
         <span>
-          Stationary block bootstrap (block size √N) of your R-history preserves loss-streak clustering.
+          Stationary block bootstrap (block size ≈ N<sup>1/3</sup>, Politis–Romano optimal) of your R-history preserves loss-streak clustering.
           Each cell uses an independent seed so similar-looking cells aren't artificially correlated.
-          Recommendation maximises <code>passProb × (1 − RoR) − 0.5·max(0, DD − 5%) − 0.1·P(inconclusive)</code>,
+          Recommendation maximises <code>passProb × (1 − RoR) − 0.02·max(0, DD% − 5) − 0.1·P(inconclusive)</code>,
           so a slightly lower pass prob with much lower drawdown — or fewer time-outs — can win.
           Risk-of-ruin is per-path (any account busts); "per-acct" sub-stat shows the legacy account-level rate.
+          CVaR-5% is the mean of the worst 5% of final-equity outcomes; geometric growth/trade is the compounding edge at the chosen risk %.
         </span>
       </p>
     </Card>

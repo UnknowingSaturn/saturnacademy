@@ -73,7 +73,18 @@ export interface MCResult {
   finalEquityDistributionPct: number[];
   /** Mean expected return as % of starting balance, per account, at path end. */
   expectedReturnPct: number;
-  /** Stationary block bootstrap block size (sqrt(N)). 0 when rSample empty. */
+  /**
+   * CVaR-5%: mean of the worst 5% of final equity outcomes (% of starting balance).
+   * More informative than mean DD for tail-risk-averse traders.
+   */
+  cvar5Pct: number;
+  /**
+   * Per-trade geometric mean growth at the chosen risk fraction, expressed as %.
+   * Computed as (Π(1 + f·r))^(1/N) − 1 over the historical R sample. Positive ⇒
+   * compounding edge; negative ⇒ Kelly-overshoot (high arithmetic mean still loses).
+   */
+  geometricMeanGrowthPct: number;
+  /** Stationary block bootstrap block size (N^(1/3)). 0 when rSample empty. */
   blockSize: number;
 }
 
@@ -244,10 +255,30 @@ export function runMonteCarlo(params: MCParams): MCResult {
       perAccountBustRate: 0,
       finalEquityDistributionPct: [],
       expectedReturnPct: 0,
+      cvar5Pct: 0,
+      geometricMeanGrowthPct: 0,
       blockSize: 0,
     };
   }
   const blockSize = Math.max(3, Math.round(Math.pow(params.rSample.length, 1 / 3)));
+
+  // Geometric-mean per-trade growth at the chosen risk fraction.
+  // Defined as exp(mean(log(1 + f·r))) − 1. If ever 1+f·r ≤ 0 the path is
+  // wiped out → growth is −100%.
+  let geomGrowthPct = 0;
+  {
+    const f = params.riskPerTradeFrac;
+    let sumLog = 0;
+    let count = 0;
+    let blown = false;
+    for (const r of params.rSample) {
+      const factor = 1 + f * r;
+      if (factor <= 0) { blown = true; break; }
+      sumLog += Math.log(factor);
+      count += 1;
+    }
+    geomGrowthPct = blown ? -100 : (Math.exp(sumLog / Math.max(1, count)) - 1) * 100;
+  }
 
   let passes = 0;
   let fails = 0;
@@ -289,6 +320,17 @@ export function runMonteCarlo(params: MCParams): MCResult {
   const passProb = passes / paths;
   const failProb = fails / paths;
   const passProbCI = wilsonCI95(passes, paths);
+
+  // CVaR-5%: mean of worst 5% final equity outcomes (per-account, all paths).
+  let cvar5Pct = 0;
+  if (finalEqPct.length > 0) {
+    const sorted = finalEqPct.slice().sort((a, b) => a - b);
+    const cutoff = Math.max(1, Math.floor(sorted.length * 0.05));
+    let s = 0;
+    for (let i = 0; i < cutoff; i += 1) s += sorted[i];
+    cvar5Pct = s / cutoff;
+  }
+
   return {
     paths,
     passProb,
@@ -303,6 +345,8 @@ export function runMonteCarlo(params: MCParams): MCResult {
     perAccountBustRate: totalAccounts > 0 ? ruinedAccounts / totalAccounts : 0,
     finalEquityDistributionPct: finalEqPct,
     expectedReturnPct: totalAccounts > 0 ? returnSumPct / totalAccounts : 0,
+    cvar5Pct,
+    geometricMeanGrowthPct: geomGrowthPct,
     blockSize,
   };
 }
