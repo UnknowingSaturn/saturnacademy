@@ -42,10 +42,21 @@ const ROTATION_MODELS: RotationModel[] = ["one_only", "simultaneous", "stay_on_w
 const TARGET_PRESETS = [6, 8, 10, 12];
 const WINDOW_PRESETS = [30, 60, 90];
 
-// Recommendation score: reward pass prob × survival, penalise drawdown over 5%.
-function scoreCell(r: MCResult): number {
+// Score components (exposed for the breakdown line).
+function scoreCellParts(r: MCResult, inconclusiveWeight = 0.1) {
+  const survival = 1 - r.riskOfRuin;
   const ddPenalty = 0.5 * Math.max(0, r.avgDrawdownPct - 5) / 100;
-  return r.passProb * (1 - r.riskOfRuin) - ddPenalty;
+  const inconclusivePenalty = inconclusiveWeight * r.inconclusiveProb;
+  const score = r.passProb * survival - ddPenalty - inconclusivePenalty;
+  return { passProb: r.passProb, survival, ddPenalty, inconclusivePenalty, score };
+}
+
+// Deterministic but distinct seed per cell — prevents the heatmap from showing
+// artificial similarity between cells that happen to walk the same sample path.
+function cellSeed(model: RotationModel, risk: number): number {
+  const modelIdx = ROTATION_MODELS.indexOf(model);
+  // Encode model in high bits, risk×100 in low bits.
+  return ((modelIdx + 1) * 100003) ^ Math.round(risk * 1000) ^ 0x5f3759df;
 }
 
 // Auto-detect average trades/day from the user's history.
