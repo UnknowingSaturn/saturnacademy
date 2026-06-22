@@ -193,6 +193,109 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
         </div>
       )}
 
+      {/* Quant-suggested parameters — surfaced from buildRecommendation, no LLM. */}
+      {b.n >= 10 && (() => {
+        const r = b.recommendation;
+        const conf = r.recommendationConfidence;
+        const confBadge =
+          conf === "validated" ? (
+            <Badge variant="outline" className="text-profit border-profit/40 bg-profit/10 text-[10px]">
+              validated · OOS-tested
+            </Badge>
+          ) : conf === "low" ? (
+            <Badge
+              variant="outline"
+              className="text-amber-500 border-amber-500/40 bg-amber-500/10 text-[10px]"
+              title="MFE-grid found a TP but bootstrap CI lower bound ≤ 0 — edge not statistically separated from zero."
+            >
+              low-confidence
+            </Badge>
+          ) : (
+            <Badge
+              variant="outline"
+              className="text-muted-foreground border-border bg-muted/30 text-[10px]"
+              title="Not enough winners/MFE-logged trades for the upgraded math — using legacy heuristic."
+            >
+              insufficient data
+            </Badge>
+          );
+        const wf = r.walkForward;
+        const degBadge = wf
+          ? wf.degradationPct > 60 ? (
+              <Badge variant="outline" className="text-loss border-loss/40 bg-loss/10 text-[10px]">
+                curve-fit risk
+              </Badge>
+            ) : wf.degradationPct < 25 ? (
+              <Badge variant="outline" className="text-profit border-profit/40 bg-profit/10 text-[10px]">
+                holds OOS
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-amber-500 border-amber-500/40 bg-amber-500/10 text-[10px]">
+                some decay
+              </Badge>
+            )
+          : null;
+        return (
+          <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs uppercase tracking-wider text-muted-foreground">
+                Suggested parameters
+              </h4>
+              {confBadge}
+              {degBadge}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div>
+                <div className="text-muted-foreground">SL</div>
+                <div className="font-mono-numbers font-semibold text-sm">
+                  {r.suggestedSlPips != null ? `${r.suggestedSlPips.toFixed(0)} pips` : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">TP (best)</div>
+                <div className="font-mono-numbers font-semibold text-sm">
+                  {r.suggestedTpR != null ? `${r.suggestedTpR.toFixed(2)}R` : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">E[R] at TP</div>
+                <div className="font-mono-numbers font-semibold text-sm">
+                  {r.expectancyAtSuggested != null
+                    ? (r.expectancyAtSuggested >= 0 ? "+" : "") + r.expectancyAtSuggested.toFixed(2)
+                    : "—"}
+                </div>
+                {r.expectancyAtSuggestedCi && (
+                  <div className="text-[10px] text-muted-foreground font-mono-numbers">
+                    [{r.expectancyAtSuggestedCi[0].toFixed(2)} … {r.expectancyAtSuggestedCi[1].toFixed(2)}]
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="text-muted-foreground">Ladder</div>
+                <div className="font-mono-numbers font-semibold text-sm">
+                  {r.tpLadderR.length > 0
+                    ? r.tpLadderR.map((t) => `${t.toFixed(2)}R`).join(" / ")
+                    : "—"}
+                </div>
+              </div>
+            </div>
+            {wf && (
+              <div className="text-[11px] text-muted-foreground font-mono-numbers border-t border-border/40 pt-2">
+                Walk-forward · IS {(wf.inSampleE >= 0 ? "+" : "") + wf.inSampleE.toFixed(2)}R
+                {" → "}
+                OOS {(wf.outOfSampleE >= 0 ? "+" : "") + wf.outOfSampleE.toFixed(2)}R
+                <span className={wf.degradationPct > 60 ? "text-loss ml-1" : "ml-1"}>
+                  ({wf.degradationPct >= 0 ? "−" : "+"}{Math.abs(wf.degradationPct).toFixed(0)}% on {wf.oosN} OOS trades)
+                </span>
+              </div>
+            )}
+            <div className="text-[10px] text-muted-foreground italic">
+              SL = p90(winners' MAE) × 1.10 · TP = argmax E[R] over MFE grid · CI = 200-iter bootstrap
+            </div>
+          </div>
+        );
+      })()}
+
       {bucket.n === 0 && (
         <p className="text-sm text-muted-foreground">No trades in this bucket — nothing to analyze.</p>
       )}
