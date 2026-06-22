@@ -343,26 +343,32 @@ export function bootstrapKellyCi(
 ): [number, number] | null {
   const wins = winR.filter((v) => Number.isFinite(v) && v > 0);
   const losses = lossR.filter((v) => Number.isFinite(v) && v > 0);
-  const n = wins.length + losses.length;
-  if (n < 10) return null;
-  // Combined draw with outcome labels.
-  const pool: Array<{ r: number; win: boolean }> = [
-    ...wins.map((r) => ({ r, win: true })),
-    ...losses.map((r) => ({ r, win: false })),
-  ];
+  const nW = wins.length;
+  const nL = losses.length;
+  const n = nW + nL;
+  if (n < 10 || nW === 0 || nL === 0) return null;
+
+  // Resample wins and losses INDEPENDENTLY (preserving the empirical win/loss
+  // counts) so the bootstrap estimates the variance of `b = avgW/avgL`
+  // honestly. The old combined-pool draw forced wins and losses to be
+  // anti-correlated within a resample (more wins ⇒ fewer losses by
+  // construction), which understated CI width.
+  // Win-rate is resampled separately as a fresh binomial(n, nW/n) per draw.
   const rand = makeSeededRng((n * 1000003) ^ Math.floor((wins[0] ?? 0) * 1000));
   const ks: number[] = [];
+  const baseP = nW / n;
   for (let i = 0; i < iters; i++) {
-    let w = 0, l = 0, sw = 0, sl = 0;
-    for (let j = 0; j < n; j++) {
-      const pick = pool[Math.floor(rand() * n)];
-      if (pick.win) { w += 1; sw += pick.r; }
-      else { l += 1; sl += pick.r; }
-    }
-    if (w === 0 || l === 0) continue;
-    const avgW = sw / w;
-    const avgL = sl / l;
-    const p = w / (w + l);
+    let sw = 0;
+    for (let j = 0; j < nW; j++) sw += wins[Math.floor(rand() * nW)];
+    let sl = 0;
+    for (let j = 0; j < nL; j++) sl += losses[Math.floor(rand() * nL)];
+    const avgW = sw / nW;
+    const avgL = sl / nL;
+    if (!(avgW > 0) || !(avgL > 0)) continue;
+    let w = 0;
+    for (let j = 0; j < n; j++) if (rand() < baseP) w += 1;
+    if (w === 0 || w === n) continue;
+    const p = w / n;
     const b = avgW / avgL;
     const kelly = (b * p - (1 - p)) / b;
     ks.push(kelly * 0.25 * 100);
