@@ -178,7 +178,7 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
           <div>
             <div className="text-muted-foreground">MAE p50/p75</div>
             <div className="font-mono-numbers font-semibold text-sm">
-              {b.maeP50 != null ? b.maeP50.toFixed(2) : "—"} / {b.maeP75 != null ? b.maeP75.toFixed(2) : "—"}R
+              {b.maeP50Ticks != null ? b.maeP50Ticks.toFixed(0) : "—"} / {b.maeP75Ticks != null ? b.maeP75Ticks.toFixed(0) : "—"}t
             </div>
           </div>
           <div>
