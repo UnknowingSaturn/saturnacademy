@@ -25,6 +25,8 @@ import {
   type MCResult,
 } from "@/lib/propFirmMonteCarlo";
 import { NumericInput } from "./NumericInput";
+import { classifyDataTier, DATA_TIER_VALIDATED_N } from "../../../shared/quant/config";
+
 
 interface Props {
   trades: Trade[];
@@ -190,6 +192,11 @@ export function StrategyLab({
     );
   }
 
+  // Tier the simulator off the R-sample feeding the Monte Carlo. With <30 R
+  // samples the bootstrap CI on pass-prob is wide; show numbers but flag them.
+  const simTier = classifyDataTier({ n: rSample.length });
+  const provisional = simTier === "provisional";
+
   // Pass-prob bounds for heatmap colouring.
   const passProbs = cells.map((c) => c.result.passProb);
   const minPass = Math.min(...passProbs);
@@ -208,12 +215,33 @@ export function StrategyLab({
             cell to inspect.
           </p>
         </div>
-        {best && (
+        {best && !provisional && (
           <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
             Recommended: {ROTATION_LABELS[best.model]} @ {best.risk.toFixed(2)}%
           </Badge>
         )}
+        {best && provisional && (
+          <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">
+            Provisional top: {ROTATION_LABELS[best.model]} @ {best.risk.toFixed(2)}%
+          </Badge>
+        )}
       </div>
+
+      {provisional && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs flex items-start gap-2">
+          <Info className="w-3.5 h-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
+          <div>
+            <span className="font-medium text-amber-700 dark:text-amber-400">
+              Based on N {rSample.length} R-samples — directional only.
+            </span>{" "}
+            <span className="text-muted-foreground">
+              Pass-prob CIs are wide below {DATA_TIER_VALIDATED_N} samples. Use the heatmap to compare
+              rotations relative to each other; don't read the absolute % as a forecast.
+            </span>
+          </div>
+        </div>
+      )}
+
 
       {/* Inputs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-3 rounded-md border border-border/60 bg-muted/10">
@@ -346,7 +374,9 @@ export function StrategyLab({
                           "w-full rounded px-2 py-2 text-center transition-all",
                           "border",
                           isActive ? "border-primary ring-1 ring-primary" : "border-border/30 hover:border-border",
-                          isBest && !isActive && "border-emerald-500/50",
+                          isBest && !isActive && !provisional && "border-emerald-500/50",
+                          isBest && !isActive && provisional && "border-amber-500/50",
+
                         )}
                         style={{
                           backgroundColor: `hsl(150 70% 45% / ${bgAlpha})`,
@@ -381,11 +411,17 @@ export function StrategyLab({
               <span className="font-medium">{ROTATION_LABELS[active.model]}</span>
               <span className="text-muted-foreground"> @ </span>
               <span className="font-mono-numbers font-semibold">{active.risk.toFixed(2)}%</span>
-              {best && active.key === best.key && (
+              {best && active.key === best.key && !provisional && (
                 <Badge className="ml-2 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">
                   Recommended
                 </Badge>
               )}
+              {best && active.key === best.key && provisional && (
+                <Badge className="ml-2 bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 text-xs">
+                  Provisional top
+                </Badge>
+              )}
+
             </div>
             <div className="text-xs text-muted-foreground">
               Score: <span className="font-mono-numbers text-foreground">{active.score.toFixed(3)}</span>

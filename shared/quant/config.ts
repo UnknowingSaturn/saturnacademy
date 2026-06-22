@@ -108,3 +108,50 @@ export const MIN_STREAK_FLOOR = 3;
  * Coarse on purpose — finer grids overfit noise inside a single bucket.
  */
 export const SL_SWEEP_QUANTILES: ReadonlyArray<number> = [0.25, 0.40, 0.55, 0.70, 0.90];
+
+// ---------- Data adequacy tiers ----------
+//
+// Single source of truth for "is there enough signal here to show a number?"
+// Every surface (BucketGrid, StrategyRanker, StrategyLab, edge functions)
+// should call `classifyDataTier` rather than scattering `n < 10` checks.
+//
+// Tiers:
+//   insufficient — too few samples to render any conclusion. UI shows dashes
+//                  + "need ≥N" hint and hides expectancy / win% / TP / curve.
+//   provisional  — enough to be directional but not validated. UI mutes the
+//                  numbers, prefixes "~", and suppresses winner/recommend
+//                  highlights.
+//   validated    — n ≥ 30 AND (no p-value OR p-value passes) AND CI lower
+//                  bound > 0 when a CI is supplied. Full color treatment.
+
+export const DATA_TIER_INSUFFICIENT_N = 10;
+export const DATA_TIER_INSUFFICIENT_COVERAGE = 0.30;
+export const DATA_TIER_VALIDATED_N = 30;
+export const DATA_TIER_VALIDATED_P_MAX = 0.05;
+
+export type DataTier = "insufficient" | "provisional" | "validated";
+
+export interface DataTierInput {
+  /** Sample size (trades, R-multiples, eligible count — whatever the surface tracks). */
+  n: number;
+  /** Optional bootstrap p-value that expectancy > 0. Null = unknown, treated as not-yet-validated. */
+  pValue?: number | null;
+  /** Optional 95% CI lower bound on expectancy. <= 0 forces provisional. */
+  ciLow?: number | null;
+  /**
+   * Optional coverage fraction (e.g. loggedMfeCount / n). When provided and
+   * below DATA_TIER_INSUFFICIENT_COVERAGE the tier is forced to insufficient.
+   * Omit when coverage isn't meaningful for the surface (e.g. R-sample feed).
+   */
+  coverage?: number | null;
+}
+
+export function classifyDataTier(x: DataTierInput): DataTier {
+  if (x.n < DATA_TIER_INSUFFICIENT_N) return "insufficient";
+  if (x.coverage != null && x.coverage < DATA_TIER_INSUFFICIENT_COVERAGE) return "insufficient";
+  if (x.n < DATA_TIER_VALIDATED_N) return "provisional";
+  if (x.pValue != null && x.pValue > DATA_TIER_VALIDATED_P_MAX) return "provisional";
+  if (x.ciLow != null && x.ciLow <= 0) return "provisional";
+  return "validated";
+}
+

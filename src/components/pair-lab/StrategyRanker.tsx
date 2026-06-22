@@ -25,6 +25,19 @@ import { STRATEGY_PRESETS } from "@/lib/pairLabPresets";
 import { EquityCurveOverlay } from "./EquityCurveOverlay";
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext, TrailCaptureEstimate } from "@/lib/pairLabMath";
+import { classifyDataTier, DATA_TIER_VALIDATED_N } from "../../../shared/quant/config";
+
+// A replay row is "validated" only when its eligible sample passes the central
+// tier helper. Provisional rows still render numbers but lose the winner crown
+// and the highlight, so the user can't mistake "best of 12 thin samples" for
+// "best strategy".
+function replayTier(r: ReplayResult) {
+  return classifyDataTier({
+    n: r.eligibleCount,
+    ciLow: r.expectancyRCi ? r.expectancyRCi[0] : null,
+  });
+}
+
 
 interface Props {
   trades: Trade[];
@@ -251,7 +264,7 @@ export function StrategyRanker({
         </div>
 
 
-        {winner && winner.eligibleCount >= MIN_ELIGIBLE_SAMPLE && (
+        {winner && replayTier(winner) === "validated" && (
           <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <Trophy className="w-3.5 h-3.5 text-primary" />
@@ -291,6 +304,23 @@ export function StrategyRanker({
             </p>
           </div>
         )}
+
+        {winner && replayTier(winner) === "provisional" && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs flex items-start gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5" />
+            <div>
+              <div className="font-medium text-sm text-amber-700 dark:text-amber-400">
+                Provisional ranking — no "best" yet
+              </div>
+              <div className="text-muted-foreground mt-1">
+                Top preset's eligible sample (N {winner.eligibleCount}) is under{" "}
+                {DATA_TIER_VALIDATED_N} trades or its 95% CI hasn't ruled out zero edge.
+                Numbers below are directional, not a recommendation.
+              </div>
+            </div>
+          </div>
+        )}
+
 
         {walkForwardResult && (
           <div className={`rounded-md border p-3 text-xs ${
@@ -345,9 +375,14 @@ export function StrategyRanker({
             </thead>
             <tbody>
               {ranked.map((r, i) => {
-                const isWinner = i === 0 && r.eligibleCount >= MIN_ELIGIBLE_SAMPLE;
+                const tier = replayTier(r);
+                // "Winner" crown / highlight is reserved for VALIDATED rows only.
+                // A provisional top row is still ranked #1 but doesn't get the
+                // primary-color treatment that implies "use this".
+                const isWinner = i === 0 && tier === "validated";
                 const isBust = busted(r);
-                const insufficient = r.eligibleCount < MIN_ELIGIBLE_SAMPLE;
+                const insufficient = tier === "insufficient";
+                const provisional = tier === "provisional";
                 const ci = r.expectancyRCi;
                 const halfCi = ci ? (ci[1] - ci[0]) / 2 : null;
                 const isOpen = openId === r.strategy.id;
@@ -355,8 +390,9 @@ export function StrategyRanker({
                 return (
                   <Fragment key={r.strategy.id}>
                     <tr
-                      className={`border-b border-border/30 ${isWinner ? "bg-primary/5" : ""} ${isBust || insufficient ? "opacity-60" : ""} ${isOpen ? "bg-muted/30" : ""}`}
+                      className={`border-b border-border/30 ${isWinner ? "bg-primary/5" : ""} ${isBust || insufficient ? "opacity-60" : provisional ? "opacity-80" : ""} ${isOpen ? "bg-muted/30" : ""}`}
                     >
+
                       <td className="py-2 pr-2 font-mono-numbers text-xs text-muted-foreground">{i + 1}</td>
                       <td className="py-2 pr-2">
                         <button
@@ -411,13 +447,14 @@ export function StrategyRanker({
                         {insufficient ? (
                           <span className="text-muted-foreground text-xs">need ≥{MIN_ELIGIBLE_SAMPLE}</span>
                         ) : (
-                          <>
-                            {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
+                          <span className={provisional ? "text-muted-foreground" : ""}>
+                            {provisional ? "~" : ""}{r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
                             {halfCi != null && (
                               <span className="text-muted-foreground"> ±{halfCi.toFixed(2)}</span>
                             )}
-                          </>
+                          </span>
                         )}
+
                       </td>
                       <td className="py-2 px-2 text-right font-mono-numbers">
                         {insufficient || r.perTradeEdgeRatio == null ? "—" : r.perTradeEdgeRatio.toFixed(2)}
@@ -454,7 +491,7 @@ export function StrategyRanker({
         </div>
 
         {winner && baselineCurrent && winner.strategy.id !== "current" &&
-          winner.eligibleCount >= MIN_ELIGIBLE_SAMPLE && (
+          replayTier(winner) === "validated" && (
           <div className="space-y-1 pt-2">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground px-2">
               Equity curve — {winner.strategy.label} vs current behavior
@@ -462,6 +499,7 @@ export function StrategyRanker({
             <EquityCurveOverlay results={[winner, baselineCurrent]} />
           </div>
         )}
+
 
         <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed flex items-start gap-1.5">
           <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
