@@ -373,17 +373,39 @@ export function StrategyLab({
             </div>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 text-sm">
-            <Stat label="Pass prob" value={`${(active.result.passProb * 100).toFixed(0)}%`} tone="good" />
+            <Stat
+              label="Pass prob"
+              value={`${(active.result.passProb * 100).toFixed(0)}%`}
+              sub={`95% CI ${(active.result.passProbCI[0] * 100).toFixed(0)}–${(active.result.passProbCI[1] * 100).toFixed(0)}%`}
+              tone="good"
+            />
             <Stat label="Fail prob" value={`${(active.result.failProb * 100).toFixed(0)}%`} tone="bad" />
             <Stat label="Inconclusive" value={`${(active.result.inconclusiveProb * 100).toFixed(0)}%`} />
             <Stat label="Avg days to pass" value={active.result.avgDaysToPass != null ? active.result.avgDaysToPass.toFixed(1) : "—"} />
-            <Stat label="Avg drawdown" value={`${active.result.avgDrawdownPct.toFixed(1)}%`} />
-            <Stat label="Risk of ruin" value={`${(active.result.riskOfRuin * 100).toFixed(0)}%`} tone="bad" />
+            <Stat
+              label="Avg drawdown"
+              value={`${active.result.avgDrawdownPct.toFixed(1)}%`}
+              sub={trailingDD ? "trailing" : "static"}
+            />
+            <Stat
+              label="Risk of ruin"
+              value={`${(active.result.riskOfRuin * 100).toFixed(0)}%`}
+              sub={`per-acct ${(active.result.perAccountBustRate * 100).toFixed(0)}%`}
+              tone="bad"
+            />
             <Stat
               label="Expected return"
               value={`${active.result.expectedReturnPct >= 0 ? "+" : ""}${active.result.expectedReturnPct.toFixed(1)}%`}
               tone={active.result.expectedReturnPct >= 0 ? "good" : "bad"}
             />
+          </div>
+          {/* Score breakdown */}
+          <div className="text-[11px] text-muted-foreground font-mono-numbers mt-3 pt-3 border-t border-border/40 leading-relaxed">
+            score = pass {active.parts.passProb.toFixed(2)}
+            {" × "}survival {active.parts.survival.toFixed(2)}
+            {" − "}DD penalty {active.parts.ddPenalty.toFixed(3)}
+            {" − "}incon penalty {active.parts.inconclusivePenalty.toFixed(3)}
+            {" = "}<span className="text-foreground font-semibold">{active.parts.score.toFixed(3)}</span>
           </div>
         </div>
       )}
@@ -392,11 +414,33 @@ export function StrategyLab({
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
         <span>
           Stationary block bootstrap (block size √N) of your R-history preserves loss-streak clustering.
-          Recommendation maximises <code>passProb × (1 − riskOfRuin) − 0.5 × max(0, DD − 5%)</code>,
-          so a slightly lower pass prob with much lower drawdown can win.
+          Each cell uses an independent seed so similar-looking cells aren't artificially correlated.
+          Recommendation maximises <code>passProb × (1 − RoR) − 0.5·max(0, DD − 5%) − 0.1·P(inconclusive)</code>,
+          so a slightly lower pass prob with much lower drawdown — or fewer time-outs — can win.
+          Risk-of-ruin is per-path (any account busts); "per-acct" sub-stat shows the legacy account-level rate.
         </span>
       </p>
     </Card>
+  );
+}
+
+function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "good" | "bad" }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div
+        className={cn(
+          "font-mono-numbers font-semibold mt-0.5",
+          tone === "good" && "text-emerald-600 dark:text-emerald-400",
+          tone === "bad" && "text-destructive",
+        )}
+      >
+        {value}
+      </div>
+      {sub && (
+        <div className="text-[10px] text-muted-foreground font-mono-numbers mt-0.5">{sub}</div>
+      )}
+    </div>
   );
 }
 
