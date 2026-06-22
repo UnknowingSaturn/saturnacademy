@@ -428,7 +428,6 @@ export interface ReplayOpts {
 }
 
 export const MIN_ELIGIBLE_SAMPLE = 10;
-export const MIN_MATCHED_SAMPLE = 5;
 
 function buildResult(
   strategy: Strategy,
