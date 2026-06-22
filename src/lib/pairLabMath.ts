@@ -733,6 +733,108 @@ function computeBucket(
   return { ...stats, recommendation, topTradeIds, bottomTradeIds };
 }
 
+// ----------------------------------------------------------------------------
+// Shared TP/SL helpers — used by both buildRecommendation and runWalkForward.
+// ----------------------------------------------------------------------------
+
+interface MfePair { mfeR: number; rActual: number; }
+
+/** Replay a candidate TP against (MFE_R, r_actual) pairs. */
+function scoreTp(tp: number, sample: MfePair[], trail: number): number {
+  if (sample.length === 0) return 0;
+  let sum = 0;
+  for (const p of sample) {
+    if (p.mfeR >= tp) sum += tp;
+    else if (p.rActual >= 0) sum += p.rActual * trail;
+    else sum += p.rActual;
+  }
+  return sum / sample.length;
+}
+
+function collectMfeRPairs(rows: Trade[], keys: PairLabFieldKeys): MfePair[] {
+  const out: MfePair[] = [];
+  for (const t of rows) {
+    const mfeR = numericCf(t as any, keys.mfe);
+    if (mfeR == null) continue;
+    if (t.r_multiple_actual == null || !Number.isFinite(t.r_multiple_actual)) continue;
+    out.push({ mfeR, rActual: t.r_multiple_actual });
+  }
+  return out;
+}
+
+/** Grid-search the best TP in R-space against MFE pairs. */
+function pickBestTp(
+  pairs: MfePair[],
+  trail: number,
+): { tpR: number; expectancy: number; ladder: number[]; ci: [number, number] | null } | null {
+  if (pairs.length < 10) return null;
+  const grid: number[] = [];
+  for (let r = 0.5; r <= 4.0001; r += 0.25) grid.push(Math.round(r * 4) / 4);
+  const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs, trail) }));
+  let best: { tp: number; e: number } | null = null;
+  for (const c of scored) if (!best || c.e > best.e) best = c;
+  if (!best || !(best.e > 0)) return null;
+
+  // Bootstrap CI on expectancy at the winning TP cell.
+  let hash = pairs.length * 1000003;
+  for (const p of pairs) {
+    hash = (hash * 31 + Math.floor((p.mfeR * 1000 + p.rActual * 1000))) | 0;
+  }
+  const rand = makeSeededRng(hash);
+  const iters = 200;
+  const samples: number[] = new Array(iters);
+  const buf: MfePair[] = new Array(pairs.length);
+  for (let i = 0; i < iters; i++) {
+    for (let j = 0; j < pairs.length; j++) buf[j] = pairs[Math.floor(rand() * pairs.length)];
+    samples[i] = scoreTp(best.tp, buf, trail);
+  }
+  samples.sort((a, b) => a - b);
+  const ci: [number, number] = [
+    samples[Math.floor(0.025 * iters)],
+    samples[Math.floor(0.975 * iters)],
+  ];
+  const ladder = Array.from(
+    new Set([...scored].filter((c) => c.e > 0).sort((a, b) => b.e - a.e).slice(0, 3).map((c) => c.tp)),
+  ).sort((a, b) => a - b);
+  return { tpR: best.tp, expectancy: best.e, ladder, ci };
+}
+
+/**
+ * Walk-forward validation: pick best TP on first 70% (chronological), score
+ * that same TP on last 30%. Returns null when too few trades for a meaningful
+ * out-of-sample read.
+ */
+export function runWalkForward(
+  rows: Trade[],
+  keys: PairLabFieldKeys,
+): BucketRecommendation["walkForward"] {
+  const closed = rows.filter((t) => t.net_pnl != null && t.entry_time);
+  if (closed.length < 30) return null;
+  const sorted = [...closed].sort(
+    (a, b) => String(a.entry_time).localeCompare(String(b.entry_time)),
+  );
+  const cutoff = Math.floor(sorted.length * 0.7);
+  const isRows = sorted.slice(0, cutoff);
+  const oosRows = sorted.slice(cutoff);
+  if (oosRows.length < 9) return null;
+
+  const isPairs = collectMfeRPairs(isRows, keys);
+  const oosPairs = collectMfeRPairs(oosRows, keys);
+  if (isPairs.length < 10 || oosPairs.length < 5) return null;
+
+  const isTrail = estimateTrailCapture(isRows, keys, 5)?.ratio ?? 0.7;
+  const oosTrail = estimateTrailCapture(oosRows, keys, 5)?.ratio ?? isTrail;
+
+  const isPick = pickBestTp(isPairs, isTrail);
+  if (!isPick) return null;
+  const inSampleE = isPick.expectancy;
+  const outOfSampleE = scoreTp(isPick.tpR, oosPairs, oosTrail);
+  const degradationPct = inSampleE > 0 ? (1 - outOfSampleE / inSampleE) * 100 : 0;
+  return { inSampleE, outOfSampleE, degradationPct, oosN: oosRows.length };
+}
+
+
+
 function buildRecommendation(
   s: BucketStats,
   winR: number[],
