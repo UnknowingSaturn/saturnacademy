@@ -44,20 +44,48 @@ function coverageColor(logged: number, total: number) {
 }
 
 function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | null }) {
-  if (!b || b.n === 0) {
+  const tier = tierFor(b);
+  if (tier === "empty") {
     return <span className="text-xs text-muted-foreground">—</span>;
   }
-  const winRatePct = (b.winRate * 100).toFixed(0);
-  const expR = (b.expectedR >= 0 ? "+" : "") + b.expectedR.toFixed(2) + "R";
-  const mfeCovColor = coverageColor(b.loggedMfeCount, b.n);
-  const maeCovColor = coverageColor(b.loggedMaeCount, b.n);
+  if (tier === "insufficient") {
+    // Too few samples or coverage too low — render the count + hint, nothing else.
+    // We intentionally hide expectancy / win% / TP so a 3-trade cell can't masquerade as a result.
+    return (
+      <div className="space-y-0.5 text-left">
+        <div className="flex items-center gap-1 text-[11px]">
+          <span>🔴</span>
+          <span className="font-medium">N {b!.n}</span>
+        </div>
+        <div className="text-[10px] text-muted-foreground italic">
+          too few — need ≥{DATA_TIER_INSUFFICIENT_N}
+        </div>
+        <div className="text-[10px] text-muted-foreground font-mono-numbers">
+          {b!.loggedMfeCount}/{b!.n} MFE · {b!.loggedMaeCount}/{b!.n} MAE
+        </div>
+      </div>
+    );
+  }
+  const provisional = tier === "provisional";
+  const winRatePct = (b!.winRate * 100).toFixed(0);
+  const expR = (b!.expectedR >= 0 ? "+" : "") + b!.expectedR.toFixed(2) + "R";
+  const mfeCovColor = coverageColor(b!.loggedMfeCount, b!.n);
+  const maeCovColor = coverageColor(b!.loggedMaeCount, b!.n);
   return (
-    <div className="space-y-0.5 text-left">
+    <div className={cn("space-y-0.5 text-left", provisional && "opacity-70")}>
       <div className="flex items-center gap-1 text-[11px]">
-        <span>{confidenceDot(b.confidence)}</span>
-        <span className="font-medium">N {b.n}</span>
+        <span>{confidenceDot(b!.confidence)}</span>
+        <span className="font-medium">N {b!.n}</span>
         <span className="text-muted-foreground">· {winRatePct}%</span>
-        {fdr === "sig" && (
+        {provisional && (
+          <span
+            className="text-[9px] px-1 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold"
+            title={`Provisional — N < 30 or CI/p-value hasn't ruled out chance. Treat as directional, not predictive.`}
+          >
+            prov
+          </span>
+        )}
+        {fdr === "sig" && !provisional && (
           <span
             className="ml-auto text-[9px] px-1 rounded bg-emerald-500/15 text-emerald-500 font-semibold"
             title="FDR-significant (Benjamini–Hochberg, α=0.05) — expectancy > 0 survives multiple-testing correction across all displayed buckets."
@@ -65,7 +93,7 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
             FDR✓
           </span>
         )}
-        {fdr === "ns" && (
+        {fdr === "ns" && !provisional && (
           <span
             className="ml-auto text-[9px] px-1 rounded bg-muted text-muted-foreground"
             title="Not significant after Benjamini–Hochberg FDR correction across all displayed buckets — guard against cherry-picking."
@@ -74,38 +102,43 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
           </span>
         )}
       </div>
-      <div className={cn("text-sm font-mono-numbers font-semibold", b.expectedR >= 0 ? "text-profit" : "text-loss")}>
-        {expR}
+      <div className={cn(
+        "text-sm font-mono-numbers font-semibold",
+        provisional
+          ? "text-muted-foreground"
+          : b!.expectedR >= 0 ? "text-profit" : "text-loss",
+      )}>
+        {provisional ? "~" : ""}{expR}
       </div>
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="text-[10px] text-muted-foreground font-mono-numbers cursor-help">
-            MFE {b.mfeP75 != null ? `${b.mfeP75.toFixed(2)}R` : "–"} · MAE {b.maeP75Ticks != null ? `${b.maeP75Ticks.toFixed(0)}t` : "–"}
+            MFE {b!.mfeP75 != null ? `${b!.mfeP75.toFixed(2)}R` : "–"} · MAE {b!.maeP75Ticks != null ? `${b!.maeP75Ticks.toFixed(0)}t` : "–"}
           </div>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs font-mono-numbers max-w-xs">
           <div className="space-y-1">
             <div>
-              <span className="font-semibold">MFE</span> (n={b.loggedMfeCount})
-              {b.loggedMfeCount > 0 ? (
+              <span className="font-semibold">MFE</span> (n={b!.loggedMfeCount})
+              {b!.loggedMfeCount > 0 ? (
                 <div className="text-muted-foreground">
-                  p75 {b.mfeP75?.toFixed(2)}R · med {b.mfeP50?.toFixed(2)}R · range {b.mfeMin?.toFixed(2)}–{b.mfeMax?.toFixed(2)}R
+                  p75 {b!.mfeP75?.toFixed(2)}R · med {b!.mfeP50?.toFixed(2)}R · range {b!.mfeMin?.toFixed(2)}–{b!.mfeMax?.toFixed(2)}R
                 </div>
               ) : (
                 <div className="text-muted-foreground">no samples</div>
               )}
             </div>
             <div>
-              <span className="font-semibold">MAE</span> (n={b.loggedMaeCount})
-              {b.maeMinTicks != null ? (
+              <span className="font-semibold">MAE</span> (n={b!.loggedMaeCount})
+              {b!.maeMinTicks != null ? (
                 <div className="text-muted-foreground">
-                  p75 {b.maeP75Ticks?.toFixed(0)}t · med {b.maeP50Ticks?.toFixed(0)}t · range {b.maeMinTicks.toFixed(0)}–{b.maeMaxTicks?.toFixed(0)}t
+                  p75 {b!.maeP75Ticks?.toFixed(0)}t · med {b!.maeP50Ticks?.toFixed(0)}t · range {b!.maeMinTicks.toFixed(0)}–{b!.maeMaxTicks?.toFixed(0)}t
                 </div>
               ) : (
                 <div className="text-muted-foreground">no samples</div>
               )}
             </div>
-            {(b.loggedMfeCount < 10 || b.loggedMaeCount < 10) && (
+            {(b!.loggedMfeCount < 10 || b!.loggedMaeCount < 10) && (
               <div className="text-amber-500 text-[10px] pt-1 border-t border-border/40">
                 Low sample — p75 is noisy below n=10.
               </div>
@@ -113,36 +146,38 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
           </div>
         </TooltipContent>
       </Tooltip>
-      {b.n >= 10 && b.recommendation.suggestedTpR != null && (
+      {/* TP suggestion only shown when the bucket is validated — provisional cells suppress the arrow to avoid implying a recommendation. */}
+      {!provisional && b!.n >= 10 && b!.recommendation.suggestedTpR != null && (
         <div
           className={cn(
             "text-[10px] font-mono-numbers",
-            b.recommendation.recommendationConfidence === "validated"
+            b!.recommendation.recommendationConfidence === "validated"
               ? "text-profit"
-              : b.recommendation.recommendationConfidence === "low"
+              : b!.recommendation.recommendationConfidence === "low"
                 ? "text-amber-600 dark:text-amber-400"
                 : "text-muted-foreground",
           )}
-          title={`Suggested TP ${b.recommendation.suggestedTpR.toFixed(2)}R · SL ${b.recommendation.suggestedSlPips?.toFixed(0) ?? "–"} pips · confidence ${b.recommendation.recommendationConfidence}`}
+          title={`Suggested TP ${b!.recommendation.suggestedTpR.toFixed(2)}R · SL ${b!.recommendation.suggestedSlPips?.toFixed(0) ?? "–"} pips · confidence ${b!.recommendation.recommendationConfidence}`}
         >
-          → TP {b.recommendation.suggestedTpR.toFixed(2)}R
+          → TP {b!.recommendation.suggestedTpR.toFixed(2)}R
         </div>
       )}
       <div
         className={cn("text-[10px] font-mono-numbers", mfeCovColor)}
-        title={`${b.loggedMfeCount} of ${b.n} trades have an MFE value recorded. Preset simulations need ≥10 logged trades to be meaningful.`}
+        title={`${b!.loggedMfeCount} of ${b!.n} trades have an MFE value recorded. Preset simulations need ≥10 logged trades to be meaningful.`}
       >
-        {b.loggedMfeCount}/{b.n} MFE
+        {b!.loggedMfeCount}/{b!.n} MFE
       </div>
       <div
         className={cn("text-[10px] font-mono-numbers", maeCovColor)}
-        title={`${b.loggedMaeCount} of ${b.n} trades have an MAE value AND initial-SL + entry-price recorded (needed to convert ticks → R).`}
+        title={`${b!.loggedMaeCount} of ${b!.n} trades have an MAE value AND initial-SL + entry-price recorded (needed to convert ticks → R).`}
       >
-        {b.loggedMaeCount}/{b.n} MAE
+        {b!.loggedMaeCount}/{b!.n} MAE
       </div>
     </div>
   );
 }
+
 
 export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSelect }: Props) {
   const cellLookup = new Map<string, BucketReport>();
