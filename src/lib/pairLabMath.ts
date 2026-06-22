@@ -968,6 +968,7 @@ function buildRecommendation(
     expectancyAtSuggested,
     expectancyAtSuggestedCi,
     suggestedTpR,
+    walkForward: null, // populated by computeBucket which has the full rows
   };
 }
 
