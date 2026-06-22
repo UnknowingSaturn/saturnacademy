@@ -25,6 +25,8 @@ import {
   type MCResult,
 } from "@/lib/propFirmMonteCarlo";
 import { NumericInput } from "./NumericInput";
+import { classifyDataTier, DATA_TIER_VALIDATED_N } from "../../../shared/quant/config";
+
 
 interface Props {
   trades: Trade[];
