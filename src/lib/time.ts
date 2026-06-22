@@ -23,10 +23,6 @@ export function setDisplayTimezone(tz: string | null | undefined) {
   currentDisplayTimezone = tz && tz.length > 0 ? tz : DEFAULT_TIMEZONE;
 }
 
-/** Get the currently active display timezone. */
-export function getDisplayTimezone(): string {
-  return currentDisplayTimezone;
-}
 
 /**
  * Format a UTC timestamp in the user's display timezone (default ET).
