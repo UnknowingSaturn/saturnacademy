@@ -22,6 +22,21 @@
 
 import type { Trade } from "@/types/trading";
 import { tickSizeForSymbol, pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
+import {
+  TP1_STAR_MIN_HIT_RATE,
+  WINNERS_MAE_SL_QUANTILE,
+  WINNERS_MAE_SL_BUFFER,
+  MAE_P75_WIDEN_BUFFER,
+  SL_DRIFT_ALIGNED_MIN,
+  SL_DRIFT_ALIGNED_MAX,
+  KELLY_SCALE,
+  KELLY_FLOOR_PCT,
+  KELLY_CEILING_PCT,
+  BOOTSTRAP_ITERATIONS,
+  BH_FDR_ALPHA,
+  MIN_STREAK_FLOOR,
+  SL_SWEEP_QUANTILES,
+} from "../../shared/quant/config";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
