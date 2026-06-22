@@ -264,8 +264,7 @@ export default function Import() {
       setImportProgress(((i + 1) / csvData.length) * 100);
     }
 
-    toast({
-      title: "Import complete",
+    toast.success("Import complete", {
       description: `${imported} trades imported, ${failed} failed`,
     });
 

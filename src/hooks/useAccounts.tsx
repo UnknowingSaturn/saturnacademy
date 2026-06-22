@@ -178,8 +178,7 @@ export function useForceResync() {
     },
     onSuccess: ({ count }) => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      toast({
-        title: count === 1 ? 'Resync queued' : `Resync queued for ${count} accounts`,
+      toast.success(count === 1 ? 'Resync queued' : `Resync queued for ${count} accounts`, {
         description: 'EA will replay history on its next poll (within ~30s of the terminal being open).',
       });
     },

@@ -165,13 +165,11 @@ export function ManualTradeForm() {
     }
 
     if (successCount > 1) {
-      toast({ title: `Trade logged on ${successCount} accounts` });
+      toast.success(`Trade logged on ${successCount} accounts`);
     }
     if (errors.length > 0) {
-      toast({
-        title: `Failed on ${errors.length} account${errors.length > 1 ? "s" : ""}`,
+      toast.error(`Failed on ${errors.length} account${errors.length > 1 ? "s" : ""}`, {
         description: errors.join(", "),
-        variant: "destructive",
       });
     }
 

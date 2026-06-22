@@ -22,7 +22,7 @@ export function MT5SetupDialog({ account, onOpenChange }: MT5SetupDialogProps) {
 
   const copyToClipboard = async (text: string, label: string) => {
     await navigator.clipboard.writeText(text);
-    toast({ title: `${label} copied to clipboard` });
+    toast.success(`${label} copied to clipboard`);
   };
 
   return (

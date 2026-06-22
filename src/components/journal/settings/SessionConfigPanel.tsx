@@ -254,8 +254,7 @@ export function SessionConfigPanel() {
               try {
                 const { data, error } = await supabase.functions.invoke("trade-rebuild", { body: { mode: "reclassify-sessions" } });
                 if (error) throw error;
-                toast({
-                  title: "Sessions reclassified",
+                toast.success("Sessions reclassified", {
                   description: `Updated ${data?.updated ?? 0} of ${data?.scanned ?? 0} trade${data?.scanned === 1 ? "" : "s"}.`,
                 });
                 queryClient.invalidateQueries({ queryKey: ["trades"] });

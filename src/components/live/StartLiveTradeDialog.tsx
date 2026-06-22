@@ -166,13 +166,11 @@ export const StartLiveTradeDialog = React.forwardRef<unknown, StartLiveTradeDial
     }
 
     if (successCount > 1) {
-      toast({ title: `Live trade opened on ${successCount} accounts` });
+      toast.success(`Live trade opened on ${successCount} accounts`);
     }
     if (errors.length > 0) {
-      toast({
-        title: `Failed on ${errors.length} account${errors.length > 1 ? "s" : ""}`,
+      toast.error(`Failed on ${errors.length} account${errors.length > 1 ? "s" : ""}`, {
         description: errors.join(", "),
-        variant: "destructive",
       });
     }
 

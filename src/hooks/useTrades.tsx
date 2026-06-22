@@ -190,10 +190,12 @@ export function useBulkArchiveTrades() {
     },
     onSuccess: (count) => {
       invalidateAllTradeCaches(queryClient);
-      toast.error(`${count} trade${count !== 1 ? 's' : ''} archived` });
+      toast.success(`${count} trade${count !== 1 ? 's' : ''} archived`);
     },
     onError: (error) => {
-      toast({ title: 'Failed to archive trades', { description: error.message });
+      toast.error('Failed to archive trades', { description: error.message });
+    },
+  });
 }
 
 export function useRestoreTrades() {
@@ -209,10 +211,12 @@ export function useRestoreTrades() {
     },
     onSuccess: (count) => {
       invalidateAllTradeCaches(queryClient);
-      toast.error(`${count} trade${count !== 1 ? 's' : ''} restored` });
+      toast.success(`${count} trade${count !== 1 ? 's' : ''} restored`);
     },
     onError: (error) => {
-      toast({ title: 'Failed to restore trades', { description: error.message });
+      toast.error('Failed to restore trades', { description: error.message });
+    },
+  });
 }
 
 export function useArchiveAllTrades() {
@@ -231,10 +235,12 @@ export function useArchiveAllTrades() {
     },
     onSuccess: (count) => {
       invalidateAllTradeCaches(queryClient);
-      toast.error(`${count} trade${count !== 1 ? 's' : ''} archived` });
+      toast.success(`${count} trade${count !== 1 ? 's' : ''} archived`);
     },
     onError: (error) => {
-      toast({ title: 'Failed to archive trades', { description: error.message });
+      toast.error('Failed to archive trades', { description: error.message });
+    },
+  });
 }
 
 export function useArchivedTrades() {

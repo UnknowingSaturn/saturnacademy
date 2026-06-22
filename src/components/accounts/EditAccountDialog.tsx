@@ -224,17 +224,14 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
 
       if (reprocessError) {
         console.error('Reprocess error after successful restore:', reprocessError);
-        toast({
-          title: 'Times restored, recompute failed',
+        toast.error('Times restored, recompute failed', {
           description: `${tradesUpdated} trades got UTC times, but session/R recompute failed: ${reprocessError.message}. Try the reprocess action again.`,
-          variant: 'destructive',
         });
         return;
       }
 
       const failureNote = failures.length > 0 ? ` (${failures.length} skipped)` : '';
-      toast({
-        title: 'Trade data synced',
+      toast.success('Trade data synced', {
         description: `Synced ${tradesUpdated} trades with DST-aware UTC conversion and recalculated sessions${failureNote}.`,
       });
     } catch (error) {
@@ -242,10 +239,8 @@ export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDi
       const message = error instanceof Error
         ? error.message
         : (typeof error === 'object' && error && 'message' in error ? String((error as any).message) : 'Unknown error');
-      toast({
-        title: 'Failed to sync trade data',
+      toast.error('Failed to sync trade data', {
         description: message,
-        variant: 'destructive',
       });
     } finally {
       setIsSyncing(false);
