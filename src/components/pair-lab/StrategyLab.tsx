@@ -192,6 +192,11 @@ export function StrategyLab({
     );
   }
 
+  // Tier the simulator off the R-sample feeding the Monte Carlo. With <30 R
+  // samples the bootstrap CI on pass-prob is wide; show numbers but flag them.
+  const simTier = classifyDataTier({ n: rSample.length });
+  const provisional = simTier === "provisional";
+
   // Pass-prob bounds for heatmap colouring.
   const passProbs = cells.map((c) => c.result.passProb);
   const minPass = Math.min(...passProbs);
@@ -210,12 +215,33 @@ export function StrategyLab({
             cell to inspect.
           </p>
         </div>
-        {best && (
+        {best && !provisional && (
           <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
             Recommended: {ROTATION_LABELS[best.model]} @ {best.risk.toFixed(2)}%
           </Badge>
         )}
+        {best && provisional && (
+          <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">
+            Provisional top: {ROTATION_LABELS[best.model]} @ {best.risk.toFixed(2)}%
+          </Badge>
+        )}
       </div>
+
+      {provisional && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs flex items-start gap-2">
+          <Info className="w-3.5 h-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
+          <div>
+            <span className="font-medium text-amber-700 dark:text-amber-400">
+              Based on N {rSample.length} R-samples — directional only.
+            </span>{" "}
+            <span className="text-muted-foreground">
+              Pass-prob CIs are wide below {DATA_TIER_VALIDATED_N} samples. Use the heatmap to compare
+              rotations relative to each other; don't read the absolute % as a forecast.
+            </span>
+          </div>
+        </div>
+      )}
+
 
       {/* Inputs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-3 rounded-md border border-border/60 bg-muted/10">
