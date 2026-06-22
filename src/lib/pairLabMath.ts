@@ -740,7 +740,7 @@ function computeBucket(
     winRateCi: n > 0 ? wilsonCi(wins.length, n) : null,
     expectedR,
     expectedRMedian,
-    profitFactor: profitFactor === Infinity ? null : profitFactor,
+    profitFactor, // Infinity sentinel preserved for all-win buckets — UI renders "∞"
     payoffRatio,
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),
