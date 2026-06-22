@@ -19,6 +19,7 @@ import type { Trade } from "@/types/trading";
 import {
   runMonteCarlo,
   extractRSample,
+  meanRWithCI,
   ROTATION_LABELS,
   type RotationModel,
   type MCParams,
