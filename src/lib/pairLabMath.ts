@@ -693,7 +693,24 @@ function computeBucket(
 
 
 
-  const recommendation = buildRecommendation(stats, winR, lossR, mfes, baseline, propFirm);
+  // Per-trade (MFE_R, r_actual) pairs for the MFE-expectancy TP grid.
+  const mfeRPairs: Array<{ mfeR: number; rActual: number }> = [];
+  for (const t of rows) {
+    const mfeR = numericCf(t as any, keys.mfe);
+    if (mfeR == null) continue;
+    if (t.r_multiple_actual == null || !Number.isFinite(t.r_multiple_actual)) continue;
+    mfeRPairs.push({ mfeR, rActual: t.r_multiple_actual });
+  }
+  // Winners' MAE in pips — drives the Sweeney SL recommendation.
+  const winnersMaePips = sweepRows.filter((r) => r.rActual > 0).map((r) => r.maePips);
+  // Bucket-local trail-capture estimate (low minSample; falls back to 0.7).
+  const tcEst = estimateTrailCapture(rows, keys, 5);
+  const trailCapture = tcEst?.ratio ?? 0.7;
+
+  const recommendation = buildRecommendation(
+    stats, winR, lossR, mfes, baseline, propFirm,
+    { mfeRPairs, winnersMaePips, trailCapture },
+  );
 
   const sorted = [...closed].sort(
     (a, b) => (b.r_multiple_actual ?? 0) - (a.r_multiple_actual ?? 0),
