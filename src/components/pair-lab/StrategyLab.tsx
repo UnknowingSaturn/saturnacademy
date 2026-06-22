@@ -254,10 +254,13 @@ export function StrategyLab({
         </div>
 
         {hasPropFirmProfile ? (
-          <div className="col-span-2 text-xs text-muted-foreground self-end pb-1">
-            Daily-loss & max-loss caps come from the active prop-firm profile
-            {dailyLossDollars != null && (
-              <> (<span className="text-foreground">${dailyLossDollars.toFixed(0)}/day · ${maxDrawdownDollars?.toFixed(0) ?? "—"} total</span>)</>
+          <div className="col-span-2 text-xs text-muted-foreground self-end pb-1 leading-relaxed">
+            Loss caps from the active prop-firm profile, scaled to override balance:{" "}
+            <span className="text-foreground font-mono-numbers">
+              ${effDailyDollars?.toFixed(0) ?? "—"}/day · ${effMaxDollars?.toFixed(0) ?? "—"} total
+            </span>
+            {Math.abs(sizeRatio - 1) > 0.01 && (
+              <span className="ml-1 italic">(firm % rules applied to ${accountSize.toLocaleString()})</span>
             )}
             .
           </div>
@@ -273,6 +276,19 @@ export function StrategyLab({
             </div>
           </>
         )}
+
+        <div className="col-span-2 md:col-span-4 flex items-center gap-2 pt-1">
+          <input
+            id="trailing-dd"
+            type="checkbox"
+            checked={trailingDD}
+            onChange={(e) => setTrailingDD(e.target.checked)}
+            className="h-4 w-4 rounded border-border accent-primary"
+          />
+          <Label htmlFor="trailing-dd" className="text-xs cursor-pointer">
+            Trailing drawdown (FTMO / MyFF style — max-loss line follows peak equity)
+          </Label>
+        </div>
       </div>
 
       {/* Heatmap */}
