@@ -90,6 +90,7 @@ export function StrategyLab({
   const [targetPct, setTargetPct] = useState<number>(8);
   const [windowDays, setWindowDays] = useState<number>(30);
   const [tradesPerDay, setTradesPerDay] = useState<number>(detectedTpd);
+  const [trailingDD, setTrailingDD] = useState<boolean>(false);
   // Custom limits used only when no prop-firm profile is selected.
   const [customDailyPct, setCustomDailyPct] = useState<number>(5);
   const [customMaxPct, setCustomMaxPct] = useState<number>(10);
@@ -97,17 +98,29 @@ export function StrategyLab({
   // Selected detail cell — defaults to recommended after compute.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  // Resolve loss limits: pull from prop-firm profile when present, else custom.
-  const dailyLossPct = hasPropFirmProfile && dailyLossDollars != null && accountSize > 0
-    ? dailyLossDollars / accountSize
+  // Firm $ limits are absolute. If the user simulates a different account size,
+  // scale them by the size ratio so the firm's % rules apply at the override
+  // balance (e.g. $5k daily on $100k = 5% → $2.5k on $50k override).
+  const sizeRatio = defaultAccountSize > 0 ? accountSize / defaultAccountSize : 1;
+  const effDailyDollars = hasPropFirmProfile && dailyLossDollars != null
+    ? dailyLossDollars * sizeRatio
+    : null;
+  const effMaxDollars = hasPropFirmProfile && maxDrawdownDollars != null
+    ? maxDrawdownDollars * sizeRatio
+    : null;
+  const dailyLossPct = effDailyDollars != null && accountSize > 0
+    ? effDailyDollars / accountSize
     : customDailyPct / 100;
-  const maxLossPct = hasPropFirmProfile && maxDrawdownDollars != null && accountSize > 0
-    ? maxDrawdownDollars / accountSize
+  const maxLossPct = effMaxDollars != null && accountSize > 0
+    ? effMaxDollars / accountSize
     : customMaxPct / 100;
 
   const cells = useMemo(() => {
     if (rSample.length < 10) return [];
-    const out: Array<{ key: string; risk: number; model: RotationModel; result: MCResult; score: number }> = [];
+    const out: Array<{
+      key: string; risk: number; model: RotationModel; result: MCResult;
+      score: number; parts: ReturnType<typeof scoreCellParts>;
+    }> = [];
     for (const model of ROTATION_MODELS) {
       for (const risk of RISK_TIERS) {
         const params: MCParams = {
@@ -121,21 +134,26 @@ export function StrategyLab({
           tradesPerDay,
           maxDays: windowDays,
           rotationModel: model,
+          maxLossMode: trailingDD ? "trailing" : "static",
           paths: 1200,
-          seed: 1337,
+          // Deterministic per cell so two cells with similar means don't show
+          // artificial closeness from sharing the same sampled paths.
+          seed: cellSeed(model, risk),
         };
         const result = runMonteCarlo(params);
+        const parts = scoreCellParts(result);
         out.push({
           key: `${model}|${risk}`,
           risk,
           model,
           result,
-          score: scoreCell(result),
+          score: parts.score,
+          parts,
         });
       }
     }
     return out;
-  }, [rSample, numAccounts, accountSize, dailyLossPct, maxLossPct, targetPct, tradesPerDay, windowDays]);
+  }, [rSample, numAccounts, accountSize, dailyLossPct, maxLossPct, targetPct, tradesPerDay, windowDays, trailingDD]);
 
   const best = cells.length > 0
     ? cells.reduce((a, b) => (b.score > a.score ? b : a), cells[0])
