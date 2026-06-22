@@ -1,126 +1,89 @@
-# Codebase Audit — Quant Math, Drift & Cleanup
 
-Two parallel audits surfaced (a) systematic math bugs that silently bias every Pair Lab recommendation, (b) drift between client `src/lib/*` and edge function `_shared/quant/*` mirrors, and (c) dead code from previous refactors. Below is what to do, grouped by risk.
+## Audit Summary
 
----
+Two parallel audits (math correctness + dead code) returned ~30 findings. The codebase is in reasonable shape — no fabricated metrics or look-ahead leaks — but three classes of issue remain: (a) duplicate pip-size table with wrong index values, (b) client/server math drift in `pairLabMath` / `pairLabSimulator`, (c) accumulated dead UI primitives and one unused parameter.
 
-## P0 — Correctness bugs (wrong numbers, silent)
-
-### Quant math
-
-1. **`scoreTp` trail formula is wrong** — `src/lib/pairLabMath.ts:752` and mirror `supabase/functions/_shared/quant/pairLabMath.ts:290`
-   - Bug: `sum += p.rActual * trail` discounts an already-realized exit by `trailCapture` (e.g. ×0.7), understating expectancy for every winner where MFE < TP.
-   - Fix: when no TP would have triggered, use `p.rActual` unchanged (true realized outcome). The `* trail` factor only belongs on the *hypothetical* trail branch (`mfeR * trail`).
-   - Impact: biases the TP-grid argmax low → every bucket's recommended TP is too tight. Affects walk-forward OOS scores and AI report TP suggestions.
-
-2. **`computeRMultiple` equity fallback returns a percentage, not an R** — `supabase/functions/_shared/rMultiple.ts:92`
-   - Bug: `netPnl / equityAtEntry × 100` is % return on account, stored in the `r_multiple_actual` field.
-   - Fix: return `null` and surface a "missing risk data" flag instead of an economically incorrect ratio. Better to drop the trade from bucket stats than poison them.
-
-3. **JPY pip value hardcoded to 7.5** — `supabase/functions/_shared/rMultiple.ts:23`
-   - Bug: pip value depends on live USDJPY; 7.5 is right at ¥133/$, off 10–35% across normal range.
-   - Fix: prefer `grossPnl / (totalPoints × lots)` (already primary path); when truly fallback, compute `lots × 10 / usdjpyAtClose` using the close price already stored on the deal. If not available, return `null`.
-
-4. **`Math.abs(swap)` flips carry credits into costs** — `supabase/functions/_shared/pnl.ts:12`
-   - Fix: `gross - commission + swap` (MT5 swap is already signed). Audit `tradeMath.ts` callers for the same pattern.
-
-5. **`bootstrapKellyCi` resamples from a combined wins+losses pool** — `src/lib/pairLabMath.ts:349`
-   - Fix: resample wins and losses as independent arrays with their own counts; recombine for `p` and `b`. Removes spurious anti-correlation in CI bounds.
-
-### Cross-boundary drift (client ↔ edge function)
-
-6. **`PropFirmContext` schema mismatch** — client uses `firmName / riskPerTradeFrac / hardCapPct`; server uses `firm / profitTargetDollars`. Pick one shape and re-export from a shared module.
-
-7. **`BucketReport` field names differ**:
-   - `idealSlMedian` (client) vs `idealSlMedianPips` (server)
-   - `slInitialMedian` vs `slInitialMedianPips`
-   - `suggestedRiskPctPropFirm` vs `suggestedRiskPctPropFirmCap`
-   - Client has 8 extra fields (`winRateCi`, `profitFactor`, `payoffRatio`, `slSweep`, `riskBelowFloor`, `bindingConstraint`, `edgeVsBaseline`, `suggestedRiskPctCi`) the server never produces.
-   - Fix: align server output to client shape; add the 8 missing fields server-side so `QuantNotePanel` doesn't silently read `undefined`.
-
-8. **Server `Tp1Star` missing `hitRateCi`** — `_shared/quant/pairLabMath.ts:191`. Add it; mirror the client formula.
-
-### Dead references from prior refactor
-
-9. **Stale comment** — `src/lib/propFirmMonteCarlo.ts:8` still references deleted `RiskOptimizationLab` / `RotationSimulator`. Update.
-
-10. **Four orphaned components, zero inbound imports** — delete:
-    - `src/components/dashboard/MetricCard.tsx`
-    - `src/components/journal/ScreenshotUpload.tsx`
-    - `src/components/journal/settings/ColumnConfigPanel.tsx` (687 lines)
-    - `src/components/playbooks/PlaybookStatsCard.tsx`
+Plan executes in three passes. Each pass leaves the build green; later passes can be skipped if approved selectively.
 
 ---
 
-## P1 — Statistical rigor & consistency
+## Pass A — P0 Correctness Bugs
 
-11. **Block-bootstrap block size** — `propFirmMonteCarlo.ts:121,248`. Switch `Math.sqrt(N)` → `Math.round(N^(1/3))` (Politis–Romano optimal). Over-smoothing currently inflates path variance ≈ more simulated busts than reality.
+**A1. Delete the duplicate pip-size table.**
+`supabase/functions/_shared/rMultiple.ts` has its own `getPipSize`/`getPipValue` that returns `0.01` for NAS100/SPX (should be `1.0`) and `0.1` for DAX (should be `1.0`) — 10–100× R-multiple errors on the fallback path. Replace both with `pipSizeForSymbol` / `tickSizeForSymbol` from `_shared/quant/symbolMapping.ts`, the single canonical source. Add a one-line warning log when fallback path is used so we can audit if it ever fires.
 
-12. **Walk-forward look-ahead leak** — `pairLabMath.ts:830` estimates `trailCapture` from OOS rows. Force OOS trail = IS trail. Also report `oosN = oosPairs.length` not `oosRows.length` (true DoF for `scoreTp`).
+**A2. Fix `totalDollarsCi` scaling in `pairLabSimulator.ts:507`.**
+Current: `[expectancyRCi[0] * n * dollarRisk, expectancyRCi[1] * n * dollarRisk]` treats a CI on the *mean* as if it were a CI on the *sum* — width grows with n instead of shrinking. Either (a) recompute by bootstrapping `sum(R) * dollarRisk` directly, or (b) drop `totalDollarsCi` from the result and report only `meanDollarsCi = expectancyRCi * dollarRisk` (recommended — total-P&L CI is misleading on bootstrap of a fixed-n sample anyway).
 
-13. **`computeTp1Star` ad hoc scoring** — `pairLabMath.ts:534`. Replace `hitRate × log(1+r)` with the `expectancyR` already computed one line below.
-
-14. **Sortino denominator** — `pairLabMath.ts:241` uses `n-1`; textbook Sortino uses `n`. Either fix to `n` or rename the metric to "downside-σ Sharpe (Bessel-corrected)" to avoid misinterpretation.
-
-15. **Bootstrap iteration count** — `pairLabMath.ts:789` uses 200; everywhere else 500. Standardize on 500 for stable 2.5%/97.5% bounds.
-
-16. **Server vs client divergence**:
-    - `buildBuckets` sort key: server `expectedR × n`, client `n`. Pick one (recommend `n` for stability).
-    - `estimateTrailCaptureRows`: server `minSample=5`, client `=10`. Standardize at 10.
-
-17. **`StrategyLab` score is dimensionally inconsistent** — `StrategyLab.tsx:48`. `passProb × survival` is 0–1, but `ddPenalty = 0.5 × (DD% − 5) / 100` maxes at ~0.1 for 25% DD. Rescale to `0.5 × max(0, DD% − 5) / 100` → `0.02 × max(0, DD% − 5)` so a 25% DD costs 0.4 in score. Surface the breakdown in the detail card.
-
-18. **`StrategyLab.autoTradesPerDay` uses active-day denominator** — inflates TPD for traders who skip Fridays. Switch to calendar-day denominator over the observed range, or use the median.
-
-19. **BH FDR pool mixes per-cell + per-row buckets** — `BucketGrid.tsx:103`. These are non-independent (row aggregates contain the cells). Run BH on `perCell` only; either exclude `perRow` or apply a separate correction.
-
-20. **Static vs trailing DD in the deterministic simulator** — `pairLabSimulator.ts:491`. Mirror the `maxLossMode` toggle that already exists in `propFirmMonteCarlo`, and wire it through `StrategyLab` so the deterministic preview matches the MC config.
-
-21. **Sharpe/Sortino in simulator are per-trade R ratios, not annualized** — relabel in the UI ("per-trade R Sharpe") or annualize with detected trade frequency.
+**A3. Guard `pnl.ts` against positive-signed commission brokers.**
+`gross - Math.abs(commission) + swap` double-subtracts when a broker reports commission as already-deducted (positive). Add a single broker-sign detection in `tradeTransform.ts` ingest pipeline that flags the convention per account; pass a signed `commission` into `computeNetPnl` so the function becomes simply `gross + commission + swap`. Default behavior unchanged for MT5.
 
 ---
 
-## P2 — Quant-grade improvements & hygiene
+## Pass B — Statistical Rigor / Drift
 
-22. Add **geometric-mean R** alongside arithmetic mean (arithmetic overstates compounded growth at high R variance).
-23. Add **Expected Shortfall (CVaR-5%)** alongside max-DD and Sortino.
-24. Add **half-Kelly** as an explicit UI alternative (currently only quarter-Kelly is surfaced).
-25. Add `totalRuinProb` metric (all accounts bust) alongside the existing "any account busts" `riskOfRuin`.
-26. **Deduplicate `getPipSize`** — `rMultiple.ts` has its own table; `_shared/quant/symbolMapping.ts` has a richer one. Import from the latter.
-27. **Symbol matching** in `rMultiple.ts` uses ordered `String.includes` — fragile. Replace with a lookup map keyed by `classifySymbol`.
-28. **Toast system unification** — 17 files use shadcn `useToast`, 19 use sonner, both `<Toaster>` mounted in `App.tsx`. Pick sonner; migrate and delete `use-toast.ts` + `toaster.tsx`.
-29. **Pointless re-aliasing** — `App.tsx:44–47`. Import with final names; delete 4 lines.
-30. **`pairLabPresets.ts` duplicates `STRATEGY_PRESETS` from `pairLabSimulator.ts`** — merge into one source.
-31. **`withForwardRef.tsx` wraps Radix primitives unnecessarily** (2 callers) — inline `React.forwardRef`, delete the util.
-32. **Edge-function `any` typing** — `tradeEventProcessor.ts`, `healthEvents.ts`, `apiKey.ts`, `session.ts`, `accountResolver.ts`. Import `SupabaseClient` and the existing `TradeEvent` union.
-33. **Files >500 lines that mix concerns** — split (lower priority, can be incremental):
-    - `generate-report/index.ts` (1722) → prompt builder / section renderers / metrics aggregator
-    - `TradeTable.tsx` (939), `Playbooks.tsx` (886), `useUserSettings.tsx` (788), `ReportView.tsx` (778), `pairLabMath.ts` (1016), `pairLabSimulator.ts` (742)
+**B1. Reconcile prop-firm cap formula (client ↔ server).**
+Server `_shared/quant/pairLabMath.ts:522` uses hardcoded divisors `/3` and `/5`, ignores `worstLosingStreak` and `hardCapPct`. Client uses `streak`-aware budget with floor and hard cap. Extract one `computePropFirmRiskCap()` function and import on both sides; align `PropFirmContext` interface (add `worstLosingStreak`, `hardCapPct` to server type).
 
----
+**B2. Remove dead `trail` parameter from `scoreTp`.**
+Both `pairLabMath.ts:766` (client) and `_shared/quant/pairLabMath.ts:298` (server) accept `trail` and immediately `void` it. Drop the parameter, drop the redundant `estimateTrailCapture` call inside `pickBestTp` / `runWalkForward` that exists only to feed it.
 
-## Suggested execution order
+**B3. Decorrelate Kelly-CI bootstrap RNG (`pairLabMath.ts:362`).**
+Win-rate binomial draw consumes the same RNG stream as payoff resampling within each iteration, weakly coupling `b` and `p`. Fix: pre-generate `nW + nL + n` uniforms per iteration into a typed array, or split into two independent seeded RNGs (one for payoff, one for binomial).
 
-Three focused passes so each is independently verifiable:
+**B4. Honest CI percentile indexing.**
+`means[Math.floor(iters * 0.025)]` / `floor(0.975)` reads 2.6th/97.6th percentile at `iters=500`. Switch to linear interpolation between adjacent ranks (standard percentile). Apply in both `bootstrapMeanCi` mirrors.
 
-**Pass A — Quant correctness (items 1–8)**
-Touches: `pairLabMath.ts` (×2), `rMultiple.ts`, `pnl.ts`. Validate by comparing recomputed bucket stats against a saved snapshot of current values on a few real trades, then patching any unit tests if present.
+**B5. Document `downsideStddev` convention.**
+`pairLabMath.ts:236` divides squared *downside* deviations by total `n−1` (Sortino "all observations" convention). Behavior is defensible but undocumented — add a 2-line doc comment explaining the choice and the alternative.
 
-**Pass B — Dead code & drift cleanup (items 9, 10, 26, 29, 30, 31)**
-Pure deletes + import swaps. Fast, low-risk, makes Pass C smaller.
+**B6. Align server trail-capture with client.**
+`_shared/quant/pairLabSimulator.ts:217` hardcodes `TRAIL_CAPTURE_FRAC = 0.8`; client uses bucket-estimated `ctx.trailCapture`. Move `estimateTrailCapture` into `_shared/quant/pairLabSimulator.ts` and thread the per-bucket value through. Eliminates the client/server expectancy mismatch on any preset using a runner.
 
-**Pass C — Statistical rigor & UX (items 11–25)**
-Touches: `propFirmMonteCarlo.ts`, `StrategyLab.tsx`, `BucketGrid.tsx`, `pairLabSimulator.ts`. Add the static/trailing-DD toggle and dimensional fix to the score formula. Surface geometric R + CVaR in `QuantNotePanel`.
-
-**Deferred — Toast unification & large-file splits (items 28, 33)**
-Mechanical but touches 30+ files; do as a separate dedicated PR.
+**B7. Fix `tp1Star` miss-cost assumption.**
+`pairLabMath.ts:543` (`hitRate * r - (1 - hitRate) * avgLossR`) treats every miss as a full stop-out; misses can BE/partial. Replace `avgLossR` with the conditional mean R of trades whose MFE < r (empirical miss outcome), falling back to `avgLossR` only when that subset is < 5.
 
 ---
 
-## Out of scope
+## Pass C — Hygiene & Refactor
 
-- Replacing the MC engine, regenerating Supabase types, or moving to a worker thread.
-- Annualizing per-trade Sharpe (needs design choice on trade frequency normalization — flagged for follow-up).
-- Splitting `integrations/supabase/types.ts` (auto-generated).
+**C1. Delete 12 orphaned shadcn primitives.**
+`src/components/ui/`: `aspect-ratio.tsx`, `breadcrumb.tsx`, `carousel.tsx`, `context-menu.tsx`, `drawer.tsx`, `hover-card.tsx`, `input-otp.tsx`, `menubar.tsx`, `navigation-menu.tsx`, `pagination.tsx`, `radio-group.tsx`, `resizable.tsx`. Zero imports anywhere. Easy revert via `npx shadcn add <name>` if needed later.
 
-Tell me if you want to drop any sections or re-order; otherwise I'll execute Pass A first.
+**C2. Delete `src/lib/withForwardRef.tsx`.**
+Three uses, all discard the ref. Inline the trivial pattern at the three call sites and remove the file.
+
+**C3. Consolidate to a single toast system.**
+`src/App.tsx` mounts both shadcn `<Toaster />` and sonner `<Sonner />`; ~14 files use `useToast`, ~15 use `sonner` directly. Pick sonner (already dominant + simpler API). Codemod all `useToast` calls to `toast.success/error/info`; remove `src/components/ui/toaster.tsx`, `src/hooks/use-toast.ts`, `src/components/ui/toast.tsx`, the corresponding `<Toaster />` mount. Single PR, mechanical change.
+
+**C4. Resolve `CopierDashboard.tsx` vs `CopierDashboardView.tsx`.**
+586-line `CopierDashboardView.tsx` exists but is not imported. Either delete it or swap `Copier.tsx` to render it (whichever is the intended current implementation — requires a 2-minute read to decide). Flag for confirmation in the implementation pass.
+
+**C5. Fix `runner` preset fractions (`0.34 + 0.33` → `0.33 + 0.33 + 0.34 trail`).**
+Cosmetic but the label promises equal thirds. Mirror in both client + server simulator presets.
+
+**C6. Tighten `calculateSimilarity` in `symbolMapping.ts:246`.**
+Current "character-set overlap / maxLen" misfires for FX pairs sharing `USD` (similarity 0.5 for EURUSD↔GBPUSD). Replace with a normalized Levenshtein distance (`1 - editDistance/maxLen`). Threshold stays at 0.5; eliminates false matches.
+
+**C7. Remove `as any` casts where typed alternatives exist.**
+- `useUserSettings.tsx:153–162,414` — JSONB columns can be typed `Json`.
+- `useTrades.tsx:127–128` — `custom_fields` is a known field.
+- `tradeTransform.ts` `normalizeReviews`/`transformReview`/`transformTrade` — use `Tables<'trades'>`.
+Skip the `(supabase as any).from('filter_presets'|'session_definitions'|'symbol_aliases')` casts — those need a types regeneration which is out of scope.
+
+---
+
+## Explicitly Out of Scope
+
+- Splitting `pairLabMath.ts` (1043 lines) and `TradeTable.tsx` (939 lines) — defer; they work and splitting risks breakage with no immediate payoff.
+- Regenerating `src/integrations/supabase/types.ts`.
+- Replacing the Monte Carlo engine.
+- `slDrift` threshold calibration (P1-4) — needs a noise model first.
+
+---
+
+## Suggested Order
+
+Pass A (correctness, 1 sitting) → Pass C1+C2+C5+C6 (low-risk cleanup, parallel) → Pass B (rigor, careful review) → Pass C3 (toast unification, mechanical but large diff) → Pass C7 (typing).
+
+Confirm to proceed, or pick specific passes/items.
