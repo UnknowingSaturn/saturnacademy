@@ -3,7 +3,7 @@
 //
 // Each preset uses its own ELIGIBLE sample (trades whose recorded data proves
 // the preset's rules would have triggered). Per-row N exposes data coverage.
-// Sort by expectancy R, tiebreak by Sharpe-of-R (mean / std).
+// Sort by expectancy R, tiebreak by per-trade edge ratio (mean R / σ R).
 // ============================================================================
 
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -162,8 +162,8 @@ export function StrategyRanker({
       const bOk = b.eligibleCount >= MIN_ELIGIBLE_SAMPLE ? 1 : 0;
       if (aOk !== bOk) return bOk - aOk;
       if (b.expectancyR !== a.expectancyR) return b.expectancyR - a.expectancyR;
-      const aS = a.sharpeR ?? -Infinity;
-      const bS = b.sharpeR ?? -Infinity;
+      const aS = a.perTradeEdgeRatio ?? -Infinity;
+      const bS = b.perTradeEdgeRatio ?? -Infinity;
       if (bS !== aS) return bS - aS;
       return b.eligibleCount - a.eligibleCount;
     });
@@ -276,8 +276,8 @@ export function StrategyRanker({
                     {" "}(±{((winner.expectancyRCi[1] - winner.expectancyRCi[0]) / 2).toFixed(2)}R 95% CI)
                   </span>
                 )}
-                {winner.sharpeR != null && (
-                  <span className="text-muted-foreground"> · Sharpe {winner.sharpeR.toFixed(2)}</span>
+                {winner.perTradeEdgeRatio != null && (
+                  <span className="text-muted-foreground"> · Edge {winner.perTradeEdgeRatio.toFixed(2)} (R/σ)</span>
                 )}
               </span>
               {upliftDollars != null && Math.abs(upliftDollars) > 1 && (
@@ -314,8 +314,8 @@ export function StrategyRanker({
                   {" · "}
                   OOS (N={walkForwardResult.outOfSampleN}): {walkForwardResult.outOfSample.expectancyR >= 0 ? "+" : ""}
                   {walkForwardResult.outOfSample.expectancyR.toFixed(2)}R
-                  {walkForwardResult.outOfSample.sharpeR != null && (
-                    <> · OOS Sharpe {walkForwardResult.outOfSample.sharpeR.toFixed(2)}</>
+                  {walkForwardResult.outOfSample.perTradeEdgeRatio != null && (
+                    <> · OOS Edge {walkForwardResult.outOfSample.perTradeEdgeRatio.toFixed(2)} (R/σ)</>
                   )}
                 </div>
                 {walkForwardResult.overfit && (
@@ -338,7 +338,7 @@ export function StrategyRanker({
                 <th className="text-right py-2 px-2">Total $</th>
                 <th className="text-right py-2 px-2">Win %</th>
                 <th className="text-right py-2 px-2">Expectancy ± CI</th>
-                <th className="text-right py-2 px-2" title="Sharpe ratio of per-trade R series — mean / stddev. Higher = more consistent.">Sharpe</th>
+                <th className="text-right py-2 px-2" title="Per-trade edge ratio = mean(R) / σ(R). NOT annualized Sharpe — use for relative comparison only. Higher = more consistent edge per unit of R volatility.">Edge (R/σ)</th>
                 <th className="text-right py-2 px-2">Max DD</th>
                 <th className="text-left py-2 pl-2">Prop-firm</th>
               </tr>
@@ -420,7 +420,7 @@ export function StrategyRanker({
                         )}
                       </td>
                       <td className="py-2 px-2 text-right font-mono-numbers">
-                        {insufficient || r.sharpeR == null ? "—" : r.sharpeR.toFixed(2)}
+                        {insufficient || r.perTradeEdgeRatio == null ? "—" : r.perTradeEdgeRatio.toFixed(2)}
                       </td>
                       <td className="py-2 px-2 text-right font-mono-numbers text-destructive">
                         {insufficient ? "—" : fmtMoney(r.maxDrawdownDollars)}
@@ -470,7 +470,7 @@ export function StrategyRanker({
             <code className="text-[10px] mx-0.5">r_actual</code> proves the rule's targets were reached
             (or the trade stopped out). MAE / Ideal-SL are stored in broker ticks and need each trade's
             initial-SL + entry price to convert into R. Presets with fewer than {MIN_ELIGIBLE_SAMPLE} eligible
-            trades are demoted. ±CI is the bootstrap 95% interval on per-trade R. Tiebreaker is Sharpe-of-R.
+            trades are demoted. ±CI is the bootstrap 95% interval on per-trade R. Tiebreaker is the per-trade edge ratio (mean R / σ R).
           </span>
         </p>
       </Card>

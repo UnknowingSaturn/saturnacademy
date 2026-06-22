@@ -27,7 +27,7 @@ export function useDashboardMetrics(trades: Trade[]): DashboardMetrics {
       worstTrade: 0,
       currentStreak: { type: 'win', count: 0 },
       bySession: {} as Record<SessionType, SessionMetrics>,
-      sharpeR: null,
+      perTradeEdgeRatio: null,
       recoveryFactor: null,
       maxConsecutiveWins: 0,
       maxConsecutiveLosses: 0,
@@ -84,7 +84,7 @@ export function useDashboardMetrics(trades: Trade[]): DashboardMetrics {
     const totalPnl = pnls.reduce((a, b) => a + b, 0);
     const sdR = stddev(rMultiples);
     const meanR = rMultiples.length > 0 ? rMultiples.reduce((a, b) => a + b, 0) / rMultiples.length : 0;
-    const sharpeR = sdR > 0 ? meanR / sdR : null;
+    const perTradeEdgeRatio = sdR > 0 ? meanR / sdR : null;
     const recoveryFactor = maxDD < 0 ? totalPnl / Math.abs(maxDD) : null;
 
     // By session.
@@ -113,7 +113,7 @@ export function useDashboardMetrics(trades: Trade[]): DashboardMetrics {
       worstTrade: Math.min(...pnls),
       currentStreak,
       bySession,
-      sharpeR,
+      perTradeEdgeRatio,
       recoveryFactor,
       maxConsecutiveWins,
       maxConsecutiveLosses,
