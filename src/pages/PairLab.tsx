@@ -131,6 +131,7 @@ export default function PairLab() {
           <TabsTrigger value="simulator">Simulator</TabsTrigger>
           <TabsTrigger value="risk">Risk lab</TabsTrigger>
           <TabsTrigger value="rotation">Rotation lab</TabsTrigger>
+          <TabsTrigger value="excursions">MAE/MFE</TabsTrigger>
           <TabsTrigger value="aliases">Symbol aliases</TabsTrigger>
         </TabsList>
 
