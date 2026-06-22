@@ -73,28 +73,24 @@ function cellSeed(model: RotationModel, risk: number): number {
 
 // Auto-detect average trades/day from the user's history.
 //
-// Denominator is *calendar* days between first and last trade (not just days
-// with at least one trade). Using active-days-only inflates TPD for traders
-// who skip Fridays/weekends, which then inflates simulated pass probabilities.
+// Denominator is the count of *distinct dates with at least one closed trade*.
+// Prior versions used calendar span × 5/7 which under-counted for traders
+// who skip many sessions (e.g. only trading London open), biasing simulated
+// pass-prob downward. Distinct-active-days is the right denominator because
+// the simulator's `tradesPerDay` should describe *days on which trading
+// happens*, not days on the wall calendar.
 function autoTradesPerDay(trades: Trade[]): number {
+  const activeDays = new Set<string>();
   let n = 0;
-  let minD: string | null = null;
-  let maxD: string | null = null;
   for (const t of trades) {
     if (t.is_open || t.is_archived) continue;
     if (t.r_multiple_actual == null) continue;
     if (!t.entry_time) continue;
-    const d = String(t.entry_time).slice(0, 10);
-    if (minD == null || d < minD) minD = d;
-    if (maxD == null || d > maxD) maxD = d;
+    activeDays.add(String(t.entry_time).slice(0, 10));
     n += 1;
   }
-  if (n === 0 || minD == null || maxD == null) return 2;
-  const dayMs = 24 * 60 * 60 * 1000;
-  const spanDays = Math.max(1, Math.round((Date.parse(maxD) - Date.parse(minD)) / dayMs) + 1);
-  // Trading days ≈ 5/7 of calendar span; convert and clamp to a sane range.
-  const tradingDays = Math.max(1, Math.round(spanDays * 5 / 7));
-  return Math.max(1, Math.min(8, Math.round(n / tradingDays)));
+  if (n === 0 || activeDays.size === 0) return 2;
+  return Math.max(1, Math.min(12, Math.round(n / activeDays.size)));
 }
 
 export function StrategyLab({
