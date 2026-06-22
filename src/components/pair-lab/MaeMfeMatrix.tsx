@@ -28,10 +28,10 @@ function mean(xs: number[]) {
   return xs.length === 0 ? null : xs.reduce((a, b) => a + b, 0) / xs.length;
 }
 
-function verdict(meanMaeR: number | null) {
-  if (meanMaeR == null) return null;
-  if (meanMaeR >= 0.85) return { label: "Stops too tight", tone: "warn" } as const;
-  if (meanMaeR <= 0.4) return { label: "Stops too wide", tone: "info" } as const;
+function verdict(meanMaeRatio: number | null) {
+  if (meanMaeRatio == null) return null;
+  if (meanMaeRatio >= 0.85) return { label: "Stops too tight", tone: "warn" } as const;
+  if (meanMaeRatio <= 0.4) return { label: "Stops too wide", tone: "info" } as const;
   return { label: "Stops aligned", tone: "good" } as const;
 }
 
@@ -42,20 +42,21 @@ export function MaeMfeMatrix({ trades, fieldKeys }: Props) {
     const setups = Array.from(new Set(closed.map(setupOf))).sort();
     const sessions = Array.from(new Set(closed.map((t) => normalizeSession(t.session)))).sort();
 
-    const cells: Record<string, Record<string, { meanMae: number | null; meanMfe: number | null; n: number }>> = {};
-    const rowMaes: Record<string, number[]> = {};
+    const cells: Record<string, Record<string, { meanMaeTicks: number | null; meanMfe: number | null; n: number }>> = {};
+    const rowRatios: Record<string, number[]> = {};
     for (const setup of setups) {
       cells[setup] = {};
-      rowMaes[setup] = [];
+      rowRatios[setup] = [];
       for (const sess of sessions) {
         const subset = closed.filter((t) => setupOf(t) === setup && normalizeSession(t.session) === sess);
-        const maes = subset.map((t) => tradeMaeR(t, getCf(t, fieldKeys.mae))).filter((v): v is number => v != null);
+        const maeTicks = subset.map((t) => getCf(t, fieldKeys.mae)).filter((v): v is number => v != null).map(Math.abs);
+        const maeRatios = subset.map((t) => tradeMaeR(t, getCf(t, fieldKeys.mae))).filter((v): v is number => v != null);
         const mfes = subset.map((t) => getCf(t, fieldKeys.mfe)).filter((v): v is number => v != null && v >= 0);
-        cells[setup][sess] = { meanMae: mean(maes), meanMfe: mean(mfes), n: subset.length };
-        rowMaes[setup].push(...maes);
+        cells[setup][sess] = { meanMaeTicks: mean(maeTicks), meanMfe: mean(mfes), n: subset.length };
+        rowRatios[setup].push(...maeRatios);
       }
     }
-    return { setups, sessions, cells, rowMaes };
+    return { setups, sessions, cells, rowRatios };
   }, [trades, fieldKeys]);
 
   if (data.setups.length === 0) {
