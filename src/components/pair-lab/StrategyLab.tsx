@@ -45,6 +45,17 @@ const ROTATION_MODELS: RotationModel[] = ["one_only", "simultaneous", "stay_on_w
 const TARGET_PRESETS = [6, 8, 10, 12];
 const WINDOW_PRESETS = [30, 60, 90];
 
+// Sample window — restricts the trade history fed into the sweep. "All" preserves
+// the historical default. Short windows let the user inspect current-regime edge
+// without changing any downstream math; the existing edge-gate handles small-n.
+type SampleWindow = "all" | "30d" | "60d" | "90d";
+const SAMPLE_WINDOW_OPTIONS: { value: SampleWindow; label: string; days: number | null }[] = [
+  { value: "all", label: "All", days: null },
+  { value: "30d", label: "30d", days: 30 },
+  { value: "60d", label: "60d", days: 60 },
+  { value: "90d", label: "90d", days: 90 },
+];
+
 // Score components (exposed for the breakdown line).
 //
 // All three terms live on the 0–1 probability scale so the additive form is
