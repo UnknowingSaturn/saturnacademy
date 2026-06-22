@@ -282,6 +282,10 @@ export default function PairLab() {
           />
         </TabsContent>
 
+        <TabsContent value="excursions" className="mt-4">
+          <MaeMfeMatrix trades={data.trades} fieldKeys={data.fieldKeys} />
+        </TabsContent>
+
         <TabsContent value="aliases" className="mt-4">
           <SymbolAliasManager />
         </TabsContent>
