@@ -1,54 +1,75 @@
-# Audit + fix: MAE displayed in ticks, not R
 
-## Audit — all six additions wired correctly
+## What's wrong with the current approach
 
-| Feature | Status | Where |
-| --- | --- | --- |
-| Shared MC engine | ✅ | `src/lib/propFirmMonteCarlo.ts` |
-| Risk Optimization Lab tab | ✅ | `PairLab.tsx` → `RiskOptimizationLab` |
-| Rotation Simulator tab | ✅ | `PairLab.tsx` → `RotationSimulator` |
-| MAE/MFE matrix tab | ✅ | `PairLab.tsx` → `MaeMfeMatrix` |
-| Extended dashboard metrics (Sharpe, recovery, consec W/L, max DD, monthly heatmap, R distribution) | ✅ | `Dashboard.tsx` → `ExtendedDashboardMetrics` |
-| Challenge Planner cards | ✅ | `Accounts.tsx` → `ChallengePlannerCard` |
-| Extended `DashboardMetrics` type | ✅ | `src/types/trading.ts` |
-| Typecheck | ✅ | `tsc --noEmit` clean |
+In `src/lib/pairLabMath.ts` → `buildRecommendation`:
 
-Nothing missing. The five new files exist, are imported, and the page renders (your screenshot proves the Grid renders).
+- **SL** = `max(p75(MAE_all) × 1.15, median(ideal_SL))`. This mixes a heuristic margin with a user-logged opinion and ignores whether the SL actually maximizes expectancy.
+- **TP ladder** = win-R quantiles (p30/p50/p75) rounded to 0.25R. This is **survivorship-biased**: it only sees R outcomes you already produced under your past TP choices. It cannot recommend a TP you've never tried.
+- The `slSweep` table already exists but isn't used to drive the recommendation — only to display a what-if grid.
 
-## Fix — MAE is the tick value you record from TradingView's measure tool
+For a discretionary prop trader, "average MAE" is the wrong target. You want the SL/TP pair that would have maximized expectancy on your own trades, validated against overfitting.
 
-You record MAE in **ticks** (raw input), and that's how you want to read it back. The current UI converts ticks → R for display, which makes the number small and abstract (e.g. `MAE 0.04R`). MFE stays in R as designed.
+## Better quant approach
 
-### Math layer — add raw-tick aggregates (no conversion)
+Three industry-standard upgrades, all using data already in the bucket:
 
-In `src/lib/pairLabMath.ts`:
-- Extend `BucketStats` with `maeP50Ticks: number | null` and `maeP75Ticks: number | null`.
-- In `computeBucket`, push `Math.abs(maeTicks)` for every closed trade with the MAE custom field set (no pip/SL gating required — ticks are unit-free per symbol).
-- Populate `maeP50Ticks = median(...)` and `maeP75Ticks = quantile(..., 0.75)` alongside the existing R/pip aggregates.
-- **Keep** `maeP50`, `maeP75`, `maeP75Pips` — the SL sweep and recommendation math depend on R/pip values internally. Only the display layer changes.
+### 1. SL: MAE-of-winners (Sweeney / van Tharp method)
 
-### Display layer — swap R for ticks in three places
+Among **winning trades only**, look at how deep MAE went before the trade recovered. The tightest SL that preserves X% of your winners is the optimal floor.
 
-1. **`BucketGrid.tsx`** (the cells in your screenshot):
-   - Current: `MFE 2.45R · MAE 0.04R`
-   - New: `MFE 2.45R · MAE 87 t`
-   - Render `b.maeP75Ticks?.toFixed(0)` with a `t` suffix.
+```
+suggestedSlPips = quantile(MAE_pips of winners, 0.90) × 1.10  // 10% buffer
+```
 
-2. **`QuantNotePanel.tsx`** "MAE p50/p75" cell:
-   - Current: `0.85 / 1.20R`
-   - New: `87 / 142 t`
-   - Use `b.maeP50Ticks` / `b.maeP75Ticks`.
+Why it's better: losers' MAE is meaningless (they hit your SL anyway). Winners' MAE tells you "how much rope your edge needs."
 
-3. **`MaeMfeMatrix.tsx`** cells + verdict:
-   - Cell MAE rendered in ticks: `MAE 87 t` (compute mean ticks per cell directly from `getCf(t, fieldKeys.mae)`).
-   - Verdict thresholds no longer make sense as R-thresholds — switch the verdict to use the **bucket's existing `slDrift` signal** (ideal-SL ÷ planned-SL ratio: too_wide / too_tight / aligned). This is the same source of truth the QuantNotePanel uses for its drift badge, so the matrix stops contradicting it.
+### 2. TP: MFE-based expectancy grid (not realized win-R)
 
-4. **Legend** below the ranker: change `"MAE & Ideal-SL in ticks · MFE & TP targets in R"` — it already says ticks, just confirm it now matches reality everywhere.
+Replace win-R quantiles with a **grid search over candidate TPs in R-space**, evaluating each against the **MFE distribution** of all trades (winners + losers that went positive first):
 
-### Why not pips?
+```
+For each TP ∈ {0.5, 0.75, 1.0, 1.25, ..., 4.0} R:
+  expectancy[TP] = mean over trades of:
+    if MFE_R >= TP:  +TP                       // would have hit TP
+    elif r_actual >= 0:  r_actual × trail_capture   // partial winner
+    else:  r_actual                            // loser
+Pick argmax. Ladder = top 3 local maxima.
+```
 
-`maeP75Pips` exists internally for the SL sweep math. We don't surface pips in the UI because your input device (TradingView measure tool) gives ticks directly — converting back to pips on read would only add a number you'd have to mentally re-convert.
+This **does** see TPs you've never tried — MFE tells us "the trade went to +2.3R even though you closed at +1R."
 
-## Verification
+### 3. Joint SL/TP grid + bootstrap CI to prevent overfitting
 
-Open `/pair-lab` Grid tab on a populated bucket (e.g. EURUSD · Tokyo with N22) and confirm `MAE` reads as an integer with `t` suffix, not `R`. Repeat on QuantNotePanel ("MAE p50/p75") and the MAE/MFE matrix. Numbers should match the raw values you typed into the journal.
+Extend the existing `slSweep` to a **2-D grid** (SL × TP), pick the cell that maximizes expectancy, and run 200-iteration bootstrap on the chosen cell to produce a CI. If the lower CI bound is ≤ 0, flag "not statistically supported, use defaults."
+
+Reuses the existing `bootstrapMeanCi` helper.
+
+## Scope of changes
+
+Edit `src/lib/pairLabMath.ts` only — math change, no UI restructuring.
+
+**`buildRecommendation`** — replace the `suggestedSlPips` block and the `ladder` block:
+
+1. Compute `winnersMaePips` (MAE in pips for trades where `r_actual > 0`)
+2. `suggestedSlPips = quantile(winnersMaePips, 0.90) × 1.10` with fallback to current formula when winners < 10
+3. Build TP grid `[0.5, 0.75, 1.0, ..., 4.0]`, score each using MFE + `trailCaptureFrac` (already computed elsewhere in the file)
+4. Run joint SL×TP grid search; pick argmax expectancy
+5. Add `recommendationConfidence: "high" | "low" | "insufficient"` to `BucketRecommendation` based on n and bootstrap CI sign
+6. Keep the old fields populated so `QuantNotePanel.tsx` keeps rendering — just change what feeds them
+
+**`BucketRecommendation` interface** — add `recommendationConfidence` and optional `expectancyAtSuggested: number`.
+
+**`QuantNotePanel.tsx`** — add a small badge next to the SL/TP suggestion showing confidence ("validated" / "low-sample" / "insufficient data"). Single-line change.
+
+## Out of scope
+
+- No changes to MAE/MFE matrix, RiskOptimizationLab, RotationSimulator (those use different math).
+- No new files. No edge-function math change (can sync `supabase/functions/_shared/quant/pairLabMath.ts` in a follow-up if desired).
+- No changes to the existing 1-D `slSweep` table — it stays as a transparency tool.
+
+## Technical details
+
+- Trail-capture fraction: use the existing empirical estimate from `pairLabMath.ts` (lines 774+) instead of the 0.8 constant.
+- Grid resolution: SL = 5 candidates from MAE quantiles (same as current sweep), TP = 15 candidates 0.5–4R step 0.25. = 75 cells, ~1ms per bucket.
+- Bootstrap: 200 resamples, percentile method, on R-multiples generated by the winning grid cell.
+- Fallback: if `winners < 10` OR `loggedMfeCount < 10`, fall back to the current heuristic and tag confidence "insufficient."
