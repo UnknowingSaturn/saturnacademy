@@ -61,6 +61,82 @@ function topReasons(reasons: Record<string, number>, k = 3): Array<[string, numb
   return Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, k);
 }
 
+function StrategyDetailPanel({ result }: { result: ReplayResult }) {
+  const s = result.strategy;
+  const sl = result.appliedSlPipsMedian;
+  const slRange = result.appliedSlPipsRange;
+  const isActual = !!s.useActualOutcome;
+  return (
+    <div className="space-y-3">
+      {s.description && (
+        <p className="text-xs text-muted-foreground italic leading-relaxed">{s.description}</p>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Stop loss */}
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Stop loss</div>
+          <div className="text-sm">
+            {isActual ? (
+              <span className="text-muted-foreground">Uses each trade's recorded stop.</span>
+            ) : (
+              <span>{result.slRuleLabel}</span>
+            )}
+          </div>
+          <div className="text-xs font-mono-numbers text-muted-foreground">
+            {sl != null ? (
+              <>
+                Median applied: <span className="text-foreground font-semibold">{sl.toFixed(1)} pips</span>
+                {slRange && (
+                  <span> · IQR {slRange[0].toFixed(1)}–{slRange[1].toFixed(1)}</span>
+                )}
+              </>
+            ) : (
+              <span>SL distance unavailable (missing entry/SL price).</span>
+            )}
+          </div>
+        </div>
+        {/* Take profits */}
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Take profits</div>
+          {isActual ? (
+            <div className="text-sm text-muted-foreground">Uses each trade's recorded exits.</div>
+          ) : result.appliedTpLadder.length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              No partials — runner handles entire position.
+            </div>
+          ) : (
+            <ul className="space-y-1 text-sm font-mono-numbers">
+              {result.appliedTpLadder.map((leg, i) => (
+                <li key={i} className="flex items-baseline gap-2">
+                  <span className="font-semibold text-foreground">{leg.atR.toFixed(2)}R</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span>{Math.round(leg.fraction * 100)}%</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="text-[11px] text-muted-foreground">{TP_SOURCE_LABELS[leg.source]}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {/* Runner */}
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Runner</div>
+          <div className="text-sm">
+            {isActual ? (
+              <span className="text-muted-foreground">N/A — replays actual outcome.</span>
+            ) : (
+              <span>{result.runnerLabel}</span>
+            )}
+          </div>
+          <div className="text-xs font-mono-numbers text-muted-foreground">
+            Risk per trade: <span className="text-foreground font-semibold">{s.riskPct.toFixed(2)}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function StrategyRanker({
   trades, fieldKeys, balance, propFirm, scopeLabel,
   defaultRiskPct = 1, trailCapture, effectiveTrailCapture,
