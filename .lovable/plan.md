@@ -1,74 +1,54 @@
-# Feature-list audit + minimum additions
+# Audit + fix: MAE displayed in ticks, not R
 
-Most of this is already shipped. Below is what you have, what's missing, and the smallest set of additions to close the gap.
+## Audit — all six additions wired correctly
 
-## Already covered — do nothing
+| Feature | Status | Where |
+| --- | --- | --- |
+| Shared MC engine | ✅ | `src/lib/propFirmMonteCarlo.ts` |
+| Risk Optimization Lab tab | ✅ | `PairLab.tsx` → `RiskOptimizationLab` |
+| Rotation Simulator tab | ✅ | `PairLab.tsx` → `RotationSimulator` |
+| MAE/MFE matrix tab | ✅ | `PairLab.tsx` → `MaeMfeMatrix` |
+| Extended dashboard metrics (Sharpe, recovery, consec W/L, max DD, monthly heatmap, R distribution) | ✅ | `Dashboard.tsx` → `ExtendedDashboardMetrics` |
+| Challenge Planner cards | ✅ | `Accounts.tsx` → `ChallengePlannerCard` |
+| Extended `DashboardMetrics` type | ✅ | `src/types/trading.ts` |
+| Typecheck | ✅ | `tsc --noEmit` clean |
 
-| Spec item | Where it lives today |
-| --- | --- |
-| Trade fields (date, pair, session, direction, setup, market condition, entry/stop/target, risk %, R, MAE, MFE, notes, screenshot) | `trades` table (48 cols) + Journal page + custom fields |
-| CSV import with column mapping | `src/pages/Import.tsx` |
-| Win rate, avg winner/loser, expectancy, profit factor, avg R, P&L, current streak, per-session breakdown | `useDashboardMetrics` + `SessionBreakdown` |
-| Equity curve | `components/dashboard/EquityCurve.tsx` |
-| Exit-strategy comparison (Strategies A–E + custom) | Pair Lab **Auto-ranker** with 12 presets, walk-forward, equity overlay, prop-firm verdict, per-strategy SL/TP detail panel (just shipped) |
-| MAE/MFE analysis per bucket + AI recommendation ("stops too tight / wide") | `QuantNotePanel`, `BucketGrid`, `pairLabMath.ts` (`driftBadge`, SL drift) |
-| Insights engine (best session/setup/RR, recommendations) | `QuantNotePanel` per-bucket AI note + Reports `TradeHighlights` |
-| Single-risk-% prop-firm sim with bust verdict | Pair Lab Auto-ranker (risk slider, pass/bust badge) |
+Nothing missing. The five new files exist, are imported, and the page renders (your screenshot proves the Grid renders).
 
-## Missing — add these (5 focused pieces)
+## Fix — MAE is the tick value you record from TradingView's measure tool
 
-### 1. Dashboard metric expansion *(small)*
-Extend `useDashboardMetrics` and add three small cards/charts to Dashboard:
-- Sharpe ratio, recovery factor, max consecutive wins, max consecutive losses, max drawdown $/% (currently only "current streak" exists).
-- **Monthly returns** heatmap (year × month grid).
-- **Win/Loss distribution** histogram (R-multiple bins).
+You record MAE in **ticks** (raw input), and that's how you want to read it back. The current UI converts ticks → R for display, which makes the number small and abstract (e.g. `MAE 0.04R`). MFE stays in R as designed.
 
-### 2. MAE/MFE cross-tab page *(small)*
-New tab under Dashboard (or a section in Pair Lab) showing a matrix:
-- Rows = setup type, Columns = session, Cell = avg MAE / avg MFE in R.
-- One verdict line per row: "Stop too wide / too tight / aligned" using the existing `driftBadge` math in `pairLabMath.ts`.
-- Reuses everything from `pairLabMath`; pure presentation layer.
+### Math layer — add raw-tick aggregates (no conversion)
 
-### 3. Challenge Planner card *(small — Accounts page)*
-For each account flagged as prop-firm, render one card:
-- Inputs (already on `accounts` table or `prop_firm_rules`): daily-loss %, max-loss %, phase target %.
-- Live outputs: current equity, distance to target (%, $), remaining DD (%, $), **required net R to pass** at the account's average risk %, **historical pass probability** = % of past N-trade windows in the user's journal that hit the target without breaching limits (bootstrap over closed trades).
-- No Monte-Carlo here — just empirical resampling. Fast, deterministic, no new infra.
+In `src/lib/pairLabMath.ts`:
+- Extend `BucketStats` with `maeP50Ticks: number | null` and `maeP75Ticks: number | null`.
+- In `computeBucket`, push `Math.abs(maeTicks)` for every closed trade with the MAE custom field set (no pip/SL gating required — ticks are unit-free per symbol).
+- Populate `maeP50Ticks = median(...)` and `maeP75Ticks = quantile(..., 0.75)` alongside the existing R/pip aggregates.
+- **Keep** `maeP50`, `maeP75`, `maeP75Pips` — the SL sweep and recommendation math depend on R/pip values internally. Only the display layer changes.
 
-### 4. Risk Optimization grid *(new — Pair Lab tab)*
-New tab "Risk lab" in `PairLab.tsx`:
-- Fixed rows: 1.0%, 1.25%, 1.5%, 2.0% (configurable list).
-- Columns: expected return, prob. of challenge pass, avg days to pass, **risk of ruin**, max expected DD.
-- Engine: bootstrap the user's actual per-trade R sample (`r_multiple_actual`) into 5000 synthetic equity paths per risk %, applying the active prop-firm limits and target. Reuse `bootstrapMeanCi` infrastructure from `pairLabMath.ts`.
-- Output a single "Recommended" pill on the best row by `pass_prob × (1 − risk_of_ruin)`.
+### Display layer — swap R for ticks in three places
 
-### 5. Rotation Simulator *(new — Pair Lab tab, the marquee piece)*
-New tab "Rotation lab" in `PairLab.tsx`:
-- Inputs: # accounts, account size, risk %, daily-loss %, max-loss %, target %, rotation model.
-- Rotation models: `one_only`, `simultaneous`, `stay_on_winner_switch_on_loss`, `round_robin`, `custom` (later).
-- Engine: Monte-Carlo (default 2000 paths) sampling per-trade R from the user's actual journal (same bootstrap pool as Risk Optimization). Each path simulates account selection per rotation model and tracks per-account equity, daily and total caps.
-- Outputs: pass probability, avg days to pass, avg DD, account survival rate, failure probability — plus a small distribution chart of final equity per account.
+1. **`BucketGrid.tsx`** (the cells in your screenshot):
+   - Current: `MFE 2.45R · MAE 0.04R`
+   - New: `MFE 2.45R · MAE 87 t`
+   - Render `b.maeP75Ticks?.toFixed(0)` with a `t` suffix.
 
-## Shared engine
+2. **`QuantNotePanel.tsx`** "MAE p50/p75" cell:
+   - Current: `0.85 / 1.20R`
+   - New: `87 / 142 t`
+   - Use `b.maeP50Ticks` / `b.maeP75Ticks`.
 
-One new file `src/lib/propFirmMonteCarlo.ts` houses the bootstrap + per-rule simulator, consumed by **#3, #4, #5**. Single source of truth so a change to "risk of ruin" math updates every surface.
+3. **`MaeMfeMatrix.tsx`** cells + verdict:
+   - Cell MAE rendered in ticks: `MAE 87 t` (compute mean ticks per cell directly from `getCf(t, fieldKeys.mae)`).
+   - Verdict thresholds no longer make sense as R-thresholds — switch the verdict to use the **bucket's existing `slDrift` signal** (ideal-SL ÷ planned-SL ratio: too_wide / too_tight / aligned). This is the same source of truth the QuantNotePanel uses for its drift badge, so the matrix stops contradicting it.
 
-## Out of scope (explicitly)
+4. **Legend** below the ranker: change `"MAE & Ideal-SL in ticks · MFE & TP targets in R"` — it already says ticks, just confirm it now matches reality everywhere.
 
-- No new exit-strategy presets — Auto-ranker already covers A–E and 7 more.
-- No new MAE/MFE math — `pairLabMath.ts` already computes percentiles & drift badges.
-- No standalone "Insights Engine" page — existing `QuantNotePanel` AI note already lists best session / best setup / best RR with citations.
-- No design overhaul — reuse existing tokens, cards, and the institutional dark theme already in place.
+### Why not pips?
 
-## Open question (one) before I build
-
-The Rotation Simulator and Risk Optimization engines both need 2,000–5,000 Monte-Carlo paths per change. Two options:
-
-- **(a) Run in browser** with a Web Worker — instant, no infra, ~200 ms per recompute on a 300-trade sample.
-- **(b) Run in a Supabase edge function** — keeps `PairLab.tsx` thin, can cache results, easier to share via reports later.
-
-My recommendation is **(a)** for v1 — faster iteration, no cold starts, identical math to existing client engines. We can promote to an edge function later if reports need it. Confirm (a) or pick (b).
+`maeP75Pips` exists internally for the SL sweep math. We don't surface pips in the UI because your input device (TradingView measure tool) gives ticks directly — converting back to pips on read would only add a number you'd have to mentally re-convert.
 
 ## Verification
 
-After build: Playwright on `/dashboard`, `/accounts`, `/pair-lab` (Risk lab + Rotation lab tabs) — confirm metric cards render, MC outputs converge across re-runs, no console errors.
+Open `/pair-lab` Grid tab on a populated bucket (e.g. EURUSD · Tokyo with N22) and confirm `MAE` reads as an integer with `t` suffix, not `R`. Repeat on QuantNotePanel ("MAE p50/p75") and the MAE/MFE matrix. Numbers should match the raw values you typed into the journal.
