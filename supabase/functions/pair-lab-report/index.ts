@@ -182,7 +182,8 @@ Rules:
 - Be concrete. Use the bucket name, R values, pip values, win rate.
 - If confidence is "low" (n<10) say so in caveats and soften recommendations.
 - If expected_r is negative and CI doesn't cross zero, the leak is real — say so.
-- If slDrift is "too_wide" → suggest tightening to ideal_sl_median. If "too_tight" → suggest widening to mae_p75 × 1.15.
+- The recommended SL (suggested_sl_pips) is sourced per sl_source: "ideal_sl" = median of the trader's logged ideal SL across sl_source_n trades (cite as "based on your logged ideal SL, n=…"); "winners_mae" = MAE-of-winners p90 × 1.10, n=sl_source_n (cite as "derived from how much heat your winners absorbed, n=…"); "winners_mae_fallback" = MAE p75 × 1.15 (cite as "fallback estimate — log ideal SL on more trades to tighten this"); "legacy" = no SL data, do not recommend a stop.
+- slDrift ("too_wide"/"too_tight") describes how the trader's *actual* initial SL compares to their own ideal SL. Comment on execution discipline ("you're placing stops X% wider than your own ideal"), do NOT use it to override suggested_sl_pips.
 - If most_common_tp_hit is far below mfe_p75 → suggest trailing or partial-out higher.
 - If tp1_star_win_rate_maxing is present, treat it as the "raise win rate" lever. Recommend it as TP1 (book partial / move to BE) when the goal is win-rate uplift — even if its expectancy_r is lower than the expected-R ladder. State the win-rate it locks in (hit_rate_pct).
 - If prop_firm is set, your "Risk size" suggestion MUST equal suggested_risk_pct_prop_firm, not suggested_risk_pct_edge_only. If binding_constraint is "prop_firm_dd", say plainly: "risk is capped by daily DD budget, not by edge" and reference worst_losing_streak. If "hard_cap", say "capped by per-trade hard cap".
