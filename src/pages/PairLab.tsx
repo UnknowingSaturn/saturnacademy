@@ -25,6 +25,7 @@ import { IdealWindowHeatmap } from "@/components/pair-lab/IdealWindowHeatmap";
 import { WalkForwardControls, resolveWindow, type WalkForwardState } from "@/components/pair-lab/WalkForwardControls";
 import { OutOfSamplePanel } from "@/components/pair-lab/OutOfSamplePanel";
 import { normalizeSession } from "@/lib/pairLabMath";
+import { PairLabWalkForwardProvider } from "@/contexts/PairLabWalkForwardContext";
 
 type Selected = { symbol: string; session: string } | null;
 
@@ -265,6 +266,19 @@ export default function PairLab() {
         </TooltipProvider>
       )}
 
+      <PairLabWalkForwardProvider
+        value={{
+          wf,
+          setWf,
+          minMs,
+          maxMs,
+          profile: profile === "any" ? null : profile,
+          scope,
+          recentN: 10,
+          includeUnrealized,
+          propFirmMode,
+        }}
+      >
       <Tabs defaultValue="windows">
         <TabsList>
           <TabsTrigger value="windows">Ideal windows</TabsTrigger>
@@ -461,9 +475,10 @@ export default function PairLab() {
         </TabsContent>
 
         <TabsContent value="aliases" className="mt-4">
-          <SymbolAliasManager />
+          <SymbolAliasManager trades={data.trades} isLoading={data.isLoading} />
         </TabsContent>
       </Tabs>
+      </PairLabWalkForwardProvider>
     </div>
   );
 }
