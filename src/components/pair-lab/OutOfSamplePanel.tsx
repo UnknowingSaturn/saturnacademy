@@ -137,14 +137,18 @@ export function OutOfSamplePanel({
       <div className="space-y-1.5">
         <div className="flex items-center gap-2">
           <Label className="text-xs text-muted-foreground">Split at</Label>
-          <span className="font-mono-numbers text-xs">{fmt(splitMs)}</span>
+          <span className="font-mono-numbers text-xs">{fmt(sliderMs)}</span>
         </div>
         <Slider
-          value={[splitMs]}
+          value={[sliderMs]}
           min={minMs}
           max={maxMs}
           step={DAY}
-          onValueChange={(v) => setSplitMs(v[0] ?? splitMs)}
+          onValueChange={(v) => {
+            const next = v[0] ?? sliderMs;
+            setSliderMs(next);
+            commitSplit(next);
+          }}
           aria-label="Train/test split date"
         />
       </div>
