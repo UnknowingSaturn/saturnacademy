@@ -38,7 +38,15 @@ export interface PairLabFilters {
   recentN?: number;
   /** When true, includes ideas/paper/missed/dismissed setups in the math. Default false. */
   includeUnrealized?: boolean;
+  /**
+   * When true, includes trades with `account_id IS NULL` even after an
+   * account is selected (legacy imports). Default false in Pair Lab so
+   * orphan rows can't bleed into account-scoped expectancy. Surface as a
+   * toggle on OverviewTab.
+   */
+  includeUnassigned?: boolean;
 }
+
 
 import type { Trade } from "@/types/trading";
 
@@ -115,8 +123,12 @@ function detectPartialFills(trades: Trade[]): PartialFillFlag | null {
 export function usePairLab(filters: PairLabFilters = {}): PairLabData {
   const { selectedAccountId } = useAccountFilter();
   const isAllAccounts = !selectedAccountId || selectedAccountId === "all";
-  const accountFilter = !isAllAccounts ? { accountId: selectedAccountId } : undefined;
+  const includeUnassigned = filters.includeUnassigned === true;
+  const accountFilter = !isAllAccounts
+    ? { accountId: selectedAccountId, includeUnassigned }
+    : undefined;
   const tradesQuery = useTrades(accountFilter);
+
   const defsQuery = useCustomFieldDefinitions();
   const aliasesQuery = useSymbolAliases();
   const profileQuery = useSimulatorProfile();
