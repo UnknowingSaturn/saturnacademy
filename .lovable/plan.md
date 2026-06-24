@@ -1,62 +1,51 @@
-# Strategy Lab — Time Window Filter
 
-Add a preset time-window selector to **Strategy Lab only**. BucketGrid and StrategyRanker stay on the existing (all-time) sample.
+## Switch SL optimization to use `cf_ideal_stop_loss` by default
 
-## Scope
+### Why
+- 45 trades have ideal SL logged, 37 have MAE — coverage is the same.
+- Your trading rule places SL at structure. Ideal SL *is* that structure; MAE is just a survival heuristic for when structure isn't logged.
+- The current `max(MAE p75 × 1.15, idealSlMedian)` rule inflates SL distance whenever a trade took unusual heat and survived — which is exactly the wrong time to widen the stop forever.
 
-- Presets: **All · 30d · 60d · 90d**
-- Default: **All time** (preserves current behavior — no surprise regressions)
-- Applies to: every calculation downstream of the trade sample inside `StrategyLab.tsx` (edge gate, bootstrap, heatmap, sizing recommendations, pass-prob simulation, TPD auto-calc)
-- Does **not** apply to: `BucketGrid.tsx`, `StrategyRanker.tsx`
+### Change
 
-## UX
+**`src/lib/pairLabMath.ts → suggestSlTp`** (currently lines ~755–770):
 
-Compact segmented control in the Strategy Lab header row, right of the title:
-
-```text
-Strategy Lab          [ All · 30d · 60d · 90d ]
-Sample: 296 trades · Jan 3 → Jun 22
+Replace:
+```ts
+suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
+slMethod = "winners_mae";
 ```
 
-Below the selector, always show:
-- `n` (filtered trade count)
-- Window date range (first → last entry in filtered set)
+With a priority cascade:
+1. If `idealSlMedian` is present → use it. `slMethod = "ideal_sl"`.
+2. Else if `maeP75Pips` is present → use `maeP75Pips × 1.15`. `slMethod = "winners_mae_fallback"`.
+3. Else → legacy.
 
-When the selected window pushes `n` below tier thresholds, the **existing** edge-gate / provisional banners fire automatically — no new warning logic needed. Add one sentence to the existing banner when a non-"All" window is active: *"Narrow window selected — widen to All for more samples."*
+So ideal SL wins whenever it exists. MAE drops to fallback-only.
 
-## Technical changes
+### Surfacing it
 
-**`src/components/pair-lab/StrategyLab.tsx`** (only file touched)
+**`src/components/pair-lab/StrategyLab.tsx`** — the SL/TP suggestion card already shows `slMethod`. Add one line under the SL value:
 
-1. Add local state: `const [window, setWindow] = useState<'all'|'30d'|'60d'|'90d'>('all')`
-2. Derive `filteredTrades` from the incoming trade prop:
-   ```ts
-   const filteredTrades = useMemo(() => {
-     if (window === 'all') return trades;
-     const days = window === '30d' ? 30 : window === '60d' ? 60 : 90;
-     const cutoff = Date.now() - days * 86400_000;
-     return trades.filter(t => new Date(t.entry_time).getTime() >= cutoff);
-   }, [trades, window]);
-   ```
-3. Replace every internal reference to the source trade array with `filteredTrades` (sample extraction, `meanRWithCI`, `autoTradesPerDay`, bootstrap input, heatmap data).
-4. Add the segmented control + `n` / date-range readout in the existing header.
-5. Append the "Narrow window selected" hint inside the existing edge-gate banner when `window !== 'all'`.
+- When `ideal_sl`: "Source: your logged ideal SL (median of N trades)."
+- When `winners_mae_fallback`: "Source: MAE p75 × 1.15 — no ideal SL logged for this bucket."
 
-**No changes** to:
-- `propFirmMonteCarlo.ts` (already operates on whatever sample it's handed)
-- `BucketGrid.tsx`, `StrategyRanker.tsx`, `pairLabSimulator.ts`, shared quant code
-- Tier thresholds in `shared/quant/config.ts`
+So you always know which one is driving the recommendation, per symbol/bucket.
 
-## Why this shape
+### Optional escape hatch (only if you want it)
 
-- **Presets, not a date picker** — prevents sliding the window until CI turns green (p-hacking).
-- **Default All** — matches today's behavior; no user re-education needed. Short windows are an opt-in lens.
-- **Lab-only** — Grid/Ranker remain comparable across sessions; only the sizing/sim view (which is where window-sensitivity matters) gets the control.
-- **No new statistics** — the existing `n ≥ 30` + CI-lower-bound > 0 gate already handles the "sample too small" case correctly when filtering shrinks `n`.
+A single Pair Lab setting `SL source = [Ideal SL (default) | MAE survival | Max of both (legacy)]` persisted on the simulator profile. Skip unless you want to A/B them — the cascade above already does the right thing for your data.
 
-## Out of scope (v1)
+### Intra-hour and alternate-setup toggle
 
-- Custom date range picker
-- Per-strategy or per-symbol windows
-- Persisting window choice across sessions
-- Applying the filter to BucketGrid / StrategyRanker
+Dropping both from this plan since they aren't what you asked about. We can revisit either separately.
+
+### Files
+- `src/lib/pairLabMath.ts` — replace the SL selection block, update the `slMethod` union type.
+- `supabase/functions/_shared/quant/pairLabMath.ts` — mirror the change so edge-function reports match.
+- `src/components/pair-lab/StrategyLab.tsx` — add the one-line source caption.
+
+### Out of scope
+- No schema changes.
+- No changes to MFE/TP logic.
+- No removal of MAE — it remains the fallback and stays available in stats.
