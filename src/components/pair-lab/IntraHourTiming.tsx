@@ -133,12 +133,11 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
         <div className="flex-1 min-w-[260px]">
           <h3 className="font-semibold">Hour setup landscape</h3>
           <p className="text-xs text-muted-foreground mt-1">
-            Per pair, the rate at which a setup prints in each half of the hour and the rate at
-            which it works when it does. No R, no fill-minute bucketing — just base rates of
-            what the chart offers. Fill the per-trade{" "}
-            <span className="font-mono">Ideal entry window</span> and{" "}
-            <span className="font-mono">Failed setup</span> fields in the Journal to populate
-            this.
+            Per pair, how often a setup prints in each half of the hour and how often it
+            works when it does. No R, no fill-minute bucketing — just base rates of what
+            the chart offers. Tag the per-trade{" "}
+            <span className="font-mono">Ideal entry window</span> field in the Journal to
+            populate this — it tracks the setup, not the trade outcome.
           </p>
         </div>
       </div>
