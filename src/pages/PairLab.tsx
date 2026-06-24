@@ -139,8 +139,7 @@ export default function PairLab() {
       <Tabs defaultValue="windows">
         <TabsList>
           <TabsTrigger value="windows">Ideal windows</TabsTrigger>
-          <TabsTrigger value="grid">Grid</TabsTrigger>
-          <TabsTrigger value="simulator">Simulator</TabsTrigger>
+          <TabsTrigger value="analyze">Analyze</TabsTrigger>
           <TabsTrigger value="strategy">Strategy lab</TabsTrigger>
           <TabsTrigger value="aliases">Symbol aliases</TabsTrigger>
         </TabsList>
@@ -153,7 +152,7 @@ export default function PairLab() {
           />
         </TabsContent>
 
-        <TabsContent value="grid" className="space-y-6 mt-4">
+        <TabsContent value="analyze" className="space-y-6 mt-4">
           {(() => {
             const closed = data.trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
             const withSl = closed.filter((t) => t.sl_initial != null && t.entry_price != null).length;
@@ -204,59 +203,64 @@ export default function PairLab() {
             perCell={data.perCell}
             perRow={data.perRow}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={(cell) => {
+              setSelected(cell);
+              if (cell) setSimulateAll(false);
+            }}
           />
 
-          {selectedBucket ? (
-            <QuantNotePanel
-              bucket={selectedBucket}
-              baseline={data.baseline}
-              propFirm={propFirmMode ? data.propFirm : null}
-            />
-          ) : (
-            <Card className="p-6 text-sm text-muted-foreground text-center">
-              Select a cell in the grid to see this bucket's stats and generate an AI quant note.
-              Actionable parameters live in the Simulator tab.
-            </Card>
-          )}
-        </TabsContent>
+          {selected || simulateAll ? (
+            (() => {
+              const scopedTrades = selected
+                ? data.trades.filter((t) => {
+                    if (!t.symbol) return false;
+                    const canonical = data.symbolResolver(t.symbol);
+                    if (canonical !== selected.symbol) return false;
+                    if (selected.session !== "All sessions") {
+                      return normalizeSession(t.session) === selected.session;
+                    }
+                    return true;
+                  })
+                : data.trades;
+              const scopeLabel = selected
+                ? `${selected.symbol} · ${selected.session}`
+                : "All trades in scope";
+              const sourceLabel =
+                data.simSource === "active_account" ? "active account" : "simulator profile";
+              return (
+                <div ref={simRef} className="space-y-4 animate-fade-in scroll-mt-4">
+                  <div className="flex items-center justify-between gap-3 flex-wrap border-t border-border/60 pt-4">
+                    <div className="flex items-center gap-2 text-sm flex-wrap">
+                      <span className="text-xs uppercase tracking-wider text-muted-foreground">Scope</span>
+                      <span className="font-medium">{scopeLabel}</span>
+                      <span className="text-xs text-muted-foreground">
+                        · ${data.simBalance.toLocaleString()} from {sourceLabel}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <SimulatorProfileSettings />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelected(null);
+                          setSimulateAll(false);
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
 
-        <TabsContent value="simulator" className="space-y-4 mt-4">
-          {(() => {
-            // Scope trades for the simulator: selected bucket if any, else all.
-            const scopedTrades = selected
-              ? data.trades.filter((t) => {
-                  if (!t.symbol) return false;
-                  const canonical = data.symbolResolver(t.symbol);
-                  if (canonical !== selected.symbol) return false;
-                  if (selected.session !== "All sessions") {
-                    return normalizeSession(t.session) === selected.session;
-                  }
-                  return true;
-                })
-              : data.trades;
-            const scopeLabel = selected
-              ? `${selected.symbol} · ${selected.session}`
-              : "All trades in scope";
-            const sourceLabel =
-              data.simSource === "active_account" ? "active account" : "simulator profile";
-            return (
-              <>
-                <Card className="p-3 text-xs text-muted-foreground flex items-start justify-between gap-3">
-                  <span>
-                    Simulating <span className="text-foreground font-medium">{scopeLabel}</span> ·{" "}
-                    <span className="text-foreground">
-                      ${data.simBalance.toLocaleString()}
-                    </span>{" "}
-                    from {sourceLabel}.
-                    {selected
-                      ? " Click another cell in the Grid tab to switch scope."
-                      : " Select a cell in the Grid tab to narrow to one pair × session."}
-                  </span>
-                  <SimulatorProfileSettings />
-                </Card>
-                {data.simBalance > 0 ? (
-                  <>
+                  {selectedBucket && (
+                    <QuantNotePanel
+                      bucket={selectedBucket}
+                      baseline={data.baseline}
+                      propFirm={propFirmMode ? data.propFirm : null}
+                    />
+                  )}
+
+                  {data.simBalance > 0 ? (
                     <StrategyRanker
                       trades={scopedTrades}
                       fieldKeys={data.fieldKeys}
@@ -267,16 +271,24 @@ export default function PairLab() {
                       trailCapture={data.trailCapture}
                       effectiveTrailCapture={data.effectiveTrailCapture}
                     />
-                  </>
-                ) : (
-                  <Card className="p-6 text-sm text-muted-foreground text-center">
-                    Set a notional balance in your simulator profile to convert R into $.
-                  </Card>
-                )}
-              </>
-            );
-          })()}
+                  ) : (
+                    <Card className="p-6 text-sm text-muted-foreground text-center">
+                      Set a notional balance in your simulator profile to convert R into $.
+                    </Card>
+                  )}
+                </div>
+              );
+            })()
+          ) : (
+            <Card className="p-6 text-sm text-muted-foreground text-center flex flex-col items-center gap-3">
+              <span>Select a cell above to see its quant note and simulate that bucket.</span>
+              <Button variant="outline" size="sm" onClick={() => setSimulateAll(true)}>
+                Or simulate all trades in scope
+              </Button>
+            </Card>
+          )}
         </TabsContent>
+
 
         <TabsContent value="strategy" className="mt-4">
           <StrategyLab
