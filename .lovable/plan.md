@@ -1,87 +1,95 @@
-## Goal
 
-Track per-pair, per-hour **setup quality by half-hour window**, decoupled from trade W/L. Answer: *what's the probability the setup plays out in the first vs. second half of this hour for this pair?*
+# Pair Lab restructure — full quant view for ideal entry windows
 
-## Data model
+Goal: for each pair, identify the **hour × half** buckets that show a statistically meaningful edge — measured by both worked-rate and expectancy (R) — with optional conditioning on regime and direction, and a 15-min sub-grid drill-down for precision.
 
-Replace the single 7-state `ideal_entry_window` field with **two independent multi-select fields** on each trade:
+## What changes in the UI
 
-| Field                  | Type             | Meaning                                                    |
-|------------------------|------------------|------------------------------------------------------------|
-| `setup_worked_halves`  | `text[]`         | Halves where the setup printed **and played out**. Subset of `{first, second}`. |
-| `setup_failed_halves`  | `text[]`         | Halves where the setup printed **and failed**. Subset of `{first, second}`.    |
+Pair Lab gets a new tab: **Ideal Windows** (becomes the default). Existing Grid / Strategy Lab / Intra-hour / Aliases tabs stay untouched.
 
-Rules:
-- Both empty → no qualifying setup that hour (regardless of trade W/L).
-- A half can appear in only one of the two arrays per trade (worked XOR failed), but the two halves are independent: e.g. `worked=[second]`, `failed=[first]` is valid and meaningful.
-- Trade W/L is **not** used by this math — these fields describe the *setup*, not your execution.
-
-## Probability math (per pair × hour × half)
-
-For each `(pair, hour-of-day, half)` bucket, scan all trades and count:
+### Layout
 
 ```text
-worked = trades where half ∈ setup_worked_halves
-failed = trades where half ∈ setup_failed_halves
-worked_rate = worked / (worked + failed)
-sample_size = worked + failed
+┌─ Filter bar ────────────────────────────────────────────────────┐
+│ Pair: [EURUSD ▾]   Hours: [07 08 09 10 11 20 21]                │
+│ Optional: Regime [Any ▾]  Direction [Any ▾]  Date [All ▾]       │
+│ Min N: [20 ▾]   Sort by: [Lift ▾ | Expectancy | Worked-rate]    │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ Baseline strip ────────────────────────────────────────────────┐
+│ EURUSD baseline   worked: 64% (n=312)   expectancy: 0.41R       │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ Heatmap (only the hours you selected) ─────────────────────────┐
+│                  1st half                  2nd half             │
+│  07:00   58% · 0.22R · −0.19R  (n=12)   71% · 0.55R · +0.14R ★  │
+│  08:00   82% · 0.91R · +0.50R★ (n=27)   44% · −0.05R · −0.46R   │
+│  09:00   70% · 0.48R · +0.07R  (n=20)   65% · 0.39R · −0.02R    │
+│  10:00   —   (n=6, below N)             55% · 0.18R · −0.23R    │
+│  11:00   63% · 0.35R · −0.06R           78% · 0.78R · +0.37R ★  │
+│  20:00   90% · 1.10R · +0.69R★ (n=21)   50% · 0.05R · −0.36R    │
+│  21:00   67% · 0.42R · +0.01R           73% · 0.60R · +0.19R    │
+│                                                                 │
+│  Color = lift vs baseline (green/red diverging)                 │
+│  Opacity = sample-size confidence                               │
+│  ★ = bucket differs from baseline at p<0.05 (one-prop z-test)   │
+│  Greyed cell = n < min-N (directional only)                     │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ Cell drill-down (click cell) ──────────────────────────────────┐
+│  EURUSD · 08:00 · 1st half                                      │
+│  Worked: 22 / 27   Wilson 95% CI: 64% – 92%                     │
+│  Expectancy: 0.91R   Bootstrap 95% CI: 0.42R – 1.38R            │
+│  Lift vs baseline: +0.50R   z=2.31  p=0.021                     │
+│                                                                 │
+│  15-min sub-grid (entry time within the half):                  │
+│    08:00–08:15   83% · 1.20R  (n=12) █                          │
+│    08:15–08:30   80% · 0.55R  (n=15) ░                          │
+│                                                                 │
+│  Trades feeding this bucket: [list with links to journal]       │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-Display per pair-hour: two rows (first / second) showing `worked_rate %`, `n = sample_size`, and raw `worked / failed` counts.
+### Filter behavior
 
-## UI
+- **Hours** — multi-select chip row, default = hours with ≥1 trade for the pair, user override persisted in `user_settings`.
+- **Regime** — Any / Rotational / Transitional / any custom regime option. Source: `trades.actual_regime` falling back to `trade_reviews.regime`.
+- **Direction** — Any / Long / Short.
+- Filters are *conditioning*, not just visual hides — stats recompute on the filtered trade subset, including the baseline strip.
 
-**TradeProperties.tsx** — replace the single dropdown with a compact two-row control:
+## Stats math (all pure functions in `src/lib/idealWindowMath.ts`)
 
-```text
-Setup worked in:    [ ] First half   [ ] Second half
-Setup failed in:    [ ] First half   [ ] Second half
-```
+Per `(pair, hour, half)` bucket within the filtered trade set:
 
-Helper text: *"Tag the halves where the setup actually printed. 'Worked' = setup played out. 'Failed' = setup printed but didn't follow through. Leave both blank if no valid setup this hour."*
+- `worked` / `failed` from `setup_worked_halves` / `setup_failed_halves` (existing `hourSetup.ts` helpers). Trade W/L ignored.
+- `n = worked + failed`
+- **Worked-rate:** `rate = worked / n`, with `wilsonInterval(worked, n, 0.95)`.
+- **Expectancy (R):** mean of `trade.r_multiple` across the same trades, plus a 1,000-iter bootstrap 95% CI on the mean.
+- **Baseline:** same stats computed over all filtered trades for the pair (ignoring hour/half).
+- **Lift:** `expectancy_bucket − expectancy_baseline` (primary sort key) and `rate_bucket − rate_baseline`.
+- **Significance flag:** one-proportion z-test of bucket worked-rate vs baseline worked-rate, p<0.05 → ★.
+- **Min-N gate:** cells with `n < minN` (default 20, user-adjustable to 10/30/50) → greyed, no color, no ★.
+- **Sub-grid:** on drill-down, partition the bucket's trades into 15-min sub-bins by entry minute and recompute rate + expectancy (no CI — sample too small for CI, just directional).
 
-Client-side validation: prevent the same half being checked in both rows; show inline warning.
+## Technical details
 
-**IntraHourTiming.tsx** — table columns: `Pair | Hour | Half | Worked rate | Worked | Failed | n`. Sort by `worked_rate` desc with a minimum sample-size filter.
+- New `src/lib/idealWindowMath.ts`:
+  - `bucketTrades(trades, hours, filters): Map<BucketKey, BucketStats>`
+  - `wilsonInterval(k, n, z=1.96)`
+  - `bootstrapMeanCI(values, iters=1000, alpha=0.05)` — deterministic seed for reproducibility
+  - `oneProportionZTest(k1, n1, k2, n2): { z, p }`
+  - `computeBaseline(trades)`
+  - `subGridFifteenMin(trades, hour, half)`
+- New `src/components/pair-lab/IdealWindowHeatmap.tsx` — filter bar, baseline strip, heatmap grid, drill-down panel. Consumes `useTrades`, `useUserSettings`, `useCustomFields` (for regime options).
+- `src/pages/PairLab.tsx` — add `Ideal Windows` as the first / default tab.
+- `user_settings` gets a single `ideal_window_hours INT[]` column (confirmed at build time after reading `useUserSettings.tsx`; if a JSON prefs blob already exists, store there instead — no schema change).
+- Reuses existing `r_multiple`, `actual_regime`, `direction`, `entry_time` fields on `trades`. No edge functions, no new tables.
 
-**TradeTable.tsx / JournalCalendarView.tsx** — replace the single badge with a compact dual badge: `✓1 ✗2` style, or hide when both arrays are empty.
+## Out of scope (deferred)
 
-## Files to change
-
-- `src/types/trading.ts` — drop `IdealEntryWindow` union, add `setup_worked_halves: HalfWindow[]` and `setup_failed_halves: HalfWindow[]` where `HalfWindow = 'first' | 'second'`.
-- `src/lib/hourSetup.ts` — replace `decode()` with helpers: `worksIn(trade, half)`, `failsIn(trade, half)`.
-- `src/lib/pairLabMath.ts` & `supabase/functions/_shared/quant/pairLabMath.ts` — rewrite intra-hour aggregator per the math above.
-- `src/components/journal/TradeProperties.tsx` — new dual-multiselect control.
-- `src/components/journal/TradeTable.tsx`, `JournalCalendarView.tsx` — new badge rendering.
-- `src/components/pair-lab/IntraHourTiming.tsx` — new columns + sort/filter.
-- `src/hooks/useTrades.tsx` — pass the two new arrays through create/update.
-- `src/types/settings.ts` — drop any preset references to the old 7-state values.
-- `src/integrations/supabase/types.ts` — regenerated after migration.
-
-## Migration
-
-New SQL migration:
-
-1. Add `setup_worked_halves text[] not null default '{}'` and `setup_failed_halves text[] not null default '{}'` to `trades`.
-2. Backfill from existing `ideal_entry_window`:
-   - `first_worked` → worked=[first]
-   - `first_failed` → failed=[first]
-   - `second_worked` → worked=[second]
-   - `second_failed` → failed=[second]
-   - `mixed` → worked=[first], failed=[second]   *(best-effort under the old convention)*
-   - `none` / null → both empty
-3. Add a CHECK constraint via trigger: arrays must be subsets of `{first, second}` and disjoint from each other.
-4. Drop `ideal_entry_window` column (after confirming nothing reads it).
-
-## Out of scope
-
-- Logging missed setups on hours where no trade was taken (separate feature for selection-bias correction).
-- Sub-30-minute granularity (no minute-of-hour bucketing).
-- Joining this with W/L for an "execution conversion rate" (could be a future view; the data supports it).
-
-## Acceptance
-
-- A losing trade with `worked=[first]` lifts the first-half worked rate for that pair-hour.
-- A trade with `worked=[second], failed=[first]` adds 1 to second-half worked and 1 to first-half failed.
-- Intra-hour Timing percentages are bounded (no more trivial 100% rows) and reflect setup quality, not execution.
-- No `ideal_entry_window` references remain in the codebase.
+- Auto-classified regime from price data.
+- Session / killzone / day-of-week / news / volatility slicing.
+- Auto-ranked cross-pair watchlist and live "what to trade now" view.
+- Walk-forward / out-of-sample decay monitoring.
+- Position sizing, prop-firm drawdown integration, equity overlay.
+- Sub-grid CIs (sample sizes too small to be meaningful).
