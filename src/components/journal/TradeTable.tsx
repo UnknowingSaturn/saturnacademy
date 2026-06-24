@@ -65,7 +65,7 @@ import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings"
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { CustomFieldCell } from "./CustomFieldCell";
 import { getRealPartialCloses } from "@/lib/tradeMath";
-import { WORKED_WINDOW_BADGE_OPTIONS, FAILED_WINDOW_BADGE_OPTIONS, type HourLandscape } from "@/lib/hourSetup";
+
 
 interface TradeTableProps {
   trades: Trade[];
@@ -292,13 +292,6 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     await updateTrade.mutateAsync({ id: trade.id, profile: profile as TradeProfile });
   };
 
-  const handleHourLandscapeChange = async (
-    trade: Trade,
-    field: 'ideal_entry_window' | 'failed_setup_half',
-    value: string,
-  ) => {
-    await updateTrade.mutateAsync({ id: trade.id, [field]: (value || null) as HourLandscape | null });
-  };
 
   const handlePlaceChange = async (trade: Trade) => {
     await updateTrade.mutateAsync({ id: trade.id, place: placeValue || null });
@@ -702,20 +695,6 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                     );
                   }
 
-                  if (key === 'ideal_entry_window' || key === 'failed_setup_half') {
-                    const current = (trade as any)[key] as string | null | undefined;
-                    const options = key === 'ideal_entry_window' ? WORKED_WINDOW_BADGE_OPTIONS : FAILED_WINDOW_BADGE_OPTIONS;
-                    return (
-                      <div key={key} onClick={(e) => e.stopPropagation()}>
-                        <BadgeSelect
-                          value={current || ""}
-                          onChange={(v) => handleHourLandscapeChange(trade, key, v as string)}
-                          options={options}
-                          placeholder={key === 'ideal_entry_window' ? 'Ideal' : 'Failed'}
-                        />
-                      </div>
-                    );
-                  }
 
 
                   if (key === 'r_multiple_actual') {
