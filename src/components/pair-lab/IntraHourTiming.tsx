@@ -1,252 +1,148 @@
 // ============================================================================
-// Intra-Hour Timing — minute-of-hour heatmap for executed trades.
+// Intra-Hour Timing — per-pair half-of-hour setup landscape.
 //
-// Answers: "is the entry-window edge I found in backtest holding up live, or
-// has it drifted to a different part of the hour?"
+// Answers, per pair: when a first-half setup (≤ :30) prints, what % work? When
+// a second-half setup (> :30) prints, what % work? And when BOTH print in the
+// same logged hour, which half pays more often?
 //
-// X-axis: minute-of-hour buckets (configurable: 10/15/30-min granularity).
-// Y-axis: symbol (resolved through user's symbol aliases).
-// Cell:   mean R-multiple, win rate, N. Significance gate via meanRWithCI
-//         (reused from the Strategy Lab edge gate) — cells whose 95% CI
-//         brackets zero are shown but flagged as "not proven".
+// This deliberately does NOT bucket by fill-minute or aggregate R-multiples.
+// R conflates window edge with your own execution quality (a late entry on a
+// real first-half setup booked as a loss would have dragged down the "first
+// half" R). Counting setup occurrences and outcomes — independent of the
+// trade you actually took — isolates the window question.
 //
-// Mode toggle compares executed-only vs missed-only vs all so the user can
-// see whether the timing pattern they observed in backtest (`missed` trades
-// are historically the backtest-tagged ones in this project) still applies
-// to live execution.
-//
-// Minute-of-hour is timezone-invariant for whole-hour offsets — UTC minutes
-// equal local minutes for every broker we support. Using UTC keeps the math
-// independent of the user's clock and DST rolls.
+// Inputs are the per-trade observation fields `first_half_setup` and
+// `second_half_setup` (values: 'none' | 'worked' | 'failed' | null). The user
+// fills these in when journaling: what did the chart offer this hour, not
+// what did I make.
 // ============================================================================
 
 import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Clock, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Trade } from "@/types/trading";
-import { meanRWithCI } from "@/lib/propFirmMonteCarlo";
-
-type BucketGranularity = 10 | 15 | 30;
-type ModeFilter = "all" | "executed" | "missed";
+import type { Trade, HourSetupOutcome } from "@/types/trading";
 
 interface Props {
   trades: Trade[];
   symbolResolver: (raw: string) => string;
 }
 
-interface Cell {
+interface HalfStats {
+  printed: number;   // 'worked' + 'failed'
+  worked: number;
+  failed: number;
+}
+
+interface PairRow {
   symbol: string;
-  bucketStart: number;
-  rSample: number[];
-  wins: number;
-  losses: number;
-  meanR: number;
-  ciLow: number;
-  ciHigh: number;
-  n: number;
+  hoursLogged: number;       // hours where at least one half has an outcome recorded
+  first: HalfStats;
+  second: HalfStats;
+  bothPrinted: number;       // hours where first printed AND second printed
+  bothFirstWorked: number;   // of bothPrinted, first 'worked'
+  bothSecondWorked: number;  // of bothPrinted, second 'worked'
 }
 
-const MODE_OPTIONS: { value: ModeFilter; label: string; hint: string }[] = [
-  { value: "all", label: "All", hint: "executed + missed" },
-  { value: "executed", label: "Live only", hint: "trade_type = executed" },
-  { value: "missed", label: "Backtest only", hint: "trade_type = missed" },
-];
+const MIN_HOURS_FOR_TRUST = 10;
 
-const GRANULARITY_OPTIONS: BucketGranularity[] = [10, 15, 30];
-
-const MIN_N_FOR_COLOR = 5;     // below this, cell is shown grey
-const MIN_N_FOR_EDGE = 15;     // below this, "edge proven" never fires
-
-function bucketLabel(start: number, width: number): string {
-  const end = start + width - 1;
-  return `:${String(start).padStart(2, "0")}–:${String(end).padStart(2, "0")}`;
+function emptyHalf(): HalfStats {
+  return { printed: 0, worked: 0, failed: 0 };
 }
 
-function colorForMeanR(meanR: number, maxAbs: number): string {
-  if (maxAbs <= 0) return "hsl(220 8% 50% / 0.06)";
-  const ratio = Math.max(-1, Math.min(1, meanR / maxAbs));
-  if (ratio >= 0) {
-    // Emerald scale
-    const alpha = 0.08 + ratio * 0.42;
-    return `hsl(150 70% 45% / ${alpha})`;
-  }
-  // Red scale
-  const alpha = 0.08 + Math.abs(ratio) * 0.42;
-  return `hsl(0 75% 55% / ${alpha})`;
+function recordHalf(stats: HalfStats, v: HourSetupOutcome | null | undefined): boolean {
+  if (v === 'worked') { stats.printed += 1; stats.worked += 1; return true; }
+  if (v === 'failed') { stats.printed += 1; stats.failed += 1; return true; }
+  return false;
+}
+
+function pct(num: number, denom: number): string {
+  if (denom <= 0) return "—";
+  return `${Math.round((num / denom) * 100)}%`;
 }
 
 export function IntraHourTiming({ trades, symbolResolver }: Props) {
-  const [granularity, setGranularity] = useState<BucketGranularity>(15);
-  const [mode, setMode] = useState<ModeFilter>("all");
   const [symbolFilter, setSymbolFilter] = useState<string>("__all__");
 
-  // Build (symbol, bucket) → R[] map from eligible trades.
-  const { cells, symbols, buckets, divergence, totalEligible } = useMemo(() => {
-    const numBuckets = Math.floor(60 / granularity);
-    const bucketStarts = Array.from({ length: numBuckets }, (_, i) => i * granularity);
-
-    const map = new Map<string, Cell>();
-    const symbolSet = new Set<string>();
-    let totalEligible = 0;
+  const { rows, totalLoggedHours, allSymbols } = useMemo(() => {
+    const map = new Map<string, PairRow>();
+    const symSet = new Set<string>();
 
     for (const t of trades) {
       if (t.is_archived) continue;
-      if (t.is_open) continue;
-      if (t.r_multiple_actual == null) continue;
-      if (!t.entry_time) continue;
       if (!t.symbol) continue;
-      if (mode === "executed" && t.trade_type !== "executed") continue;
-      if (mode === "missed" && t.trade_type !== "missed") continue;
-
-      const ts = new Date(t.entry_time);
-      if (Number.isNaN(ts.getTime())) continue;
-      const minute = ts.getUTCMinutes();
-      const bucketStart = Math.floor(minute / granularity) * granularity;
       const canonical = symbolResolver(t.symbol);
-      if (symbolFilter !== "__all__" && canonical !== symbolFilter) continue;
+      symSet.add(canonical);
 
-      symbolSet.add(canonical);
-      totalEligible += 1;
+      const fh = (t.first_half_setup ?? null) as HourSetupOutcome | null;
+      const sh = (t.second_half_setup ?? null) as HourSetupOutcome | null;
+      // Need at least one half tagged to count this trade as a logged hour.
+      if (!fh && !sh) continue;
 
-      const key = `${canonical}|${bucketStart}`;
-      let cell = map.get(key);
-      if (!cell) {
-        cell = {
+      let row = map.get(canonical);
+      if (!row) {
+        row = {
           symbol: canonical,
-          bucketStart,
-          rSample: [],
-          wins: 0,
-          losses: 0,
-          meanR: 0,
-          ciLow: 0,
-          ciHigh: 0,
-          n: 0,
+          hoursLogged: 0,
+          first: emptyHalf(),
+          second: emptyHalf(),
+          bothPrinted: 0,
+          bothFirstWorked: 0,
+          bothSecondWorked: 0,
         };
-        map.set(key, cell);
+        map.set(canonical, row);
       }
-      cell.rSample.push(t.r_multiple_actual);
-      if (t.r_multiple_actual > 0) cell.wins += 1;
-      else if (t.r_multiple_actual < 0) cell.losses += 1;
-    }
-
-    for (const cell of map.values()) {
-      const ci = meanRWithCI(cell.rSample, { resamples: 800, seed: 0xA17C0DE });
-      cell.meanR = ci.mean;
-      cell.ciLow = ci.ciLow;
-      cell.ciHigh = ci.ciHigh;
-      cell.n = ci.n;
-    }
-
-    const symbols = Array.from(symbolSet).sort();
-
-    // Per-symbol divergence: best bucket in :00–:29 vs :30–:59 by mean R.
-    const divergence = symbols.map((sym) => {
-      let bestFirst: Cell | null = null;
-      let bestSecond: Cell | null = null;
-      let nFirst = 0;
-      let nSecond = 0;
-      for (const start of bucketStarts) {
-        const cell = map.get(`${sym}|${start}`);
-        if (!cell) continue;
-        const half = start < 30 ? "first" : "second";
-        if (half === "first") {
-          nFirst += cell.n;
-          if (cell.n >= MIN_N_FOR_COLOR && (!bestFirst || cell.meanR > bestFirst.meanR)) bestFirst = cell;
-        } else {
-          nSecond += cell.n;
-          if (cell.n >= MIN_N_FOR_COLOR && (!bestSecond || cell.meanR > bestSecond.meanR)) bestSecond = cell;
-        }
+      row.hoursLogged += 1;
+      const firstPrinted = recordHalf(row.first, fh);
+      const secondPrinted = recordHalf(row.second, sh);
+      if (firstPrinted && secondPrinted) {
+        row.bothPrinted += 1;
+        if (fh === 'worked') row.bothFirstWorked += 1;
+        if (sh === 'worked') row.bothSecondWorked += 1;
       }
-      const delta = (bestFirst?.meanR ?? 0) - (bestSecond?.meanR ?? 0);
-      return { symbol: sym, bestFirst, bestSecond, nFirst, nSecond, delta };
-    });
-
-    return { cells: map, symbols, buckets: bucketStarts, divergence, totalEligible };
-  }, [trades, granularity, mode, symbolResolver, symbolFilter]);
-
-  // Heatmap colour scale based on per-cell mean R among the populated cells.
-  const maxAbsR = useMemo(() => {
-    let m = 0.1;
-    cells.forEach((c) => {
-      if (c.n >= MIN_N_FOR_COLOR) m = Math.max(m, Math.abs(c.meanR));
-    });
-    return m;
-  }, [cells]);
-
-  const allSymbolsForFilter = useMemo(() => {
-    const s = new Set<string>();
-    for (const t of trades) {
-      if (!t.symbol) continue;
-      s.add(symbolResolver(t.symbol));
     }
-    return Array.from(s).sort();
-  }, [trades, symbolResolver]);
 
-  if (totalEligible === 0) {
+    const rows = Array.from(map.values())
+      .filter((r) => symbolFilter === "__all__" || r.symbol === symbolFilter)
+      .sort((a, b) => b.hoursLogged - a.hoursLogged);
+
+    const totalLoggedHours = rows.reduce((s, r) => s + r.hoursLogged, 0);
+    return { rows, totalLoggedHours, allSymbols: Array.from(symSet).sort() };
+  }, [trades, symbolResolver, symbolFilter]);
+
+  if (totalLoggedHours === 0) {
     return (
-      <Card className="p-6 text-sm text-muted-foreground text-center space-y-2">
-        <div>No trades with <code className="text-xs">r_multiple_actual</code> and <code className="text-xs">entry_time</code> in this filter.</div>
-        <div className="text-xs">Switch the mode toggle or widen the symbol filter to see results.</div>
+      <Card className="p-6 text-sm text-muted-foreground space-y-2">
+        <div className="font-medium text-foreground">No hour setup observations yet.</div>
+        <div className="text-xs leading-relaxed">
+          Open any trade in the Journal and fill in the new <span className="font-mono text-foreground">1st-half setup (≤ :30)</span>{" "}
+          and <span className="font-mono text-foreground">2nd-half setup (&gt; :30)</span> fields. Mark each half as{" "}
+          <span className="font-mono text-foreground">Worked</span>, <span className="font-mono text-foreground">Failed</span>, or{" "}
+          <span className="font-mono text-foreground">None</span> based on what the chart actually offered — regardless of which one
+          you took. After ~10–15 hours per pair, this tab will show base rates.
+        </div>
       </Card>
     );
   }
 
   return (
     <Card className="p-5 space-y-4">
-      {/* Header + controls */}
       <div className="flex items-start gap-2 flex-wrap">
         <Clock className="w-4 h-4 text-primary mt-0.5" />
         <div className="flex-1 min-w-[260px]">
-          <h3 className="font-semibold">Intra-hour timing</h3>
+          <h3 className="font-semibold">Hour setup landscape</h3>
           <p className="text-xs text-muted-foreground mt-1">
-            Mean R-multiple by minute-of-hour bucket × symbol. Use this to check whether a
-            backtested entry window still holds live, or whether your fills have drifted to a
-            different part of the hour. Significance gate is the same bootstrap CI used in the
-            Strategy Lab edge check.
+            Per pair, the rate at which a setup prints in each half of the hour and the rate at
+            which it works when it does. No R, no fill-minute bucketing — just base rates of what
+            the chart offers. Fill the per-trade <span className="font-mono">1st-half / 2nd-half setup</span>{" "}
+            fields in the Journal to populate this.
           </p>
         </div>
       </div>
 
       <div className="flex flex-wrap items-end gap-4">
-        <div>
-          <Label className="text-xs">Mode</Label>
-          <div className="flex items-center gap-1 mt-1 rounded-md border border-border/60 bg-muted/20 p-0.5">
-            {MODE_OPTIONS.map((opt) => (
-              <Button
-                key={opt.value}
-                size="sm"
-                variant={mode === opt.value ? "default" : "ghost"}
-                className="h-7 px-2 text-xs"
-                onClick={() => setMode(opt.value)}
-                title={opt.hint}
-              >
-                {opt.label}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <Label className="text-xs">Bucket size</Label>
-          <div className="flex items-center gap-1 mt-1 rounded-md border border-border/60 bg-muted/20 p-0.5">
-            {GRANULARITY_OPTIONS.map((g) => (
-              <Button
-                key={g}
-                size="sm"
-                variant={granularity === g ? "default" : "ghost"}
-                className="h-7 px-2 text-xs font-mono-numbers"
-                onClick={() => setGranularity(g)}
-              >
-                {g}m
-              </Button>
-            ))}
-          </div>
-        </div>
-
         <div>
           <Label className="text-xs">Symbol</Label>
           <select
@@ -255,91 +151,101 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
             onChange={(e) => setSymbolFilter(e.target.value)}
           >
             <option value="__all__">All symbols</option>
-            {allSymbolsForFilter.map((s) => (
+            {allSymbols.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
         </div>
 
         <div className="ml-auto text-[11px] text-muted-foreground font-mono-numbers self-end pb-1">
-          N {totalEligible} eligible · {symbols.length} symbols × {buckets.length} buckets
+          {totalLoggedHours} logged hours · {rows.length} pairs
         </div>
       </div>
 
-      {/* Heatmap */}
+      {/* Per-pair table */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-separate border-spacing-0">
           <thead>
             <tr className="text-xs uppercase tracking-wider text-muted-foreground">
-              <th className="text-left py-2 pr-2 sticky left-0 bg-card">Symbol</th>
-              {buckets.map((b) => (
-                <th key={b} className="text-center py-2 px-1 font-mono-numbers">
-                  {bucketLabel(b, granularity)}
-                </th>
-              ))}
-              <th className="text-center py-2 pl-2 text-muted-foreground/70">Row N</th>
+              <th className="text-left py-2 pr-2">Symbol</th>
+              <th className="text-center py-2 px-2">Hours</th>
+              <th className="text-center py-2 px-2 border-l border-border/30">1st printed</th>
+              <th className="text-center py-2 px-2">1st hit rate</th>
+              <th className="text-center py-2 px-2 border-l border-border/30">2nd printed</th>
+              <th className="text-center py-2 px-2">2nd hit rate</th>
+              <th className="text-center py-2 px-2 border-l border-border/30">Edge</th>
             </tr>
           </thead>
           <tbody>
-            {symbols.map((sym) => {
-              let rowN = 0;
-              buckets.forEach((b) => {
-                const c = cells.get(`${sym}|${b}`);
-                if (c) rowN += c.n;
-              });
+            {rows.map((r) => {
+              const firstHit = r.first.printed > 0 ? r.first.worked / r.first.printed : null;
+              const secondHit = r.second.printed > 0 ? r.second.worked / r.second.printed : null;
+              const trusted = r.hoursLogged >= MIN_HOURS_FOR_TRUST;
+              const delta = firstHit != null && secondHit != null ? firstHit - secondHit : null;
+              const edgeLabel = delta == null
+                ? "—"
+                : Math.abs(delta) < 0.05
+                  ? "≈ even"
+                  : delta > 0 ? `1st +${Math.round(delta * 100)}pp` : `2nd +${Math.round(-delta * 100)}pp`;
+              const edgeTone =
+                delta == null || Math.abs(delta) < 0.05 ? "text-muted-foreground"
+                : delta > 0 ? "text-emerald-600 dark:text-emerald-400"
+                : "text-blue-600 dark:text-blue-400";
+
               return (
-                <tr key={sym}>
-                  <td className="py-1.5 pr-2 font-medium text-sm whitespace-nowrap sticky left-0 bg-card">
-                    {sym}
+                <tr key={r.symbol} className="border-t border-border/20">
+                  <td className="py-2 pr-2 font-medium whitespace-nowrap">
+                    {r.symbol}
+                    {!trusted && (
+                      <Badge variant="outline" className="ml-2 text-[9px] px-1 py-0 h-4">
+                        low N
+                      </Badge>
+                    )}
                   </td>
-                  {buckets.map((b) => {
-                    const cell = cells.get(`${sym}|${b}`);
-                    if (!cell || cell.n === 0) {
-                      return (
-                        <td key={b} className="p-0.5">
-                          <div className="w-full rounded px-2 py-2 text-center border border-border/20 bg-muted/10 text-[11px] text-muted-foreground/50">
-                            —
-                          </div>
-                        </td>
-                      );
-                    }
-                    const lowN = cell.n < MIN_N_FOR_COLOR;
-                    const proven = cell.n >= MIN_N_FOR_EDGE && cell.ciLow > 0;
-                    const winRate = cell.wins / Math.max(1, cell.wins + cell.losses);
-                    const bg = lowN
-                      ? "hsl(220 8% 50% / 0.06)"
-                      : colorForMeanR(cell.meanR, maxAbsR);
-                    const tip = [
-                      `N ${cell.n}`,
-                      `Mean R ${cell.meanR >= 0 ? "+" : ""}${cell.meanR.toFixed(3)}`,
-                      `95% CI [${cell.ciLow >= 0 ? "+" : ""}${cell.ciLow.toFixed(2)}, ${cell.ciHigh >= 0 ? "+" : ""}${cell.ciHigh.toFixed(2)}]`,
-                      `Win ${(winRate * 100).toFixed(0)}%`,
-                      proven ? "Edge proven (CI > 0)" : cell.n < MIN_N_FOR_EDGE ? `Need ≥${MIN_N_FOR_EDGE} for edge gate` : "CI brackets zero",
-                    ].join(" · ");
-                    return (
-                      <td key={b} className="p-0.5">
-                        <div
-                          className={cn(
-                            "w-full rounded px-2 py-2 text-center border transition-colors",
-                            proven ? "border-emerald-500/50" : "border-border/30",
-                          )}
-                          style={{ backgroundColor: bg }}
-                          title={tip}
-                        >
-                          <div className={cn(
-                            "font-mono-numbers font-semibold text-sm",
-                            lowN && "text-muted-foreground",
-                          )}>
-                            {cell.meanR >= 0 ? "+" : ""}{cell.meanR.toFixed(2)}R
-                          </div>
-                          <div className="font-mono-numbers text-[10px] text-muted-foreground">
-                            N {cell.n} · {(winRate * 100).toFixed(0)}%
-                          </div>
-                        </div>
-                      </td>
-                    );
-                  })}
-                  <td className="text-center text-xs text-muted-foreground/80 font-mono-numbers pl-2">{rowN}</td>
+                  <td className="py-2 px-2 text-center font-mono-numbers text-xs">
+                    {r.hoursLogged}
+                  </td>
+                  <td className="py-2 px-2 text-center font-mono-numbers text-xs border-l border-border/30">
+                    {r.first.printed} / {r.hoursLogged}
+                    <div className="text-[10px] text-muted-foreground">
+                      {pct(r.first.printed, r.hoursLogged)}
+                    </div>
+                  </td>
+                  <td className="py-2 px-2 text-center font-mono-numbers">
+                    <span className={cn(
+                      "font-semibold",
+                      firstHit == null ? "text-muted-foreground" :
+                      firstHit >= 0.6 ? "text-emerald-600 dark:text-emerald-400" :
+                      firstHit <= 0.4 ? "text-loss" : "",
+                    )}>
+                      {firstHit == null ? "—" : `${Math.round(firstHit * 100)}%`}
+                    </span>
+                    <div className="text-[10px] text-muted-foreground">
+                      {r.first.worked}W / {r.first.failed}L
+                    </div>
+                  </td>
+                  <td className="py-2 px-2 text-center font-mono-numbers text-xs border-l border-border/30">
+                    {r.second.printed} / {r.hoursLogged}
+                    <div className="text-[10px] text-muted-foreground">
+                      {pct(r.second.printed, r.hoursLogged)}
+                    </div>
+                  </td>
+                  <td className="py-2 px-2 text-center font-mono-numbers">
+                    <span className={cn(
+                      "font-semibold",
+                      secondHit == null ? "text-muted-foreground" :
+                      secondHit >= 0.6 ? "text-emerald-600 dark:text-emerald-400" :
+                      secondHit <= 0.4 ? "text-loss" : "",
+                    )}>
+                      {secondHit == null ? "—" : `${Math.round(secondHit * 100)}%`}
+                    </span>
+                    <div className="text-[10px] text-muted-foreground">
+                      {r.second.worked}W / {r.second.failed}L
+                    </div>
+                  </td>
+                  <td className={cn("py-2 px-2 text-center font-mono-numbers text-xs border-l border-border/30", edgeTone)}>
+                    {edgeLabel}
+                  </td>
                 </tr>
               );
             })}
@@ -347,54 +253,41 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
         </table>
       </div>
 
-      {/* Per-symbol first-half vs second-half divergence */}
+      {/* Co-occurrence panel */}
       <div className="rounded-md border border-border/60 bg-muted/10 p-3 space-y-2">
-        <div className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-          First half vs second half
-          <span className="text-[10px] normal-case text-muted-foreground/70">
-            best bucket in :00–:29 vs :30–:59 by mean R, per symbol
-          </span>
+        <div className="text-xs uppercase tracking-wider text-muted-foreground">
+          Co-occurrence — when both halves printed in the same hour
         </div>
         <div className="space-y-1.5">
-          {divergence.length === 0 && (
-            <div className="text-xs text-muted-foreground">No symbols with enough samples to compare halves.</div>
+          {rows.filter((r) => r.bothPrinted > 0).length === 0 && (
+            <div className="text-xs text-muted-foreground">
+              No hours yet where both halves had a printed setup.
+            </div>
           )}
-          {divergence.map((d) => {
-            const flag = d.bestFirst && d.bestSecond && Math.abs(d.delta) >= 0.2;
-            const winner = !d.bestFirst && !d.bestSecond
-              ? null
-              : !d.bestSecond || (d.bestFirst && d.bestFirst.meanR >= d.bestSecond.meanR)
-                ? "first"
-                : "second";
+          {rows.filter((r) => r.bothPrinted > 0).map((r) => {
+            const fW = r.bothFirstWorked;
+            const sW = r.bothSecondWorked;
+            const winner = fW > sW ? "first" : sW > fW ? "second" : "tie";
             return (
-              <div key={d.symbol} className="grid grid-cols-12 gap-2 items-center text-xs">
-                <div className="col-span-2 font-medium truncate">{d.symbol}</div>
+              <div key={r.symbol} className="grid grid-cols-12 gap-2 items-center text-xs">
+                <div className="col-span-2 font-medium truncate">{r.symbol}</div>
+                <div className="col-span-2 text-muted-foreground font-mono-numbers">
+                  {r.bothPrinted} hours
+                </div>
                 <div className={cn(
-                  "col-span-4 font-mono-numbers",
+                  "col-span-3 font-mono-numbers",
                   winner === "first" && "text-emerald-600 dark:text-emerald-400",
                 )}>
-                  {d.bestFirst
-                    ? <>1st half: {bucketLabel(d.bestFirst.bucketStart, granularity)} · {d.bestFirst.meanR >= 0 ? "+" : ""}{d.bestFirst.meanR.toFixed(2)}R · N {d.bestFirst.n}</>
-                    : <span className="text-muted-foreground">1st half: no qualifying bucket (N&lt;{MIN_N_FOR_COLOR})</span>}
+                  1st worked {fW} / {r.bothPrinted}
                 </div>
                 <div className={cn(
-                  "col-span-4 font-mono-numbers",
+                  "col-span-3 font-mono-numbers",
                   winner === "second" && "text-emerald-600 dark:text-emerald-400",
                 )}>
-                  {d.bestSecond
-                    ? <>2nd half: {bucketLabel(d.bestSecond.bucketStart, granularity)} · {d.bestSecond.meanR >= 0 ? "+" : ""}{d.bestSecond.meanR.toFixed(2)}R · N {d.bestSecond.n}</>
-                    : <span className="text-muted-foreground">2nd half: no qualifying bucket (N&lt;{MIN_N_FOR_COLOR})</span>}
+                  2nd worked {sW} / {r.bothPrinted}
                 </div>
-                <div className="col-span-2 text-right">
-                  {flag ? (
-                    <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px]">
-                      Δ {d.delta >= 0 ? "+" : ""}{d.delta.toFixed(2)}R
-                    </Badge>
-                  ) : (
-                    <span className="text-[10px] text-muted-foreground font-mono-numbers">
-                      Δ {d.delta >= 0 ? "+" : ""}{d.delta.toFixed(2)}R
-                    </span>
-                  )}
+                <div className="col-span-2 text-right text-[10px] text-muted-foreground">
+                  {winner === "tie" ? "tied" : winner === "first" ? "take 1st" : "wait for 2nd"}
                 </div>
               </div>
             );
@@ -405,13 +298,12 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
       <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed flex items-start gap-1.5">
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
         <span>
-          Buckets are minute-of-hour in UTC; for brokers on whole-hour offsets this matches your local
-          minutes (e.g. UTC :30 = NY :30 = London :30). Cells with N&lt;{MIN_N_FOR_COLOR} are greyed; an
-          emerald border means the 95% bootstrap CI on that bucket's mean R is strictly &gt; 0 with
-          N≥{MIN_N_FOR_EDGE}. The divergence row flags symbols where the best 1st-half bucket and the
-          best 2nd-half bucket differ by ≥0.20R — a sign the entry-window edge isn't where backtest
-          said it would be. If "Backtest only" and "Live only" disagree on the same symbol, the backtest
-          window most likely overfit a small sample; trust the live row.
+          Halves are split on the candle close: a setup whose final candle closes at or before :30
+          is first-half; after :30 is second-half. Rows with fewer than {MIN_HOURS_FOR_TRUST} logged
+          hours are flagged "low N" — treat their hit rates as directional, not decisive. Selection
+          bias caveat: only hours you opened a trade in are in this dataset. If a pair's hit-rate
+          gap widens past ~15pp with N ≥ 20, that's a real signal — rewrite or confirm the rule on
+          which half to take.
         </span>
       </p>
     </Card>
