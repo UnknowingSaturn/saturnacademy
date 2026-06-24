@@ -115,12 +115,12 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
       <Card className="p-6 text-sm text-muted-foreground space-y-2">
         <div className="font-medium text-foreground">No hour setup observations yet.</div>
         <div className="text-xs leading-relaxed">
-          Open any trade in the Journal and fill in the{" "}
-          <span className="font-mono text-foreground">Ideal entry window</span> and{" "}
-          <span className="font-mono text-foreground">Failed setup</span> fields. Mark which half
-          of the hour produced a working setup, and which half produced one that failed —
-          regardless of which trade you took. After ~10–15 hours per pair, this tab will show
-          base rates.
+          Open any trade in the Journal and set the{" "}
+          <span className="font-mono text-foreground">Ideal entry window</span> property to
+          tag which half of the hour produced a working setup (<span className="font-mono">✓</span>)
+          and which produced one that printed but failed (<span className="font-mono">✗</span>) —
+          regardless of whether the trade itself won or lost. After ~10–15 hours per pair,
+          this tab will show base rates.
         </div>
       </Card>
     );
