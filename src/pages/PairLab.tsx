@@ -63,10 +63,57 @@ export default function PairLab() {
 
   const headerRef = useRef<HTMLDivElement | null>(null);
 
-  const data = usePairLab({
+  // Walk-forward state — Analyze tab only. Ideal windows owns its own state.
+  const { groups } = useSymbolGroups();
+  // Scope: "all" | "grp:<id>"
+  const scope = searchParams.get("scope") ?? "all";
+  const activeGroup = useMemo(() => {
+    if (!scope.startsWith("grp:")) return null;
+    const id = scope.slice(4);
+    return groups.find((g) => g.id === id) ?? null;
+  }, [scope, groups]);
+
+  // Use unfiltered hook once to find the date bounds of the user's data.
+  const allData = usePairLab({
     profile: profile === "any" ? null : profile,
     propFirmMode,
   });
+
+  const { minMs, maxMs } = useMemo(() => {
+    const ts = allData.trades
+      .filter((t) => !t.is_open && !t.is_archived && t.entry_time)
+      .map((t) => new Date(String(t.entry_time)).getTime())
+      .filter((n) => Number.isFinite(n));
+    if (ts.length === 0) {
+      const now = Date.now();
+      return { minMs: now - 90 * 86_400_000, maxMs: now };
+    }
+    return { minMs: Math.min(...ts), maxMs: Math.max(...ts) };
+  }, [allData.trades]);
+
+  const [wf, setWf] = useState<WalkForwardState>({ lens: "all", asOfMs: Date.now() });
+  // Clamp asOf into actual data range once data arrives.
+  useEffect(() => {
+    setWf((s) => ({ ...s, asOfMs: Math.max(minMs, Math.min(maxMs, s.asOfMs)) }));
+  }, [minMs, maxMs]);
+
+  const { dateFrom, dateTo } = useMemo(() => resolveWindow(wf), [wf]);
+
+  const data = usePairLab({
+    profile: profile === "any" ? null : profile,
+    propFirmMode,
+    dateFrom,
+    dateTo,
+    groupOverride: activeGroup ? { name: activeGroup.name, symbols: activeGroup.symbols } : null,
+  });
+
+  const setScope = (v: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (v === "all") next.delete("scope"); else next.set("scope", v);
+    next.delete("symbol");
+    next.delete("session");
+    setSearchParams(next, { replace: true });
+  };
 
   // Scroll selection header into view when a cell is picked.
   useEffect(() => {
