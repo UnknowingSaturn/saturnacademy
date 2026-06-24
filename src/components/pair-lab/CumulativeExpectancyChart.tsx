@@ -156,7 +156,7 @@ export function CumulativeExpectancyChart({ events, rollingN = 10, height = 140 
             <path
               d={rollPath}
               fill="none"
-              stroke="hsl(38 92% 50%)"
+              stroke="hsl(var(--chart-trail))"
               strokeWidth={1.4}
               strokeDasharray="4 3"
             />
