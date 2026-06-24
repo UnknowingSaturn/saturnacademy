@@ -702,15 +702,16 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                     );
                   }
 
-                  if (key === 'first_half_setup' || key === 'second_half_setup') {
+                  if (key === 'ideal_entry_window' || key === 'failed_setup_half') {
                     const current = (trade as any)[key] as string | null | undefined;
+                    const options = key === 'ideal_entry_window' ? WORKED_WINDOW_BADGE_OPTIONS : FAILED_WINDOW_BADGE_OPTIONS;
                     return (
                       <div key={key} onClick={(e) => e.stopPropagation()}>
                         <BadgeSelect
                           value={current || ""}
-                          onChange={(v) => handleHourSetupChange(trade, key, v as string)}
-                          options={HOUR_SETUP_BADGE_OPTIONS}
-                          placeholder={key === 'first_half_setup' ? '1st-half' : '2nd-half'}
+                          onChange={(v) => handleHourLandscapeChange(trade, key, v as string)}
+                          options={options}
+                          placeholder={key === 'ideal_entry_window' ? 'Ideal' : 'Failed'}
                         />
                       </div>
                     );
