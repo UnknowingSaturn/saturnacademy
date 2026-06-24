@@ -395,6 +395,28 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             />
           </PropertyRow>
         );
+      case 'first_half_setup':
+        return (
+          <PropertyRow key="first_half_setup" label={labelFor('first_half_setup', '1st-half setup (≤ :30)')}>
+            <BadgeSelect
+              value={trade.first_half_setup ?? ""}
+              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, first_half_setup: ((v as string) || null) as any })}
+              options={HOUR_SETUP_OPTIONS}
+              placeholder="—"
+            />
+          </PropertyRow>
+        );
+      case 'second_half_setup':
+        return (
+          <PropertyRow key="second_half_setup" label={labelFor('second_half_setup', '2nd-half setup (> :30)')}>
+            <BadgeSelect
+              value={trade.second_half_setup ?? ""}
+              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, second_half_setup: ((v as string) || null) as any })}
+              options={HOUR_SETUP_OPTIONS}
+              placeholder="—"
+            />
+          </PropertyRow>
+        );
       case 'closes': {
         if (fills.length < 2) return null;
         return (
