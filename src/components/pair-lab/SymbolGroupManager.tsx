@@ -20,6 +20,7 @@ export function SymbolGroupManager({ availableSymbols }: Props) {
   const [draftName, setDraftName] = useState("");
   const [draftColor, setDraftColor] = useState<string>(COLOR_SWATCHES[0]);
   const [draftSymbols, setDraftSymbols] = useState<string[]>([]);
+  const [draftOverrides, setDraftOverrides] = useState<Record<string, number>>({});
 
   const symbolSet = useMemo(() => new Set(availableSymbols), [availableSymbols]);
 
