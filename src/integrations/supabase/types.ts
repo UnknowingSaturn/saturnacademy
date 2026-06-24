@@ -1446,6 +1446,7 @@ export type Database = {
           id: string
           name: string
           symbols: string[]
+          tick_size_overrides: Json
           updated_at: string
           user_id: string
         }
@@ -1455,6 +1456,7 @@ export type Database = {
           id?: string
           name: string
           symbols?: string[]
+          tick_size_overrides?: Json
           updated_at?: string
           user_id: string
         }
@@ -1464,6 +1466,7 @@ export type Database = {
           id?: string
           name?: string
           symbols?: string[]
+          tick_size_overrides?: Json
           updated_at?: string
           user_id?: string
         }
