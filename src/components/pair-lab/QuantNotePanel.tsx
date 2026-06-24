@@ -250,6 +250,15 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
                 <div className="font-mono-numbers font-semibold text-sm">
                   {r.suggestedSlPips != null ? `${r.suggestedSlPips.toFixed(0)} pips` : "—"}
                 </div>
+                {r.slSource !== "legacy" && (
+                  <div className="text-[10px] text-muted-foreground">
+                    {r.slSource === "ideal_sl"
+                      ? `Source: ideal SL median${r.slSourceN ? ` · N=${r.slSourceN}` : ""}`
+                      : r.slSource === "winners_mae"
+                      ? `Source: winners' MAE p90 × 1.10${r.slSourceN ? ` · N=${r.slSourceN}` : ""} (no ideal SL logged)`
+                      : `Source: MAE p75 × 1.15${r.slSourceN ? ` · N=${r.slSourceN}` : ""} (fallback)`}
+                  </div>
+                )}
               </div>
               <div>
                 <div className="text-muted-foreground">TP (best)</div>
