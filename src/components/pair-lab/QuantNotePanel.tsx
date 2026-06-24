@@ -4,10 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Sparkles, AlertTriangle, ArrowRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { getTickSizeOverrides } from "@/lib/symbolMapping";
 import { toast } from "sonner";
 import type { BucketReport, PropFirmContext } from "@/lib/pairLabMath";
 import { Link } from "react-router-dom";
 import { CumulativeExpectancyChart } from "@/components/pair-lab/CumulativeExpectancyChart";
+
 
 interface QuantNote {
   headline: string;
@@ -96,8 +98,13 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
                 hardCapPct: propFirm.hardCapPct,
               }
             : null,
+          // Mirror the client's symbol_groups tick-size overrides so the edge
+          // function can reproduce bucket math 1:1 if a future code path
+          // re-runs buildBuckets server-side. Cheap to send — usually <10 keys.
+          tickSizeOverrides: { ...getTickSizeOverrides() },
         },
       });
+
       if (invokeErr) throw invokeErr;
       if (data?.error) throw new Error(data.error);
       setNote(data?.note as QuantNote);
