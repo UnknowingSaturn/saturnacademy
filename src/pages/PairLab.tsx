@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, FlaskConical, Info, Shield, X, Layers } from "lucide-react";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 import { usePairLab } from "@/hooks/usePairLab";
+import { usePairLabTradeBounds } from "@/hooks/usePairLabTradeBounds";
 import { useSymbolGroups } from "@/hooks/useSymbolGroups";
 import { BucketGrid } from "@/components/pair-lab/BucketGrid";
 
