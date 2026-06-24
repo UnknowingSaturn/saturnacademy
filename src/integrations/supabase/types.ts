@@ -1439,6 +1439,36 @@ export type Database = {
         }
         Relationships: []
       }
+      symbol_groups: {
+        Row: {
+          color: string | null
+          created_at: string
+          id: string
+          name: string
+          symbols: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          symbols?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          symbols?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       terminal_snapshots: {
         Row: {
           account_id: string | null
