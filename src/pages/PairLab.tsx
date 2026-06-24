@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, FlaskConical, Info, Shield, X } from "lucide-react";
+import { Loader2, FlaskConical, Info, Shield, X, Layers } from "lucide-react";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 import { usePairLab } from "@/hooks/usePairLab";
+import { useSymbolGroups } from "@/hooks/useSymbolGroups";
 import { BucketGrid } from "@/components/pair-lab/BucketGrid";
 
 import { QuantNotePanel } from "@/components/pair-lab/QuantNotePanel";
@@ -20,6 +21,8 @@ import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
 import { SimulatorProfileSettings } from "@/components/pair-lab/SimulatorProfileSettings";
 import { StrategyLab } from "@/components/pair-lab/StrategyLab";
 import { IdealWindowHeatmap } from "@/components/pair-lab/IdealWindowHeatmap";
+import { WalkForwardControls, resolveWindow, type WalkForwardState } from "@/components/pair-lab/WalkForwardControls";
+import { OutOfSamplePanel } from "@/components/pair-lab/OutOfSamplePanel";
 import { normalizeSession } from "@/lib/pairLabMath";
 
 type Selected = { symbol: string; session: string } | null;
@@ -60,10 +63,57 @@ export default function PairLab() {
 
   const headerRef = useRef<HTMLDivElement | null>(null);
 
-  const data = usePairLab({
+  // Walk-forward state — Analyze tab only. Ideal windows owns its own state.
+  const { groups } = useSymbolGroups();
+  // Scope: "all" | "grp:<id>"
+  const scope = searchParams.get("scope") ?? "all";
+  const activeGroup = useMemo(() => {
+    if (!scope.startsWith("grp:")) return null;
+    const id = scope.slice(4);
+    return groups.find((g) => g.id === id) ?? null;
+  }, [scope, groups]);
+
+  // Use unfiltered hook once to find the date bounds of the user's data.
+  const allData = usePairLab({
     profile: profile === "any" ? null : profile,
     propFirmMode,
   });
+
+  const { minMs, maxMs } = useMemo(() => {
+    const ts = allData.trades
+      .filter((t) => !t.is_open && !t.is_archived && t.entry_time)
+      .map((t) => new Date(String(t.entry_time)).getTime())
+      .filter((n) => Number.isFinite(n));
+    if (ts.length === 0) {
+      const now = Date.now();
+      return { minMs: now - 90 * 86_400_000, maxMs: now };
+    }
+    return { minMs: Math.min(...ts), maxMs: Math.max(...ts) };
+  }, [allData.trades]);
+
+  const [wf, setWf] = useState<WalkForwardState>({ lens: "all", asOfMs: Date.now() });
+  // Clamp asOf into actual data range once data arrives.
+  useEffect(() => {
+    setWf((s) => ({ ...s, asOfMs: Math.max(minMs, Math.min(maxMs, s.asOfMs)) }));
+  }, [minMs, maxMs]);
+
+  const { dateFrom, dateTo } = useMemo(() => resolveWindow(wf), [wf]);
+
+  const data = usePairLab({
+    profile: profile === "any" ? null : profile,
+    propFirmMode,
+    dateFrom,
+    dateTo,
+    groupOverride: activeGroup ? { name: activeGroup.name, symbols: activeGroup.symbols } : null,
+  });
+
+  const setScope = (v: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (v === "all") next.delete("scope"); else next.set("scope", v);
+    next.delete("symbol");
+    next.delete("session");
+    setSearchParams(next, { replace: true });
+  };
 
   // Scroll selection header into view when a cell is picked.
   useEffect(() => {
@@ -214,6 +264,45 @@ export default function PairLab() {
         </TabsContent>
 
         <TabsContent value="analyze" className="space-y-6 mt-4">
+          {/* Walk-forward + scope controls */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 items-stretch">
+            <WalkForwardControls state={wf} onChange={setWf} minMs={minMs} maxMs={maxMs} />
+            <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/10 p-3">
+              <Layers className="w-3.5 h-3.5 text-muted-foreground" />
+              <Label className="text-xs">Scope</Label>
+              <Select value={scope} onValueChange={setScope}>
+                <SelectTrigger className="h-8 w-[200px] text-xs">
+                  <SelectValue placeholder="All pairs" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All pairs (individual)</SelectItem>
+                  {groups.length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel className="text-[10px] uppercase tracking-wider">Groups (merged)</SelectLabel>
+                      {groups.map((g) => (
+                        <SelectItem key={g.id} value={`grp:${g.id}`}>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span
+                              className="w-2 h-2 rounded-full inline-block"
+                              style={{ backgroundColor: g.color ?? "hsl(var(--primary))" }}
+                            />
+                            {g.name}
+                            <span className="text-muted-foreground text-[10px]">· {g.symbols.length}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
+                </SelectContent>
+              </Select>
+              {activeGroup && (
+                <span className="text-[10px] text-muted-foreground max-w-[180px] truncate" title={activeGroup.symbols.join(", ")}>
+                  merging {activeGroup.symbols.length}
+                </span>
+              )}
+            </div>
+          </div>
+
           {(() => {
             const closed = data.trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
             const withSl = closed.filter((t) => t.sl_initial != null && t.entry_price != null).length;
@@ -266,6 +355,20 @@ export default function PairLab() {
             selected={selected}
             onSelect={(cell) => setSelected(cell)}
           />
+
+          {/* Out-of-sample split — train/test integrity check within the active window. */}
+          {data.totalTrades >= 30 && (
+            <OutOfSamplePanel
+              trades={data.trades}
+              fieldKeys={data.fieldKeys}
+              symbolResolver={data.symbolResolver}
+              propFirm={propFirmMode ? data.propFirm : null}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+            />
+          )}
+
+
 
           {/* Sticky selection header — always rendered, content changes with scope */}
           <div

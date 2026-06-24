@@ -91,6 +91,12 @@ export interface BucketKey {
   session: string;       // "Tokyo" | "London" | "NY AM" | "NY PM" | "All sessions"
 }
 
+export interface BucketEvent {
+  ts: string;
+  won: boolean;
+  r: number;
+}
+
 export interface BucketStats {
   key: BucketKey;
   /** Raw broker symbols rolled up into this canonical key (for display). */
@@ -138,6 +144,16 @@ export interface BucketStats {
   loggedIdealSlCount: number;
   /** Hypothetical SL sweep over the bucket's MAE distribution. null when N<10 or insufficient MAE data. */
   slSweep: SlSweepRow[] | null;
+  /** Closed trades in this bucket, ordered by entry_time. Powers drift + cumulative chart. */
+  events: BucketEvent[];
+  /** Trailing window size used to compute `recent*` / `drift`. */
+  recentN: number;
+  /** Win rate over the last `recentN` events. null when fewer than 5 events. */
+  recentWinRate: number | null;
+  /** Mean R over the last `recentN` events. null when fewer than 5 events. */
+  recentExpectedR: number | null;
+  /** (recentWinRate − winRate) in percentage points. null when recentWinRate null. */
+  drift: number | null;
 }
 
 export interface SlSweepRow {
@@ -287,6 +303,11 @@ export interface BuildBucketsOpts {
   closedOnly?: boolean;
   symbolResolver?: (raw: string) => string;
   propFirm?: PropFirmContext | null;
+  /** Walk-forward: only include trades whose entry_time falls inside [dateFrom, dateTo]. ISO strings. */
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  /** Window length for `recent*` / `drift`. Default 10. */
+  recentN?: number;
 }
 
 export function buildBuckets(
@@ -296,12 +317,20 @@ export function buildBuckets(
 ): { perCell: BucketReport[]; perRow: BucketReport[]; baseline: BucketReport } {
   const closedOnly = opts.closedOnly !== false;
   const resolveSym = opts.symbolResolver ?? ((s: string) => s);
+  const recentN = opts.recentN ?? 10;
+  const dateFrom = opts.dateFrom ?? null;
+  const dateTo = opts.dateTo ?? null;
   const filtered = trades.filter((t) => {
     if (closedOnly && t.is_open) return false;
     if (t.is_archived) return false;
-    // `profile` matches either planned or actual profile field — single filter for users.
     if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) return false;
     if (opts.actualProfile && t.actual_profile !== opts.actualProfile) return false;
+    if (dateFrom || dateTo) {
+      const ts = t.entry_time ? String(t.entry_time) : null;
+      if (!ts) return false;
+      if (dateFrom && ts < dateFrom) return false;
+      if (dateTo && ts > dateTo) return false;
+    }
     return true;
   });
 
@@ -311,6 +340,7 @@ export function buildBuckets(
     keys,
     null,
     opts.propFirm ?? null,
+    recentN,
   );
 
   const cellMap = new Map<string, Trade[]>();
@@ -333,7 +363,7 @@ export function buildBuckets(
   const perCell: BucketReport[] = [];
   cellMap.forEach((rows, cellKey) => {
     const [symbol, session] = cellKey.split("__");
-    const report = computeBucket({ symbol, session }, rows, keys, baseline, opts.propFirm ?? null);
+    const report = computeBucket({ symbol, session }, rows, keys, baseline, opts.propFirm ?? null, recentN);
     report.rawSymbols = Array.from(cellRawSymbols.get(cellKey) ?? []).sort();
     perCell.push(report);
   });
@@ -345,6 +375,7 @@ export function buildBuckets(
       keys,
       baseline,
       opts.propFirm ?? null,
+      recentN,
     );
     report.rawSymbols = Array.from(rowRawSymbols.get(symbol) ?? []).sort();
     perRow.push(report);
@@ -419,6 +450,7 @@ function computeBucket(
   keys: PairLabFieldKeys,
   baseline: BucketReport | null,
   propFirm: PropFirmContext | null,
+  recentN: number = 10,
 ): BucketReport {
   const closed = rows.filter((t) => t.net_pnl != null);
 
@@ -548,6 +580,30 @@ function computeBucket(
     if (sweepOut.length > 0) slSweep = sweepOut;
   }
 
+
+  // Walk-forward event timeline — closed trades ordered by entry_time.
+  // Used by the drift signal (recent vs lifetime) and the cumulative drilldown chart.
+  const events: BucketEvent[] = [...closed]
+    .filter((t) => t.entry_time)
+    .sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)))
+    .map((t) => {
+      const r = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual)
+        ? t.r_multiple_actual
+        : ((t.net_pnl ?? 0) > 0 ? 1 : (t.net_pnl ?? 0) < 0 ? -1 : 0);
+      return { ts: String(t.entry_time), won: r > 0, r };
+    });
+  const tail = events.slice(-recentN);
+  const recentEnough = tail.length >= 5;
+  const recentWinRate = recentEnough
+    ? tail.filter((e) => e.won).length / tail.length
+    : null;
+  const recentExpectedR = recentEnough
+    ? tail.reduce((s, e) => s + e.r, 0) / tail.length
+    : null;
+  const drift = recentWinRate != null
+    ? (recentWinRate - winRate) * 100
+    : null;
+
   const stats: BucketStats = {
     key,
     rawSymbols: [],
@@ -558,7 +614,7 @@ function computeBucket(
     winRateCi: n > 0 ? wilsonCi(wins.length, n) : null,
     expectedR,
     expectedRMedian,
-    profitFactor, // Infinity sentinel preserved for all-win buckets — UI renders "∞"
+    profitFactor,
     payoffRatio,
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),
@@ -567,8 +623,6 @@ function computeBucket(
     maeP75Pips: quantile(maesPips, 0.75),
     maeP50Ticks: median(maesTicks),
     maeP75Ticks: quantile(maesTicks, 0.75),
-    // Use reduce instead of Math.min(...arr) — the spread form hits V8's
-    // argument-count limit (~125k) and throws on large MAE/MFE samples.
     mfeMin: mfes.length > 0 ? mfes.reduce((a, b) => (a < b ? a : b)) : null,
     mfeMax: mfes.length > 0 ? mfes.reduce((a, b) => (a > b ? a : b)) : null,
     maeMinTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a < b ? a : b)) : null,
@@ -587,6 +641,11 @@ function computeBucket(
     }).length,
     loggedIdealSlCount: idealSls.length,
     slSweep,
+    events,
+    recentN,
+    recentWinRate,
+    recentExpectedR,
+    drift,
   };
 
 

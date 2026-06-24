@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { BucketReport, PropFirmContext } from "@/lib/pairLabMath";
 import { Link } from "react-router-dom";
+import { CumulativeExpectancyChart } from "@/components/pair-lab/CumulativeExpectancyChart";
 
 interface QuantNote {
   headline: string;
@@ -192,6 +193,22 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
           </div>
         </div>
       )}
+
+      {/* Walk-forward causal chart — cumulative + rolling expectancy over time. */}
+      {b.events && b.events.length >= 5 && (
+        <div className="border border-border/40 rounded-md p-3 bg-muted/5">
+          <div className="flex items-baseline justify-between mb-1.5">
+            <div className="text-xs font-medium">Expectancy over time</div>
+            {b.drift != null && Math.abs(b.drift) >= 15 && (
+              <div className={"text-[11px] font-mono-numbers " + ((b.drift ?? 0) > 0 ? "text-profit" : "text-loss")}>
+                recent {Math.min(b.recentN, b.events.length)}: {((b.recentWinRate ?? 0) * 100).toFixed(0)}% ({(b.drift > 0 ? "+" : "") + b.drift.toFixed(0)}pp vs lifetime)
+              </div>
+            )}
+          </div>
+          <CumulativeExpectancyChart events={b.events} rollingN={b.recentN} />
+        </div>
+      )}
+
 
       {/* Quant-suggested parameters — surfaced from buildRecommendation, no LLM. */}
       {b.n >= 10 && (() => {

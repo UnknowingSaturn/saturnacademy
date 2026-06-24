@@ -23,6 +23,14 @@ export interface PairLabFilters {
   /** Matches trades whose planned OR actual profile equals this value. */
   profile?: string | null;
   propFirmMode?: boolean;
+  /** Walk-forward: ISO timestamp lower bound on entry_time (inclusive). */
+  dateFrom?: string | null;
+  /** Walk-forward: ISO timestamp upper bound on entry_time (inclusive). */
+  dateTo?: string | null;
+  /** When set, collapse every member symbol into `groupOverride.name` before bucketing. */
+  groupOverride?: { name: string; symbols: string[] } | null;
+  /** Window length for the per-bucket drift signal (default 10). */
+  recentN?: number;
 }
 
 import type { Trade } from "@/types/trading";
@@ -136,7 +144,14 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const missingFields =
       !fieldKeys.mfe && !fieldKeys.mae && !fieldKeys.idealStopLoss;
 
-    const symbolResolver = buildSymbolResolver(aliases);
+    const baseResolver = buildSymbolResolver(aliases);
+    const groupOverride = filters.groupOverride ?? null;
+    const symbolResolver: (raw: string) => string = groupOverride
+      ? ((raw: string) => {
+          const canonical = baseResolver(raw);
+          return groupOverride.symbols.includes(canonical) ? groupOverride.name : canonical;
+        })
+      : baseResolver;
 
     let propFirm: PropFirmContext | null = null;
     const profile = profileQuery.data;
@@ -163,6 +178,9 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       closedOnly: true,
       symbolResolver,
       propFirm,
+      dateFrom: filters.dateFrom ?? null,
+      dateTo: filters.dateTo ?? null,
+      recentN: filters.recentN ?? 10,
     });
 
     const closedTrades = trades.filter((t) => !t.is_open && !t.is_archived);
@@ -215,5 +233,10 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     effectiveFirmId,
     filters.profile,
     filters.propFirmMode,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.recentN,
+    filters.groupOverride?.name,
+    filters.groupOverride?.symbols.join(","),
   ]);
 }
