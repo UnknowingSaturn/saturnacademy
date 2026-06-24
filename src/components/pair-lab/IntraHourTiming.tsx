@@ -1,20 +1,18 @@
 // ============================================================================
 // Intra-Hour Timing — per-pair half-of-hour setup landscape.
 //
-// Answers, per pair: when a first-half setup (≤ :30) prints, what % work? When
-// a second-half setup (> :30) prints, what % work? And when BOTH print in the
-// same logged hour, which half pays more often?
+// Reads two journal observations independent of execution:
+//   • `ideal_entry_window`  — which half(s) had a setup that WORKED.
+//   • `failed_setup_half`   — which half(s) had a setup that PRINTED BUT FAILED.
 //
-// This deliberately does NOT bucket by fill-minute or aggregate R-multiples.
-// R conflates window edge with your own execution quality (a late entry on a
-// real first-half setup booked as a loss would have dragged down the "first
-// half" R). Counting setup occurrences and outcomes — independent of the
-// trade you actually took — isolates the window question.
+// Each is `'none' | 'first' | 'second' | 'both' | null`. Together they answer:
+// when a first-half setup prints, what % work? When a second-half setup
+// prints, what % work? When both halves print in the same logged hour, which
+// half pays more often?
 //
-// Inputs are the per-trade observation fields `first_half_setup` and
-// `second_half_setup` (values: 'none' | 'worked' | 'failed' | null). The user
-// fills these in when journaling: what did the chart offer this hour, not
-// what did I make.
+// R-multiples are deliberately ignored — R conflates window edge with your
+// own execution quality. Counting setup occurrences and outcomes — separate
+// from the trade you actually took — isolates the window question.
 // ============================================================================
 
 import { useMemo, useState } from "react";
@@ -23,7 +21,8 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Clock, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Trade, HourSetupOutcome } from "@/types/trading";
+import type { Trade } from "@/types/trading";
+import { halfMatches, type HourLandscape } from "@/lib/hourSetup";
 
 interface Props {
   trades: Trade[];
@@ -31,31 +30,24 @@ interface Props {
 }
 
 interface HalfStats {
-  printed: number;   // 'worked' + 'failed'
   worked: number;
   failed: number;
 }
 
 interface PairRow {
   symbol: string;
-  hoursLogged: number;       // hours where at least one half has an outcome recorded
+  hoursLogged: number;       // hours where at least one of the two columns is set
   first: HalfStats;
   second: HalfStats;
-  bothPrinted: number;       // hours where first printed AND second printed
-  bothFirstWorked: number;   // of bothPrinted, first 'worked'
-  bothSecondWorked: number;  // of bothPrinted, second 'worked'
+  bothPrinted: number;       // hours where first AND second produced any observation
+  bothFirstWorked: number;
+  bothSecondWorked: number;
 }
 
 const MIN_HOURS_FOR_TRUST = 10;
 
 function emptyHalf(): HalfStats {
-  return { printed: 0, worked: 0, failed: 0 };
-}
-
-function recordHalf(stats: HalfStats, v: HourSetupOutcome | null | undefined): boolean {
-  if (v === 'worked') { stats.printed += 1; stats.worked += 1; return true; }
-  if (v === 'failed') { stats.printed += 1; stats.failed += 1; return true; }
-  return false;
+  return { worked: 0, failed: 0 };
 }
 
 function pct(num: number, denom: number): string {
@@ -76,10 +68,11 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
       const canonical = symbolResolver(t.symbol);
       symSet.add(canonical);
 
-      const fh = (t.first_half_setup ?? null) as HourSetupOutcome | null;
-      const sh = (t.second_half_setup ?? null) as HourSetupOutcome | null;
-      // Need at least one half tagged to count this trade as a logged hour.
-      if (!fh && !sh) continue;
+      const worked = (t.ideal_entry_window ?? null) as HourLandscape | null;
+      const failed = (t.failed_setup_half ?? null) as HourLandscape | null;
+      const hasAny =
+        (worked && worked !== 'none') || (failed && failed !== 'none');
+      if (!hasAny) continue;
 
       let row = map.get(canonical);
       if (!row) {
@@ -95,12 +88,23 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
         map.set(canonical, row);
       }
       row.hoursLogged += 1;
-      const firstPrinted = recordHalf(row.first, fh);
-      const secondPrinted = recordHalf(row.second, sh);
+
+      const firstWorked = halfMatches(worked, 'first');
+      const secondWorked = halfMatches(worked, 'second');
+      const firstFailed = halfMatches(failed, 'first');
+      const secondFailed = halfMatches(failed, 'second');
+
+      if (firstWorked) row.first.worked += 1;
+      if (firstFailed) row.first.failed += 1;
+      if (secondWorked) row.second.worked += 1;
+      if (secondFailed) row.second.failed += 1;
+
+      const firstPrinted = firstWorked || firstFailed;
+      const secondPrinted = secondWorked || secondFailed;
       if (firstPrinted && secondPrinted) {
         row.bothPrinted += 1;
-        if (fh === 'worked') row.bothFirstWorked += 1;
-        if (sh === 'worked') row.bothSecondWorked += 1;
+        if (firstWorked) row.bothFirstWorked += 1;
+        if (secondWorked) row.bothSecondWorked += 1;
       }
     }
 
@@ -117,11 +121,12 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
       <Card className="p-6 text-sm text-muted-foreground space-y-2">
         <div className="font-medium text-foreground">No hour setup observations yet.</div>
         <div className="text-xs leading-relaxed">
-          Open any trade in the Journal and fill in the new <span className="font-mono text-foreground">1st-half setup (≤ :30)</span>{" "}
-          and <span className="font-mono text-foreground">2nd-half setup (&gt; :30)</span> fields. Mark each half as{" "}
-          <span className="font-mono text-foreground">Worked</span>, <span className="font-mono text-foreground">Failed</span>, or{" "}
-          <span className="font-mono text-foreground">None</span> based on what the chart actually offered — regardless of which one
-          you took. After ~10–15 hours per pair, this tab will show base rates.
+          Open any trade in the Journal and fill in the{" "}
+          <span className="font-mono text-foreground">Ideal entry window</span> and{" "}
+          <span className="font-mono text-foreground">Failed setup</span> fields. Mark which half
+          of the hour produced a working setup, and which half produced one that failed —
+          regardless of which trade you took. After ~10–15 hours per pair, this tab will show
+          base rates.
         </div>
       </Card>
     );
@@ -135,9 +140,11 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
           <h3 className="font-semibold">Hour setup landscape</h3>
           <p className="text-xs text-muted-foreground mt-1">
             Per pair, the rate at which a setup prints in each half of the hour and the rate at
-            which it works when it does. No R, no fill-minute bucketing — just base rates of what
-            the chart offers. Fill the per-trade <span className="font-mono">1st-half / 2nd-half setup</span>{" "}
-            fields in the Journal to populate this.
+            which it works when it does. No R, no fill-minute bucketing — just base rates of
+            what the chart offers. Fill the per-trade{" "}
+            <span className="font-mono">Ideal entry window</span> and{" "}
+            <span className="font-mono">Failed setup</span> fields in the Journal to populate
+            this.
           </p>
         </div>
       </div>
@@ -178,8 +185,10 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
           </thead>
           <tbody>
             {rows.map((r) => {
-              const firstHit = r.first.printed > 0 ? r.first.worked / r.first.printed : null;
-              const secondHit = r.second.printed > 0 ? r.second.worked / r.second.printed : null;
+              const firstPrinted = r.first.worked + r.first.failed;
+              const secondPrinted = r.second.worked + r.second.failed;
+              const firstHit = firstPrinted > 0 ? r.first.worked / firstPrinted : null;
+              const secondHit = secondPrinted > 0 ? r.second.worked / secondPrinted : null;
               const trusted = r.hoursLogged >= MIN_HOURS_FOR_TRUST;
               const delta = firstHit != null && secondHit != null ? firstHit - secondHit : null;
               const edgeLabel = delta == null
@@ -206,9 +215,9 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
                     {r.hoursLogged}
                   </td>
                   <td className="py-2 px-2 text-center font-mono-numbers text-xs border-l border-border/30">
-                    {r.first.printed} / {r.hoursLogged}
+                    {firstPrinted} / {r.hoursLogged}
                     <div className="text-[10px] text-muted-foreground">
-                      {pct(r.first.printed, r.hoursLogged)}
+                      {pct(firstPrinted, r.hoursLogged)}
                     </div>
                   </td>
                   <td className="py-2 px-2 text-center font-mono-numbers">
@@ -225,9 +234,9 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
                     </div>
                   </td>
                   <td className="py-2 px-2 text-center font-mono-numbers text-xs border-l border-border/30">
-                    {r.second.printed} / {r.hoursLogged}
+                    {secondPrinted} / {r.hoursLogged}
                     <div className="text-[10px] text-muted-foreground">
-                      {pct(r.second.printed, r.hoursLogged)}
+                      {pct(secondPrinted, r.hoursLogged)}
                     </div>
                   </td>
                   <td className="py-2 px-2 text-center font-mono-numbers">
@@ -298,12 +307,12 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
       <p className="text-xs text-muted-foreground border-t pt-3 leading-relaxed flex items-start gap-1.5">
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
         <span>
-          Halves are split on the candle close: a setup whose final candle closes at or before :30
-          is first-half; after :30 is second-half. Rows with fewer than {MIN_HOURS_FOR_TRUST} logged
-          hours are flagged "low N" — treat their hit rates as directional, not decisive. Selection
-          bias caveat: only hours you opened a trade in are in this dataset. If a pair's hit-rate
-          gap widens past ~15pp with N ≥ 20, that's a real signal — rewrite or confirm the rule on
-          which half to take.
+          Halves are split on the candle close: a setup whose final candle closes at or before
+          :30 is first-half; after :30 is second-half. Rows with fewer than{" "}
+          {MIN_HOURS_FOR_TRUST} logged hours are flagged "low N" — treat their hit rates as
+          directional, not decisive. Selection bias caveat: only hours you opened a trade in
+          are in this dataset. If a pair's hit-rate gap widens past ~15pp with N ≥ 20, that's
+          a real signal — rewrite or confirm the rule on which half to take.
         </span>
       </p>
     </Card>
