@@ -303,6 +303,11 @@ export interface BuildBucketsOpts {
   closedOnly?: boolean;
   symbolResolver?: (raw: string) => string;
   propFirm?: PropFirmContext | null;
+  /** Walk-forward: only include trades whose entry_time falls inside [dateFrom, dateTo]. ISO strings. */
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  /** Window length for `recent*` / `drift`. Default 10. */
+  recentN?: number;
 }
 
 export function buildBuckets(
@@ -312,12 +317,20 @@ export function buildBuckets(
 ): { perCell: BucketReport[]; perRow: BucketReport[]; baseline: BucketReport } {
   const closedOnly = opts.closedOnly !== false;
   const resolveSym = opts.symbolResolver ?? ((s: string) => s);
+  const recentN = opts.recentN ?? 10;
+  const dateFrom = opts.dateFrom ?? null;
+  const dateTo = opts.dateTo ?? null;
   const filtered = trades.filter((t) => {
     if (closedOnly && t.is_open) return false;
     if (t.is_archived) return false;
-    // `profile` matches either planned or actual profile field — single filter for users.
     if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) return false;
     if (opts.actualProfile && t.actual_profile !== opts.actualProfile) return false;
+    if (dateFrom || dateTo) {
+      const ts = t.entry_time ? String(t.entry_time) : null;
+      if (!ts) return false;
+      if (dateFrom && ts < dateFrom) return false;
+      if (dateTo && ts > dateTo) return false;
+    }
     return true;
   });
 
