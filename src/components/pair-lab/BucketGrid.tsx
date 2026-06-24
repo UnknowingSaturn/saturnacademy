@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
@@ -196,25 +197,33 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
 
 
 export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSelect }: Props) {
-  const cellLookup = new Map<string, BucketReport>();
-  perCell.forEach((c) => cellLookup.set(`${c.key.symbol}__${c.key.session}`, c));
-  const rowLookup = new Map<string, BucketReport>();
-  perRow.forEach((r) => rowLookup.set(r.key.symbol, r));
+  // Memoize lookup maps + FDR pass so we don't rebuild them on every parent
+  // re-render (slider drags, sticky-header scroll, etc.). With ~30 pairs ×
+  // 4 sessions the cost is small but happens often — this kept the grid
+  // single-digit ms during walk-forward scrubs.
+  const { cellLookup, rowLookup, fdrByKey } = useMemo(() => {
+    const cellLookup = new Map<string, BucketReport>();
+    perCell.forEach((c) => cellLookup.set(`${c.key.symbol}__${c.key.session}`, c));
+    const rowLookup = new Map<string, BucketReport>();
+    perRow.forEach((r) => rowLookup.set(r.key.symbol, r));
 
-  // BH FDR across per-cell buckets ONLY. Row totals aggregate the same trades
-  // contained in their constituent cells (non-independent tests); mixing them
-  // into the BH pool inflates `m` and over-corrects, hiding real edges.
-  // Only buckets with n ≥ 10 and a positive expectancy enter the test —
-  // others can't be significant by construction and would just inflate `m`.
-  const fdrEligible = perCell
-    .map((b, idx) => ({ b, idx }))
-    .filter(({ b }) => b.n >= 10 && b.expectedR > 0 && b.expectancyPValue != null);
-  const sig = bhSignificant(fdrEligible.map(({ b }) => b.expectancyPValue), 0.05);
-  const fdrByKey = new Map<string, "sig" | "ns">();
-  fdrEligible.forEach(({ b }, i) => {
-    const k = `${b.key.symbol}__${b.key.session}`;
-    fdrByKey.set(k, sig[i] ? "sig" : "ns");
-  });
+    // BH FDR across per-cell buckets ONLY. Row totals aggregate the same trades
+    // contained in their constituent cells (non-independent tests); mixing them
+    // into the BH pool inflates `m` and over-corrects, hiding real edges.
+    // Only buckets with n ≥ 10 and a positive expectancy enter the test —
+    // others can't be significant by construction and would just inflate `m`.
+    const fdrEligible = perCell
+      .map((b, idx) => ({ b, idx }))
+      .filter(({ b }) => b.n >= 10 && b.expectedR > 0 && b.expectancyPValue != null);
+    const sig = bhSignificant(fdrEligible.map(({ b }) => b.expectancyPValue), 0.05);
+    const fdrByKey = new Map<string, "sig" | "ns">();
+    fdrEligible.forEach(({ b }, i) => {
+      const k = `${b.key.symbol}__${b.key.session}`;
+      fdrByKey.set(k, sig[i] ? "sig" : "ns");
+    });
+    return { cellLookup, rowLookup, fdrByKey };
+  }, [perCell, perRow]);
+
   const fdrFor = (b: BucketReport | null): "sig" | "ns" | null => {
     if (!b || b.n < 10 || !(b.expectedR > 0) || b.expectancyPValue == null) return null;
     return fdrByKey.get(`${b.key.symbol}__${b.key.session}`) ?? null;

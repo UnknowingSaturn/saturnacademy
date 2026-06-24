@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, FlaskConical, Info, Shield, X, Layers } from "lucide-react";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 import { usePairLab } from "@/hooks/usePairLab";
+import { usePairLabTradeBounds } from "@/hooks/usePairLabTradeBounds";
 import { useSymbolGroups } from "@/hooks/useSymbolGroups";
 import { BucketGrid } from "@/components/pair-lab/BucketGrid";
 
@@ -24,6 +25,7 @@ import { IdealWindowHeatmap } from "@/components/pair-lab/IdealWindowHeatmap";
 import { WalkForwardControls, resolveWindow, type WalkForwardState } from "@/components/pair-lab/WalkForwardControls";
 import { OutOfSamplePanel } from "@/components/pair-lab/OutOfSamplePanel";
 import { normalizeSession } from "@/lib/pairLabMath";
+import { PairLabWalkForwardProvider } from "@/contexts/PairLabWalkForwardContext";
 
 type Selected = { symbol: string; session: string } | null;
 
@@ -79,24 +81,12 @@ export default function PairLab() {
     return groups.find((g) => g.id === id) ?? null;
   }, [scope, groups]);
 
-  // Use unfiltered hook once to find the date bounds of the user's data.
-  const allData = usePairLab({
-    profile: profile === "any" ? null : profile,
-    propFirmMode,
-    includeUnrealized,
-  });
-
-  const { minMs, maxMs } = useMemo(() => {
-    const ts = allData.trades
-      .filter((t) => !t.is_open && !t.is_archived && t.entry_time)
-      .map((t) => new Date(String(t.entry_time)).getTime())
-      .filter((n) => Number.isFinite(n));
-    if (ts.length === 0) {
-      const now = Date.now();
-      return { minMs: now - 90 * 86_400_000, maxMs: now };
-    }
-    return { minMs: Math.min(...ts), maxMs: Math.max(...ts) };
-  }, [allData.trades]);
+  // Bounds for the as-of slider — derived directly from the trades cache
+  // (no extra fetch, no extra buildBuckets pass). Previously `usePairLab`
+  // was called twice: once unfiltered to compute bounds, once filtered for
+  // display. That doubled buildBuckets work and forced two re-derivations
+  // per render. Now a single call below feeds every panel.
+  const { minMs, maxMs } = usePairLabTradeBounds();
 
   const [wf, setWf] = useState<WalkForwardState>({ lens: "all", asOfMs: Date.now() });
   // Clamp asOf into actual data range once data arrives.
@@ -276,6 +266,19 @@ export default function PairLab() {
         </TooltipProvider>
       )}
 
+      <PairLabWalkForwardProvider
+        value={{
+          wf,
+          setWf,
+          minMs,
+          maxMs,
+          profile: profile === "any" ? null : profile,
+          scope,
+          recentN: 10,
+          includeUnrealized,
+          propFirmMode,
+        }}
+      >
       <Tabs defaultValue="windows">
         <TabsList>
           <TabsTrigger value="windows">Ideal windows</TabsTrigger>
@@ -472,9 +475,10 @@ export default function PairLab() {
         </TabsContent>
 
         <TabsContent value="aliases" className="mt-4">
-          <SymbolAliasManager />
+          <SymbolAliasManager trades={data.trades} isLoading={data.isLoading} />
         </TabsContent>
       </Tabs>
+      </PairLabWalkForwardProvider>
     </div>
   );
 }

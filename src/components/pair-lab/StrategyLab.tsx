@@ -13,20 +13,19 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Info } from "lucide-react";
+import { Sparkles, Info, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Trade } from "@/types/trading";
 import {
-  runMonteCarlo,
   extractRSample,
   meanRWithCI,
   ROTATION_LABELS,
   type RotationModel,
-  type MCParams,
   type MCResult,
 } from "@/lib/propFirmMonteCarlo";
 import { NumericInput } from "./NumericInput";
 import { classifyDataTier, DATA_TIER_VALIDATED_N } from "../../../shared/quant/config";
+import { useStrategyLabSweep } from "@/hooks/useStrategyLabSweep";
 
 
 interface Props {
@@ -44,17 +43,9 @@ const RISK_TIERS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const ROTATION_MODELS: RotationModel[] = ["one_only", "simultaneous", "stay_on_winner", "round_robin"];
 const TARGET_PRESETS = [6, 8, 10, 12];
 const WINDOW_PRESETS = [30, 60, 90];
-
-// Sample window — restricts the trade history fed into the sweep. "All" preserves
-// the historical default. Short windows let the user inspect current-regime edge
-// without changing any downstream math; the existing edge-gate handles small-n.
-type SampleWindow = "all" | "30d" | "60d" | "90d";
-const SAMPLE_WINDOW_OPTIONS: { value: SampleWindow; label: string; days: number | null }[] = [
-  { value: "all", label: "All", days: null },
-  { value: "30d", label: "30d", days: 30 },
-  { value: "60d", label: "60d", days: 60 },
-  { value: "90d", label: "90d", days: 90 },
-];
+// Sample windowing is now owned by the shared walk-forward context — every
+// Pair Lab tab sees the same date-filtered trades. The local "All/30d/60d/90d"
+// quick-toggle has been removed to keep the sample under one source of truth.
 
 // Score components (exposed for the breakdown line).
 //
@@ -74,13 +65,8 @@ function scoreCellParts(r: MCResult, inconclusiveWeight = 0.1) {
   return { passProb: r.passProb, survival, ddPenalty, inconclusivePenalty, score };
 }
 
-// Deterministic but distinct seed per cell — prevents the heatmap from showing
-// artificial similarity between cells that happen to walk the same sample path.
-function cellSeed(model: RotationModel, risk: number): number {
-  const modelIdx = ROTATION_MODELS.indexOf(model);
-  // Encode model in high bits, risk×100 in low bits.
-  return ((modelIdx + 1) * 100003) ^ Math.round(risk * 1000) ^ 0x5f3759df;
-}
+// (cellSeed now lives in the worker — keeps the per-cell PRNG seed local to
+// the thread that actually runs runMonteCarlo.)
 
 // Auto-detect average trades/day from the user's history.
 //
@@ -111,18 +97,9 @@ export function StrategyLab({
   maxDrawdownDollars,
   hasPropFirmProfile,
 }: Props) {
-  const [sampleWindow, setSampleWindow] = useState<SampleWindow>("all");
-
-  const filteredTrades = useMemo(() => {
-    const opt = SAMPLE_WINDOW_OPTIONS.find((o) => o.value === sampleWindow);
-    if (!opt || opt.days == null) return trades;
-    const cutoff = Date.now() - opt.days * 86_400_000;
-    return trades.filter((t) => {
-      if (!t.entry_time) return false;
-      const ts = new Date(t.entry_time).getTime();
-      return Number.isFinite(ts) && ts >= cutoff;
-    });
-  }, [trades, sampleWindow]);
+  // Trades arrive already date-filtered by the shared walk-forward context;
+  // no extra sample window here.
+  const filteredTrades = trades;
 
   const windowMeta = useMemo(() => {
     let n = 0;
@@ -183,45 +160,35 @@ export function StrategyLab({
     ? effMaxDollars / accountSize
     : customMaxPct / 100;
 
-  const cells = useMemo(() => {
-    if (rSample.length < 10) return [];
-    const out: Array<{
-      key: string; risk: number; model: RotationModel; result: MCResult;
-      score: number; parts: ReturnType<typeof scoreCellParts>;
-    }> = [];
-    for (const model of ROTATION_MODELS) {
-      for (const risk of RISK_TIERS) {
-        const params: MCParams = {
-          rSample,
-          riskPerTradeFrac: risk / 100,
-          numAccounts,
-          accountSize,
-          dailyLossPct,
-          maxLossPct,
-          targetPct: targetPct / 100,
-          tradesPerDay,
-          maxDays: windowDays,
-          rotationModel: model,
-          maxLossMode: trailingDD ? "trailing" : "static",
-          paths: 1200,
-          // Deterministic per cell so two cells with similar means don't show
-          // artificial closeness from sharing the same sampled paths.
-          seed: cellSeed(model, risk),
-        };
-        const result = runMonteCarlo(params);
-        const parts = scoreCellParts(result);
-        out.push({
-          key: `${model}|${risk}`,
-          risk,
-          model,
-          result,
-          score: parts.score,
-          parts,
-        });
-      }
-    }
-    return out;
+  // Build the worker request — null skips the post when we don't have enough
+  // samples (also short-circuits skeleton state). The worker hook serialises
+  // this object as its cache key, so keep the field order stable.
+  const sweepRequest = useMemo(() => {
+    if (rSample.length < 10) return null;
+    return {
+      rSample,
+      riskTiers: RISK_TIERS,
+      rotationModels: ROTATION_MODELS,
+      numAccounts,
+      accountSize,
+      dailyLossPct,
+      maxLossPct,
+      targetPct,
+      tradesPerDay,
+      windowDays,
+      trailingDD,
+      paths: 1200,
+    };
   }, [rSample, numAccounts, accountSize, dailyLossPct, maxLossPct, targetPct, tradesPerDay, windowDays, trailingDD]);
+
+  const { cells: rawCells, isComputing } = useStrategyLabSweep(sweepRequest);
+
+  const cells = useMemo(() => {
+    return rawCells.map((c) => {
+      const parts = scoreCellParts(c.result);
+      return { ...c, score: parts.score, parts };
+    });
+  }, [rawCells]);
 
   const best = cells.length > 0
     ? cells.reduce((a, b) => (b.score > a.score ? b : a), cells[0])
@@ -256,25 +223,18 @@ export function StrategyLab({
         <div className="flex-1 min-w-[260px]">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h3 className="font-semibold">Strategy Lab</h3>
-            <div className="flex items-center gap-1 rounded-md border border-border/60 bg-muted/20 p-0.5">
-              {SAMPLE_WINDOW_OPTIONS.map((opt) => (
-                <Button
-                  key={opt.value}
-                  size="sm"
-                  variant={sampleWindow === opt.value ? "default" : "ghost"}
-                  className="h-6 px-2 text-xs"
-                  onClick={() => setSampleWindow(opt.value)}
-                >
-                  {opt.label}
-                </Button>
-              ))}
-            </div>
+            {isComputing && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                running sweep…
+              </span>
+            )}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
             {ROTATION_MODELS.length} rotation models × {RISK_TIERS.length} risk tiers ={" "}
             {ROTATION_MODELS.length * RISK_TIERS.length} configurations. Each runs 1,200 Monte-Carlo
             paths over your real R history (N {rSample.length}) and the firm rules below. Click a
-            cell to inspect.
+            cell to inspect. Sweep runs in a background worker — UI stays responsive.
           </p>
           <p className="text-[11px] text-muted-foreground mt-1 font-mono-numbers">
             Sample: {windowMeta.n} trades
@@ -286,7 +246,7 @@ export function StrategyLab({
                 {new Date(windowMeta.last).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
               </>
             )}
-            {sampleWindow !== "all" && <span className="ml-2 italic">(filtered)</span>}
+            <span className="ml-2 italic">window from Pair Lab walk-forward</span>
           </p>
         </div>
         {best && edgePositive && !provisional && (
@@ -322,11 +282,6 @@ export function StrategyLab({
               {edge.n < 30
                 ? `Need ≥30 closed trades with R-multiples before edge can be tested (have ${edge.n}).`
                 : "The 95% confidence interval crosses zero, so any pass-prob ranking on this sample reflects path luck — not a tradeable edge. Heatmap stays visible for comparison, but no risk % is recommended. Fix the playbook (entries, exits, R per trade) before tuning size."}
-              {sampleWindow !== "all" && (
-                <span className="block mt-1 italic">
-                  Narrow window selected — switch to <strong>All</strong> for the full sample.
-                </span>
-              )}
             </div>
           </div>
         </div>

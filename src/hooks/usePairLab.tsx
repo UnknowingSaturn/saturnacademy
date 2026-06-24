@@ -17,8 +17,12 @@ import {
   type PropFirmContext,
   type TrailCaptureEstimate,
 } from "@/lib/pairLabMath";
-import { TRAIL_CAPTURE_FRAC } from "@/lib/pairLabSimulator";
 import { isUnrealized } from "../../shared/quant/stats";
+
+// Fallback trail-capture ratio when the user's logged sample is too thin for
+// `estimateTrailCapture` to produce one. Keeps usePairLab from importing the
+// simulator module for a single constant.
+const DEFAULT_TRAIL_CAPTURE = 0.7;
 
 export interface PairLabFilters {
   /** Matches trades whose planned OR actual profile equals this value. */
@@ -55,8 +59,6 @@ export interface PairLabData {
   sessions: string[];
   /** Closed (non-archived) trades in scope. Matches what the grid actually counts. */
   totalTrades: number;
-  /** Raw row count (incl. open trades) — kept for debugging only. */
-  totalTradeRowsRaw: number;
   missingFields: boolean;
   propFirm: PropFirmContext | null;
   trades: Trade[];
@@ -217,7 +219,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     );
 
     const trailCapture = estimateTrailCapture(closedTrades, fieldKeys);
-    const effectiveTrailCapture = trailCapture?.ratio ?? TRAIL_CAPTURE_FRAC;
+    const effectiveTrailCapture = trailCapture?.ratio ?? DEFAULT_TRAIL_CAPTURE;
     const partialFillFlag = detectPartialFills(closedTrades);
 
     return {
@@ -233,7 +235,6 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       symbols,
       sessions,
       totalTrades: closedTrades.length,
-      totalTradeRowsRaw: trades.length,
       missingFields,
       propFirm,
       trades: scopedTrades,
