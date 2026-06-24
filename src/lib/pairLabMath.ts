@@ -168,6 +168,16 @@ import type { PropFirmContext } from "../../shared/quant/types";
 
 export interface BucketRecommendation {
   suggestedSlPips: number | null;
+  /**
+   * Provenance of `suggestedSlPips`.
+   *  - "ideal_sl": median of user-logged ideal SL (cf_ideal_stop_loss). Preferred.
+   *  - "winners_mae": MAE-of-winners quantile (Sweeney). Used when ideal-SL coverage < 5.
+   *  - "winners_mae_fallback": MAE p75 × widen buffer. Used when neither of the above qualifies.
+   *  - "legacy": no SL data — recommendation suppressed.
+   */
+  slSource: "ideal_sl" | "winners_mae" | "winners_mae_fallback" | "legacy";
+  /** N trades backing the SL source (e.g. count of ideal-SL samples). null when legacy. */
+  slSourceN: number | null;
   tpLadderR: number[];            // ascending R targets, 1-3 entries (expected-R)
   tp1Star: Tp1Star | null;        // win-rate-maximizing TP target
   suggestedRiskPct: number | null;  // % of account, edge-only (Kelly), uncapped
