@@ -1,43 +1,95 @@
+## Verdict on the tab as it stands
 
-## Propagate `slSource` to AI reports
+The Timing tab is useful but it can't separate edge from drift. It buckets every trade by `entry_time` minute and never reads `cf_ideal_entry_window`. A "first 30min" trade you took at :42 (out of plan) lands in the same cell as a "last 30min" trade taken at :42 (in plan). The cell mean is meaningless.
 
-The recommendation cascade is correct in the math libs. Two report-layer touch-ups left so AI-generated reports reflect the new SL priority instead of treating ideal SL and MAE as co-equal.
+You don't need to journal differently — your "first 30min / last 30min" labels are enough. The tab needs to consume them.
 
-### 1. Carry `slSource` / `slSourceN` into report payloads
+## What changes
 
-**`supabase/functions/pair-lab-report/index.ts`**
-- Add `slSource` and `slSourceN` to the `RecommendationShape` type (around line 40) and to the `BaselineShape` if needed.
-- Include them in the bucket payload (around line 122) and baseline payload (around line 141):
-  ```ts
-  suggested_sl_pips: b.suggestedSlPips,
-  sl_source: b.slSource,
-  sl_source_n: b.slSourceN,
-  ```
+### 1. Parse `cf_ideal_entry_window` into a minute range
 
-**`supabase/functions/generate-report/index.ts`**
-- Same two fields next to `suggested_sl_pips` at line 1098.
+Small parser, normalizes case/whitespace/punctuation, supports:
 
-### 2. Update the AI report prompt
+- `first 15min` → 0–14
+- `first 30min` → 0–29
+- `first 45min` → 0–44
+- `last 15min`  → 45–59
+- `last 30min`  → 30–59
+- `last 45min`  → 15–59
+- explicit ranges `:15-:30` or `15-30` if ever typed
 
-**`supabase/functions/pair-lab-report/index.ts`** (around line 181, and the equivalent guidance block):
+Variants like `first 30 minutes`, `1st 30min` resolve to the same window. Anything else → `null` = unspecified.
 
-Replace:
-> If slDrift is "too_wide" → suggest tightening to ideal_sl_median. If "too_tight" → suggest widening to mae_p75 × 1.15.
+### 2. Classify each trade
 
-With:
-> The recommended SL (`suggested_sl_pips`) is sourced per the `sl_source` field:
-> - `ideal_sl`: median of the trader's logged ideal SL across `sl_source_n` trades. Cite the SL as "based on your logged ideal SL".
-> - `winners_mae`: MAE-of-winners (no ideal SL logged for this bucket). Cite as "derived from how much heat your winners absorbed (n=…)".
-> - `winners_mae_fallback`: MAE p75 × 1.15. Cite as "fallback estimate — log ideal SL on more trades to improve this".
->
-> For `slDrift`: "too_wide" / "too_tight" describes how the trader's initial SL compares to their own ideal SL — comment on discipline, not on changing the recommendation.
+Derived tag per trade:
 
-### Out of scope
-- No changes to the simulator's `tighten_to_ideal` / `widen_to_mae_p75` rules — those are intentional user-selectable what-ifs.
-- No removal of MAE stats from the UI — `maeP75` remains a useful diagnostic next to ideal SL.
+- `in_window` — fill minute inside parsed window
+- `out_of_window` — window exists, fill minute outside
+- `unspecified` — no window logged or unparseable
 
-### Files
-- `supabase/functions/pair-lab-report/index.ts` — type + payload + prompt edits.
-- `supabase/functions/generate-report/index.ts` — payload fields only.
+### 3. New "Window discipline" control on the tab
 
-After the edits both edge functions need redeploying.
+Three options, sits next to Mode / Bucket size / Symbol:
+
+```text
+Window discipline:  [ Any ]  [ In-window only ]  [ Out-of-window only ]
+```
+
+- **Any** — current behavior.
+- **In-window only** — heatmap shows the edge of trades you took inside your plan. Answers "is my window right".
+- **Out-of-window only** — shows what happens when you chase. Confirms drift is costly.
+
+`unspecified` trades are excluded from the in/out filters with a small footer count: `12 trades excluded — no ideal window logged`.
+
+No "Split rows" mode — the per-symbol summary below already conveys the comparison without doubling heatmap height.
+
+### 4. Per-symbol discipline summary line
+
+Below the heatmap, one row per symbol with parseable windows:
+
+```text
+EURUSD   in-window +0.42R N 38   ·   out-of-window −0.31R N 14   ·   drift cost −0.73R
+```
+
+Amber chip on `drift cost` only when **both** sides have N≥5 and `|drift cost| ≥ 0.30R`. Below that threshold, render the number muted, no chip.
+
+### 5. Replace the existing "first half vs second half" block conditionally
+
+When the filtered set has ≥ MIN_N_FOR_COLOR (5) trades with a parseable window, hide the halves block and show the discipline summary instead. Below that threshold, keep halves as the fallback. One conditional, no component split.
+
+### 6. Coverage nudge per symbol
+
+When a symbol has ≥10 trades but fewer than 5 with a logged window, render one muted line under the summary:
+
+```text
+EURUSD — log ideal window on 8 more trades to unlock discipline view
+```
+
+This is the only piece that loops back to journaling behavior. One `<div>`, no new state.
+
+### 7. Header + footer copy
+
+Intro sentence notes the tab now respects logged `ideal entry window`. Footer info icon lists the supported phrases so you know what parses.
+
+## Out of scope
+
+- No journaling field changes, no new custom field, no DB migration.
+- No `pairLabMath.ts`, Strategy Lab, simulator, or edge-function changes.
+- No "how far out of window" bucketing — needs more data to be non-noise; revisit later.
+
+## Technical notes
+
+- Parser + classifier live in `src/components/pair-lab/IntraHourTiming.tsx` (or a small helper alongside it). Custom-field lookup uses the same path other Pair Lab components use for `cf_ideal_entry_window`.
+- Minute math stays UTC (file already documents the invariance).
+- `meanRWithCI` gates (N≥5 color, N≥15 edge proven) reused unchanged.
+- Parser runs once inside the existing `useMemo`; no perf concerns.
+
+## What this gets you
+
+- **In-window only** → does my plan have an edge?
+- **Discipline summary** → what is breaking the plan costing me?
+- **All / Any** → has the underlying edge drifted somewhere new?
+- **Coverage nudge** → tells you exactly where journaling discipline would unlock more analysis.
+
+Three real questions answered, one journaling feedback loop, no UI bloat.
