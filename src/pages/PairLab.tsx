@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, FlaskConical, Info, Shield, X } from "lucide-react";
+import { Loader2, FlaskConical, Info, Shield, X, Layers } from "lucide-react";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 import { usePairLab } from "@/hooks/usePairLab";
+import { useSymbolGroups } from "@/hooks/useSymbolGroups";
 import { BucketGrid } from "@/components/pair-lab/BucketGrid";
 
 import { QuantNotePanel } from "@/components/pair-lab/QuantNotePanel";
@@ -20,6 +21,8 @@ import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
 import { SimulatorProfileSettings } from "@/components/pair-lab/SimulatorProfileSettings";
 import { StrategyLab } from "@/components/pair-lab/StrategyLab";
 import { IdealWindowHeatmap } from "@/components/pair-lab/IdealWindowHeatmap";
+import { WalkForwardControls, resolveWindow, type WalkForwardState } from "@/components/pair-lab/WalkForwardControls";
+import { OutOfSamplePanel } from "@/components/pair-lab/OutOfSamplePanel";
 import { normalizeSession } from "@/lib/pairLabMath";
 
 type Selected = { symbol: string; session: string } | null;
