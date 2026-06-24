@@ -422,6 +422,14 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
         </div>
       </div>
 
+      {/* Walk-forward controls */}
+      <WalkForwardControls
+        state={wf}
+        onChange={(next) => { setWf(next); setSelectedCell(null); }}
+        minMs={tradeMsBounds.minMs}
+        maxMs={tradeMsBounds.maxMs}
+      />
+
       {/* Baseline strip */}
       {baseline && (
         <div className="rounded-md border border-border/60 bg-muted/10 p-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
