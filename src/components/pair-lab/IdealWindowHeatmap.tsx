@@ -122,6 +122,32 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
   const [sortBy, setSortBy] = useState<"lift" | "expectancy" | "rate">("lift");
   const [selectedCell, setSelectedCell] = useState<{ hour: number; half: Half } | null>(null);
 
+  // Walk-forward state — lens + as-of slider. Bounds derived from trade dates.
+  const tradeMsBounds = useMemo(() => {
+    let min = Infinity, max = -Infinity;
+    for (const t of trades) {
+      const ts = Date.parse(t.entry_time);
+      if (Number.isFinite(ts)) { if (ts < min) min = ts; if (ts > max) max = ts; }
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      const now = Date.now();
+      return { minMs: now - 365 * 86_400_000, maxMs: now };
+    }
+    return { minMs: min, maxMs: Math.max(max, Date.now()) };
+  }, [trades]);
+
+  const [wf, setWf] = useState<WalkForwardState>(() => ({
+    lens: "all",
+    asOfMs: tradeMsBounds.maxMs,
+  }));
+  // Keep asOf within bounds when trades change.
+  useEffect(() => {
+    setWf((prev) => {
+      const clamped = Math.max(tradeMsBounds.minMs, Math.min(tradeMsBounds.maxMs, prev.asOfMs));
+      return clamped === prev.asOfMs ? prev : { ...prev, asOfMs: clamped };
+    });
+  }, [tradeMsBounds.minMs, tradeMsBounds.maxMs]);
+
   // Resolve scope → effective pair label + wrapped resolver that collapses
   // group members into the group's name (so bucketTrades treats them as one).
   const { pair, effectiveResolver, activeGroup } = useMemo(() => {
