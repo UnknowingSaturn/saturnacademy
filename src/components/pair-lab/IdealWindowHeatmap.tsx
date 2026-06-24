@@ -52,8 +52,8 @@ function loadStoredMinN(): number {
   try {
     const raw = localStorage.getItem(MIN_N_STORAGE_KEY);
     const n = raw ? parseInt(raw, 10) : NaN;
-    return Number.isFinite(n) && n >= 1 ? n : 20;
-  } catch { return 20; }
+    return Number.isFinite(n) && n >= 1 ? n : 10;
+  } catch { return 10; }
 }
 
 function fmtPct(x: number | null): string {
@@ -67,21 +67,30 @@ function fmtR(x: number | null, withSign = false): string {
   return `${sign}${x.toFixed(2)}R`;
 }
 
-/** Lift→color: diverging red (loss) → neutral → green (edge). Opacity scales with n. */
+/**
+ * Lift → diverging red/green color. Opacity scales with how close the bucket
+ * is to `minN` so below-N cells still get directional color (just dimmer).
+ * Min-N gates the ★ significance flag, not the color itself.
+ */
 function cellTone(b: BucketStats | undefined, minN: number): { bg: string; ring: string } {
   if (!b || b.n === 0) return { bg: "transparent", ring: "border-border/30" };
-  if (b.n < minN) return { bg: "rgba(100,116,139,0.06)", ring: "border-dashed border-border/40" };
   const lift = b.expectancyLift ?? 0;
   // Clamp lift to ±0.6R for color saturation.
   const clamped = Math.max(-0.6, Math.min(0.6, lift));
   const intensity = Math.abs(clamped) / 0.6; // 0..1
-  // Confidence multiplier: more samples → more vivid, capped at 1.
-  const conf = Math.min(1, b.n / (minN * 2));
+  // Confidence: ramps 0 → 1 as n approaches 2 × minN, with a 0.25 floor so
+  // small-N cells are still visibly colored (just dimmer than trusted cells).
+  const conf = Math.max(0.25, Math.min(1, b.n / (minN * 2)));
   const alpha = (0.10 + 0.50 * intensity) * conf;
   const bg = clamped >= 0
     ? `rgba(16,185,129,${alpha.toFixed(3)})`   // emerald
     : `rgba(239,68,68,${alpha.toFixed(3)})`;   // red
-  return { bg, ring: b.significant ? "border-primary/60" : "border-border/40" };
+  const ring = b.significant
+    ? "border-primary/60"
+    : b.belowMinN
+      ? "border-dashed border-border/40"
+      : "border-border/40";
+  return { bg, ring };
 }
 
 export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props) {
@@ -117,7 +126,12 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
     try { localStorage.setItem(HOURS_STORAGE_KEY, JSON.stringify(sorted)); } catch { /* ignore */ }
   };
   const toggleHour = (h: number) => {
-    setHours(hours.includes(h) ? hours.filter((x) => x !== h) : [...hours, h]);
+    const next = hours.includes(h) ? hours.filter((x) => x !== h) : [...hours, h];
+    setHours(next);
+    // If we just removed the hour that was drilled into, close the panel.
+    if (selectedCell && !next.includes(selectedCell.hour)) {
+      setSelectedCell(null);
+    }
   };
   const handleMinN = (n: number) => {
     setMinN(n);
