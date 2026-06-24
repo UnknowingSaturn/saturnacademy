@@ -46,6 +46,7 @@ export default function PairLab() {
   const profile = searchParams.get("profile") ?? "any";
   const propFirmMode = searchParams.get("pf") !== "0";
   const includeUnrealized = searchParams.get("unreal") === "1";
+  const includeUnassigned = searchParams.get("orphans") === "1";
   const scope = searchParams.get("scope") ?? "all";
   const tabParam = searchParams.get("tab") ?? "overview";
   const tab = VALID_TABS.has(tabParam) ? tabParam : "overview";
@@ -68,6 +69,8 @@ export default function PairLab() {
     patchParams((p) => (v ? p.delete("pf") : p.set("pf", "0")));
   const setIncludeUnrealized = (v: boolean) =>
     patchParams((p) => (v ? p.set("unreal", "1") : p.delete("unreal")));
+  const setIncludeUnassigned = (v: boolean) =>
+    patchParams((p) => (v ? p.set("orphans", "1") : p.delete("orphans")));
   const setScope = (v: string) =>
     patchParams((p) => {
       if (v === "all") p.delete("scope");
@@ -87,6 +90,7 @@ export default function PairLab() {
         p.set("session", cell.session);
       }
     });
+
 
   // Resolve active scope group for data filtering.
   const { groups } = useSymbolGroups();
@@ -117,10 +121,12 @@ export default function PairLab() {
     dateFrom,
     dateTo,
     includeUnrealized,
+    includeUnassigned,
     groupOverride: activeGroup
       ? { name: activeGroup.name, symbols: activeGroup.symbols }
       : null,
   });
+
 
   if (data.isLoading) {
     return (
