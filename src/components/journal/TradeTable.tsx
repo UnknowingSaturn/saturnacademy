@@ -291,6 +291,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     await updateTrade.mutateAsync({ id: trade.id, profile: profile as TradeProfile });
   };
 
+  const handleHourSetupChange = async (
+    trade: Trade,
+    half: 'first_half_setup' | 'second_half_setup',
+    value: string,
+  ) => {
+    await updateTrade.mutateAsync({ id: trade.id, [half]: (value || null) as any });
+  };
+
   const handlePlaceChange = async (trade: Trade) => {
     await updateTrade.mutateAsync({ id: trade.id, place: placeValue || null });
     setEditingPlace(null);
