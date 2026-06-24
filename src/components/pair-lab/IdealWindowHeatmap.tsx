@@ -643,10 +643,10 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
                     ))}
                     <path d={bandPath} fill="hsl(var(--primary))" fillOpacity={0.12} />
                     <path d={cumPath} stroke="hsl(var(--primary))" strokeWidth={1.5} fill="none" />
-                    <path d={rollPath} stroke="rgb(251 146 60)" strokeWidth={1.2} fill="none" strokeDasharray="3 2" />
+                    <path d={rollPath} stroke="hsl(var(--chart-trail))" strokeWidth={1.2} fill="none" strokeDasharray="3 2" />
                     {b.events.map((e, i) => (
                       <circle key={i} cx={x(i)} cy={y(e.worked ? 1 : 0)} r={1.8}
-                        fill={e.worked ? "rgb(16 185 129)" : "rgb(239 68 68)"} fillOpacity={0.7} />
+                        fill={e.worked ? "hsl(var(--heat-positive))" : "hsl(var(--heat-negative))"} fillOpacity={0.7} />
                     ))}
                   </svg>
                   <div className="text-[10px] text-muted-foreground mt-0.5 flex justify-between font-mono-numbers">
