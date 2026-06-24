@@ -30,7 +30,12 @@ export function useTrades(filters?: {
         query = query.eq('is_archived', false);
       }
 
-      if (filters?.accountId) query = query.eq('account_id', filters.accountId);
+      // Account filter mirrors the Journal: include the selected account AND
+      // any orphan rows whose account_id is NULL (legacy imports, advisory
+      // closes). Without the NULL branch Pair Lab + Dashboard understate N.
+      if (filters?.accountId) {
+        query = query.or(`account_id.eq.${filters.accountId},account_id.is.null`);
+      }
       if (filters?.symbol) query = query.eq('symbol', filters.symbol);
       if (filters?.session) query = query.eq('session', filters.session);
       if (filters?.dateFrom) query = query.gte('entry_time', filters.dateFrom);
