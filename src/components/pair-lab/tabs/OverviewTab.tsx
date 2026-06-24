@@ -24,10 +24,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Info, Layers, Shield } from "lucide-react";
+import { Info, Layers, Shield, AlertTriangle, Clock } from "lucide-react";
 import { WalkForwardControls } from "@/components/pair-lab/WalkForwardControls";
 import { useSymbolGroups } from "@/hooks/useSymbolGroups";
 import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
+import { classifySymbol, getTickSizeOverrides } from "@/lib/symbolMapping";
+import { normalizeSymbol } from "../../../../shared/quant/symbolAliasing";
 import type { usePairLab } from "@/hooks/usePairLab";
 
 type PairLabData = ReturnType<typeof usePairLab>;
