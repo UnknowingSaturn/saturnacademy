@@ -139,6 +139,10 @@ export interface BucketReport {
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   confidence: ConfidenceLevel;
   suggestedSlPips: number | null;
+  /** Provenance of `suggestedSlPips`. See client BucketRecommendation.slSource. */
+  slSource: "ideal_sl" | "winners_mae" | "winners_mae_fallback" | "legacy";
+  /** N trades backing the SL source. null when legacy. */
+  slSourceN: number | null;
   /** "pips" for FX/metals/crypto/oil, "points" for indices. */
   slUnit: "pips" | "points";
   tpLadderR: number[];
