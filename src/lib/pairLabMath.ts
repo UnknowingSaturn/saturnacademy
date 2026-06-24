@@ -160,6 +160,8 @@ export interface BucketStats {
   drift: number | null;
   /** Count of trades whose `events[].r` was inferred from net_pnl sign (no r_multiple_actual). Surface as a "R inferred" badge. */
   eventsRFallbackCount: number;
+}
+
 
 export interface SlSweepRow {
   /** Quantile of MAE distribution (e.g. 0.25, 0.40, 0.55, 0.70, 0.90). */
