@@ -407,13 +407,9 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
         </div>
       </div>
 
-      {/* Walk-forward controls */}
-      <WalkForwardControls
-        state={wf}
-        onChange={(next) => { setWf(next); setSelectedCell(null); }}
-        minMs={tradeMsBounds.minMs}
-        maxMs={tradeMsBounds.maxMs}
-      />
+      {/* Walk-forward lens is owned by Overview tab — no duplicate slider here. */}
+
+
 
       {/* Baseline strip */}
       {baseline && (
