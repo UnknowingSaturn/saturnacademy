@@ -13,20 +13,19 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Info } from "lucide-react";
+import { Sparkles, Info, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Trade } from "@/types/trading";
 import {
-  runMonteCarlo,
   extractRSample,
   meanRWithCI,
   ROTATION_LABELS,
   type RotationModel,
-  type MCParams,
   type MCResult,
 } from "@/lib/propFirmMonteCarlo";
 import { NumericInput } from "./NumericInput";
 import { classifyDataTier, DATA_TIER_VALIDATED_N } from "../../../shared/quant/config";
+import { useStrategyLabSweep } from "@/hooks/useStrategyLabSweep";
 
 
 interface Props {
@@ -44,17 +43,9 @@ const RISK_TIERS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const ROTATION_MODELS: RotationModel[] = ["one_only", "simultaneous", "stay_on_winner", "round_robin"];
 const TARGET_PRESETS = [6, 8, 10, 12];
 const WINDOW_PRESETS = [30, 60, 90];
-
-// Sample window — restricts the trade history fed into the sweep. "All" preserves
-// the historical default. Short windows let the user inspect current-regime edge
-// without changing any downstream math; the existing edge-gate handles small-n.
-type SampleWindow = "all" | "30d" | "60d" | "90d";
-const SAMPLE_WINDOW_OPTIONS: { value: SampleWindow; label: string; days: number | null }[] = [
-  { value: "all", label: "All", days: null },
-  { value: "30d", label: "30d", days: 30 },
-  { value: "60d", label: "60d", days: 60 },
-  { value: "90d", label: "90d", days: 90 },
-];
+// Sample windowing is now owned by the shared walk-forward context — every
+// Pair Lab tab sees the same date-filtered trades. The local "All/30d/60d/90d"
+// quick-toggle has been removed to keep the sample under one source of truth.
 
 // Score components (exposed for the breakdown line).
 //
