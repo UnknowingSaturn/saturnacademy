@@ -450,6 +450,7 @@ function computeBucket(
   keys: PairLabFieldKeys,
   baseline: BucketReport | null,
   propFirm: PropFirmContext | null,
+  recentN: number = 10,
 ): BucketReport {
   const closed = rows.filter((t) => t.net_pnl != null);
 
