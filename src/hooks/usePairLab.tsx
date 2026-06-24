@@ -233,5 +233,10 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     effectiveFirmId,
     filters.profile,
     filters.propFirmMode,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.recentN,
+    filters.groupOverride?.name,
+    filters.groupOverride?.symbols.join(","),
   ]);
 }
