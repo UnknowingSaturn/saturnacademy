@@ -32,6 +32,7 @@ export default function PairLab() {
 
   const profile = searchParams.get("profile") ?? "any";
   const propFirmMode = searchParams.get("pf") !== "0";
+  const includeUnrealized = searchParams.get("unreal") === "1";
   const selected: Selected = (() => {
     const symbol = searchParams.get("symbol");
     const session = searchParams.get("session");
@@ -47,6 +48,11 @@ export default function PairLab() {
   const setPropFirmMode = (v: boolean) => {
     const next = new URLSearchParams(searchParams);
     if (v) next.delete("pf"); else next.set("pf", "0");
+    setSearchParams(next, { replace: true });
+  };
+  const setIncludeUnrealized = (v: boolean) => {
+    const next = new URLSearchParams(searchParams);
+    if (v) next.set("unreal", "1"); else next.delete("unreal");
     setSearchParams(next, { replace: true });
   };
   const setSelected = (cell: Selected) => {
@@ -77,6 +83,7 @@ export default function PairLab() {
   const allData = usePairLab({
     profile: profile === "any" ? null : profile,
     propFirmMode,
+    includeUnrealized,
   });
 
   const { minMs, maxMs } = useMemo(() => {
@@ -104,6 +111,7 @@ export default function PairLab() {
     propFirmMode,
     dateFrom,
     dateTo,
+    includeUnrealized,
     groupOverride: activeGroup ? { name: activeGroup.name, symbols: activeGroup.symbols } : null,
   });
 
