@@ -429,3 +429,43 @@ export function subGridFifteenMin({
   }
   return bins;
 }
+
+/**
+ * Causal cumulative worked-rate series from a bucket's event timeline.
+ * Index i = rate after i+1 events (i.e. uses only data up to event i).
+ * Pair with Wilson CI band by passing each cumulative (k, n) to wilsonInterval.
+ */
+export function cumulativeSeries(events: BucketEvent[]): Array<{
+  ts: number;
+  k: number;
+  n: number;
+  rate: number;
+  ci: [number, number];
+}> {
+  const out: Array<{ ts: number; k: number; n: number; rate: number; ci: [number, number] }> = [];
+  let k = 0;
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].worked) k += 1;
+    const n = i + 1;
+    out.push({ ts: events[i].ts, k, n, rate: k / n, ci: wilsonInterval(k, n) });
+  }
+  return out;
+}
+
+/** Rolling worked-rate over a window of `windowN` events (causal). */
+export function rollingRateSeries(
+  events: BucketEvent[],
+  windowN: number,
+): Array<{ ts: number; rate: number; n: number }> {
+  if (windowN < 1) return [];
+  const out: Array<{ ts: number; rate: number; n: number }> = [];
+  for (let i = 0; i < events.length; i++) {
+    const start = Math.max(0, i - windowN + 1);
+    let w = 0;
+    for (let j = start; j <= i; j++) if (events[j].worked) w += 1;
+    const n = i - start + 1;
+    out.push({ ts: events[i].ts, rate: w / n, n });
+  }
+  return out;
+}
+
