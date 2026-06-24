@@ -1,6 +1,6 @@
-# Tightened Pair Lab Plan
+# Tightened Pair Lab Plan — STATUS
 
-Replace the current `.lovable/plan.md` with this streamlined version. Same goals (walk-forward analysis, per-pair-per-hour resolution, pair groups, cleaner Analyze tab), less machinery.
+Part 1 (groups), Part 3 (Analyze cleanup), and Part 2 (walk-forward layer in the heatmap) are shipped. Remaining: extend walk-forward primitives into `StrategyRanker` / Analysis tab and add an out-of-sample (train/test split) panel.
 
 ## Guiding principles
 
