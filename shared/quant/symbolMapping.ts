@@ -1,6 +1,15 @@
 // Symbol classification + tick/pip helpers. Single source of truth for both
 // the React client and Supabase edge functions. Dependency-free (Deno-safe).
 //
+// A module-level TICK-SIZE OVERRIDE map layers per-symbol corrections on top
+// of the default classifier so brokers whose tick doesn't match the heuristic
+// (most often crypto / exotic indices) can be patched without touching shared
+// math. Overrides come from `symbol_groups.tick_size_overrides` and are
+// installed once per request via `setTickSizeOverrides()`. Both client
+// (src/lib/symbolMapping.ts) and edge functions
+// (supabase/functions/_shared/quant/symbolMapping.ts) re-export from here so
+// the override state stays a single shared cell.
+//
 // Cross-broker alias normalization lives in `./symbolAliasing.ts`.
 
 import { normalizeSymbol } from "./symbolAliasing";
@@ -34,11 +43,27 @@ export function classifySymbol(raw: string): SymbolClass {
   return "unknown";
 }
 
-/**
- * Tick size = smallest broker price increment. Used to convert tick counts
- * back to price distance for R-multiple conversion.
- */
-export function tickSizeForSymbol(raw: string): number {
+// ---------------------------------------------------------------------------
+// Per-symbol tick-size override map (shared between client + edge functions).
+// Keys are NORMALIZED symbols so callers don't need to canonicalize first.
+// ---------------------------------------------------------------------------
+
+let TICK_OVERRIDES: Record<string, number> = {};
+
+export function setTickSizeOverrides(map: Record<string, number>): void {
+  const next: Record<string, number> = {};
+  for (const [raw, v] of Object.entries(map ?? {})) {
+    if (!raw || typeof v !== "number" || !Number.isFinite(v) || v <= 0) continue;
+    next[normalizeSymbol(raw)] = v;
+  }
+  TICK_OVERRIDES = next;
+}
+
+export function getTickSizeOverrides(): Readonly<Record<string, number>> {
+  return TICK_OVERRIDES;
+}
+
+function defaultTickSize(raw: string): number {
   switch (classifySymbol(raw)) {
     case "fx5": return 0.00001;
     case "fx3": return 0.001;
@@ -51,11 +76,22 @@ export function tickSizeForSymbol(raw: string): number {
   }
 }
 
+/**
+ * Tick size = smallest broker price increment. Used to convert tick counts
+ * back to price distance for R-multiple conversion. Consults the override
+ * map first, then falls back to the asset-class default.
+ */
+export function tickSizeForSymbol(raw: string): number {
+  const n = normalizeSymbol(raw);
+  if (TICK_OVERRIDES[n] != null) return TICK_OVERRIDES[n];
+  return defaultTickSize(raw);
+}
+
 /** Pip size (10× tick on most instruments, equal to tick on indices). */
 export function pipSizeForSymbol(raw: string): number {
   const cls = classifySymbol(raw);
-  if (cls === "index") return 1.0;
-  return tickSizeForSymbol(raw) * 10;
+  const tick = tickSizeForSymbol(raw);
+  return cls === "index" ? tick : tick * 10;
 }
 
 /** Human-readable unit for a symbol's SL/MAE distance. */
