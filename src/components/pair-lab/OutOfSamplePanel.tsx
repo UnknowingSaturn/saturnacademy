@@ -7,7 +7,7 @@
 // train but negative in test are flagged as overfit candidates.
 // ============================================================================
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -19,6 +19,7 @@ import {
   type PairLabFieldKeys,
   type PropFirmContext,
 } from "@/lib/pairLabMath";
+import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 
 interface Props {
   trades: Trade[];
@@ -65,7 +66,16 @@ export function OutOfSamplePanel({
     return { minMs: min, maxMs: max, defaultSplit: split };
   }, [trades]);
 
+  // Two-stage state: `sliderMs` updates instantly so the slider feels
+  // responsive; `splitMs` (which drives the heavy buildBuckets call) is
+  // committed 150ms after the user stops dragging.
   const [splitMs, setSplitMs] = useState<number>(defaultSplit);
+  const [sliderMs, setSliderMs] = useState<number>(defaultSplit);
+  const commitSplit = useDebouncedCallback((v: number) => setSplitMs(v), 150);
+  useEffect(() => {
+    setSliderMs(defaultSplit);
+    setSplitMs(defaultSplit);
+  }, [defaultSplit]);
 
   const { train, test, deltas } = useMemo(() => {
     const splitIso = new Date(splitMs).toISOString();
