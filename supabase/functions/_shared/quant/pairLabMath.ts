@@ -86,6 +86,7 @@ import {
   bhSignificant,
   rawQuarterKellyPct,
   quarterKellyPct,
+  bootstrapKellyCi,
   normalizeSession,
   getCf,
   numericCf,
@@ -101,11 +102,13 @@ export {
   bhSignificant,
   rawQuarterKellyPct,
   quarterKellyPct,
+  bootstrapKellyCi,
   normalizeSession,
   numericCf,
   multiSelectCf,
   isUnrealized,
 };
+
 
 
 export function parseTpLabel(s: string): number | null {
@@ -163,14 +166,25 @@ export interface BucketReport {
   suggestedRiskPct: number | null;
   /** True when raw quarter-Kelly is positive but below 0.25% — edge too thin to size meaningfully. */
   riskBelowFloor: boolean;
-  /** Prop-firm-aware cap on suggested risk (% of balance). null when no prop-firm context. */
-  suggestedRiskPctPropFirmCap: number | null;
+  /** Bootstrap 95% CI on the raw quarter-Kelly fraction. null when n<10. */
+  suggestedRiskPctCi: [number, number] | null;
+  /**
+   * Prop-firm-aware cap on suggested risk (% of balance). null when no
+   * prop-firm context. Renamed from `suggestedRiskPctPropFirmCap` so the field
+   * matches the client `BucketRecommendation.suggestedRiskPctPropFirm` 1:1.
+   */
+  suggestedRiskPctPropFirm: number | null;
+  /** Sum(winR)/Sum(lossR). null when no losses (use `profitFactorAllWins`). */
+  profitFactor: number | null;
+  /** True when there are wins but zero losses — PF is mathematically undefined. */
+  profitFactorAllWins: boolean;
   worstLosingStreak: number;
   loggedMfeCount: number;
   loggedMaeCount: number;
   topTradeIds: string[];
   bottomTradeIds: string[];
 }
+
 
 function confidenceFor(n: number): ConfidenceLevel {
   // Tightened 2026-06: "high" requires n≥50 — at n=30 the 95% CI on win-rate
@@ -501,20 +515,30 @@ export function computeBucket(
   const rawKelly = n >= 10 ? rawQuarterKellyPct(winRate, avgWinR, avgLossR) : null;
   const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
   const riskBelowFloor = rawKelly != null && rawKelly < KELLY_FLOOR_PCT;
+  // Bootstrap CI on the raw Kelly fraction — surfaces when the recommended
+  // risk-% is statistically meaningful vs noise.
+  const suggestedRiskPctCi = n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
   const tp1Star = computeTp1Star(tp1StarPairs, avgLossR || 1);
+
+  // Profit factor — null + flag so callers can distinguish "no losses" from
+  // "no data" (JSON.stringify(Infinity) collapses to null).
+  const sumWin = winR.reduce((s, v) => s + v, 0);
+  const sumLoss = lossR.reduce((s, v) => s + v, 0);
+  const profitFactorAllWins = sumLoss <= 0 && sumWin > 0;
+  const profitFactor = sumLoss > 0 ? sumWin / sumLoss : null;
 
   // Prop-firm cap — mirrors src/lib/pairLabMath.ts exactly:
   //   ddCappedPct = (dailyLossDollars / balance) * 100 / max(3, worstLosingStreak)
-  //   clamped to [0.1, propFirm.hardCapPct]. No extra maxDD/(2*streak) cap — the
-  //   client's daily-loss budget is the authoritative survival constraint.
-  let suggestedRiskPctPropFirmCap: number | null = null;
+  //   clamped to [0.1, propFirm.hardCapPct].
+  let suggestedRiskPctPropFirm: number | null = null;
   if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null && propFirm.dailyLossDollars > 0) {
     const streak = Math.max(MIN_STREAK_FLOOR, longestLossStreak(rows) || 0);
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
     const ddCappedPct = dailyBudgetPct / streak;
     const hardCap = propFirm.hardCapPct > 0 ? propFirm.hardCapPct : 2;
-    suggestedRiskPctPropFirmCap = +Math.max(0.1, Math.min(hardCap, ddCappedPct)).toFixed(2);
+    suggestedRiskPctPropFirm = +Math.max(0.1, Math.min(hardCap, ddCappedPct)).toFixed(2);
   }
+
 
   const sorted = [...closed].sort((a, b) => (b.r_multiple_actual ?? 0) - (a.r_multiple_actual ?? 0));
   const topTradeIds = sorted.slice(0, 3).map((t) => t.id);
