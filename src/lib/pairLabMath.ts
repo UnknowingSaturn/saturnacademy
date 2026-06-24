@@ -163,6 +163,13 @@ export interface BucketStats {
 }
 
 
+/**
+ * One row of the hypothetical SL sweep. CAVEAT: rescaling assumes purely
+ * proportional sizing — trades that took partials, moved SL to BE, or used
+ * trailing stops are over-deflated at wider candidate SLs because the actual
+ * R was never at risk to the full new SL distance. Any UI that renders these
+ * rows MUST surface this limitation (tooltip on the meanR / deltaR column).
+ */
 export interface SlSweepRow {
   /** Quantile of MAE distribution (e.g. 0.25, 0.40, 0.55, 0.70, 0.90). */
   q: number;
@@ -170,11 +177,12 @@ export interface SlSweepRow {
   slPips: number;
   /** Fraction of trades stopped out at this SL (0–1). */
   pctStopped: number;
-  /** Mean R-multiple under this hypothetical SL. */
+  /** Mean R-multiple under this hypothetical SL. See interface doc for caveat. */
   meanR: number;
-  /** Delta vs actual mean R (meanR − expectedR). */
+  /** Delta vs actual mean R (meanR − expectedR). See interface doc for caveat. */
   deltaR: number;
 }
+
 
 export interface Tp1Star {
   r: number;          // R-multiple target
