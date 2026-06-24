@@ -1141,7 +1141,7 @@ async function computeQuantBlock(
       } : null,
       tp1_star: b.tp1Star ? { r: b.tp1Star.r, hit_rate_pct: +(b.tp1Star.hitRate * 100).toFixed(1), expectancy_r: +b.tp1Star.expectancyR.toFixed(2) } : null,
       suggested_risk_pct: b.suggestedRiskPct != null ? +b.suggestedRiskPct.toFixed(2) : null,
-      suggested_risk_pct_propfirm_cap: b.suggestedRiskPctPropFirmCap,
+      suggested_risk_pct_propfirm_cap: b.suggestedRiskPctPropFirm,
       confidence: b.confidence,
       top_trade_ids: b.topTradeIds,
       bottom_trade_ids: b.bottomTradeIds,

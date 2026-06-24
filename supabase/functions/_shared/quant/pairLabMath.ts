@@ -577,7 +577,11 @@ export function computeBucket(
     tp1Star,
     suggestedRiskPct,
     riskBelowFloor,
-    suggestedRiskPctPropFirmCap,
+    suggestedRiskPctCi,
+    suggestedRiskPctPropFirm,
+    profitFactor,
+    profitFactorAllWins,
+
     worstLosingStreak: longestLossStreak(rows),
     loggedMfeCount: closed.filter((t) => numericCf(t, keys.mfe) != null).length,
     loggedMaeCount: closed.filter((t) => {
