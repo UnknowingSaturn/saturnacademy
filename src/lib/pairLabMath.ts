@@ -708,7 +708,17 @@ function computeBucket(
     mfeRPairs.push({ mfeR, rActual: t.r_multiple_actual });
   }
   // Winners' MAE in pips — drives the Sweeney SL recommendation.
-  const winnersMaePips = sweepRows.filter((r) => r.rActual > 0).map((r) => r.maePips);
+  // C1 fix (2026-06): iterate raw rows so the SL recommendation isn't gated
+  // on `sl_initial != null` (the old `sweepRows` filter excluded perfectly
+  // good winners whose initial SL wasn't recorded — only the SL-sweep needs
+  // that field, not the MAE-of-winners quantile). Mirrors edge ll. 416-422.
+  const winnersMaePips: number[] = [];
+  for (const t of rows) {
+    if (t.r_multiple_actual == null || !(t.r_multiple_actual > 0)) continue;
+    const maeTicks = numericCf(t as any, keys.mae);
+    if (maeTicks == null || !t.symbol) continue;
+    winnersMaePips.push(Math.abs(ticksToPips(t.symbol, Math.abs(maeTicks))));
+  }
   // Bucket-local trail-capture estimate (low minSample; falls back to 0.7).
   // minSample=10 mirrors the server (`estimateTrailCaptureRows`) so thin buckets
   // fall back to the same 0.7 default on both sides.
