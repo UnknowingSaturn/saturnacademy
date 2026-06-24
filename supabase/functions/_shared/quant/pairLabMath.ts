@@ -139,6 +139,10 @@ export interface BucketReport {
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   confidence: ConfidenceLevel;
   suggestedSlPips: number | null;
+  /** Provenance of `suggestedSlPips`. See client BucketRecommendation.slSource. */
+  slSource: "ideal_sl" | "winners_mae" | "winners_mae_fallback" | "legacy";
+  /** N trades backing the SL source. null when legacy. */
+  slSourceN: number | null;
   /** "pips" for FX/metals/crypto/oil, "points" for indices. */
   slUnit: "pips" | "points";
   tpLadderR: number[];
@@ -408,7 +412,7 @@ export function computeBucket(
 
   const maeP75Pips = quantile(maesPips, 0.75);
 
-  // ----- SL: MAE-of-winners (Sweeney). Tightest SL preserving 90% of winners. -----
+  // ----- SL source cascade: ideal SL > MAE-of-winners > MAE p75 widen. -----
   const winnersMaePips: number[] = [];
   for (const t of rows) {
     if (t.r_multiple_actual == null || !(t.r_multiple_actual > 0)) continue;
@@ -417,17 +421,30 @@ export function computeBucket(
     winnersMaePips.push(Math.abs(ticksToPips(t.symbol, Math.abs(maeTicks))));
   }
   let suggestedSlPips: number | null = null;
-  let slMethod: "winners_mae" | "legacy" = "legacy";
-  const slWinners = winnersMaePips.length >= 10 ? quantile(winnersMaePips, WINNERS_MAE_SL_QUANTILE) : null;
-  if (slWinners != null && slWinners > 0) {
-    suggestedSlPips = slWinners * WINNERS_MAE_SL_BUFFER;
-    slMethod = "winners_mae";
+  let slSource: "ideal_sl" | "winners_mae" | "winners_mae_fallback" | "legacy" = "legacy";
+  let slSourceN: number | null = null;
+  const IDEAL_SL_MIN_N = 5;
+  if (idealMed != null && idealMed > 0 && idealSls.length >= IDEAL_SL_MIN_N) {
+    suggestedSlPips = idealMed;
+    slSource = "ideal_sl";
+    slSourceN = idealSls.length;
   } else {
-    const maeCandidate = maeP75Pips != null ? maeP75Pips * MAE_P75_WIDEN_BUFFER : null;
-    if (maeCandidate != null || idealMed != null) {
-      suggestedSlPips = Math.max(maeCandidate ?? 0, idealMed ?? 0);
+    const slWinners = winnersMaePips.length >= 10 ? quantile(winnersMaePips, WINNERS_MAE_SL_QUANTILE) : null;
+    if (slWinners != null && slWinners > 0) {
+      suggestedSlPips = slWinners * WINNERS_MAE_SL_BUFFER;
+      slSource = "winners_mae";
+      slSourceN = winnersMaePips.length;
+    } else if (maeP75Pips != null) {
+      suggestedSlPips = maeP75Pips * MAE_P75_WIDEN_BUFFER;
+      slSource = "winners_mae_fallback";
+      slSourceN = winnersMaePips.length;
+    } else if (idealMed != null && idealMed > 0) {
+      suggestedSlPips = idealMed;
+      slSource = "ideal_sl";
+      slSourceN = idealSls.length;
     }
   }
+  const slMethod: "ok" | "legacy" = slSource === "legacy" ? "legacy" : "ok";
 
   // ----- TP: MFE-based expectancy grid (no survivorship bias). -----
   const mfeRPairs = collectMfeRPairs(rows, keys);
@@ -508,6 +525,8 @@ export function computeBucket(
     slDrift,
     confidence: confidenceFor(n),
     suggestedSlPips,
+    slSource,
+    slSourceN,
     slUnit,
     tpLadderR,
     suggestedTpR,
