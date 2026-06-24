@@ -1096,6 +1096,8 @@ async function computeQuantBlock(
       sl_drift: b.slDrift,
       
       suggested_sl_pips: b.suggestedSlPips != null ? +b.suggestedSlPips.toFixed(1) : null,
+      sl_source: b.slSource,
+      sl_source_n: b.slSourceN,
       sl_unit: b.slUnit,
       tp_ladder_r: b.tpLadderR,
       suggested_tp_r: b.suggestedTpR,
