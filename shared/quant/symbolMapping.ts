@@ -12,7 +12,7 @@
 //
 // Cross-broker alias normalization lives in `./symbolAliasing.ts`.
 
-import { normalizeSymbol } from "./symbolAliasing";
+import { normalizeSymbol } from "./symbolAliasing.ts";
 
 export type SymbolClass =
   | "fx5"
