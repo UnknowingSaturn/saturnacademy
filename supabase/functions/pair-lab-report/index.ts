@@ -38,6 +38,8 @@ interface BucketInput {
   expectedRCi: [number, number] | null;
   worstLosingStreak: number;
   suggestedSlPips: number | null;
+  slSource: "ideal_sl" | "winners_mae" | "winners_mae_fallback" | "legacy";
+  slSourceN: number | null;
   tpLadderR: number[];
   tp1Star: Tp1Star | null;
   suggestedRiskPct: number | null;
