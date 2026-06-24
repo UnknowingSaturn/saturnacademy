@@ -30,7 +30,8 @@ interface TradePropertiesProps {
 
 // Hour-setup landscape options live in a shared module so the journal table,
 // the detail sidebar, and the Pair Lab read the same labels / colors.
-import { HOUR_SETUP_BADGE_OPTIONS as HOUR_SETUP_OPTIONS } from "@/lib/hourSetup";
+import { WORKED_WINDOW_BADGE_OPTIONS, FAILED_WINDOW_BADGE_OPTIONS } from "@/lib/hourSetup";
+import type { HourLandscape } from "@/lib/hourSetup";
 
 // Convert user PropertyOption rows into BadgeSelect option shape
 function toBadgeOptions(rows?: { value: string; label: string; color: string }[]) {
