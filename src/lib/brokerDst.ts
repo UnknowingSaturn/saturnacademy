@@ -97,13 +97,58 @@ export function getIanaOffsetHours(timeZone: string, date: Date): number {
  *
  * Example: For an EET_DST broker, a "2024-02-15 10:00:00" stamp → UTC-2h = 08:00 UTC,
  * and a "2024-07-15 10:00:00" stamp → UTC-3h = 07:00 UTC. Mixed history handled correctly.
+ *
+ * Parsing rules (deterministic, browser-locale-independent):
+ *   - If the input already carries an explicit offset / Z, it is treated as
+ *     absolute UTC and returned as-is (no double-shift).
+ *   - Otherwise the wall-clock components are extracted with a strict regex
+ *     and combined via Date.UTC() — never via `new Date(string)`, which is
+ *     locale-dependent and would yield different results for the same string
+ *     in Chrome vs Safari, or in a UTC-vs-PST user shell.
  */
+const NAIVE_TS_RE =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/;
+const TZ_TS_RE = /(Z|[+-]\d{2}:?\d{2})$/;
+
 export function brokerLocalToUtc(
   profile: BrokerDstProfile,
   brokerTimestamp: string | Date,
   manualOffsetHours: number = 2
 ): Date {
-  const naive = new Date(brokerTimestamp);
-  const offsetH = resolveBrokerOffsetHours(profile, naive, manualOffsetHours);
-  return new Date(naive.getTime() - offsetH * 3_600_000);
+  // Date input: already an absolute instant. Nothing to shift.
+  if (brokerTimestamp instanceof Date) return brokerTimestamp;
+
+  const s = String(brokerTimestamp).trim();
+
+  // Explicit timezone in the string → trust it, don't double-shift.
+  if (TZ_TS_RE.test(s)) return new Date(s);
+
+  const m = NAIVE_TS_RE.exec(s);
+  if (!m) {
+    // Last-resort fallback for unexpected formats — surface the issue rather
+    // than silently producing locale-dependent garbage.
+    const fallback = new Date(s);
+    const offsetH = resolveBrokerOffsetHours(profile, fallback, manualOffsetHours);
+    return new Date(fallback.getTime() - offsetH * 3_600_000);
+  }
+
+  const [, yyyy, mo, dd, hh, mm, ss = "0", frac = "0"] = m;
+  const ms = Number((frac + "000").slice(0, 3));
+  // Compose the wall-clock as if it were UTC, then subtract the broker offset
+  // resolved at *that* date (so DST transitions are honored).
+  const wallAsUtc = Date.UTC(
+    Number(yyyy),
+    Number(mo) - 1,
+    Number(dd),
+    Number(hh),
+    Number(mm),
+    Number(ss),
+    ms,
+  );
+  const offsetH = resolveBrokerOffsetHours(
+    profile,
+    new Date(wallAsUtc),
+    manualOffsetHours,
+  );
+  return new Date(wallAsUtc - offsetH * 3_600_000);
 }
