@@ -23,6 +23,14 @@ export interface PairLabFilters {
   /** Matches trades whose planned OR actual profile equals this value. */
   profile?: string | null;
   propFirmMode?: boolean;
+  /** Walk-forward: ISO timestamp lower bound on entry_time (inclusive). */
+  dateFrom?: string | null;
+  /** Walk-forward: ISO timestamp upper bound on entry_time (inclusive). */
+  dateTo?: string | null;
+  /** When set, collapse every member symbol into `groupOverride.name` before bucketing. */
+  groupOverride?: { name: string; symbols: string[] } | null;
+  /** Window length for the per-bucket drift signal (default 10). */
+  recentN?: number;
 }
 
 import type { Trade } from "@/types/trading";
