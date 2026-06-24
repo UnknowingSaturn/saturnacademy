@@ -760,24 +760,43 @@ function buildRecommendation(
     tp1StarPairs: Array<{ mfeR: number; rActual: number | null }>;
   },
 ): BucketRecommendation {
-  // ----- SL: MAE-of-winners (Sweeney / van Tharp) -----
-  // Tightest SL that preserves ~90% of winners, plus a 10% noise buffer.
-  // Losers' MAE is meaningless (they were stopped); only winners tell us how
-  // much heat the edge needs to absorb before reverting.
+  // ----- SL source cascade -----
+  // Priority: ideal SL (user-logged structural stop) > MAE-of-winners (Sweeney)
+  // > MAE p75 widen fallback. Ideal SL reflects the user's actual rule ("SL at
+  // structure"); MAE is only a survival heuristic when structure isn't logged.
   let suggestedSlPips: number | null = null;
-  let slMethod: "winners_mae" | "legacy" = "legacy";
-  const slWinners = ctx.winnersMaePips.length >= 10
-    ? quantile(ctx.winnersMaePips, WINNERS_MAE_SL_QUANTILE)
-    : null;
-  if (slWinners != null && slWinners > 0) {
-    suggestedSlPips = slWinners * WINNERS_MAE_SL_BUFFER;
-    slMethod = "winners_mae";
+  let slSource: BucketRecommendation["slSource"] = "legacy";
+  let slSourceN: number | null = null;
+
+  const IDEAL_SL_MIN_N = 5;
+  if (
+    s.idealSlMedian != null &&
+    s.idealSlMedian > 0 &&
+    s.loggedIdealSlCount >= IDEAL_SL_MIN_N
+  ) {
+    suggestedSlPips = s.idealSlMedian;
+    slSource = "ideal_sl";
+    slSourceN = s.loggedIdealSlCount;
   } else {
-    const maeCandidate = s.maeP75Pips != null ? s.maeP75Pips * MAE_P75_WIDEN_BUFFER : null;
-    if (maeCandidate != null || s.idealSlMedian != null) {
-      suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
+    const slWinners = ctx.winnersMaePips.length >= 10
+      ? quantile(ctx.winnersMaePips, WINNERS_MAE_SL_QUANTILE)
+      : null;
+    if (slWinners != null && slWinners > 0) {
+      suggestedSlPips = slWinners * WINNERS_MAE_SL_BUFFER;
+      slSource = "winners_mae";
+      slSourceN = ctx.winnersMaePips.length;
+    } else if (s.maeP75Pips != null) {
+      suggestedSlPips = s.maeP75Pips * MAE_P75_WIDEN_BUFFER;
+      slSource = "winners_mae_fallback";
+      slSourceN = s.loggedMaeCount;
+    } else if (s.idealSlMedian != null && s.idealSlMedian > 0) {
+      // Ideal SL present but below min-N → use it but mark as fallback grade.
+      suggestedSlPips = s.idealSlMedian;
+      slSource = "ideal_sl";
+      slSourceN = s.loggedIdealSlCount;
     }
   }
+  const slMethod: "legacy" | "ok" = slSource === "legacy" ? "legacy" : "ok";
 
   // ----- TP: MFE-based expectancy grid (not realized win-R) -----
   // Replays each trade against candidate TPs using its MFE:
