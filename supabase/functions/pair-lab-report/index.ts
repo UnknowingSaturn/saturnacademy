@@ -135,6 +135,15 @@ serve(async (req) => {
         suggested_sl_pips: b.suggestedSlPips,
         sl_source: b.slSource,
         sl_source_n: b.slSourceN,
+        suggested_tp_r: b.suggestedTpR ?? null,
+        expectancy_at_suggested_r: b.expectancyAtSuggested ?? null,
+        expectancy_at_suggested_ci_95:
+          b.expectancyAtSuggestedCi
+            ? [
+                +b.expectancyAtSuggestedCi[0].toFixed(2),
+                +b.expectancyAtSuggestedCi[1].toFixed(2),
+              ]
+            : null,
         tp_ladder_R_expected_r: b.tpLadderR,
         tp1_star_win_rate_maxing: b.tp1Star
           ? {
@@ -146,7 +155,16 @@ serve(async (req) => {
         suggested_risk_pct_edge_only: b.suggestedRiskPct,
         suggested_risk_pct_prop_firm: b.suggestedRiskPctPropFirm,
         binding_constraint: b.bindingConstraint,
+        recommendation_confidence: b.recommendationConfidence ?? null,
       },
+      walk_forward: b.walkForward
+        ? {
+            in_sample_expected_r: +b.walkForward.inSampleE.toFixed(2),
+            out_of_sample_expected_r: +b.walkForward.outOfSampleE.toFixed(2),
+            degradation_pct: +b.walkForward.degradationPct.toFixed(1),
+            oos_n: b.walkForward.oosN,
+          }
+        : null,
       edge_vs_baseline: b.edgeVsBaseline,
       baseline: {
         n: base.n,
