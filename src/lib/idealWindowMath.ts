@@ -314,7 +314,8 @@ export function bucketTrades({
     if (d.secondFailed) { addToBucket("second", false); baselineFailed += 1; if (r != null) baselineRs.push(r); }
   }
 
-  // Finalize each bucket: rate, CIs, expectancy.
+  // Finalize each bucket: rate, CIs, expectancy, recent-window drift.
+  const recentN = Math.max(1, filters.recentN ?? 10);
   for (const [k, b] of byKey) {
     b.n = b.worked + b.failed;
     b.rate = b.n > 0 ? b.worked / b.n : null;
@@ -324,6 +325,14 @@ export function bucketTrades({
     b.expectancy = rs.length > 0 ? rs.reduce((s, x) => s + x, 0) / rs.length : null;
     b.expectancyCI = bootstrapMeanCI(rs);
     b.belowMinN = b.n < filters.minN;
+    b.events.sort((a, c) => a.ts - c.ts);
+    if (b.events.length >= recentN) {
+      const tail = b.events.slice(-recentN);
+      const w = tail.reduce((s, e) => s + (e.worked ? 1 : 0), 0);
+      b.recentRate = w / tail.length;
+      b.recentSamples = tail.length;
+      b.drift = b.rate != null ? b.recentRate - b.rate : null;
+    }
   }
 
   const baselineN = baselineWorked + baselineFailed;
