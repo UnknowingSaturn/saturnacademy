@@ -439,7 +439,7 @@ export function StrategyLab({
 
                         )}
                         style={{
-                          backgroundColor: `hsl(150 70% 45% / ${bgAlpha})`,
+                          backgroundColor: `hsl(var(--heat-positive) / ${bgAlpha})`,
                         }}
                         title={`95% CI: ${(cell.result.passProbCI[0] * 100).toFixed(0)}–${(cell.result.passProbCI[1] * 100).toFixed(0)}%`}
                       >
