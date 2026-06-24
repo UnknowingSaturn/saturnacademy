@@ -9,6 +9,7 @@
 // All math is local to keep this component pure / dependency-free.
 // ============================================================================
 
+import { useEffect, useRef } from "react";
 import type { BucketEvent } from "@/lib/pairLabMath";
 
 interface Props {
@@ -16,6 +17,11 @@ interface Props {
   rollingN?: number;
   height?: number;
 }
+
+// Above this many dots, switch the scatter from inline SVG <circle> nodes
+// to a single <canvas> overlay. SVG keeps each dot in the DOM tree, which
+// React + the browser layout engine both pay for on every parent re-render.
+const CANVAS_SCATTER_THRESHOLD = 100;
 
 export function CumulativeExpectancyChart({ events, rollingN = 10, height = 140 }: Props) {
   if (events.length < 5) {
