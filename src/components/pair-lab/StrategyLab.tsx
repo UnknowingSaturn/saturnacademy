@@ -102,18 +102,9 @@ export function StrategyLab({
   maxDrawdownDollars,
   hasPropFirmProfile,
 }: Props) {
-  const [sampleWindow, setSampleWindow] = useState<SampleWindow>("all");
-
-  const filteredTrades = useMemo(() => {
-    const opt = SAMPLE_WINDOW_OPTIONS.find((o) => o.value === sampleWindow);
-    if (!opt || opt.days == null) return trades;
-    const cutoff = Date.now() - opt.days * 86_400_000;
-    return trades.filter((t) => {
-      if (!t.entry_time) return false;
-      const ts = new Date(t.entry_time).getTime();
-      return Number.isFinite(ts) && ts >= cutoff;
-    });
-  }, [trades, sampleWindow]);
+  // Trades arrive already date-filtered by the shared walk-forward context;
+  // no extra sample window here.
+  const filteredTrades = trades;
 
   const windowMeta = useMemo(() => {
     let n = 0;
@@ -174,45 +165,35 @@ export function StrategyLab({
     ? effMaxDollars / accountSize
     : customMaxPct / 100;
 
-  const cells = useMemo(() => {
-    if (rSample.length < 10) return [];
-    const out: Array<{
-      key: string; risk: number; model: RotationModel; result: MCResult;
-      score: number; parts: ReturnType<typeof scoreCellParts>;
-    }> = [];
-    for (const model of ROTATION_MODELS) {
-      for (const risk of RISK_TIERS) {
-        const params: MCParams = {
-          rSample,
-          riskPerTradeFrac: risk / 100,
-          numAccounts,
-          accountSize,
-          dailyLossPct,
-          maxLossPct,
-          targetPct: targetPct / 100,
-          tradesPerDay,
-          maxDays: windowDays,
-          rotationModel: model,
-          maxLossMode: trailingDD ? "trailing" : "static",
-          paths: 1200,
-          // Deterministic per cell so two cells with similar means don't show
-          // artificial closeness from sharing the same sampled paths.
-          seed: cellSeed(model, risk),
-        };
-        const result = runMonteCarlo(params);
-        const parts = scoreCellParts(result);
-        out.push({
-          key: `${model}|${risk}`,
-          risk,
-          model,
-          result,
-          score: parts.score,
-          parts,
-        });
-      }
-    }
-    return out;
+  // Build the worker request — null skips the post when we don't have enough
+  // samples (also short-circuits skeleton state). The worker hook serialises
+  // this object as its cache key, so keep the field order stable.
+  const sweepRequest = useMemo(() => {
+    if (rSample.length < 10) return null;
+    return {
+      rSample,
+      riskTiers: RISK_TIERS,
+      rotationModels: ROTATION_MODELS,
+      numAccounts,
+      accountSize,
+      dailyLossPct,
+      maxLossPct,
+      targetPct,
+      tradesPerDay,
+      windowDays,
+      trailingDD,
+      paths: 1200,
+    };
   }, [rSample, numAccounts, accountSize, dailyLossPct, maxLossPct, targetPct, tradesPerDay, windowDays, trailingDD]);
+
+  const { cells: rawCells, isComputing } = useStrategyLabSweep(sweepRequest);
+
+  const cells = useMemo(() => {
+    return rawCells.map((c) => {
+      const parts = scoreCellParts(c.result);
+      return { ...c, score: parts.score, parts };
+    });
+  }, [rawCells]);
 
   const best = cells.length > 0
     ? cells.reduce((a, b) => (b.score > a.score ? b : a), cells[0])
