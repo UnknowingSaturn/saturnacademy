@@ -28,6 +28,14 @@ interface TradePropertiesProps {
   trade: Trade;
 }
 
+// Options for the Hour Setup Landscape fields (first_half_setup / second_half_setup).
+// Decoupled from R: "did a setup print in this half of the hour, and did it work".
+const HOUR_SETUP_OPTIONS = [
+  { value: 'none',   label: 'None',   color: 'primary', customColor: '#64748b' },
+  { value: 'worked', label: 'Worked', color: 'primary', customColor: '#10b981' },
+  { value: 'failed', label: 'Failed', color: 'primary', customColor: '#ef4444' },
+];
+
 // Convert user PropertyOption rows into BadgeSelect option shape
 function toBadgeOptions(rows?: { value: string; label: string; color: string }[]) {
   if (!rows || rows.length === 0) return [];
