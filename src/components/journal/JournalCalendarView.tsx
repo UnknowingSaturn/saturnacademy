@@ -43,7 +43,7 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
       const wins = dayTrades.filter(t => (t.net_pnl || 0) > 0).length;
       const winRate = dayTrades.length > 0 ? (wins / dayTrades.length) * 100 : 0;
       // Count hours where a setup worked / failed in either half — sourced from
-      // the per-trade custom field `cf_ideal_entry_window_*` (7-state value).
+      // the per-trade custom field `cf_ideal_entry_window_*` (9-state value).
       let workedCount = 0;
       let failedCount = 0;
       for (const t of dayTrades) {

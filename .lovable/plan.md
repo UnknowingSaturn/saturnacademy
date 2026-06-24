@@ -1,85 +1,87 @@
-## Consolidate into one rich custom field
+## Goal
 
-Drop the new dedicated columns and unify all setup-landscape tracking into the existing custom field `cf_ideal_entry_window_jdl1` with an expanded 7-option vocabulary.
+Track per-pair, per-hour **setup quality by half-hour window**, decoupled from trade W/L. Answer: *what's the probability the setup plays out in the first vs. second half of this hour for this pair?*
 
-### New vocabulary
+## Data model
 
-Stored as the custom field's option `value`:
+Replace the single 7-state `ideal_entry_window` field with **two independent multi-select fields** on each trade:
 
-| value          | label            | meaning                                         |
-| -------------- | ---------------- | ----------------------------------------------- |
-| `none`         | None             | no qualifying setup printed this hour           |
-| `first_worked` | 1st half ✓       | first-half setup worked                         |
-| `second_worked`| 2nd half ✓       | second-half setup worked                        |
-| `both_worked`  | Both ✓           | both halves worked                              |
-| `first_failed` | 1st half ✗       | first-half setup printed but failed             |
-| `second_failed`| 2nd half ✗       | second-half setup printed but failed            |
-| `mixed`        | Mixed (1✓ / 2✗ etc.) | one half worked, the other printed-but-failed |
+| Field                  | Type             | Meaning                                                    |
+|------------------------|------------------|------------------------------------------------------------|
+| `setup_worked_halves`  | `text[]`         | Halves where the setup printed **and played out**. Subset of `{first, second}`. |
+| `setup_failed_halves`  | `text[]`         | Halves where the setup printed **and failed**. Subset of `{first, second}`.    |
 
-Colors keep the worked/failed split (emerald for ✓ states, red for ✗ states, amber for mixed, muted for none).
+Rules:
+- Both empty → no qualifying setup that hour (regardless of trade W/L).
+- A half can appear in only one of the two arrays per trade (worked XOR failed), but the two halves are independent: e.g. `worked=[second]`, `failed=[first]` is valid and meaningful.
+- Trade W/L is **not** used by this math — these fields describe the *setup*, not your execution.
 
-### Step 1 — Schema migration
+## Probability math (per pair × hour × half)
 
-Drop the two dedicated columns (and their CHECK constraints) added in the last migration:
+For each `(pair, hour-of-day, half)` bucket, scan all trades and count:
 
-```sql
-ALTER TABLE public.trades DROP CONSTRAINT IF EXISTS trades_ideal_entry_window_check;
-ALTER TABLE public.trades DROP CONSTRAINT IF EXISTS trades_failed_setup_half_check;
-ALTER TABLE public.trades DROP COLUMN IF EXISTS ideal_entry_window;
-ALTER TABLE public.trades DROP COLUMN IF EXISTS failed_setup_half;
+```text
+worked = trades where half ∈ setup_worked_halves
+failed = trades where half ∈ setup_failed_halves
+worked_rate = worked / (worked + failed)
+sample_size = worked + failed
 ```
 
-### Step 2 — Data backfill (supabase--insert)
+Display per pair-hour: two rows (first / second) showing `worked_rate %`, `n = sample_size`, and raw `worked / failed` counts.
 
-Rewrite the custom field definition options + remap the 67 existing legacy values:
+## UI
 
-```sql
-UPDATE public.custom_field_definitions
-   SET label = 'Ideal Entry Window',
-       options = '[
-         {"value":"none","label":"None","color":"#64748B"},
-         {"value":"first_worked","label":"1st half ✓","color":"#10B981"},
-         {"value":"second_worked","label":"2nd half ✓","color":"#059669"},
-         {"value":"both_worked","label":"Both ✓","color":"#047857"},
-         {"value":"first_failed","label":"1st half ✗","color":"#EF4444"},
-         {"value":"second_failed","label":"2nd half ✗","color":"#DC2626"},
-         {"value":"mixed","label":"Mixed","color":"#F59E0B"}
-       ]'::jsonb
- WHERE key = 'cf_ideal_entry_window_jdl1';
+**TradeProperties.tsx** — replace the single dropdown with a compact two-row control:
 
-UPDATE public.trades
-   SET custom_fields = jsonb_set(
-         custom_fields,
-         '{cf_ideal_entry_window_jdl1}',
-         to_jsonb(CASE custom_fields->>'cf_ideal_entry_window_jdl1'
-                    WHEN 'first_30min' THEN 'first_worked'
-                    WHEN 'last_30min'  THEN 'second_worked'
-                  END)
-       )
- WHERE custom_fields->>'cf_ideal_entry_window_jdl1' IN ('first_30min','last_30min');
+```text
+Setup worked in:    [ ] First half   [ ] Second half
+Setup failed in:    [ ] First half   [ ] Second half
 ```
 
-### Step 3 — Code purge
+Helper text: *"Tag the halves where the setup actually printed. 'Worked' = setup played out. 'Failed' = setup printed but didn't follow through. Leave both blank if no valid setup this hour."*
 
-Files touched in the previous round get reverted/updated:
+Client-side validation: prevent the same half being checked in both rows; show inline warning.
 
-- `src/types/trading.ts` — remove `HourLandscape` import and the two optional fields from `Trade`.
-- `src/types/settings.ts` — remove `ideal_entry_window` + `failed_setup_half` from `DETAIL_FIELD_CATALOG`, `DEFAULT_COLUMNS`, and `SYSTEM_FIELD_SOURCES`. The existing custom-field plumbing already handles the field.
-- `src/hooks/useTrades.tsx` — drop both keys from the scalar allow-list.
-- `src/components/journal/TradeProperties.tsx` — delete the two PropertyRow cases. The field already appears via the custom-fields renderer.
-- `src/components/journal/TradeTable.tsx` — delete the two column branches and the `handleHourLandscapeChange` handler. Custom-field columns already render through the existing custom-field path.
-- `src/components/journal/JournalCalendarView.tsx` — replace the column reads with `custom_fields.cf_ideal_entry_window_jdl1`, mapping the 7 values to W/F/Mixed corner badges.
-- `src/components/pair-lab/IntraHourTiming.tsx` — read from `custom_fields.cf_ideal_entry_window_jdl1`; derive `firstWorked / secondWorked / firstFailed / secondFailed` booleans from the 7-state value for the hit-rate and co-occurrence math.
-- `src/lib/hourSetup.ts` — rewrite around the new 7-state vocabulary: export `IDEAL_WINDOW_VALUES`, a `decode(value)` helper returning `{ firstWorked, secondWorked, firstFailed, secondFailed }`, and color/label maps. No more separate `WORKED_WINDOW_*` / `FAILED_WINDOW_*` palettes.
-- `src/lib/pairLabMath.ts` + `supabase/functions/_shared/quant/pairLabMath.ts` — drop the now-orphan `idealEntryWindow` alias entry and field (already unused).
+**IntraHourTiming.tsx** — table columns: `Pair | Hour | Half | Worked rate | Worked | Failed | n`. Sort by `worked_rate` desc with a minimum sample-size filter.
 
-### Step 4 — Verify
+**TradeTable.tsx / JournalCalendarView.tsx** — replace the single badge with a compact dual badge: `✓1 ✗2` style, or hide when both arrays are empty.
 
-- Build passes.
-- Open `/journal` and confirm the Ideal Entry Window column shows the new 7 options as colored badges and edits inline.
-- Open Pair Lab → Intra-Hour Timing and confirm hit-rate math still derives both worked and failed signals from the single field.
+## Files to change
 
-### Out of scope
+- `src/types/trading.ts` — drop `IdealEntryWindow` union, add `setup_worked_halves: HalfWindow[]` and `setup_failed_halves: HalfWindow[]` where `HalfWindow = 'first' | 'second'`.
+- `src/lib/hourSetup.ts` — replace `decode()` with helpers: `worksIn(trade, half)`, `failsIn(trade, half)`.
+- `src/lib/pairLabMath.ts` & `supabase/functions/_shared/quant/pairLabMath.ts` — rewrite intra-hour aggregator per the math above.
+- `src/components/journal/TradeProperties.tsx` — new dual-multiselect control.
+- `src/components/journal/TradeTable.tsx`, `JournalCalendarView.tsx` — new badge rendering.
+- `src/components/pair-lab/IntraHourTiming.tsx` — new columns + sort/filter.
+- `src/hooks/useTrades.tsx` — pass the two new arrays through create/update.
+- `src/types/settings.ts` — drop any preset references to the old 7-state values.
+- `src/integrations/supabase/types.ts` — regenerated after migration.
 
-- Other `cf_*` fields.
-- Migrating Pair Lab to a different storage model.
+## Migration
+
+New SQL migration:
+
+1. Add `setup_worked_halves text[] not null default '{}'` and `setup_failed_halves text[] not null default '{}'` to `trades`.
+2. Backfill from existing `ideal_entry_window`:
+   - `first_worked` → worked=[first]
+   - `first_failed` → failed=[first]
+   - `second_worked` → worked=[second]
+   - `second_failed` → failed=[second]
+   - `mixed` → worked=[first], failed=[second]   *(best-effort under the old convention)*
+   - `none` / null → both empty
+3. Add a CHECK constraint via trigger: arrays must be subsets of `{first, second}` and disjoint from each other.
+4. Drop `ideal_entry_window` column (after confirming nothing reads it).
+
+## Out of scope
+
+- Logging missed setups on hours where no trade was taken (separate feature for selection-bias correction).
+- Sub-30-minute granularity (no minute-of-hour bucketing).
+- Joining this with W/L for an "execution conversion rate" (could be a future view; the data supports it).
+
+## Acceptance
+
+- A losing trade with `worked=[first]` lifts the first-half worked rate for that pair-hour.
+- A trade with `worked=[second], failed=[first]` adds 1 to second-half worked and 1 to first-half failed.
+- Intra-hour Timing percentages are bounded (no more trivial 100% rows) and reflect setup quality, not execution.
+- No `ideal_entry_window` references remain in the codebase.

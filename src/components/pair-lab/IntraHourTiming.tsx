@@ -1,14 +1,15 @@
 // ============================================================================
 // Intra-Hour Timing — per-pair half-of-hour setup landscape.
 //
-// Reads the user's custom field `cf_ideal_entry_window_*` (7-state vocabulary
-// — see `src/lib/hourSetup.ts`). The value encodes both which half(s) of the
-// hour had a WORKING setup and which had one that PRINTED BUT FAILED, so we
-// can compute per-half hit rates and co-occurrence without R-multiples.
+// Reads the user's custom field `cf_ideal_entry_window_*` (9-state vocabulary
+// — see `src/lib/hourSetup.ts`). The value independently tags each half of
+// the hour as `worked` (setup printed and played out) or `failed` (setup
+// printed but didn't follow through), so per-half hit rates and co-occurrence
+// fall out without R-multiples.
 //
-// R-multiples are deliberately ignored — R conflates window edge with your
-// own execution quality. Counting setup occurrences and outcomes — separate
-// from the trade you actually took — isolates the window question.
+// A half tagged `worked` on a losing trade still counts as a working window —
+// the tag describes the setup, not your execution. R-multiples are deliberately
+// ignored — they'd conflate window edge with execution quality.
 // ============================================================================
 
 
@@ -114,12 +115,12 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
       <Card className="p-6 text-sm text-muted-foreground space-y-2">
         <div className="font-medium text-foreground">No hour setup observations yet.</div>
         <div className="text-xs leading-relaxed">
-          Open any trade in the Journal and fill in the{" "}
-          <span className="font-mono text-foreground">Ideal entry window</span> and{" "}
-          <span className="font-mono text-foreground">Failed setup</span> fields. Mark which half
-          of the hour produced a working setup, and which half produced one that failed —
-          regardless of which trade you took. After ~10–15 hours per pair, this tab will show
-          base rates.
+          Open any trade in the Journal and set the{" "}
+          <span className="font-mono text-foreground">Ideal entry window</span> property to
+          tag which half of the hour produced a working setup (<span className="font-mono">✓</span>)
+          and which produced one that printed but failed (<span className="font-mono">✗</span>) —
+          regardless of whether the trade itself won or lost. After ~10–15 hours per pair,
+          this tab will show base rates.
         </div>
       </Card>
     );
@@ -132,12 +133,11 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
         <div className="flex-1 min-w-[260px]">
           <h3 className="font-semibold">Hour setup landscape</h3>
           <p className="text-xs text-muted-foreground mt-1">
-            Per pair, the rate at which a setup prints in each half of the hour and the rate at
-            which it works when it does. No R, no fill-minute bucketing — just base rates of
-            what the chart offers. Fill the per-trade{" "}
-            <span className="font-mono">Ideal entry window</span> and{" "}
-            <span className="font-mono">Failed setup</span> fields in the Journal to populate
-            this.
+            Per pair, how often a setup prints in each half of the hour and how often it
+            works when it does. No R, no fill-minute bucketing — just base rates of what
+            the chart offers. Tag the per-trade{" "}
+            <span className="font-mono">Ideal entry window</span> field in the Journal to
+            populate this — it tracks the setup, not the trade outcome.
           </p>
         </div>
       </div>
