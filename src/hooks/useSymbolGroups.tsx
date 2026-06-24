@@ -60,7 +60,12 @@ export function useSymbolGroups() {
   }, [query.data]);
 
   const create = useMutation({
-    mutationFn: async (input: { name: string; color?: string | null; symbols: string[] }) => {
+    mutationFn: async (input: {
+      name: string;
+      color?: string | null;
+      symbols: string[];
+      tick_size_overrides?: Record<string, number>;
+    }) => {
       if (!user) throw new Error("Not signed in");
       const { data, error } = await supabase
         .from("symbol_groups")
@@ -69,6 +74,7 @@ export function useSymbolGroups() {
           name: input.name,
           color: input.color ?? null,
           symbols: input.symbols,
+          tick_size_overrides: input.tick_size_overrides ?? {},
         })
         .select()
         .single();
@@ -83,7 +89,13 @@ export function useSymbolGroups() {
   });
 
   const update = useMutation({
-    mutationFn: async (input: { id: string; name?: string; color?: string | null; symbols?: string[] }) => {
+    mutationFn: async (input: {
+      id: string;
+      name?: string;
+      color?: string | null;
+      symbols?: string[];
+      tick_size_overrides?: Record<string, number>;
+    }) => {
       const { id, ...rest } = input;
       const { data, error } = await supabase
         .from("symbol_groups")
