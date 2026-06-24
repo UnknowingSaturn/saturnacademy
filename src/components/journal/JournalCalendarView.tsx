@@ -16,6 +16,8 @@ interface DayData {
   pnl: number;
   winRate: number;
   tradeCount: number;
+  firstHalfWorked: number;
+  secondHalfWorked: number;
 }
 
 export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarViewProps) {
@@ -39,6 +41,8 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
       const pnl = dayTrades.reduce((sum, t) => sum + (t.net_pnl || 0), 0);
       const wins = dayTrades.filter(t => (t.net_pnl || 0) > 0).length;
       const winRate = dayTrades.length > 0 ? (wins / dayTrades.length) * 100 : 0;
+      const firstHalfWorked = dayTrades.filter(t => (t as any).first_half_setup === 'worked').length;
+      const secondHalfWorked = dayTrades.filter(t => (t as any).second_half_setup === 'worked').length;
 
       dayDataMap.set(dayKey, {
         date: day,
@@ -46,6 +50,8 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
         pnl,
         winRate,
         tradeCount: dayTrades.length,
+        firstHalfWorked,
+        secondHalfWorked,
       });
     });
 
