@@ -91,6 +91,12 @@ export interface BucketKey {
   session: string;       // "Tokyo" | "London" | "NY AM" | "NY PM" | "All sessions"
 }
 
+export interface BucketEvent {
+  ts: string;
+  won: boolean;
+  r: number;
+}
+
 export interface BucketStats {
   key: BucketKey;
   /** Raw broker symbols rolled up into this canonical key (for display). */
@@ -138,6 +144,16 @@ export interface BucketStats {
   loggedIdealSlCount: number;
   /** Hypothetical SL sweep over the bucket's MAE distribution. null when N<10 or insufficient MAE data. */
   slSweep: SlSweepRow[] | null;
+  /** Closed trades in this bucket, ordered by entry_time. Powers drift + cumulative chart. */
+  events: BucketEvent[];
+  /** Trailing window size used to compute `recent*` / `drift`. */
+  recentN: number;
+  /** Win rate over the last `recentN` events. null when fewer than 5 events. */
+  recentWinRate: number | null;
+  /** Mean R over the last `recentN` events. null when fewer than 5 events. */
+  recentExpectedR: number | null;
+  /** (recentWinRate − winRate) in percentage points. null when recentWinRate null. */
+  drift: number | null;
 }
 
 export interface SlSweepRow {
