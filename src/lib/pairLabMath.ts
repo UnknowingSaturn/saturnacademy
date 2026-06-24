@@ -315,18 +315,30 @@ export interface BuildBucketsOpts {
   dateTo?: string | null;
   /** Window length for `recent*` / `drift`. Default 10. */
   recentN?: number;
+  /** When false (default) excludes ideas/paper/missed/dismissed/zero-PnL setup rows from every stat. */
+  includeUnrealized?: boolean;
+}
+
+export interface BuildBucketsResult {
+  perCell: BucketReport[];
+  perRow: BucketReport[];
+  baseline: BucketReport;
+  /** How many trades were dropped because `isUnrealized(t)` returned true. */
+  unrealizedExcluded: number;
 }
 
 export function buildBuckets(
   trades: Trade[],
   keys: PairLabFieldKeys,
   opts: BuildBucketsOpts = {},
-): { perCell: BucketReport[]; perRow: BucketReport[]; baseline: BucketReport } {
+): BuildBucketsResult {
   const closedOnly = opts.closedOnly !== false;
   const resolveSym = opts.symbolResolver ?? ((s: string) => s);
   const recentN = opts.recentN ?? 10;
   const dateFrom = opts.dateFrom ?? null;
   const dateTo = opts.dateTo ?? null;
+  const includeUnrealized = opts.includeUnrealized === true;
+  let unrealizedExcluded = 0;
   const filtered = trades.filter((t) => {
     if (closedOnly && t.is_open) return false;
     if (t.is_archived) return false;
@@ -337,6 +349,10 @@ export function buildBuckets(
       if (!ts) return false;
       if (dateFrom && ts < dateFrom) return false;
       if (dateTo && ts > dateTo) return false;
+    }
+    if (!includeUnrealized && isUnrealized(t)) {
+      unrealizedExcluded += 1;
+      return false;
     }
     return true;
   });
@@ -390,7 +406,21 @@ export function buildBuckets(
 
   perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
   perRow.sort((a, b) => b.n - a.n);
-  return { perCell, perRow, baseline };
+  return { perCell, perRow, baseline, unrealizedExcluded };
+}
+
+// Unified "side of trade" classifier — uses r_multiple_actual when present
+// (precise, BE = 0), falls back to net_pnl sign. Shared by streak math and
+// `computeBucket.sideOf` so a commission-only BE never counts as a loss in
+// one place and a non-loss in another.
+function tradeSide(t: Trade | any): 1 | -1 | 0 {
+  if (t?.r_multiple_actual != null) {
+    if (t.r_multiple_actual > 0) return 1;
+    if (t.r_multiple_actual < 0) return -1;
+    return 0;
+  }
+  const p = t?.net_pnl ?? 0;
+  return p > 0 ? 1 : p < 0 ? -1 : 0;
 }
 
 function longestLossStreak(rows: Trade[]): number {
