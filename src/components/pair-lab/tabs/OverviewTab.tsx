@@ -73,6 +73,30 @@ export function OverviewTab({
   const slCoverage = closed.length > 0 ? withSl / closed.length : 1;
   const slWarn = closed.length >= 10 && slCoverage < 0.7;
 
+  // H3 — flag crypto symbols that ship MAE data without a tick-size override.
+  // The default classifier ticks crypto at 0.01, which is wrong for any broker
+  // that quotes BTC/ETH in whole dollars — MAE would render ~100× too large.
+  const cryptoWithoutOverride = useMemo(() => {
+    const overrides = getTickSizeOverrides();
+    const offenders = new Set<string>();
+    for (const t of closed) {
+      if (!t.symbol) continue;
+      if (classifySymbol(t.symbol) !== "crypto") continue;
+      if (overrides[normalizeSymbol(t.symbol)] != null) continue;
+      // Treat presence of any logged MAE custom-field value as the trigger —
+      // until that exists, the mis-scaling is invisible.
+      const cf = (t as any).custom_fields;
+      const hasMae =
+        cf &&
+        typeof cf === "object" &&
+        Object.entries(cf).some(
+          ([k, v]) => /mae/i.test(k) && v != null && v !== "",
+        );
+      if (hasMae) offenders.add(t.symbol);
+    }
+    return Array.from(offenders);
+  }, [closed]);
+
   return (
     <div className="space-y-6">
       {/* Filter controls */}
