@@ -7,6 +7,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { resolvePairLabFieldKeys, buildBuckets, type BucketReport, type PropFirmContext } from "../_shared/quant/pairLabMath.ts";
+import { setTickSizeOverrides } from "../_shared/quant/symbolMapping.ts";
 import { replayAllPresets, MIN_ELIGIBLE_SAMPLE, type PresetReplayResult } from "../_shared/quant/pairLabSimulator.ts";
 
 const BANNED_PHRASES = [
@@ -1049,7 +1050,33 @@ async function computeQuantBlock(
 
     const propFirm = await fetchPropFirmContext(admin, account_id);
 
-    const { perCell, baseline } = buildBuckets(usableTrades, keys, propFirm);
+    // Mirror the client's per-symbol tick-size overrides so server-side bucket
+    // math (R-multiples, MAE pip distance) matches what the user sees in PairLab.
+    // Merged across all of the user's symbol groups; reset after the run so
+    // subsequent invocations on the same isolate start clean.
+    const { data: tickGroups } = await admin
+      .from('symbol_groups')
+      .select('tick_size_overrides')
+      .eq('user_id', targetUserId);
+    const mergedOverrides: Record<string, number> = {};
+    for (const g of (tickGroups as any[]) || []) {
+      const m = g?.tick_size_overrides;
+      if (m && typeof m === 'object') {
+        for (const [k, v] of Object.entries(m)) {
+          if (typeof v === 'number' && Number.isFinite(v) && v > 0) mergedOverrides[k] = v as number;
+        }
+      }
+    }
+    setTickSizeOverrides(mergedOverrides);
+
+    let perCell: BucketReport[]; let baseline: any;
+    try {
+      const built = buildBuckets(usableTrades, keys, propFirm);
+      perCell = built.perCell;
+      baseline = built.baseline;
+    } finally {
+      setTickSizeOverrides({});
+    }
     const total = usableTrades.length || 1;
     const slCov = usableTrades.filter((t: any) => t.sl_initial != null && t.entry_price != null).length / total;
     const mfeCov = baseline.loggedMfeCount / total;
