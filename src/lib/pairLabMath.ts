@@ -569,7 +569,11 @@ function computeBucket(
 
   const sumWin = winR.reduce((s, v) => s + v, 0);
   const sumLoss = lossR.reduce((s, v) => s + v, 0);
-  const profitFactor = sumLoss > 0 ? sumWin / sumLoss : (sumWin > 0 ? Infinity : null);
+  // PF math: ratio when both sides exist; null + `allWins` flag when no
+  // losses (PF is mathematically undefined — JSON.stringify(Infinity)=null
+  // would silently look identical to "no data").
+  const profitFactorAllWins = sumLoss <= 0 && sumWin > 0;
+  const profitFactor = sumLoss > 0 ? sumWin / sumLoss : null;
   const payoffRatio = (wins.length > 0 && losses.length > 0 && lossR.length > 0)
     ? (sumWin / winR.length) / (sumLoss / lossR.length)
     : null;
@@ -620,12 +624,17 @@ function computeBucket(
 
   // Walk-forward event timeline — closed trades ordered by entry_time.
   // Used by the drift signal (recent vs lifetime) and the cumulative drilldown chart.
+  // When r_multiple_actual is missing we infer ±1 from net_pnl sign; that count
+  // is surfaced as `eventsRFallbackCount` so the UI can flag noisy buckets.
+  let eventsRFallbackCount = 0;
   const events: BucketEvent[] = [...closed]
     .filter((t) => t.entry_time)
     .sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)))
     .map((t) => {
-      const r = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual)
-        ? t.r_multiple_actual
+      const hasR = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual);
+      if (!hasR) eventsRFallbackCount += 1;
+      const r = hasR
+        ? (t.r_multiple_actual as number)
         : ((t.net_pnl ?? 0) > 0 ? 1 : (t.net_pnl ?? 0) < 0 ? -1 : 0);
       return { ts: String(t.entry_time), won: r > 0, r };
     });
@@ -652,6 +661,7 @@ function computeBucket(
     expectedR,
     expectedRMedian,
     profitFactor,
+    profitFactorAllWins,
     payoffRatio,
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),
@@ -683,6 +693,7 @@ function computeBucket(
     recentWinRate,
     recentExpectedR,
     drift,
+    eventsRFallbackCount,
   };
 
 
