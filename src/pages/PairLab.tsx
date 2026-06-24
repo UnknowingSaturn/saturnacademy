@@ -24,11 +24,22 @@ export default function PairLab() {
   const [profile, setProfile] = useState<string>("any");
   const [propFirmMode, setPropFirmMode] = useState(true);
   const [selected, setSelected] = useState<{ symbol: string; session: string } | null>(null);
+  const [simulateAll, setSimulateAll] = useState(false);
+  const simRef = useRef<HTMLDivElement | null>(null);
 
   const data = usePairLab({
     profile: profile === "any" ? null : profile,
     propFirmMode,
   });
+
+  useEffect(() => {
+    if (selected || simulateAll) {
+      // Defer to let the section render before scrolling into view.
+      requestAnimationFrame(() => {
+        simRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }, [selected, simulateAll]);
 
   const selectedBucket = useMemo(() => {
     if (!selected) return null;
