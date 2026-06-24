@@ -400,24 +400,24 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             />
           </PropertyRow>
         );
-      case 'first_half_setup':
+      case 'ideal_entry_window':
         return (
-          <PropertyRow key="first_half_setup" label={labelFor('first_half_setup', '1st-half setup (≤ :30)')}>
+          <PropertyRow key="ideal_entry_window" label={labelFor('ideal_entry_window', 'Ideal entry window')}>
             <BadgeSelect
-              value={trade.first_half_setup ?? ""}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, first_half_setup: ((v as string) || null) as any })}
-              options={HOUR_SETUP_OPTIONS}
+              value={trade.ideal_entry_window ?? ""}
+              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, ideal_entry_window: ((v as string) || null) as HourLandscape | null })}
+              options={WORKED_WINDOW_BADGE_OPTIONS}
               placeholder="—"
             />
           </PropertyRow>
         );
-      case 'second_half_setup':
+      case 'failed_setup_half':
         return (
-          <PropertyRow key="second_half_setup" label={labelFor('second_half_setup', '2nd-half setup (> :30)')}>
+          <PropertyRow key="failed_setup_half" label={labelFor('failed_setup_half', 'Failed setup')}>
             <BadgeSelect
-              value={trade.second_half_setup ?? ""}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, second_half_setup: ((v as string) || null) as any })}
-              options={HOUR_SETUP_OPTIONS}
+              value={trade.failed_setup_half ?? ""}
+              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, failed_setup_half: ((v as string) || null) as HourLandscape | null })}
+              options={FAILED_WINDOW_BADGE_OPTIONS}
               placeholder="—"
             />
           </PropertyRow>
