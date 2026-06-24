@@ -12,6 +12,7 @@ export type KnownSession = typeof KNOWN_SESSIONS[number];
 export type RegimeType = 'rotational' | 'transitional';
 export type NewsRisk = 'none' | 'low' | 'high';
 export type TradeType = 'executed' | 'idea' | 'paper' | 'missed';
+export type HourSetupOutcome = 'none' | 'worked' | 'failed';
 export type EmotionalState = 
   | 'great' | 'good' | 'calm' | 'confident' | 'focused'
   | 'alright' | 'okay' | 'normal'
@@ -150,6 +151,11 @@ export interface Trade {
   trade_number: number | null;
   trade_type: TradeType; // Type of trade: executed, idea, paper, or missed
   risk_percent: number | null; // Percentage of balance/equity risked (for idea/paper/missed trades)
+  // Hour Setup Landscape — observation of what the chart actually offered this hour,
+  // independent of which setup was taken. Used by the Pair Lab Timing tab to compute
+  // base rates ("did a first-half setup print, did it work") instead of R-based edge.
+  first_half_setup?: HourSetupOutcome | null;
+  second_half_setup?: HourSetupOutcome | null;
   // Repair state — populated by ingest's gap-sync; 'advisory_closed' means we inferred the close
   // from a snapshot rather than seeing the actual DEAL_ENTRY_OUT event.
   repair_state?: 'none' | 'advisory_closed' | 'reconciled' | null;

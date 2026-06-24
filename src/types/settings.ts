@@ -131,6 +131,8 @@ export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
   { key: 'alignment',        label: 'HTF Timeframes',  kind: 'multi-select', propertyName: 'timeframe', field: 'alignment', defaultVisible: true },
   { key: 'entry_timeframes', label: 'Entry Timeframes', kind: 'multi-select', propertyName: 'timeframe', field: 'entry_timeframes', defaultVisible: true },
   { key: 'place',            label: 'Place',           kind: 'text', field: 'place', defaultVisible: true },
+  { key: 'first_half_setup', label: '1st-half setup (≤ :30)',  kind: 'select', field: 'first_half_setup',  defaultVisible: true },
+  { key: 'second_half_setup',label: '2nd-half setup (> :30)',  kind: 'select', field: 'second_half_setup', defaultVisible: true },
   { key: 'closes',           label: 'Closes',          kind: 'readonly', defaultVisible: true },
 ];
 
@@ -307,6 +309,8 @@ export const SYSTEM_FIELD_SOURCES: Record<string, SystemFieldSource[]> = {
   actual_playbook_id: [{ table: 'trades', column: 'actual_playbook_id' }],
   model:              [{ table: 'trades', column: 'playbook_id' }],
   actual_model:       [{ table: 'trades', column: 'actual_playbook_id' }],
+  first_half_setup:   [{ table: 'trades', column: 'first_half_setup' }],
+  second_half_setup:  [{ table: 'trades', column: 'second_half_setup' }],
 
   // ── Single-column trade_reviews fields ─────────────────────────────────────
   emotion:                [{ table: 'trade_reviews', column: 'emotional_state_before' }],
