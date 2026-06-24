@@ -163,6 +163,13 @@ export interface BucketStats {
 }
 
 
+/**
+ * One row of the hypothetical SL sweep. CAVEAT: rescaling assumes purely
+ * proportional sizing — trades that took partials, moved SL to BE, or used
+ * trailing stops are over-deflated at wider candidate SLs because the actual
+ * R was never at risk to the full new SL distance. Any UI that renders these
+ * rows MUST surface this limitation (tooltip on the meanR / deltaR column).
+ */
 export interface SlSweepRow {
   /** Quantile of MAE distribution (e.g. 0.25, 0.40, 0.55, 0.70, 0.90). */
   q: number;
@@ -170,11 +177,12 @@ export interface SlSweepRow {
   slPips: number;
   /** Fraction of trades stopped out at this SL (0–1). */
   pctStopped: number;
-  /** Mean R-multiple under this hypothetical SL. */
+  /** Mean R-multiple under this hypothetical SL. See interface doc for caveat. */
   meanR: number;
-  /** Delta vs actual mean R (meanR − expectedR). */
+  /** Delta vs actual mean R (meanR − expectedR). See interface doc for caveat. */
   deltaR: number;
 }
+
 
 export interface Tp1Star {
   r: number;          // R-multiple target
@@ -512,12 +520,17 @@ function computeBucket(
 
   const mfes = rows.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
   // Paired (mfeR, rActual) used by computeTp1Star for empirical miss-cost.
+  // B-fix: drop unrealized rows (idea / paper / missed / dismissed / zero-PnL
+  // no-mod) so `includeUnrealized=true` doesn't lower the hit-rate denominator
+  // by feeding `{ mfeR, rActual: null }` pairs that can never count as hits.
   const mfeRPairsForTp1: Array<{ mfeR: number; rActual: number | null }> = [];
   for (const t of rows) {
+    if (isUnrealized(t as any)) continue;
     const m = numericCf(t as any, keys.mfe);
     if (m == null) continue;
     mfeRPairsForTp1.push({ mfeR: m, rActual: t.r_multiple_actual ?? null });
   }
+
 
   // MAE is stored in TICKS. Convert each value to pips for the SL math and to
   // R for the distribution display.
@@ -591,6 +604,12 @@ function computeBucket(
   // Hypothetical SL sweep: replay outcomes at candidate SLs drawn from the
   // MAE quantile distribution. If MAE > candidate SL, the trade is stopped
   // at −1R; otherwise the actual outcome is rescaled by the SL ratio.
+  //
+  // CAVEAT (do not hide from consumers): the rescaling assumes purely
+  // proportional sizing. Trades that took partials, moved SL to BE, or used
+  // trailing stops are over-deflated at wider candidate SLs because the actual
+  // R was never at risk to the full new SL distance. Surface this caveat in
+  // any UI that renders `slSweep` (currently un-rendered — see SlSweepRow doc).
   let slSweep: SlSweepRow[] | null = null;
   if (sweepRows.length >= 10) {
     const maePipsForQ = sweepRows.map((r) => r.maePips);
@@ -620,6 +639,7 @@ function computeBucket(
     }
     if (sweepOut.length > 0) slSweep = sweepOut;
   }
+
 
 
   // Walk-forward event timeline — closed trades ordered by entry_time.

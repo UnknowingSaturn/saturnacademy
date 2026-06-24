@@ -7,6 +7,8 @@
 
 import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
 import { pipSizeForSymbol, ticksToPips } from "./symbolMapping.ts";
+import { MAE_P75_WIDEN_BUFFER } from "../../../../shared/quant/config.ts";
+
 
 /** Fallback when too few trades to estimate empirical trail capture. */
 export const DEFAULT_TRAIL_CAPTURE_FRAC = 0.7;
@@ -192,7 +194,8 @@ function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucke
     slScale = proof.idealSlScale;
   } else {
     if (bucket.maeP75 == null) return { ineligible: "no MAE samples for widen rule" };
-    slScale = Math.max(1, bucket.maeP75 * 1.15);
+    slScale = Math.max(1, bucket.maeP75 * MAE_P75_WIDEN_BUFFER);
+
   }
   let stoppedUnderNewSl: boolean | null;
   if (proof.loggedMae != null) stoppedUnderNewSl = proof.loggedMae >= slScale;

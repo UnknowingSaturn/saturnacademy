@@ -14,6 +14,13 @@ export function useTrades(filters?: {
   dateTo?: string;
   isOpen?: boolean;
   isArchived?: boolean;
+  /**
+   * When true (default), an `accountId` filter also includes rows whose
+   * `account_id IS NULL` (legacy imports, advisory closes) — keeps Dashboard /
+   * Reports parity. Pair Lab passes `false` so account-scoped views don't mix
+   * orphan trades into expectancy buckets.
+   */
+  includeUnassigned?: boolean;
 }) {
   return useQuery({
     queryKey: tradeKeys.list(filters),
@@ -30,11 +37,13 @@ export function useTrades(filters?: {
         query = query.eq('is_archived', false);
       }
 
-      // Account filter mirrors the Journal: include the selected account AND
-      // any orphan rows whose account_id is NULL (legacy imports, advisory
-      // closes). Without the NULL branch Pair Lab + Dashboard understate N.
       if (filters?.accountId) {
-        query = query.or(`account_id.eq.${filters.accountId},account_id.is.null`);
+        const includeUnassigned = filters.includeUnassigned ?? true;
+        if (includeUnassigned) {
+          query = query.or(`account_id.eq.${filters.accountId},account_id.is.null`);
+        } else {
+          query = query.eq('account_id', filters.accountId);
+        }
       }
       if (filters?.symbol) query = query.eq('symbol', filters.symbol);
       if (filters?.session) query = query.eq('session', filters.session);
@@ -48,6 +57,7 @@ export function useTrades(filters?: {
     },
   });
 }
+
 
 export function useTrade(tradeId: string | undefined) {
   return useQuery({

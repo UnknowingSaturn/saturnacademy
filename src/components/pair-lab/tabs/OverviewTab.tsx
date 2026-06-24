@@ -42,6 +42,9 @@ interface Props {
   setPropFirmMode: (v: boolean) => void;
   includeUnrealized: boolean;
   setIncludeUnrealized: (v: boolean) => void;
+  /** Include trades with NULL account_id even when an account is selected. */
+  includeUnassigned: boolean;
+  setIncludeUnassigned: (v: boolean) => void;
   scope: string;
   setScope: (v: string) => void;
 }
@@ -54,9 +57,12 @@ export function OverviewTab({
   setPropFirmMode,
   includeUnrealized,
   setIncludeUnrealized,
+  includeUnassigned,
+  setIncludeUnassigned,
   scope,
   setScope,
 }: Props) {
+
   const { wf, setWf, minMs, maxMs } = usePairLabWalkForward();
   const { groups } = useSymbolGroups();
   const activeGroup = useMemo(() => {
@@ -126,6 +132,31 @@ export function OverviewTab({
               onCheckedChange={setIncludeUnrealized}
             />
           </div>
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-1.5 cursor-help">
+                  <Label htmlFor="orphan-mode" className="text-xs cursor-pointer">
+                    Include orphan trades
+                  </Label>
+                  <Switch
+                    id="orphan-mode"
+                    checked={includeUnassigned}
+                    onCheckedChange={setIncludeUnassigned}
+                    aria-label="Include trades with no account assigned"
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                When off, only trades attached to the selected account are
+                bucketed. When on, trades whose <code>account_id</code> is NULL
+                (legacy CSV imports, advisory closes) are also included. Off by
+                default in Pair Lab so cross-account orphan rows can't pollute
+                expectancy.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
           <Select value={profile} onValueChange={setProfile}>
             <SelectTrigger className="w-[170px]">
               <SelectValue placeholder="Profile" />

@@ -70,9 +70,15 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
             tpLadderR: bucket.recommendation.tpLadderR,
             tp1Star: bucket.recommendation.tp1Star,
             suggestedRiskPct: bucket.recommendation.suggestedRiskPct,
+            // B-fix: surface Kelly CI + PF so the LLM can speak to risk-sizing
+            // uncertainty and overall profitability without recomputing math.
+            suggestedRiskPctCi: bucket.recommendation.suggestedRiskPctCi,
             suggestedRiskPctPropFirm: bucket.recommendation.suggestedRiskPctPropFirm,
             bindingConstraint: bucket.recommendation.bindingConstraint,
             edgeVsBaseline: bucket.recommendation.edgeVsBaseline,
+            profitFactor: bucket.profitFactor,
+            profitFactorAllWins: bucket.profitFactorAllWins,
+
             // Phase-4 additions — let the LLM speak to confidence + OOS.
             recommendationConfidence: bucket.recommendation.recommendationConfidence,
             suggestedTpR: bucket.recommendation.suggestedTpR,
@@ -331,16 +337,26 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
                 </div>
               </div>
             </div>
-            {wf ? (
-              <div className="text-[11px] text-muted-foreground font-mono-numbers border-t border-border/40 pt-2">
-                Walk-forward · IS {(wf.inSampleE >= 0 ? "+" : "") + wf.inSampleE.toFixed(2)}R
-                {" → "}
-                OOS {(wf.outOfSampleE >= 0 ? "+" : "") + wf.outOfSampleE.toFixed(2)}R
-                <span className={wf.degradationPct > 60 ? "text-loss ml-1" : "ml-1"}>
-                  ({wf.degradationPct >= 0 ? "−" : "+"}{Math.abs(wf.degradationPct).toFixed(0)}% on {wf.oosN} OOS trades)
-                </span>
-              </div>
-            ) : (
+            {wf ? (() => {
+              // Negative degradation = OOS outperformed IS (1 - OOS/IS < 0).
+              // Render that case as a positive improvement instead of a
+              // confusing "−45%" minus-sign on a number the user reads as bad.
+              const dp = wf.degradationPct;
+              const improvedOos = dp < 0;
+              const magnitude = Math.abs(dp).toFixed(0);
+              return (
+                <div className="text-[11px] text-muted-foreground font-mono-numbers border-t border-border/40 pt-2">
+                  Walk-forward · IS {(wf.inSampleE >= 0 ? "+" : "") + wf.inSampleE.toFixed(2)}R
+                  {" → "}
+                  OOS {(wf.outOfSampleE >= 0 ? "+" : "") + wf.outOfSampleE.toFixed(2)}R
+                  <span className={improvedOos ? "text-profit ml-1" : dp > 60 ? "text-loss ml-1" : "ml-1"}>
+                    {improvedOos
+                      ? `(OOS outperformed IS by ${magnitude}% · ${wf.oosN} trades)`
+                      : `(${magnitude}% degradation on ${wf.oosN} OOS trades)`}
+                  </span>
+                </div>
+              );
+            })() : (
               // M2 — explain why the walk-forward / OOS panel is missing instead
               // of silently rendering nothing.
               <div className="text-[11px] text-muted-foreground border-t border-border/40 pt-2 italic">
@@ -352,6 +368,7 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
                   : "fewer than 5 trades fell into the out-of-sample window."}
               </div>
             )}
+
             <div className="text-[10px] text-muted-foreground italic">
               SL = p90(winners' MAE) × 1.10 · TP = argmax E[R] over MFE grid · CI = 200-iter bootstrap
             </div>
