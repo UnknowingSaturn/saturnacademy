@@ -12,7 +12,8 @@ export type KnownSession = typeof KNOWN_SESSIONS[number];
 export type RegimeType = 'rotational' | 'transitional';
 export type NewsRisk = 'none' | 'low' | 'high';
 export type TradeType = 'executed' | 'idea' | 'paper' | 'missed';
-export type HourSetupOutcome = 'none' | 'worked' | 'failed';
+/** Per-hour setup-landscape value used by `ideal_entry_window` and `failed_setup_half`. */
+export type HourLandscape = 'none' | 'first' | 'second' | 'both';
 export type EmotionalState = 
   | 'great' | 'good' | 'calm' | 'confident' | 'focused'
   | 'alright' | 'okay' | 'normal'
@@ -154,8 +155,10 @@ export interface Trade {
   // Hour Setup Landscape — observation of what the chart actually offered this hour,
   // independent of which setup was taken. Used by the Pair Lab Timing tab to compute
   // base rates ("did a first-half setup print, did it work") instead of R-based edge.
-  first_half_setup?: HourSetupOutcome | null;
-  second_half_setup?: HourSetupOutcome | null;
+  // `ideal_entry_window` = which half(s) had a WORKING setup.
+  // `failed_setup_half`  = which half(s) had a setup that printed but FAILED.
+  ideal_entry_window?: import('@/lib/hourSetup').HourLandscape | null;
+  failed_setup_half?: import('@/lib/hourSetup').HourLandscape | null;
   // Repair state — populated by ingest's gap-sync; 'advisory_closed' means we inferred the close
   // from a snapshot rather than seeing the actual DEAL_ENTRY_OUT event.
   repair_state?: 'none' | 'advisory_closed' | 'reconciled' | null;

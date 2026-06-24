@@ -131,8 +131,8 @@ export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
   { key: 'alignment',        label: 'HTF Timeframes',  kind: 'multi-select', propertyName: 'timeframe', field: 'alignment', defaultVisible: true },
   { key: 'entry_timeframes', label: 'Entry Timeframes', kind: 'multi-select', propertyName: 'timeframe', field: 'entry_timeframes', defaultVisible: true },
   { key: 'place',            label: 'Place',           kind: 'text', field: 'place', defaultVisible: true },
-  { key: 'first_half_setup', label: '1st-half setup (≤ :30)',  kind: 'select', field: 'first_half_setup',  defaultVisible: true },
-  { key: 'second_half_setup',label: '2nd-half setup (> :30)',  kind: 'select', field: 'second_half_setup', defaultVisible: true },
+  { key: 'ideal_entry_window', label: 'Ideal entry window', kind: 'select', field: 'ideal_entry_window', defaultVisible: true },
+  { key: 'failed_setup_half',  label: 'Failed setup',       kind: 'select', field: 'failed_setup_half',  defaultVisible: true },
   { key: 'closes',           label: 'Closes',          kind: 'readonly', defaultVisible: true },
 ];
 
@@ -284,10 +284,10 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'actual_regime', label: 'Actual Regime', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'regime', category: 'editable' },
   { key: 'emotional_state_before', label: 'Emotion', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'emotion', category: 'editable' },
   { key: 'place', label: 'Place', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'editable' },
-  // Retrospective per-hour setup observations — drives Pair Lab Timing analysis.
-  // Off by default; user enables from Settings → Fields.
-  { key: 'first_half_setup',  label: '1st-half (≤ :30)', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(100px, 1.1fr)', category: 'editable' },
-  { key: 'second_half_setup', label: '2nd-half (> :30)', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(100px, 1.1fr)', category: 'editable' },
+  // Retrospective per-hour setup landscape — drives Pair Lab Timing analysis.
+  // Visible by default so users can fill them in straight from the journal grid.
+  { key: 'ideal_entry_window', label: 'Ideal window', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(100px, 1.1fr)', category: 'editable' },
+  { key: 'failed_setup_half',  label: 'Failed half',  type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(100px, 1.1fr)', category: 'editable' },
   // Optional toggleable system fields (off by default — enable from Fields settings)
   { key: 'direction', label: 'Direction', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.7fr)', category: 'calculated' },
   { key: 'net_pnl', label: 'P&L', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'calculated' },
@@ -313,8 +313,8 @@ export const SYSTEM_FIELD_SOURCES: Record<string, SystemFieldSource[]> = {
   actual_playbook_id: [{ table: 'trades', column: 'actual_playbook_id' }],
   model:              [{ table: 'trades', column: 'playbook_id' }],
   actual_model:       [{ table: 'trades', column: 'actual_playbook_id' }],
-  first_half_setup:   [{ table: 'trades', column: 'first_half_setup' }],
-  second_half_setup:  [{ table: 'trades', column: 'second_half_setup' }],
+  ideal_entry_window: [{ table: 'trades', column: 'ideal_entry_window' }],
+  failed_setup_half:  [{ table: 'trades', column: 'failed_setup_half' }],
 
   // ── Single-column trade_reviews fields ─────────────────────────────────────
   emotion:                [{ table: 'trade_reviews', column: 'emotional_state_before' }],

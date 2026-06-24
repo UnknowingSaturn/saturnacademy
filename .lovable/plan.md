@@ -1,56 +1,65 @@
-## Goal
+# Consolidate to `ideal_entry_window` as setup landscape
 
-The two `first_half_setup` / `second_half_setup` fields exist on the trade and in the side panel, but the Journal itself doesn't let you scan, filter, or quickly mark them across many trades. This plan makes them first-class in the Journal table — because these fields are *retrospective* (you know if the second-half setup worked only after the hour closes), the table grid is where they belong, not the new-trade form.
+## Model
 
-## What changes for the user
+One hour can have two independent observations:
 
-**1. Two new columns in the Journal table**
+- **Where a setup *worked*** → `ideal_entry_window`: `none | first | second | both`
+- **Where a setup *formed but failed*** → `failed_setup_half`: `none | first | second | both`
 
-- `1st-half (≤ :30)` and `2nd-half (> :30)` — sortable, filterable, inline-editable like `Session` or `Profile` today.
-- Each cell is a compact pill: `—` (unset), `None`, **Worked** (green), **Failed** (red). Click to change, no modal.
-- Hidden by default. User enables them from **Settings → Fields** so existing layouts aren't disturbed.
+Together that's the "4 states + failed flag" you picked. Semantics are about the **hour**, not about your entry: a losing trade entered in the second half can still have `ideal_entry_window = first` if the first-half setup would have worked. That's the signal the lab needs.
 
-**2. Filter support**
+## Schema
 
-- New options in the FilterBar's column dropdown for both fields with `equals` / `not_equals` / `is_empty` / `is_not_empty` operators.
-- This is what makes the field actually useful: "show me all GBP trades where 1st-half = Worked" answers the rule-rewrite question directly.
+Drop the experiment from the last turn and promote `ideal_entry_window` to a real column.
 
-**3. Bulk-edit from the table**
+```text
+trades
+├─ ideal_entry_window  text  null   -- 'none' | 'first' | 'second' | 'both'
+└─ failed_setup_half   text  null   -- 'none' | 'first' | 'second' | 'both'
+```
 
-- When 2+ rows are selected, the existing BulkActionBar gains a `Set 1st-half / 2nd-half` action. Lets you back-fill a week of trades in under a minute when starting to use these fields.
+- Migration drops `first_half_setup` and `second_half_setup` (added last turn, no analysis depends on them yet).
+- Adds `ideal_entry_window` as a real column on `trades` so it can be sorted, filtered, and aggregated without going through the custom-field path. Existing `cf_ideal_entry_window` references in `pairLabMath.ts` still resolve via the alias system for legacy rows; new writes go to the column.
+- CHECK constraint restricts both columns to the four values above.
 
-**4. Calendar view tag (small)**
+## Journal UI
 
-- The day-cell on the Calendar view shows a tiny `1▲ 2▼` badge if any trade on that day has a worked-1st or worked-2nd setup logged. Read-only — clicking the day opens the trade detail as today.
+Two inline-editable columns, hidden by default, enabled from **Settings → Fields** (this is why you don't see them right now — same fix applies):
 
-**5. Not in the new-trade form**
+| Column | Pills |
+|---|---|
+| Ideal entry window | None · First · Second · Both (green) |
+| Failed setup | None · First · Second · Both (red) |
 
-- Deliberately excluded. At entry time the 2nd-half setup hasn't formed yet; forcing the user to guess pollutes the dataset. They get marked from the Journal table after the hour closes.
+- `src/lib/hourSetup.ts` becomes the single source for the four-value option list + colors (one palette for "worked", one for "failed").
+- `TradeProperties.tsx` sidebar replaces the two old rows with these two.
+- `TradeTable.tsx` renders both as `BadgeSelect` and uses `useUpdateTrade`.
+- `FilterBar` picks them up automatically once registered in `DEFAULT_COLUMNS`.
+- `JournalCalendarView`: day-cell badge shows `W` if any trade that day has a worked window, `F` if any has a failed setup.
+- **Visibility fix**: register both in `DEFAULT_COLUMNS` with `defaultVisible: true` (or whatever flag your settings system uses) so they show up without a Settings trip. That's the real reason today's columns are missing.
 
-## Why this is the right shape
+## Pair Lab — Intra-Hour Timing
 
-- **Retrospective fields belong in the grid, not the entry form.** Inline-editable cells match how the user already grades planned vs actual profile / regime — same muscle memory, same component (`BadgeSelect`).
-- **Filtering is the primary unlock.** Once you can isolate `GBPUSD AND 1st-half = Worked` in one click, the Pair Lab Timing tab's per-pair numbers become directly auditable: you can see the individual trades behind each hit-rate.
-- **Bulk-edit removes the back-fill tax.** Without it, building the first 20–30 logged hours feels like a chore; with it, a Sunday review session populates a week of trades quickly.
-- **Hidden by default.** Users who don't want this analysis don't see extra columns. Opt-in mirrors how every other editable property in this app works.
+Per pair × hour:
 
-## Technical details
+- **First-half hit rate** = `count(ideal=first OR ideal=both) / count(ideal in {first,both} OR failed in {first,both})`
+- **Second-half hit rate** = symmetric
+- **Print rate** per half = how often a setup of any kind printed in that half
+- **Co-occurrence**: hours where both halves produced setups — compare worked-vs-failed across the two halves to recommend "take 1st" vs "wait for 2nd"
 
-**Touched files:**
-- `src/types/settings.ts` — append two entries to `DEFAULT_COLUMNS` (type `select`, category `editable`, default-hidden). Reuse the same `HOUR_SETUP_OPTIONS` enum defined in `TradeProperties` — extract to a shared `src/lib/hourSetup.ts` so both the sidebar and the table read one source of truth (label, color, value).
-- `src/components/journal/TradeTable.tsx` — add render + inline-edit handlers for the two new keys; wire to `useUpdateTrade` for the same optimistic-update pattern used by `session` / `profile`.
-- `src/components/journal/FilterBar.tsx` — register the two columns in the filterable-column list. No new operator needed; reuse the existing `select` filter machinery.
-- `src/components/journal/BulkActionBar.tsx` — add two menu items under a new `Set hour setup` submenu; each opens a small popover with None / Worked / Failed and writes via a bulk `update().in('id', ids)` call (same pattern as the existing bulk-archive).
-- `src/components/journal/JournalCalendarView.tsx` — small badge on day cells; cheap derived value, no new query.
-- `src/components/journal/settings/` (the Fields settings dialog, if present) — the two new columns appear automatically because `DEFAULT_COLUMNS` is the source of truth; verify the toggles render.
-- `.lovable/plan.md` — append note.
+`MIN_HOURS_FOR_TRUST = 10` stays. The R-heatmap stays gone.
 
-**No schema changes.** Columns already exist on `trades`; `useUpdateTrade` already allow-lists them.
+## What is out
 
-**Performance:** Two text cells with three possible values — no cost. No new queries; filter happens client-side over the already-loaded trades query.
+- The two `*_setup` columns added last turn (deleted in the migration; no rows depend on them yet — confirm before you approve).
+- Forcing setup entry at trade-open time. You still backfill from the Journal row after the hour closes.
+- Bulk-edit menu — inline row edit is enough for now.
 
-## Out of scope
+## Technical notes
 
-- A separate "review the hour" workflow (modal that prompts for both halves after the hour closes). Useful, but adds workflow surface — revisit if back-filling from the table feels too manual after a week of use.
-- Logging hours you did NOT trade. Still the bigger selection-bias fix, still out of scope until the in-table flow proves the analysis is worth the effort.
-- Hindsight grading split (planned vs actual outcome) — these fields are pure observation, no planned/actual duality needed.
+- Migration: `ALTER TABLE` add columns, `DROP` old columns, add CHECK, `GRANT`s unchanged (no new table).
+- `src/types/trading.ts`: replace the two fields with `ideal_entry_window` and `failed_setup_half`; keep the existing `HourSetupOutcome` type retired.
+- `useTrades.tsx` `scalarFields` allowlist: swap field names.
+- `pairLabMath.ts` (client + edge copy): keep the `idealEntryWindow` alias entry so legacy custom-field reads still resolve; new analytics read straight from the column.
+- `IntraHourTiming.tsx`: rewrite the data shaping to use the new columns; rendering layout unchanged.

@@ -16,8 +16,8 @@ interface DayData {
   pnl: number;
   winRate: number;
   tradeCount: number;
-  firstHalfWorked: number;
-  secondHalfWorked: number;
+  workedCount: number;
+  failedCount: number;
 }
 
 export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarViewProps) {
@@ -41,8 +41,16 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
       const pnl = dayTrades.reduce((sum, t) => sum + (t.net_pnl || 0), 0);
       const wins = dayTrades.filter(t => (t.net_pnl || 0) > 0).length;
       const winRate = dayTrades.length > 0 ? (wins / dayTrades.length) * 100 : 0;
-      const firstHalfWorked = dayTrades.filter(t => (t as any).first_half_setup === 'worked').length;
-      const secondHalfWorked = dayTrades.filter(t => (t as any).second_half_setup === 'worked').length;
+      // Count hours where a setup worked / failed in either half (uses the new
+      // landscape columns: ideal_entry_window + failed_setup_half).
+      const workedCount = dayTrades.filter(t => {
+        const v = (t as any).ideal_entry_window;
+        return v === 'first' || v === 'second' || v === 'both';
+      }).length;
+      const failedCount = dayTrades.filter(t => {
+        const v = (t as any).failed_setup_half;
+        return v === 'first' || v === 'second' || v === 'both';
+      }).length;
 
       dayDataMap.set(dayKey, {
         date: day,
@@ -50,8 +58,8 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
         pnl,
         winRate,
         tradeCount: dayTrades.length,
-        firstHalfWorked,
-        secondHalfWorked,
+        workedCount,
+        failedCount,
       });
     });
 
@@ -243,14 +251,13 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
                       <span className="text-xs text-muted-foreground">
                         {day.tradeCount}t
                       </span>
-                      {(day.firstHalfWorked > 0 || day.secondHalfWorked > 0) && (
+                      {(day.workedCount > 0 || day.failedCount > 0) && (
                         <span
-                          className="absolute top-1 right-1 text-[9px] font-medium text-profit/80 leading-none"
-                          title={`Worked setups — 1st: ${day.firstHalfWorked}, 2nd: ${day.secondHalfWorked}`}
+                          className="absolute top-1 right-1 text-[9px] font-medium leading-none flex gap-1"
+                          title={`Setup landscape — worked: ${day.workedCount}, failed: ${day.failedCount}`}
                         >
-                          {day.firstHalfWorked > 0 && `1·${day.firstHalfWorked}`}
-                          {day.firstHalfWorked > 0 && day.secondHalfWorked > 0 && ' '}
-                          {day.secondHalfWorked > 0 && `2·${day.secondHalfWorked}`}
+                          {day.workedCount > 0 && <span className="text-profit/80">W·{day.workedCount}</span>}
+                          {day.failedCount > 0 && <span className="text-loss/80">F·{day.failedCount}</span>}
                         </span>
                       )}
                     </>
