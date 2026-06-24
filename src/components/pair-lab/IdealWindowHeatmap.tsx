@@ -514,6 +514,17 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
                                   {b.significant && (
                                     <Star className="w-3 h-3 fill-primary text-primary" />
                                   )}
+                                  {b.drift != null && Math.abs(b.drift) >= 0.15 && b.recentSamples >= 5 && (
+                                    b.drift > 0 ? (
+                                      <span className="inline-flex items-center gap-0.5 text-emerald-500 text-[10px]" title={`Recent ${b.recentSamples} setups: ${fmtPct(b.recentRate)} (drift ${(b.drift * 100).toFixed(0)}pp)`}>
+                                        <TrendingUp className="w-3 h-3" />{(b.drift * 100).toFixed(0)}pp
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-0.5 text-red-500 text-[10px]" title={`Recent ${b.recentSamples} setups: ${fmtPct(b.recentRate)} (drift ${(b.drift * 100).toFixed(0)}pp)`}>
+                                        <TrendingDown className="w-3 h-3" />{(b.drift * 100).toFixed(0)}pp
+                                      </span>
+                                    )
+                                  )}
                                 </div>
                                 <div className="text-[10px] text-muted-foreground tabular-nums">
                                   lift {fmtR(b.expectancyLift, true)} · n={b.n}
