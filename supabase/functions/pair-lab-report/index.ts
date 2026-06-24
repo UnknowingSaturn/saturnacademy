@@ -10,6 +10,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, corsPreflight, jsonResponse } from "../_shared/cors.ts";
+import { setTickSizeOverrides } from "../_shared/quant/symbolMapping.ts";
+
+// Pinned Lovable AI Gateway model id. Keep in one place so a model swap is
+// a one-line change. If the gateway returns 404 we surface the model id in
+// the error response — silent fallback hides config drift.
+const PAIR_LAB_MODEL = "google/gemini-2.5-flash";
+
 
 interface Tp1Star {
   r: number;
@@ -79,7 +86,16 @@ interface RequestBody {
     maeP75: number | null;
   };
   propFirm?: PropFirmInput | null;
+  /**
+   * Per-symbol tick-size overrides mirrored from the client's symbol_groups
+   * config. Currently unused (this handler only consumes a pre-computed
+   * bucket) but installed for the request lifetime so any future direct
+   * buildBuckets() call inside this function matches client output for
+   * crypto/exotic-index symbols. Reset in finally to keep Deno isolates clean.
+   */
+  tickSizeOverrides?: Record<string, number> | null;
 }
+
 
 serve(async (req) => {
   const pre = corsPreflight(req);

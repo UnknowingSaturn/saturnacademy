@@ -90,6 +90,7 @@ import {
   getCf,
   numericCf,
   multiSelectCf,
+  isUnrealized,
 } from "../../../../shared/quant/stats.ts";
 export {
   quantile,
@@ -103,7 +104,9 @@ export {
   normalizeSession,
   numericCf,
   multiSelectCf,
+  isUnrealized,
 };
+
 
 export function parseTpLabel(s: string): number | null {
   if (!s) return null;
@@ -570,9 +573,18 @@ export function buildBuckets(
 ): {
   perCell: BucketReport[];
   baseline: BucketReport;
+  unrealizedExcluded: number;
 } {
   const resolveSym = symbolResolver ?? ((s: string) => s);
-  const closed = trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
+  // CE1 fix: gate idea/paper/missed/manual-dismiss + zero-PnL no-mod rows the
+  // same way the client does so any future scheduled job/report matches the UI.
+  let unrealizedExcluded = 0;
+  const closed: any[] = [];
+  for (const t of trades) {
+    if (t.is_open || t.is_archived || t.net_pnl == null) continue;
+    if (isUnrealized(t)) { unrealizedExcluded += 1; continue; }
+    closed.push(t);
+  }
   const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm);
   const cellMap = new Map<string, any[]>();
   for (const t of closed) {
@@ -590,5 +602,6 @@ export function buildBuckets(
   });
   // Match client ordering: sort by N descending (stable, sample-size first).
   perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
-  return { perCell, baseline };
+  return { perCell, baseline, unrealizedExcluded };
 }
+
