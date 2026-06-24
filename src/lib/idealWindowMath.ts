@@ -21,6 +21,7 @@
 
 import type { Trade, TradeDirection, RegimeType } from "@/types/trading";
 import { decode, readIdealWindow } from "@/lib/hourSetup";
+import { wilsonCi, bootstrapMeanCi } from "../../shared/quant/stats";
 
 export type Half = "first" | "second";
 
@@ -134,56 +135,25 @@ export function hourMinuteInTz(
 }
 
 // ---------------------------------------------------------------------------
-// Stats primitives
+// Stats primitives — Wilson CI and bootstrap mean CI live in shared/quant/stats
+// so the client and edge functions cannot drift. The private mulberry32 +
+// fixed-seed bootstrap that used to live here has been deleted; the shared
+// helpers use a value-hash seed (more reproducible per-bucket).
 // ---------------------------------------------------------------------------
 
-/** Two-sided Wilson score interval for a binomial proportion. */
+/** Two-sided Wilson score interval — never returns null in this module's usage
+ *  (callers gate on n>0), but the shared helper can return null when n<=0. */
 export function wilsonInterval(
   successes: number,
   n: number,
   z = 1.96,
 ): [number, number] {
-  if (n <= 0) return [0, 0];
-  const p = successes / n;
-  const denom = 1 + (z * z) / n;
-  const centre = (p + (z * z) / (2 * n)) / denom;
-  const margin =
-    (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denom;
-  return [Math.max(0, centre - margin), Math.min(1, centre + margin)];
+  return wilsonCi(successes, n, z) ?? [0, 0];
 }
 
-/** Mulberry32 — small deterministic PRNG so bootstrap CIs are reproducible. */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return function () {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** Bootstrap 95% CI on the mean. Returns null if fewer than 5 samples. */
-export function bootstrapMeanCI(
-  values: number[],
-  iters = 1000,
-  alpha = 0.05,
-  seed = 1337,
-): [number, number] | null {
-  if (values.length < 5) return null;
-  const rand = mulberry32(seed);
-  const n = values.length;
-  const means = new Float64Array(iters);
-  for (let i = 0; i < iters; i++) {
-    let sum = 0;
-    for (let j = 0; j < n; j++) sum += values[Math.floor(rand() * n)];
-    means[i] = sum / n;
-  }
-  const sorted = Array.from(means).sort((a, b) => a - b);
-  const lo = sorted[Math.floor((alpha / 2) * iters)];
-  const hi = sorted[Math.floor((1 - alpha / 2) * iters) - 1];
-  return [lo, hi];
+/** Bootstrap 95% CI on the mean — re-export of the shared implementation. */
+export function bootstrapMeanCI(values: number[]): [number, number] | null {
+  return bootstrapMeanCi(values);
 }
 
 /** Standard normal CDF via the Abramowitz & Stegun approximation. */
@@ -308,10 +278,18 @@ export function bucketTrades({
       }
     };
 
-    if (d.firstWorked) { addToBucket("first", true); baselineWorked += 1; if (r != null) baselineRs.push(r); }
-    if (d.firstFailed) { addToBucket("first", false); baselineFailed += 1; if (r != null) baselineRs.push(r); }
-    if (d.secondWorked) { addToBucket("second", true); baselineWorked += 1; if (r != null) baselineRs.push(r); }
-    if (d.secondFailed) { addToBucket("second", false); baselineFailed += 1; if (r != null) baselineRs.push(r); }
+    if (d.firstWorked) { addToBucket("first", true); baselineWorked += 1; }
+    if (d.firstFailed) { addToBucket("first", false); baselineFailed += 1; }
+    if (d.secondWorked) { addToBucket("second", true); baselineWorked += 1; }
+    if (d.secondFailed) { addToBucket("second", false); baselineFailed += 1; }
+    // M3 fix: push each trade's R into the baseline expectancy pool AT MOST
+    // ONCE — both halves of `cf_ideal_entry_window_*` reference the same
+    // trade, so pushing per-half (as the old code did) double- or quadruple-
+    // counted r into the baseline mean. Per-cell buckets are unaffected
+    // because they track distinct (hour, half) keys.
+    if (r != null && (d.firstWorked || d.firstFailed || d.secondWorked || d.secondFailed)) {
+      baselineRs.push(r);
+    }
   }
 
   // Finalize each bucket: rate, CIs, expectancy, recent-window drift.
