@@ -59,6 +59,7 @@ import {
   getCf,
   numericCf,
   multiSelectCf,
+  isUnrealized,
 } from "../../shared/quant/stats";
 export {
   quantile,
@@ -74,6 +75,7 @@ export {
   rawQuarterKellyPct,
   quarterKellyPct,
   normalizeSession,
+  isUnrealized,
 };
 
 export type ConfidenceLevel = "high" | "medium" | "low";
