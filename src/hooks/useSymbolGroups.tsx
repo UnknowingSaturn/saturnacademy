@@ -36,9 +36,28 @@ export function useSymbolGroups() {
         .select("*")
         .order("name", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as SymbolGroup[];
+      return (data ?? []).map((row: any) => ({
+        ...row,
+        tick_size_overrides:
+          row?.tick_size_overrides && typeof row.tick_size_overrides === "object"
+            ? (row.tick_size_overrides as Record<string, number>)
+            : {},
+      })) as SymbolGroup[];
     },
   });
+
+  // Install merged per-symbol tick-size overrides into the client-side
+  // symbol mapping shim whenever the groups change. Later group keys win
+  // on conflict — UI surfaces conflicts in the group editor.
+  useEffect(() => {
+    const merged: Record<string, number> = {};
+    for (const g of query.data ?? []) {
+      for (const [k, v] of Object.entries(g.tick_size_overrides ?? {})) {
+        if (typeof v === "number" && Number.isFinite(v) && v > 0) merged[k] = v;
+      }
+    }
+    setTickSizeOverrides(merged);
+  }, [query.data]);
 
   const create = useMutation({
     mutationFn: async (input: { name: string; color?: string | null; symbols: string[] }) => {
