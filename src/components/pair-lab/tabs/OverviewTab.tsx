@@ -359,6 +359,18 @@ export function OverviewTab({
             : "simulator profile"}{" "}
           @ ${data.simBalance.toLocaleString()}
         </div>
+        {/* M7 — make the timezone the walk-forward window is read in explicit.
+            All Pair Lab math uses each trade's `entry_time` UTC instant. CSV-
+            imported broker-local timestamps were normalized to UTC at ingest
+            via the account's BrokerDstProfile. */}
+        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground/80">
+          <Clock className="w-3 h-3" aria-hidden="true" />
+          <span>
+            Times read in <span className="font-medium text-foreground">UTC</span>.
+            Broker-local CSV imports are converted via your account's DST profile
+            at ingest.
+          </span>
+        </div>
       </Card>
     </div>
   );
