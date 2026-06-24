@@ -16,8 +16,8 @@ interface DayData {
   pnl: number;
   winRate: number;
   tradeCount: number;
-  firstHalfWorked: number;
-  secondHalfWorked: number;
+  workedCount: number;
+  failedCount: number;
 }
 
 export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarViewProps) {
