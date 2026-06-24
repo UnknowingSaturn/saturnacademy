@@ -44,6 +44,11 @@
     --breakeven: 45 93% 47%;
     --breakeven-foreground: 0 0% 10%;
 
+    /* Heatmap / chart accent tokens (used by Pair Lab) */
+    --heat-positive: 152 82% 45%;
+    --heat-negative: 0 84% 60%;
+    --chart-trail: 38 92% 50%;
+
     /* Session colors are user-defined in session_definitions */
 
     /* Chart colors */
