@@ -1,61 +1,80 @@
-# Merge Grid + Simulator into one "Analyze" tab
+# Tightened Pair Lab Plan
 
-## Recommendation
+Replace the current `.lovable/plan.md` with this streamlined version. Same goals (walk-forward analysis, per-pair-per-hour resolution, pair groups, cleaner Analyze tab), less machinery.
 
-Given your flow (**Find → simulate**) and your preference for **clean, focused views**, the most professional pattern is a **single stacked tab** — not a split pane. Split panes look impressive on a marketing screenshot but in practice they fight each other for vertical space, force the simulator's charts and tables to render in a cramped column, and make the grid feel like a sidebar. Bloomberg, TradingView's strategy tester, QuantConnect, and Tradezella all use a stacked pattern for this exact reason: the analyst scans a table, picks a row, and the deeper view unfurls beneath it at full width.
+## Guiding principles
 
-The split-pane idea also conflicts with your other answer ("keep it clean"). A persistent side panel forces the simulator to *always* be visible, even when you haven't selected anything yet — which means empty states, narrow charts, or a permanently-half-used screen.
+1. **Walk-forward by default** — every bucket metric is a function of `asOfDate`. No future leakage. Atom stays *pair × hour-half*; groups are sums over atoms.
+2. **One source of truth for selection** — a single `selected` state (URL-synced). No `simulateAll` flag, no conditional mounting, no fade transitions.
+3. **Composable, not duplicated** — groups never become separate measurements; they are views over the same atoms, so merge/unmerge is always lossless.
 
-## What changes
+## Part 1 — Pair groups (merge)
 
-**Collapse `Grid` and `Simulator` into one tab called `Analyze`** (or `Buckets`, your call). Five tabs become four: `Ideal windows · Analyze · Strategy lab · Symbol aliases`.
+- New table `symbol_groups` (`id`, `user_id`, `name`, `color`, `symbols text[]`, timestamps) + RLS + GRANTs.
+- `useSymbolGroups` hook (CRUD).
+- `SymbolGroupManager` panel with starter templates (EUR majors, USD majors, Metals, Indices).
+- View selector on heatmap and Analysis tab: **Individual / Grouped / Both**. "Other" row catches ungrouped pairs.
+- Ad-hoc merge: row-header action "Analyse as one" on the heatmap.
+- Group metrics are recomputed from the underlying trades (N-weighted), never averaged from per-pair rates.
 
-Inside `Analyze`:
+## Part 2 — Walk-forward layer (shared)
+
+Single primitive in `idealWindowMath.ts`:
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│ Baseline summary card                                       │
-├─────────────────────────────────────────────────────────────┤
-│ BucketGrid (full width — unchanged)                         │
-├─────────────────────────────────────────────────────────────┤
-│  ↓ smooth scroll-to / fade-in when a cell is selected ↓     │
-├─────────────────────────────────────────────────────────────┤
-│ Selection header: "EURUSD · London"  [Clear] [Sim profile▾] │
-├─────────────────────────────────────────────────────────────┤
-│ QuantNotePanel  (bucket stats + AI note)                    │
-├─────────────────────────────────────────────────────────────┤
-│ StrategyRanker  (full-width simulator — what's on the       │
-│ Simulator tab today, scoped to the selected bucket)         │
-└─────────────────────────────────────────────────────────────┘
+bucket = { events: { ts, worked }[] sorted asc }
+bucket.asOf(date) -> { rate, n, wilsonCI, rolling, drift }
 ```
 
-**Empty state (no cell selected):** the area below the grid shows a single muted card — *"Select a cell above to simulate that bucket, or [Simulate all trades in scope]"*. The second option preserves today's "no selection = simulate everything" behavior without making the simulator dominate the page.
+All UI reads through `asOf()`. Tagging code path is unchanged.
 
-**On selection:** the simulator section fades in and the page smooth-scrolls so the selection header lands just below the viewport's top. No layout jank, no tab switch, no lost context. This is the canonical "Find → simulate" gesture.
+Heatmap cell:
+- Headline worked-rate as-of selected date
+- Sparkline over last N tagged trades (causal)
+- Drift arrow when recent vs lifetime diverges ≥15pp AND recent N ≥5
 
-## Why this is the professional choice
+Global controls (top of Pair Lab + Analysis tab):
+- Lens toggle: All-time / 90d / 30d
+- As-of date slider (walk-forward inspector)
 
-- **One canvas per task.** Analysts read top-to-bottom; the grid → note → simulator order matches the actual decision sequence (scan → confirm → size).
-- **Full-width charts.** The equity curve, ladder histogram, and replay table all render at proper width instead of being squeezed into a 50% column.
-- **Self-documenting.** A new user lands on the page and sees the entire workflow without needing to discover a second tab.
-- **No state to sync.** Today, selecting a cell on the Grid tab silently updates the Simulator tab — you only find out by clicking over. Inline removes that hidden coupling.
+Cell drill-down modal:
+- Cumulative worked-rate + Wilson CI band
+- Rolling worked-rate overlay
+- Individual trade dots (✓/✗)
+- Optional regime breakpoint markers
 
-## What stays
+Out-of-sample panel: pick split date → train vs test worked-rate per bucket.
 
-- All math, hooks, and component internals are untouched — `BucketGrid`, `QuantNotePanel`, `StrategyRanker`, `SimulatorProfileSettings` all keep their props and behavior.
-- `selected` state, prop-firm mode, profile filter, baseline card, partial-fill warning, SL-coverage warning — all unchanged.
-- `Ideal windows`, `Strategy lab`, `Symbol aliases` tabs are untouched.
+No-leakage rule: a trade contributes to its bucket using `entry_timestamp` only.
 
-## Technical notes
+## Part 3 — Analyze tab cleanup
 
-- **File:** only `src/pages/PairLab.tsx` changes. Delete the `<TabsTrigger value="simulator">` and `<TabsContent value="simulator">`; move the simulator JSX into the `grid` tab's `<TabsContent>`, after the `QuantNotePanel` block. Rename `value="grid"` → `value="analyze"`, label `Analyze`.
-- **Scroll-on-select:** wrap the simulator section in a `ref`'d `<div>`; in a `useEffect` keyed on `selected`, call `ref.current?.scrollIntoView({ behavior: "smooth", block: "start" })` when `selected != null`.
-- **Empty state:** when `selected == null`, render a muted card with two actions: *Clear hint* (the current "select a cell" copy) and a *Simulate all trades in scope* button that's equivalent to today's default-tab behavior — clicking it just expands the simulator without setting `selected`. Implementation: track a local `simulateAll` boolean alongside `selected`; if either is truthy, render `StrategyRanker`.
-- **Selection header:** small flex row above `QuantNotePanel` with the scope label, a `[Clear]` button (sets `selected = null` and `simulateAll = false`), and the existing `<SimulatorProfileSettings />` popover trigger (moved up from the simulator card).
-- No schema, no dependencies, no math changes.
+Replace the `simulateAll` machinery with one state model.
 
-## Out of scope
+```text
+Analyze tab
+├── Baseline summary card
+├── BucketGrid
+├── Sticky selection header (chip + Clear, or "All in-scope")
+├── QuantNotePanel (bucket OR baseline note)
+└── StrategyRanker (always rendered; scope follows `selected`)
+```
 
-- Side-by-side / split-pane layout (rejected above).
-- Restructuring `Strategy lab` or `Ideal windows`.
-- Any change to the simulator's internal layout.
+- Single `selected` state, synced to URL via `useSearchParams` (`?pair=&hour=&half=`). Deep-linkable, back/forward works, refresh preserves context.
+- Sticky selection header (`position: sticky; top: 0`) so context is always visible.
+- `Esc` clears selection (one keydown listener).
+- Scroll-on-select: CSS `scroll-margin-top` on the header + one `scrollIntoView` call. No effect-driven mounting, no fade.
+- `SimulatorProfileSettings` stays inside the simulator section.
+
+## Files touched
+
+- New migration: `symbol_groups` + RLS + GRANTs
+- New: `useSymbolGroups.tsx`, `SymbolGroupManager.tsx`, `WalkForwardControls.tsx`, `CellHistoryModal.tsx`
+- Updated: `src/lib/idealWindowMath.ts`, `src/lib/pairLabMath.ts`, `src/components/pair-lab/IdealWindowHeatmap.tsx`, `src/components/pair-lab/StrategyRanker.tsx`, `src/pages/PairLab.tsx`
+- Replace `.lovable/plan.md` with this document
+
+## Out of scope (explicit)
+
+- Exponential time-decay weighting (revisit if drift signal proves noisy)
+- Server-side recomputation — all math stays in the browser (hundreds–few thousand tagged trades)
+- Changes to tagging UX or trade ingestion
