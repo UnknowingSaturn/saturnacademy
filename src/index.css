@@ -112,6 +112,11 @@
     --breakeven: 45 95% 55%;
     --breakeven-foreground: 0 0% 0%;
 
+    /* Heatmap / chart accent tokens — OLED-vivid */
+    --heat-positive: 152 95% 45%;
+    --heat-negative: 0 85% 58%;
+    --chart-trail: 38 100% 60%;
+
     /* Session colors are user-defined in session_definitions */
 
     /* Chart colors - OLED optimized */
