@@ -65,6 +65,7 @@ import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings"
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { CustomFieldCell } from "./CustomFieldCell";
 import { getRealPartialCloses } from "@/lib/tradeMath";
+import { HOUR_SETUP_BADGE_OPTIONS } from "@/lib/hourSetup";
 
 interface TradeTableProps {
   trades: Trade[];
@@ -289,6 +290,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
 
   const handleProfileChange = async (trade: Trade, profile: string) => {
     await updateTrade.mutateAsync({ id: trade.id, profile: profile as TradeProfile });
+  };
+
+  const handleHourSetupChange = async (
+    trade: Trade,
+    half: 'first_half_setup' | 'second_half_setup',
+    value: string,
+  ) => {
+    await updateTrade.mutateAsync({ id: trade.id, [half]: (value || null) as any });
   };
 
   const handlePlaceChange = async (trade: Trade) => {
@@ -692,6 +701,21 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                       </div>
                     );
                   }
+
+                  if (key === 'first_half_setup' || key === 'second_half_setup') {
+                    const current = (trade as any)[key] as string | null | undefined;
+                    return (
+                      <div key={key} onClick={(e) => e.stopPropagation()}>
+                        <BadgeSelect
+                          value={current || ""}
+                          onChange={(v) => handleHourSetupChange(trade, key, v as string)}
+                          options={HOUR_SETUP_BADGE_OPTIONS}
+                          placeholder={key === 'first_half_setup' ? '1st-half' : '2nd-half'}
+                        />
+                      </div>
+                    );
+                  }
+
 
                   if (key === 'r_multiple_actual') {
                     const r = trade.r_multiple_actual;
