@@ -272,7 +272,6 @@ export default function PairLab() {
           <IntraHourTiming
             trades={data.trades}
             symbolResolver={data.symbolResolver}
-            idealEntryWindowKey={data.fieldKeys.idealEntryWindow}
           />
         </TabsContent>
 
