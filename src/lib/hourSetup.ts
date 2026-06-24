@@ -2,7 +2,14 @@
 //
 // Storage: this lives on the custom field `cf_ideal_entry_window_*` so users
 // can rename / hide it like any other property. The value vocabulary is the
-// 7-state combined worked-and-failed encoding below.
+// 9-state encoding below: each of the two halves of the hour is independently
+// `none` / `worked` / `failed`, giving 3 × 3 = 9 combinations.
+//
+// A tag means "the setup printed in that half" — `worked` if it played out,
+// `failed` if it printed but failed to follow through. This is decoupled from
+// the trade's own W/L: a losing trade can still tag a half as `worked` if the
+// setup was valid (you just didn't capitalise). Leave the field blank when no
+// qualifying setup printed that hour.
 
 import type { Trade } from "@/types/trading";
 
@@ -13,6 +20,11 @@ export type IdealWindowValue =
   | "both_worked"
   | "first_failed"
   | "second_failed"
+  | "both_failed"
+  | "first_worked_second_failed"
+  | "first_failed_second_worked"
+  // Legacy alias kept for backward compatibility with rows written before the
+  // 9-state vocabulary. Decoded as first_worked + second_failed by convention.
   | "mixed";
 
 export const IDEAL_WINDOW_VALUES: IdealWindowValue[] = [
@@ -22,6 +34,9 @@ export const IDEAL_WINDOW_VALUES: IdealWindowValue[] = [
   "both_worked",
   "first_failed",
   "second_failed",
+  "both_failed",
+  "first_worked_second_failed",
+  "first_failed_second_worked",
   "mixed",
 ];
 
@@ -33,13 +48,15 @@ export interface IdealWindowOption {
 }
 
 export const IDEAL_WINDOW_OPTIONS: IdealWindowOption[] = [
-  { value: "none",          label: "None",        color: "#64748B" },
-  { value: "first_worked",  label: "1st half ✓",  color: "#10B981" },
-  { value: "second_worked", label: "2nd half ✓",  color: "#059669" },
-  { value: "both_worked",   label: "Both ✓",      color: "#047857" },
-  { value: "first_failed",  label: "1st half ✗",  color: "#EF4444" },
-  { value: "second_failed", label: "2nd half ✗",  color: "#DC2626" },
-  { value: "mixed",         label: "Mixed",       color: "#F59E0B" },
+  { value: "none",                       label: "None",              color: "#64748B" },
+  { value: "first_worked",               label: "1st ✓",             color: "#10B981" },
+  { value: "second_worked",              label: "2nd ✓",             color: "#059669" },
+  { value: "both_worked",                label: "Both ✓",            color: "#047857" },
+  { value: "first_failed",               label: "1st ✗",             color: "#EF4444" },
+  { value: "second_failed",              label: "2nd ✗",             color: "#DC2626" },
+  { value: "both_failed",                label: "Both ✗",            color: "#991B1B" },
+  { value: "first_worked_second_failed", label: "1st ✓ · 2nd ✗",     color: "#F59E0B" },
+  { value: "first_failed_second_worked", label: "1st ✗ · 2nd ✓",     color: "#D97706" },
 ];
 
 export const IDEAL_WINDOW_BADGE_OPTIONS = IDEAL_WINDOW_OPTIONS.map(o => ({
@@ -63,20 +80,21 @@ const EMPTY: DecodedIdealWindow = {
   secondFailed: false,
 };
 
-/** Decode the 7-state value into independent boolean flags for math/UI. */
+/** Decode the 9-state value into independent boolean flags for math/UI. */
 export function decode(value: IdealWindowValue | string | null | undefined): DecodedIdealWindow {
   switch (value) {
-    case "first_worked":  return { ...EMPTY, firstWorked: true };
-    case "second_worked": return { ...EMPTY, secondWorked: true };
-    case "both_worked":   return { firstWorked: true, secondWorked: true, firstFailed: false, secondFailed: false };
-    case "first_failed":  return { ...EMPTY, firstFailed: true };
-    case "second_failed": return { ...EMPTY, secondFailed: true };
-    // "mixed" = one half worked, the other failed. We don't know which is which
-    // without an extra field, so count it as a 1✓/1✗ split: each half gets one
-    // tally, but on opposite columns. We split it as 1st-worked + 2nd-failed by
-    // convention so co-occurrence math still has a signal.
-    case "mixed":         return { firstWorked: true, secondWorked: false, firstFailed: false, secondFailed: true };
-    default:              return { ...EMPTY };
+    case "first_worked":               return { ...EMPTY, firstWorked: true };
+    case "second_worked":              return { ...EMPTY, secondWorked: true };
+    case "both_worked":                return { ...EMPTY, firstWorked: true, secondWorked: true };
+    case "first_failed":               return { ...EMPTY, firstFailed: true };
+    case "second_failed":              return { ...EMPTY, secondFailed: true };
+    case "both_failed":                return { ...EMPTY, firstFailed: true, secondFailed: true };
+    case "first_worked_second_failed": return { ...EMPTY, firstWorked: true, secondFailed: true };
+    case "first_failed_second_worked": return { ...EMPTY, firstFailed: true, secondWorked: true };
+    // Legacy "mixed" was an ambiguous 1✓/1✗ split. Map it to first_worked +
+    // second_failed by convention so existing rows still feed the math.
+    case "mixed":                      return { ...EMPTY, firstWorked: true, secondFailed: true };
+    default:                           return { ...EMPTY };
   }
 }
 
