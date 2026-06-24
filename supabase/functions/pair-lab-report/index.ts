@@ -122,6 +122,8 @@ serve(async (req) => {
       },
       recommended_parameters: {
         suggested_sl_pips: b.suggestedSlPips,
+        sl_source: b.slSource,
+        sl_source_n: b.slSourceN,
         tp_ladder_R_expected_r: b.tpLadderR,
         tp1_star_win_rate_maxing: b.tp1Star
           ? {
