@@ -275,6 +275,28 @@ export function OverviewTab({
         </Card>
       )}
 
+      {/* H3 — crypto without tick-size override produces ~100× mis-scaled MAE. */}
+      {cryptoWithoutOverride.length > 0 && (
+        <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">
+          <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <div className="font-medium mb-1">
+              Crypto symbols with logged MAE but no tick-size override.
+            </div>
+            <div className="text-muted-foreground text-xs leading-relaxed">
+              {cryptoWithoutOverride.join(", ")} —{" "}
+              the default classifier ticks crypto at 0.01. If your broker
+              quotes these in whole dollars (most do for BTC/ETH), MAE and
+              Ideal-SL will render ~100× too large and SL recommendations will
+              be unusable. Set a tick-size override under{" "}
+              <span className="font-medium text-foreground">Setup → Symbol groups</span>{" "}
+              (e.g. BTCUSD = 1.0, ETHUSD = 0.1).
+            </div>
+          </div>
+        </Card>
+      )}
+
+
       {/* Baseline summary */}
       <Card className="p-4">
         <div className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
