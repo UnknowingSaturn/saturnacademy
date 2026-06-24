@@ -324,7 +324,7 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
                 </div>
               </div>
             </div>
-            {wf && (
+            {wf ? (
               <div className="text-[11px] text-muted-foreground font-mono-numbers border-t border-border/40 pt-2">
                 Walk-forward · IS {(wf.inSampleE >= 0 ? "+" : "") + wf.inSampleE.toFixed(2)}R
                 {" → "}
@@ -332,6 +332,17 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
                 <span className={wf.degradationPct > 60 ? "text-loss ml-1" : "ml-1"}>
                   ({wf.degradationPct >= 0 ? "−" : "+"}{Math.abs(wf.degradationPct).toFixed(0)}% on {wf.oosN} OOS trades)
                 </span>
+              </div>
+            ) : (
+              // M2 — explain why the walk-forward / OOS panel is missing instead
+              // of silently rendering nothing.
+              <div className="text-[11px] text-muted-foreground border-t border-border/40 pt-2 italic">
+                OOS validation pending —{" "}
+                {b.n < 30
+                  ? `need ${30 - b.n} more closed trades in this bucket (30 min).`
+                  : (b.loggedMfeCount ?? 0) < 10
+                  ? "insufficient MFE coverage in this bucket — log MFE on more closed trades to enable the 70/30 split."
+                  : "fewer than 5 trades fell into the out-of-sample window."}
               </div>
             )}
             <div className="text-[10px] text-muted-foreground italic">
