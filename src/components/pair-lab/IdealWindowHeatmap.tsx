@@ -27,6 +27,7 @@ import {
 } from "@/lib/idealWindowMath";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
+import { useSymbolGroups } from "@/hooks/useSymbolGroups";
 
 interface Props {
   trades: Trade[];
