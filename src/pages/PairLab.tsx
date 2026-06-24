@@ -356,6 +356,20 @@ export default function PairLab() {
             onSelect={(cell) => setSelected(cell)}
           />
 
+          {/* Out-of-sample split — train/test integrity check within the active window. */}
+          {data.totalTrades >= 30 && (
+            <OutOfSamplePanel
+              trades={data.trades}
+              fieldKeys={data.fieldKeys}
+              symbolResolver={data.symbolResolver}
+              propFirm={propFirmMode ? data.propFirm : null}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+            />
+          )}
+
+
+
           {/* Sticky selection header — always rendered, content changes with scope */}
           <div
             ref={headerRef}
