@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { BucketReport, PropFirmContext } from "@/lib/pairLabMath";
 import { Link } from "react-router-dom";
+import { CumulativeExpectancyChart } from "@/components/pair-lab/CumulativeExpectancyChart";
 
 interface QuantNote {
   headline: string;
