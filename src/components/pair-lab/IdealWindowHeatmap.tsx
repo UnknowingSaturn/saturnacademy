@@ -27,6 +27,7 @@ import {
 } from "@/lib/idealWindowMath";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
+import { useSymbolGroups } from "@/hooks/useSymbolGroups";
 
 interface Props {
   trades: Trade[];
@@ -96,22 +97,42 @@ function cellTone(b: BucketStats | undefined, minN: number): { bg: string; ring:
 export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props) {
   const { data: settings } = useUserSettings();
   const tz = settings?.display_timezone || "America/New_York";
+  const { groups } = useSymbolGroups();
 
   // Regime options (rotational/transitional + user customs).
   const { data: regimeOptions = [] } = usePropertyOptions("regime", true);
 
-  // Default pair = first symbol with any ideal-window tag, else first symbol.
-  const defaultPair = useMemo(() => {
+  // Scope: "sym:<SYMBOL>" or "grp:<groupId>". Single state to avoid two-source-of-truth.
+  const defaultScope = useMemo(() => {
     if (allSymbols.length === 0) return null;
-    return allSymbols[0];
+    return `sym:${allSymbols[0]}`;
   }, [allSymbols]);
 
-  const [pair, setPair] = useState<string | null>(defaultPair);
+  const [scope, setScope] = useState<string | null>(defaultScope);
   const [regime, setRegime] = useState<string>("any");
   const [direction, setDirection] = useState<string>("any");
   const [minN, setMinN] = useState<number>(() => loadStoredMinN());
   const [sortBy, setSortBy] = useState<"lift" | "expectancy" | "rate">("lift");
   const [selectedCell, setSelectedCell] = useState<{ hour: number; half: Half } | null>(null);
+
+  // Resolve scope → effective pair label + wrapped resolver that collapses
+  // group members into the group's name (so bucketTrades treats them as one).
+  const { pair, effectiveResolver, activeGroup } = useMemo(() => {
+    if (scope?.startsWith("grp:")) {
+      const id = scope.slice(4);
+      const g = groups.find((x) => x.id === id);
+      if (g) {
+        const set = new Set(g.symbols.map((s) => s.toUpperCase()));
+        const wrapped = (raw: string) => {
+          const c = symbolResolver(raw);
+          return set.has(c.toUpperCase()) ? g.name : c;
+        };
+        return { pair: g.name, effectiveResolver: wrapped, activeGroup: g };
+      }
+    }
+    const sym = scope?.startsWith("sym:") ? scope.slice(4) : null;
+    return { pair: sym, effectiveResolver: symbolResolver, activeGroup: null };
+  }, [scope, groups, symbolResolver]);
 
   // Hours-I-trade chip selector. Persisted in localStorage; default = hours
   // that have at least one tagged trade for the selected pair (or 7-11 + 20-21
@@ -148,16 +169,16 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
 
   const result = useMemo(() => {
     if (!filters) return null;
-    return bucketTrades({ trades, filters, symbolResolver, timezone: tz });
-  }, [filters, trades, symbolResolver, tz]);
+    return bucketTrades({ trades, filters, symbolResolver: effectiveResolver, timezone: tz });
+  }, [filters, trades, effectiveResolver, tz]);
 
   const subGrid = useMemo(() => {
     if (!filters || !selectedCell) return null;
     return subGridFifteenMin({
-      trades, filters, symbolResolver, timezone: tz,
+      trades, filters, symbolResolver: effectiveResolver, timezone: tz,
       hour: selectedCell.hour, half: selectedCell.half,
     });
-  }, [filters, selectedCell, trades, symbolResolver, tz]);
+  }, [filters, selectedCell, trades, effectiveResolver, tz]);
 
   // Sorted hours for display (only the selected ones), ranked by best edge per sortBy.
   const displayHours = useMemo(() => {
@@ -230,13 +251,55 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
       {/* Filters row */}
       <div className="grid gap-3 md:grid-cols-[minmax(160px,1fr)_minmax(140px,auto)_minmax(140px,auto)_minmax(120px,auto)_minmax(140px,auto)]">
         <div>
-          <Label className="text-xs">Pair</Label>
-          <Select value={pair} onValueChange={(v) => { setPair(v); setSelectedCell(null); }}>
-            <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+          <Label className="text-xs flex items-center gap-1.5">
+            Scope
+            {activeGroup && (
+              <span
+                className="inline-block w-2 h-2 rounded-full"
+                style={{ backgroundColor: activeGroup.color ?? "hsl(var(--primary))" }}
+                aria-hidden
+              />
+            )}
+          </Label>
+          <Select
+            value={scope ?? ""}
+            onValueChange={(v) => { setScope(v); setSelectedCell(null); }}
+          >
+            <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="Pick pair or group" /></SelectTrigger>
             <SelectContent>
-              {allSymbols.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              {groups.length > 0 && (
+                <>
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Groups (merged)
+                  </div>
+                  {groups.map((g) => (
+                    <SelectItem key={g.id} value={`grp:${g.id}`}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="inline-block w-2 h-2 rounded-full"
+                          style={{ backgroundColor: g.color ?? "hsl(var(--primary))" }}
+                          aria-hidden
+                        />
+                        {g.name}
+                        <span className="text-muted-foreground text-[10px]">· {g.symbols.length}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground border-t mt-1 pt-2">
+                    Individual pairs
+                  </div>
+                </>
+              )}
+              {allSymbols.map((s) => (
+                <SelectItem key={s} value={`sym:${s}`}>{s}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          {activeGroup && (
+            <div className="mt-1 text-[10px] text-muted-foreground truncate" title={activeGroup.symbols.join(", ")}>
+              Merging: {activeGroup.symbols.join(", ")}
+            </div>
+          )}
         </div>
         <div>
           <Label className="text-xs">Regime</Label>
