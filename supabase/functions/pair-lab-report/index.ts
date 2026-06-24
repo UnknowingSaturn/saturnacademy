@@ -218,6 +218,9 @@ Rules:
 - If prop_firm is set, your "Risk size" suggestion MUST equal suggested_risk_pct_prop_firm, not suggested_risk_pct_edge_only. If binding_constraint is "prop_firm_dd", say plainly: "risk is capped by daily DD budget, not by edge" and reference worst_losing_streak. If "hard_cap", say "capped by per-trade hard cap".
 - If worst_losing_streak × suggested_risk_pct_prop_firm would breach the daily DD budget, raise a red flag in whats_leaking.
 - If raw_symbols_merged has >1 entry, note in caveats that this bucket aggregates broker variants (list them).
+- recommendation_confidence reports whether the SL/TP grid produced a statistically valid optimum: "validated" = bootstrap lower CI > 0 (trust the suggested_tp_r); "low" = grid found a max but CI lower bound ≤ 0 (treat suggested_tp_r as directional, raise this in caveats); "insufficient" = fell back to legacy heuristic — do NOT cite expectancy_at_suggested_r, recommend collecting more MFE / winners' MAE data instead.
+- expectancy_at_suggested_ci_95 is the bootstrap 95% CI on E[R] at the chosen (SL, TP) cell. If it crosses zero, the TP suggestion is not statistically distinguishable from break-even — say so explicitly when recommending the TP.
+- walk_forward (when present) compares in-sample vs out-of-sample expected R on a 70/30 chronological split. If degradation_pct > 60 the parameter fit is curve-fit risk — raise this in whats_leaking and soften the TP suggestion. If degradation_pct < 25 the edge held OOS — say so in whats_working. If walk_forward is null, OOS validation could not run (fewer than 30 closed trades or fewer than 5 OOS pairs) — mention "OOS validation pending — need more closed trades" in caveats.
 - No platitudes ("stay disciplined", "trust the process"). No filler. Plain numbers.
 - cited_trade_ids must be a subset of example_trades.best + example_trades.worst.`;
 
