@@ -18,6 +18,7 @@ import {
   type TrailCaptureEstimate,
 } from "@/lib/pairLabMath";
 import { TRAIL_CAPTURE_FRAC } from "@/lib/pairLabSimulator";
+import { isUnrealized } from "../../shared/quant/stats";
 
 export interface PairLabFilters {
   /** Matches trades whose planned OR actual profile equals this value. */
@@ -31,6 +32,8 @@ export interface PairLabFilters {
   groupOverride?: { name: string; symbols: string[] } | null;
   /** Window length for the per-bucket drift signal (default 10). */
   recentN?: number;
+  /** When true, includes ideas/paper/missed/dismissed setups in the math. Default false. */
+  includeUnrealized?: boolean;
 }
 
 import type { Trade } from "@/types/trading";
@@ -68,6 +71,8 @@ export interface PairLabData {
   effectiveTrailCapture: number;
   /** Heuristic warning when the same trade may appear in multiple rows. */
   partialFillFlag: PartialFillFlag | null;
+  /** Count of trades dropped because they were classified as Unrealized (ideas/paper/missed/dismissed). */
+  unrealizedExcluded: number;
 }
 
 const SESSION_ORDER = ["Tokyo", "London", "NY AM", "NY PM"];
