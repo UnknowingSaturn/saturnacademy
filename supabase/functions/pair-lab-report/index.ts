@@ -50,9 +50,15 @@ interface BucketInput {
   tpLadderR: number[];
   tp1Star: Tp1Star | null;
   suggestedRiskPct: number | null;
+  /** Bootstrap 95% CI on raw quarter-Kelly. Sent by the client when n≥10. */
+  suggestedRiskPctCi?: [number, number] | null;
   suggestedRiskPctPropFirm: number | null;
   bindingConstraint: "kelly" | "prop_firm_dd" | "hard_cap" | null;
   edgeVsBaseline: { winRateDelta: number; expectedRDelta: number } | null;
+  /** Profit factor (sum winR / sum lossR). null when no losses recorded. */
+  profitFactor?: number | null;
+  /** True when wins>0 and losses=0 — PF is undefined; cite "all wins" instead. */
+  profitFactorAllWins?: boolean;
   /** Phase-4 additions — confidence + walk-forward provenance. */
   recommendationConfidence?: "validated" | "low" | "insufficient";
   suggestedTpR?: number | null;
@@ -67,6 +73,7 @@ interface BucketInput {
   topTradeIds: string[];
   bottomTradeIds: string[];
 }
+
 
 interface PropFirmInput {
   firmName: string | null;
