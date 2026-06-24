@@ -65,3 +65,10 @@ Both nullable so existing trades stay valid and back-fill is optional.
 - Hypothetical R / missed-trade logging — not needed for the hit-rate model.
 - Logging hours you didn't trade — would fix the remaining selection bias but is a much bigger workflow change. Can be added later if hit-rate numbers diverge from your forward-test feel.
 - Sub-half slicing (quarters, raw minute scatter) — revisit only if half-of-hour proves too coarse after ~30+ logged hours per pair.
+
+## Built
+
+- DB: added `first_half_setup` and `second_half_setup` text columns on `trades` (nullable, check-constrained to none/worked/failed).
+- Journal: two new properties surface in the trade detail sidebar (1st-half / 2nd-half setup) using BadgeSelect with None / Worked / Failed.
+- Pair Lab → Timing: replaced the minute-of-hour R heatmap with a per-pair occurrence + hit-rate table and a co-occurrence panel. No R, no fill-minute bucketing.
+- Custom field "Ideal Entry Window" left in place as a legacy alias; no longer drives analysis.
