@@ -131,8 +131,8 @@ export const DETAIL_FIELD_CATALOG: DetailFieldDef[] = [
   { key: 'alignment',        label: 'HTF Timeframes',  kind: 'multi-select', propertyName: 'timeframe', field: 'alignment', defaultVisible: true },
   { key: 'entry_timeframes', label: 'Entry Timeframes', kind: 'multi-select', propertyName: 'timeframe', field: 'entry_timeframes', defaultVisible: true },
   { key: 'place',            label: 'Place',           kind: 'text', field: 'place', defaultVisible: true },
-  { key: 'first_half_setup', label: '1st-half setup (≤ :30)',  kind: 'select', field: 'first_half_setup',  defaultVisible: true },
-  { key: 'second_half_setup',label: '2nd-half setup (> :30)',  kind: 'select', field: 'second_half_setup', defaultVisible: true },
+  { key: 'ideal_entry_window', label: 'Ideal entry window', kind: 'select', field: 'ideal_entry_window', defaultVisible: true },
+  { key: 'failed_setup_half',  label: 'Failed setup',       kind: 'select', field: 'failed_setup_half',  defaultVisible: true },
   { key: 'closes',           label: 'Closes',          kind: 'readonly', defaultVisible: true },
 ];
 
