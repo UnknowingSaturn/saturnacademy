@@ -35,6 +35,7 @@ import {
   resolveWindow,
   type WalkForwardState,
 } from "./WalkForwardControls";
+import { useOptionalPairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
 
 interface Props {
   trades: Trade[];
@@ -122,8 +123,12 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
   const [sortBy, setSortBy] = useState<"lift" | "expectancy" | "rate">("lift");
   const [selectedCell, setSelectedCell] = useState<{ hour: number; half: Half } | null>(null);
 
-  // Walk-forward state — lens + as-of slider. Bounds derived from trade dates.
+  // Walk-forward state — prefer the shared Pair Lab context when present so
+  // every tab reads the same lens/as-of cutoff. Falls back to local state for
+  // legacy callers rendering the heatmap outside the page.
+  const sharedWf = useOptionalPairLabWalkForward();
   const tradeMsBounds = useMemo(() => {
+    if (sharedWf) return { minMs: sharedWf.minMs, maxMs: sharedWf.maxMs };
     let min = Infinity, max = -Infinity;
     for (const t of trades) {
       const ts = Date.parse(t.entry_time);
@@ -134,19 +139,22 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
       return { minMs: now - 365 * 86_400_000, maxMs: now };
     }
     return { minMs: min, maxMs: Math.max(max, Date.now()) };
-  }, [trades]);
+  }, [trades, sharedWf]);
 
-  const [wf, setWf] = useState<WalkForwardState>(() => ({
+  const [localWf, setLocalWf] = useState<WalkForwardState>(() => ({
     lens: "all",
     asOfMs: tradeMsBounds.maxMs,
   }));
-  // Keep asOf within bounds when trades change.
+  const wf = sharedWf ? sharedWf.wf : localWf;
+  const setWf = sharedWf ? sharedWf.setWf : setLocalWf;
+  // Keep local asOf within bounds when trades change (only when not using shared).
   useEffect(() => {
-    setWf((prev) => {
+    if (sharedWf) return;
+    setLocalWf((prev) => {
       const clamped = Math.max(tradeMsBounds.minMs, Math.min(tradeMsBounds.maxMs, prev.asOfMs));
       return clamped === prev.asOfMs ? prev : { ...prev, asOfMs: clamped };
     });
-  }, [tradeMsBounds.minMs, tradeMsBounds.maxMs]);
+  }, [tradeMsBounds.minMs, tradeMsBounds.maxMs, sharedWf]);
 
   // Resolve scope → effective pair label + wrapped resolver that collapses
   // group members into the group's name (so bucketTrades treats them as one).
