@@ -65,6 +65,7 @@ import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings"
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { CustomFieldCell } from "./CustomFieldCell";
 import { getRealPartialCloses } from "@/lib/tradeMath";
+import { HOUR_SETUP_BADGE_OPTIONS } from "@/lib/hourSetup";
 
 interface TradeTableProps {
   trades: Trade[];
