@@ -593,6 +593,63 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
               </div>
             </div>
 
+
+            {/* Walk-forward chart: cumulative rate + Wilson band + rolling-10 + per-event dots */}
+            {b.events.length >= 3 && (() => {
+              const cum = cumulativeSeries(b.events);
+              const roll = rollingRateSeries(b.events, Math.min(10, b.events.length));
+              const W = 480, H = 110, padL = 28, padR = 8, padT = 8, padB = 18;
+              const innerW = W - padL - padR;
+              const innerH = H - padT - padB;
+              const n = b.events.length;
+              const x = (i: number) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+              const y = (r: number) => padT + (1 - r) * innerH;
+              const bandPath =
+                "M" + cum.map((p, i) => `${x(i)},${y(p.ci[1])}`).join(" L") +
+                " L" + [...cum].reverse().map((p, j) => `${x(n - 1 - j)},${y(p.ci[0])}`).join(" L") + " Z";
+              const cumPath = "M" + cum.map((p, i) => `${x(i)},${y(p.rate)}`).join(" L");
+              const rollPath = "M" + roll.map((p, i) => `${x(i)},${y(p.rate)}`).join(" L");
+              const yAxisVals = [0, 0.25, 0.5, 0.75, 1];
+              return (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-3">
+                    <span>Walk-forward (causal)</span>
+                    <span className="inline-flex items-center gap-1 normal-case tracking-normal">
+                      <span className="inline-block w-3 h-0.5 bg-primary" /> cumulative
+                    </span>
+                    <span className="inline-flex items-center gap-1 normal-case tracking-normal">
+                      <span className="inline-block w-3 h-0.5 bg-orange-400" /> rolling-10
+                    </span>
+                    <span className="inline-flex items-center gap-1 normal-case tracking-normal">
+                      <span className="inline-block w-3 h-2 bg-primary/15" /> Wilson 95% CI
+                    </span>
+                  </div>
+                  <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="block">
+                    {yAxisVals.map((v) => (
+                      <g key={v}>
+                        <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)}
+                          stroke="hsl(var(--border))" strokeWidth={0.5} strokeDasharray={v === 0.5 ? undefined : "2 3"} />
+                        <text x={padL - 4} y={y(v) + 3} textAnchor="end"
+                          className="fill-muted-foreground" fontSize={9}>{Math.round(v * 100)}%</text>
+                      </g>
+                    ))}
+                    <path d={bandPath} fill="hsl(var(--primary))" fillOpacity={0.12} />
+                    <path d={cumPath} stroke="hsl(var(--primary))" strokeWidth={1.5} fill="none" />
+                    <path d={rollPath} stroke="rgb(251 146 60)" strokeWidth={1.2} fill="none" strokeDasharray="3 2" />
+                    {b.events.map((e, i) => (
+                      <circle key={i} cx={x(i)} cy={y(e.worked ? 1 : 0)} r={1.8}
+                        fill={e.worked ? "rgb(16 185 129)" : "rgb(239 68 68)"} fillOpacity={0.7} />
+                    ))}
+                  </svg>
+                  <div className="text-[10px] text-muted-foreground mt-0.5 flex justify-between font-mono-numbers">
+                    <span>{new Date(b.events[0].ts).toISOString().slice(0, 10)}</span>
+                    <span>{b.events.length} events</span>
+                    <span>{new Date(b.events[n - 1].ts).toISOString().slice(0, 10)}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* 15-min sub-grid */}
             {subGrid && (
               <div>
