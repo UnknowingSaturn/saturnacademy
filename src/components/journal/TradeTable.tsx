@@ -701,6 +701,21 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                     );
                   }
 
+                  if (key === 'first_half_setup' || key === 'second_half_setup') {
+                    const current = (trade as any)[key] as string | null | undefined;
+                    return (
+                      <div key={key} onClick={(e) => e.stopPropagation()}>
+                        <BadgeSelect
+                          value={current || ""}
+                          onChange={(v) => handleHourSetupChange(trade, key, v as string)}
+                          options={HOUR_SETUP_BADGE_OPTIONS}
+                          placeholder={key === 'first_half_setup' ? '1st-half' : '2nd-half'}
+                        />
+                      </div>
+                    );
+                  }
+
+
                   if (key === 'r_multiple_actual') {
                     const r = trade.r_multiple_actual;
                     return (
