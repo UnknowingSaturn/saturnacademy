@@ -1,74 +1,56 @@
 ## Goal
 
-Stop measuring "edge by fill-minute R" and start measuring "did a setup print in each half of the hour, and did it work" — per pair. The R you booked is no longer the input to the window question; setup occurrence + setup outcome is.
+The two `first_half_setup` / `second_half_setup` fields exist on the trade and in the side panel, but the Journal itself doesn't let you scan, filter, or quickly mark them across many trades. This plan makes them first-class in the Journal table — because these fields are *retrospective* (you know if the second-half setup worked only after the hour closes), the table grid is where they belong, not the new-trade form.
 
 ## What changes for the user
 
-On every trade you log, two small fields appear in the Journal entry form, under a new **Hour Setup Landscape** section:
+**1. Two new columns in the Journal table**
 
-- **First-half setup (≤ :30):** `None` / `Worked` / `Failed`
-- **Second-half setup (> :30):** `None` / `Worked` / `Failed`
+- `1st-half (≤ :30)` and `2nd-half (> :30)` — sortable, filterable, inline-editable like `Session` or `Profile` today.
+- Each cell is a compact pill: `—` (unset), `None`, **Worked** (green), **Failed** (red). Click to change, no modal.
+- Hidden by default. User enables them from **Settings → Fields** so existing layouts aren't disturbed.
 
-You fill these in based on what the chart actually offered that hour, regardless of which setup you took. "Worked" / "Failed" is defined by your own normal TP/SL on that setup — same definition you'd use to grade any setup.
+**2. Filter support**
 
-The existing `Ideal Entry Window` toggle is removed. It conflated three different things and none of them answered the real question.
+- New options in the FilterBar's column dropdown for both fields with `equals` / `not_equals` / `is_empty` / `is_not_empty` operators.
+- This is what makes the field actually useful: "show me all GBP trades where 1st-half = Worked" answers the rule-rewrite question directly.
 
-## What the Pair Lab shows
+**3. Bulk-edit from the table**
 
-The Timing tab is rebuilt around two questions per pair:
+- When 2+ rows are selected, the existing BulkActionBar gains a `Set 1st-half / 2nd-half` action. Lets you back-fill a week of trades in under a minute when starting to use these fields.
 
-1. **Occurrence rate** — of all logged hours for this pair, what % had a first-half setup? Second-half? Both?
-2. **Hit rate when it did occur** — when a first-half setup printed, what % worked? Same for second-half.
+**4. Calendar view tag (small)**
 
-Layout:
+- The day-cell on the Calendar view shows a tiny `1▲ 2▼` badge if any trade on that day has a worked-1st or worked-2nd setup logged. Read-only — clicking the day opens the trade detail as today.
 
-```text
-GBPUSD — 42 hours logged
-                       Printed      Worked when printed
-First half (≤ :30)     31 / 42      24 / 31   77%
-Second half (> :30)    22 / 42      12 / 22   55%
-Both halves printed    14 hours     First worked 11, Second worked 6
-```
+**5. Not in the new-trade form**
 
-Plus a small **Co-occurrence panel**: when both halves printed, which one paid more often. This directly answers "if I'd waited for the second-half setup but the first-half also printed, would I have been better off taking the first?"
-
-No R, no scatter, no minute-bucketing. Just hit rates from observed setups. Filter by pair / direction / session as today.
+- Deliberately excluded. At entry time the 2nd-half setup hasn't formed yet; forcing the user to guess pollutes the dataset. They get marked from the Journal table after the hour closes.
 
 ## Why this is the right shape
 
-- **R is removed as the noise source.** A late-entry loser no longer pollutes the first-half edge number. Execution quality is a separate problem you can analyze separately if you want.
-- **No bucket-cliff problem.** Two halves, defined by candle close. A setup whose final candle closes at :31 is unambiguously second-half. No 31st-minute discontinuity in the analysis.
-- **Selection bias is reduced, not eliminated.** You still only log hours you traded, but within those hours you now log *both* halves' offerings — so the skipped-by-rule first-half setups finally enter the dataset.
-- **Answers the original forward-test contradiction directly.** If GBP first-half hit rate is materially higher than second-half across 30+ hours, the "wait for second half" rule was wrong. If they're close, the rule is fine and the forward-test feeling was noise.
+- **Retrospective fields belong in the grid, not the entry form.** Inline-editable cells match how the user already grades planned vs actual profile / regime — same muscle memory, same component (`BadgeSelect`).
+- **Filtering is the primary unlock.** Once you can isolate `GBPUSD AND 1st-half = Worked` in one click, the Pair Lab Timing tab's per-pair numbers become directly auditable: you can see the individual trades behind each hit-rate.
+- **Bulk-edit removes the back-fill tax.** Without it, building the first 20–30 logged hours feels like a chore; with it, a Sunday review session populates a week of trades quickly.
+- **Hidden by default.** Users who don't want this analysis don't see extra columns. Opt-in mirrors how every other editable property in this app works.
 
 ## Technical details
 
-**Schema (`trades` table, additive migration):**
-- `first_half_setup` — enum-as-text, nullable: `null` | `'none'` | `'worked'` | `'failed'`
-- `second_half_setup` — same shape
-
-Both nullable so existing trades stay valid and back-fill is optional.
-
 **Touched files:**
-- `supabase/migrations/...` — add two columns to `public.trades`
-- `src/integrations/supabase/types.ts` — regenerated
-- `src/types/trading.ts` — extend `Trade` type
-- `src/components/journal/` — add `Hour Setup Landscape` section to the trade entry/edit form (two segmented controls)
-- `src/components/pair-lab/IntraHourTiming.tsx` — replace heatmap with the occurrence + hit-rate table and co-occurrence panel
-- `src/hooks/usePairLab.tsx` — aggregate the two new fields per pair (counts of printed / worked / both-printed)
-- `src/lib/pairLabMath.ts` — small helpers for the per-half rollups
-- `.lovable/plan.md` — record the decision
+- `src/types/settings.ts` — append two entries to `DEFAULT_COLUMNS` (type `select`, category `editable`, default-hidden). Reuse the same `HOUR_SETUP_OPTIONS` enum defined in `TradeProperties` — extract to a shared `src/lib/hourSetup.ts` so both the sidebar and the table read one source of truth (label, color, value).
+- `src/components/journal/TradeTable.tsx` — add render + inline-edit handlers for the two new keys; wire to `useUpdateTrade` for the same optimistic-update pattern used by `session` / `profile`.
+- `src/components/journal/FilterBar.tsx` — register the two columns in the filterable-column list. No new operator needed; reuse the existing `select` filter machinery.
+- `src/components/journal/BulkActionBar.tsx` — add two menu items under a new `Set hour setup` submenu; each opens a small popover with None / Worked / Failed and writes via a bulk `update().in('id', ids)` call (same pattern as the existing bulk-archive).
+- `src/components/journal/JournalCalendarView.tsx` — small badge on day cells; cheap derived value, no new query.
+- `src/components/journal/settings/` (the Fields settings dialog, if present) — the two new columns appear automatically because `DEFAULT_COLUMNS` is the source of truth; verify the toggles render.
+- `.lovable/plan.md` — append note.
 
-**Removed:** the `Ideal Entry Window` field on the form and any code paths reading it for analysis. The column itself stays in the DB for now (no destructive migration) and can be dropped later.
+**No schema changes.** Columns already exist on `trades`; `useUpdateTrade` already allow-lists them.
 
-**Out of scope for this build:**
-- Hypothetical R / missed-trade logging — not needed for the hit-rate model.
-- Logging hours you didn't trade — would fix the remaining selection bias but is a much bigger workflow change. Can be added later if hit-rate numbers diverge from your forward-test feel.
-- Sub-half slicing (quarters, raw minute scatter) — revisit only if half-of-hour proves too coarse after ~30+ logged hours per pair.
+**Performance:** Two text cells with three possible values — no cost. No new queries; filter happens client-side over the already-loaded trades query.
 
-## Built
+## Out of scope
 
-- DB: added `first_half_setup` and `second_half_setup` text columns on `trades` (nullable, check-constrained to none/worked/failed).
-- Journal: two new properties surface in the trade detail sidebar (1st-half / 2nd-half setup) using BadgeSelect with None / Worked / Failed.
-- Pair Lab → Timing: replaced the minute-of-hour R heatmap with a per-pair occurrence + hit-rate table and a co-occurrence panel. No R, no fill-minute bucketing.
-- Custom field "Ideal Entry Window" left in place as a legacy alias; no longer drives analysis.
+- A separate "review the hour" workflow (modal that prompts for both halves after the hour closes). Useful, but adds workflow surface — revisit if back-filling from the table feels too manual after a week of use.
+- Logging hours you did NOT trade. Still the bigger selection-bias fix, still out of scope until the in-table flow proves the analysis is worth the effort.
+- Hindsight grading split (planned vs actual outcome) — these fields are pure observation, no planned/actual duality needed.
