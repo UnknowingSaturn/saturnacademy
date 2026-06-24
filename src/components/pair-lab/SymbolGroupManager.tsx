@@ -29,6 +29,7 @@ export function SymbolGroupManager({ availableSymbols }: Props) {
     setDraftName("");
     setDraftColor(COLOR_SWATCHES[0]);
     setDraftSymbols([]);
+    setDraftOverrides({});
   };
 
   const startEdit = (g: SymbolGroup) => {
@@ -36,20 +37,38 @@ export function SymbolGroupManager({ availableSymbols }: Props) {
     setDraftName(g.name);
     setDraftColor(g.color ?? COLOR_SWATCHES[0]);
     setDraftSymbols([...g.symbols]);
+    setDraftOverrides({ ...(g.tick_size_overrides ?? {}) });
   };
 
   const cancel = () => {
     setEditingId(null);
     setDraftName("");
     setDraftSymbols([]);
+    setDraftOverrides({});
   };
 
   const save = async () => {
     if (!draftName.trim() || draftSymbols.length === 0) return;
+    // Strip empties / non-finite values from overrides before persisting.
+    const cleanOverrides: Record<string, number> = {};
+    for (const [k, v] of Object.entries(draftOverrides)) {
+      if (typeof v === "number" && Number.isFinite(v) && v > 0) cleanOverrides[k] = v;
+    }
     if (editingId === "new") {
-      await create.mutateAsync({ name: draftName.trim(), color: draftColor, symbols: draftSymbols });
+      await create.mutateAsync({
+        name: draftName.trim(),
+        color: draftColor,
+        symbols: draftSymbols,
+        tick_size_overrides: cleanOverrides,
+      });
     } else if (editingId) {
-      await update.mutateAsync({ id: editingId, name: draftName.trim(), color: draftColor, symbols: draftSymbols });
+      await update.mutateAsync({
+        id: editingId,
+        name: draftName.trim(),
+        color: draftColor,
+        symbols: draftSymbols,
+        tick_size_overrides: cleanOverrides,
+      });
     }
     cancel();
   };
@@ -60,12 +79,26 @@ export function SymbolGroupManager({ availableSymbols }: Props) {
     );
   };
 
+  const setOverride = (sym: string, value: string) => {
+    setDraftOverrides((cur) => {
+      const next = { ...cur };
+      const parsed = Number(value);
+      if (!value || !Number.isFinite(parsed) || parsed <= 0) {
+        delete next[sym];
+      } else {
+        next[sym] = parsed;
+      }
+      return next;
+    });
+  };
+
   const useTemplate = (t: typeof GROUP_TEMPLATES[number]) => {
     setEditingId("new");
     setDraftName(t.name);
     setDraftColor(t.color);
     // Only include symbols actually present in user's data
     setDraftSymbols(t.symbols.filter((s) => symbolSet.has(s)));
+    setDraftOverrides({});
   };
 
   return (
