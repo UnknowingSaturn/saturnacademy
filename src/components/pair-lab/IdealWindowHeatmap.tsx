@@ -123,11 +123,7 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
   // OverviewTab owns the single lens slider; this component reads it. The
   // local fallback was removed (Phase 5 cleanup) to eliminate duplicate
   // sliders and the dead `localWf` state machine.
-  const { wf, setWf, minMs: ctxMinMs, maxMs: ctxMaxMs } = usePairLabWalkForward();
-  const tradeMsBounds = useMemo(
-    () => ({ minMs: ctxMinMs, maxMs: ctxMaxMs }),
-    [ctxMinMs, ctxMaxMs],
-  );
+  const { wf } = usePairLabWalkForward();
   // Close any drilled-in cell when the lens shifts.
   useEffect(() => {
     setSelectedCell(null);
