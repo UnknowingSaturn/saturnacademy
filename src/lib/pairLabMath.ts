@@ -134,6 +134,8 @@ export interface BucketStats {
   loggedMfeCount: number;
   /** Number of (closed) trades in this bucket that have an explicit MAE custom-field value AND convertible SL. */
   loggedMaeCount: number;
+  /** Number of (closed) trades in this bucket that have an explicit Ideal SL custom-field value. */
+  loggedIdealSlCount: number;
   /** Hypothetical SL sweep over the bucket's MAE distribution. null when N<10 or insufficient MAE data. */
   slSweep: SlSweepRow[] | null;
 }
