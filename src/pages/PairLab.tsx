@@ -264,6 +264,45 @@ export default function PairLab() {
         </TabsContent>
 
         <TabsContent value="analyze" className="space-y-6 mt-4">
+          {/* Walk-forward + scope controls */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 items-stretch">
+            <WalkForwardControls state={wf} onChange={setWf} minMs={minMs} maxMs={maxMs} />
+            <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/10 p-3">
+              <Layers className="w-3.5 h-3.5 text-muted-foreground" />
+              <Label className="text-xs">Scope</Label>
+              <Select value={scope} onValueChange={setScope}>
+                <SelectTrigger className="h-8 w-[200px] text-xs">
+                  <SelectValue placeholder="All pairs" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All pairs (individual)</SelectItem>
+                  {groups.length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel className="text-[10px] uppercase tracking-wider">Groups (merged)</SelectLabel>
+                      {groups.map((g) => (
+                        <SelectItem key={g.id} value={`grp:${g.id}`}>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span
+                              className="w-2 h-2 rounded-full inline-block"
+                              style={{ backgroundColor: g.color ?? "hsl(var(--primary))" }}
+                            />
+                            {g.name}
+                            <span className="text-muted-foreground text-[10px]">· {g.symbols.length}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
+                </SelectContent>
+              </Select>
+              {activeGroup && (
+                <span className="text-[10px] text-muted-foreground max-w-[180px] truncate" title={activeGroup.symbols.join(", ")}>
+                  merging {activeGroup.symbols.length}
+                </span>
+              )}
+            </div>
+          </div>
+
           {(() => {
             const closed = data.trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
             const withSl = closed.filter((t) => t.sl_initial != null && t.entry_price != null).length;
