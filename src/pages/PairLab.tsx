@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,13 +7,14 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, FlaskConical, Info, Shield } from "lucide-react";
+import { Loader2, FlaskConical, Info, Shield, X } from "lucide-react";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 import { usePairLab } from "@/hooks/usePairLab";
 import { BucketGrid } from "@/components/pair-lab/BucketGrid";
 
 import { QuantNotePanel } from "@/components/pair-lab/QuantNotePanel";
 import { SymbolAliasManager } from "@/components/pair-lab/SymbolAliasManager";
+import { SymbolGroupManager } from "@/components/pair-lab/SymbolGroupManager";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
 import { SimulatorProfileSettings } from "@/components/pair-lab/SimulatorProfileSettings";
@@ -20,26 +22,67 @@ import { StrategyLab } from "@/components/pair-lab/StrategyLab";
 import { IdealWindowHeatmap } from "@/components/pair-lab/IdealWindowHeatmap";
 import { normalizeSession } from "@/lib/pairLabMath";
 
+type Selected = { symbol: string; session: string } | null;
+
 export default function PairLab() {
-  const [profile, setProfile] = useState<string>("any");
-  const [propFirmMode, setPropFirmMode] = useState(true);
-  const [selected, setSelected] = useState<{ symbol: string; session: string } | null>(null);
-  const [simulateAll, setSimulateAll] = useState(false);
-  const simRef = useRef<HTMLDivElement | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const profile = searchParams.get("profile") ?? "any";
+  const propFirmMode = searchParams.get("pf") !== "0";
+  const selected: Selected = (() => {
+    const symbol = searchParams.get("symbol");
+    const session = searchParams.get("session");
+    if (!symbol || !session) return null;
+    return { symbol, session };
+  })();
+
+  const setProfile = (v: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (v === "any") next.delete("profile"); else next.set("profile", v);
+    setSearchParams(next, { replace: true });
+  };
+  const setPropFirmMode = (v: boolean) => {
+    const next = new URLSearchParams(searchParams);
+    if (v) next.delete("pf"); else next.set("pf", "0");
+    setSearchParams(next, { replace: true });
+  };
+  const setSelected = (cell: Selected) => {
+    const next = new URLSearchParams(searchParams);
+    if (!cell) {
+      next.delete("symbol");
+      next.delete("session");
+    } else {
+      next.set("symbol", cell.symbol);
+      next.set("session", cell.session);
+    }
+    setSearchParams(next, { replace: true });
+  };
+
+  const headerRef = useRef<HTMLDivElement | null>(null);
 
   const data = usePairLab({
     profile: profile === "any" ? null : profile,
     propFirmMode,
   });
 
+  // Scroll selection header into view when a cell is picked.
   useEffect(() => {
-    if (selected || simulateAll) {
-      // Defer to let the section render before scrolling into view.
-      requestAnimationFrame(() => {
-        simRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    }
-  }, [selected, simulateAll]);
+    if (!selected) return;
+    requestAnimationFrame(() => {
+      headerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [selected?.symbol, selected?.session]);
+
+  // Esc clears the current selection.
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.symbol, selected?.session]);
 
   const selectedBucket = useMemo(() => {
     if (!selected) return null;
@@ -53,6 +96,19 @@ export default function PairLab() {
     );
   }, [selected, data.perRow, data.perCell]);
 
+  const scopedTrades = useMemo(() => {
+    if (!selected) return data.trades;
+    return data.trades.filter((t) => {
+      if (!t.symbol) return false;
+      const canonical = data.symbolResolver(t.symbol);
+      if (canonical !== selected.symbol) return false;
+      if (selected.session !== "All sessions") {
+        return normalizeSession(t.session) === selected.session;
+      }
+      return true;
+    });
+  }, [selected, data.trades, data.symbolResolver]);
+
   if (data.isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -60,6 +116,10 @@ export default function PairLab() {
       </div>
     );
   }
+
+  const scopeLabel = selected ? `${selected.symbol} · ${selected.session}` : "All trades in scope";
+  const sourceLabel =
+    data.simSource === "active_account" ? "active account" : "simulator profile";
 
   return (
     <div className="space-y-6 p-6 animate-fade-in">
@@ -141,6 +201,7 @@ export default function PairLab() {
           <TabsTrigger value="windows">Ideal windows</TabsTrigger>
           <TabsTrigger value="analyze">Analyze</TabsTrigger>
           <TabsTrigger value="strategy">Strategy lab</TabsTrigger>
+          <TabsTrigger value="groups">Pair groups</TabsTrigger>
           <TabsTrigger value="aliases">Symbol aliases</TabsTrigger>
         </TabsList>
 
@@ -203,88 +264,61 @@ export default function PairLab() {
             perCell={data.perCell}
             perRow={data.perRow}
             selected={selected}
-            onSelect={(cell) => {
-              setSelected(cell);
-              if (cell) setSimulateAll(false);
-            }}
+            onSelect={(cell) => setSelected(cell)}
           />
 
-          {selected || simulateAll ? (
-            (() => {
-              const scopedTrades = selected
-                ? data.trades.filter((t) => {
-                    if (!t.symbol) return false;
-                    const canonical = data.symbolResolver(t.symbol);
-                    if (canonical !== selected.symbol) return false;
-                    if (selected.session !== "All sessions") {
-                      return normalizeSession(t.session) === selected.session;
-                    }
-                    return true;
-                  })
-                : data.trades;
-              const scopeLabel = selected
-                ? `${selected.symbol} · ${selected.session}`
-                : "All trades in scope";
-              const sourceLabel =
-                data.simSource === "active_account" ? "active account" : "simulator profile";
-              return (
-                <div ref={simRef} className="space-y-4 animate-fade-in scroll-mt-4">
-                  <div className="flex items-center justify-between gap-3 flex-wrap border-t border-border/60 pt-4">
-                    <div className="flex items-center gap-2 text-sm flex-wrap">
-                      <span className="text-xs uppercase tracking-wider text-muted-foreground">Scope</span>
-                      <span className="font-medium">{scopeLabel}</span>
-                      <span className="text-xs text-muted-foreground">
-                        · ${data.simBalance.toLocaleString()} from {sourceLabel}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <SimulatorProfileSettings />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setSelected(null);
-                          setSimulateAll(false);
-                        }}
-                      >
-                        Clear
-                      </Button>
-                    </div>
-                  </div>
+          {/* Sticky selection header — always rendered, content changes with scope */}
+          <div
+            ref={headerRef}
+            className="sticky top-0 z-10 -mx-6 px-6 py-3 bg-background/95 backdrop-blur border-y border-border/60 scroll-mt-4"
+          >
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 text-sm flex-wrap">
+                <span className="text-xs uppercase tracking-wider text-muted-foreground">Simulating</span>
+                <span className="font-medium">{scopeLabel}</span>
+                <span className="text-xs text-muted-foreground">
+                  · ${data.simBalance.toLocaleString()} from {sourceLabel}
+                </span>
+                {selected && (
+                  <span className="text-[10px] text-muted-foreground/70 ml-1">
+                    (Esc to clear)
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <SimulatorProfileSettings />
+                {selected && (
+                  <Button variant="ghost" size="sm" onClick={() => setSelected(null)}>
+                    <X className="w-3 h-3 mr-1" />
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
 
-                  {selectedBucket && (
-                    <QuantNotePanel
-                      bucket={selectedBucket}
-                      baseline={data.baseline}
-                      propFirm={propFirmMode ? data.propFirm : null}
-                    />
-                  )}
+          {selectedBucket && (
+            <QuantNotePanel
+              bucket={selectedBucket}
+              baseline={data.baseline}
+              propFirm={propFirmMode ? data.propFirm : null}
+            />
+          )}
 
-                  {data.simBalance > 0 ? (
-                    <StrategyRanker
-                      trades={scopedTrades}
-                      fieldKeys={data.fieldKeys}
-                      balance={data.simBalance}
-                      propFirm={propFirmMode ? data.propFirm : null}
-                      scopeLabel={scopeLabel}
-                      defaultRiskPct={data.defaultSimRiskPct}
-                      trailCapture={data.trailCapture}
-                      effectiveTrailCapture={data.effectiveTrailCapture}
-                    />
-                  ) : (
-                    <Card className="p-6 text-sm text-muted-foreground text-center">
-                      Set a notional balance in your simulator profile to convert R into $.
-                    </Card>
-                  )}
-                </div>
-              );
-            })()
+          {data.simBalance > 0 ? (
+            <StrategyRanker
+              trades={scopedTrades}
+              fieldKeys={data.fieldKeys}
+              balance={data.simBalance}
+              propFirm={propFirmMode ? data.propFirm : null}
+              scopeLabel={scopeLabel}
+              defaultRiskPct={data.defaultSimRiskPct}
+              trailCapture={data.trailCapture}
+              effectiveTrailCapture={data.effectiveTrailCapture}
+            />
           ) : (
-            <Card className="p-6 text-sm text-muted-foreground text-center flex flex-col items-center gap-3">
-              <span>Select a cell above to see its quant note and simulate that bucket.</span>
-              <Button variant="outline" size="sm" onClick={() => setSimulateAll(true)}>
-                Or simulate all trades in scope
-              </Button>
+            <Card className="p-6 text-sm text-muted-foreground text-center">
+              Set a notional balance in your simulator profile to convert R into $.
             </Card>
           )}
         </TabsContent>
@@ -300,7 +334,9 @@ export default function PairLab() {
           />
         </TabsContent>
 
-
+        <TabsContent value="groups" className="mt-4">
+          <SymbolGroupManager availableSymbols={data.symbols} />
+        </TabsContent>
 
         <TabsContent value="aliases" className="mt-4">
           <SymbolAliasManager />
