@@ -6,7 +6,15 @@
  *
  * Industry-standard approach: most MT5 brokers run on a known schedule.
  * We map the broker's profile + the trade's date to the correct offset.
+ *
+ * Storage policy (Phase 4 decision): `entry_time` is persisted exactly as
+ * received and converted only at the display / bucketing layer. We do NOT
+ * rewrite historical rows to UTC at ingest because (a) it would mutate
+ * user-owned data behind their back, (b) the profile may be reassigned
+ * later, and (c) the hardened `brokerLocalToUtc` parser below already
+ * yields identical results regardless of the browser's locale.
  */
+
 
 export type BrokerDstProfile =
   | 'EET_DST'      // UTC+2 winter / UTC+3 summer (EU DST) — IC Markets, Pepperstone, FTMO, etc.
