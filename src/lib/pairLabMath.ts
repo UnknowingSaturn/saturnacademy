@@ -111,8 +111,10 @@ export interface BucketStats {
   winRateCi: [number, number] | null;
   expectedR: number;          // average R-multiple, mean of r_multiple_actual
   expectedRMedian: number;    // median R-multiple
-  /** Sum(winR) / Sum(|lossR|). null when no losses. */
+  /** Sum(winR) / Sum(|lossR|). null when no losses. Infinity is collapsed to null + `profitFactorAllWins` flag (JSON-safe). */
   profitFactor: number | null;
+  /** True when there are wins but zero losses — profit factor is mathematically undefined / unbounded. */
+  profitFactorAllWins: boolean;
   /** mean(winR) / mean(|lossR|). null when no losses or no wins. */
   payoffRatio: number | null;
   mfeP50: number | null;          // R-multiple
@@ -156,7 +158,8 @@ export interface BucketStats {
   recentExpectedR: number | null;
   /** (recentWinRate − winRate) in percentage points. null when recentWinRate null. */
   drift: number | null;
-}
+  /** Count of trades whose `events[].r` was inferred from net_pnl sign (no r_multiple_actual). Surface as a "R inferred" badge. */
+  eventsRFallbackCount: number;
 
 export interface SlSweepRow {
   /** Quantile of MAE distribution (e.g. 0.25, 0.40, 0.55, 0.70, 0.90). */
