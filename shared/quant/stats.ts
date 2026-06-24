@@ -233,20 +233,51 @@ export function quarterKellyPct(winRate: number, avgWinR: number, avgLossR: numb
 // ---------------------------------------------------------------------------
 
 const SESSION_LABELS: Record<string, string> = {
+  // Tokyo / Asia variants
   tokyo: "Tokyo",
   asia: "Tokyo",
+  asian: "Tokyo",
+  asia_session: "Tokyo",
+  jp: "Tokyo",
+  japan: "Tokyo",
+  sydney: "Tokyo",
+  // London / Europe variants
   london: "London",
+  ldn: "London",
+  europe: "London",
+  european: "London",
+  eu: "London",
+  frankfurt: "London",
+  // NY AM variants
   ny_am: "NY AM",
-  ny_pm: "NY PM",
   ny: "NY AM",
+  nyam: "NY AM",
+  "ny-am": "NY AM",
   new_york: "NY AM",
   new_york_am: "NY AM",
+  newyork: "NY AM",
+  us_open: "NY AM",
+  us: "NY AM",
+  america: "NY AM",
+  // NY PM variants
+  ny_pm: "NY PM",
+  nypm: "NY PM",
+  "ny-pm": "NY PM",
   new_york_pm: "NY PM",
+  us_pm: "NY PM",
+  // Overlap / off-hours
+  overlap: "Overlap",
+  london_ny: "Overlap",
+  "london/ny": "Overlap",
+  off_hours: "Off-hours",
+  off: "Off-hours",
+  weekend: "Off-hours",
 };
 
 export function normalizeSession(raw: string | null | undefined): string {
   if (!raw) return "Unknown";
-  return SESSION_LABELS[String(raw).toLowerCase()] ?? raw;
+  const key = String(raw).trim().toLowerCase().replace(/\s+/g, "_");
+  return SESSION_LABELS[key] ?? raw;
 }
 
 // ---------------------------------------------------------------------------
