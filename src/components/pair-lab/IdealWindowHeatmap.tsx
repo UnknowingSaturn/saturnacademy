@@ -192,13 +192,20 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
     try { localStorage.setItem(MIN_N_STORAGE_KEY, String(n)); } catch { /* ignore */ }
   };
 
-  const filters: IdealWindowFilters | null = pair == null ? null : {
-    pair,
-    hours,
-    regime: regime === "any" ? null : regime,
-    direction: direction === "any" ? null : (direction as TradeDirection),
-    minN,
-  };
+  const filters: IdealWindowFilters | null = useMemo(() => {
+    if (pair == null) return null;
+    const { dateFrom, dateTo } = resolveWindow(wf);
+    return {
+      pair,
+      hours,
+      regime: regime === "any" ? null : regime,
+      direction: direction === "any" ? null : (direction as TradeDirection),
+      minN,
+      dateFrom,
+      dateTo,
+      recentN: 10,
+    };
+  }, [pair, hours, regime, direction, minN, wf]);
 
   const result = useMemo(() => {
     if (!filters) return null;
