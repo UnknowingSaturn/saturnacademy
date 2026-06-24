@@ -313,8 +313,8 @@ export const SYSTEM_FIELD_SOURCES: Record<string, SystemFieldSource[]> = {
   actual_playbook_id: [{ table: 'trades', column: 'actual_playbook_id' }],
   model:              [{ table: 'trades', column: 'playbook_id' }],
   actual_model:       [{ table: 'trades', column: 'actual_playbook_id' }],
-  first_half_setup:   [{ table: 'trades', column: 'first_half_setup' }],
-  second_half_setup:  [{ table: 'trades', column: 'second_half_setup' }],
+  ideal_entry_window: [{ table: 'trades', column: 'ideal_entry_window' }],
+  failed_setup_half:  [{ table: 'trades', column: 'failed_setup_half' }],
 
   // ── Single-column trade_reviews fields ─────────────────────────────────────
   emotion:                [{ table: 'trade_reviews', column: 'emotional_state_before' }],
