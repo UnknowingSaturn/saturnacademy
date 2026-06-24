@@ -9,18 +9,20 @@
 //   - Cells with n < minN render greyed (directional only).
 // ============================================================================
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Clock, Info, Star } from "lucide-react";
+import { Clock, Info, Star, TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Trade, TradeDirection } from "@/types/trading";
 import {
   bucketTrades,
   subGridFifteenMin,
+  cumulativeSeries,
+  rollingRateSeries,
   type BucketStats,
   type Half,
   type IdealWindowFilters,
@@ -28,6 +30,11 @@ import {
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { useSymbolGroups } from "@/hooks/useSymbolGroups";
+import {
+  WalkForwardControls,
+  resolveWindow,
+  type WalkForwardState,
+} from "./WalkForwardControls";
 
 interface Props {
   trades: Trade[];
