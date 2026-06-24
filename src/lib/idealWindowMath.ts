@@ -259,6 +259,7 @@ export function bucketTrades({
     expectancy: null, expectancyCI: null, rSamples: 0,
     tradeIds: [], rateLift: null, expectancyLift: null,
     pValue: null, significant: false, belowMinN: true,
+    events: [], recentRate: null, recentSamples: 0, drift: null,
   });
 
   const byKey = new Map<string, BucketStats>();
@@ -276,14 +277,10 @@ export function bucketTrades({
     if (symbolResolver(t.symbol) !== filters.pair) continue;
     if (filters.direction && t.direction !== filters.direction) continue;
     if (filters.regime && resolveRegime(t) !== filters.regime) continue;
-    if (dateFromMs != null) {
-      const ts = Date.parse(t.entry_time);
-      if (Number.isNaN(ts) || ts < dateFromMs) continue;
-    }
-    if (dateToMs != null) {
-      const ts = Date.parse(t.entry_time);
-      if (Number.isNaN(ts) || ts > dateToMs) continue;
-    }
+    const tsMs = Date.parse(t.entry_time);
+    if (Number.isNaN(tsMs)) continue;
+    if (dateFromMs != null && tsMs < dateFromMs) continue;
+    if (dateToMs != null && tsMs > dateToMs) continue;
 
     const value = readIdealWindow(t);
     if (!value || value === "none") continue;
@@ -303,6 +300,7 @@ export function bucketTrades({
       if (!b) { b = empty(hm.hour, half); byKey.set(k, b); }
       if (worked) b.worked += 1; else b.failed += 1;
       b.tradeIds.push(t.id);
+      b.events.push({ ts: tsMs, half, worked, r, tradeId: t.id });
       if (r != null) {
         let rs = rsByKey.get(k);
         if (!rs) { rs = []; rsByKey.set(k, rs); }
