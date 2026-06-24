@@ -580,6 +580,30 @@ function computeBucket(
     if (sweepOut.length > 0) slSweep = sweepOut;
   }
 
+
+  // Walk-forward event timeline — closed trades ordered by entry_time.
+  // Used by the drift signal (recent vs lifetime) and the cumulative drilldown chart.
+  const events: BucketEvent[] = [...closed]
+    .filter((t) => t.entry_time)
+    .sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)))
+    .map((t) => {
+      const r = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual)
+        ? t.r_multiple_actual
+        : ((t.net_pnl ?? 0) > 0 ? 1 : (t.net_pnl ?? 0) < 0 ? -1 : 0);
+      return { ts: String(t.entry_time), won: r > 0, r };
+    });
+  const tail = events.slice(-recentN);
+  const recentEnough = tail.length >= 5;
+  const recentWinRate = recentEnough
+    ? tail.filter((e) => e.won).length / tail.length
+    : null;
+  const recentExpectedR = recentEnough
+    ? tail.reduce((s, e) => s + e.r, 0) / tail.length
+    : null;
+  const drift = recentWinRate != null
+    ? (recentWinRate - winRate) * 100
+    : null;
+
   const stats: BucketStats = {
     key,
     rawSymbols: [],
@@ -590,7 +614,7 @@ function computeBucket(
     winRateCi: n > 0 ? wilsonCi(wins.length, n) : null,
     expectedR,
     expectedRMedian,
-    profitFactor, // Infinity sentinel preserved for all-win buckets — UI renders "∞"
+    profitFactor,
     payoffRatio,
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),
@@ -599,8 +623,6 @@ function computeBucket(
     maeP75Pips: quantile(maesPips, 0.75),
     maeP50Ticks: median(maesTicks),
     maeP75Ticks: quantile(maesTicks, 0.75),
-    // Use reduce instead of Math.min(...arr) — the spread form hits V8's
-    // argument-count limit (~125k) and throws on large MAE/MFE samples.
     mfeMin: mfes.length > 0 ? mfes.reduce((a, b) => (a < b ? a : b)) : null,
     mfeMax: mfes.length > 0 ? mfes.reduce((a, b) => (a > b ? a : b)) : null,
     maeMinTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a < b ? a : b)) : null,
@@ -619,6 +641,11 @@ function computeBucket(
     }).length,
     loggedIdealSlCount: idealSls.length,
     slSweep,
+    events,
+    recentN,
+    recentWinRate,
+    recentExpectedR,
+    drift,
   };
 
 
