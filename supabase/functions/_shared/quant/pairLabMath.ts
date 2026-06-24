@@ -525,6 +525,8 @@ export function computeBucket(
     slDrift,
     confidence: confidenceFor(n),
     suggestedSlPips,
+    slSource,
+    slSourceN,
     slUnit,
     tpLadderR,
     suggestedTpR,
