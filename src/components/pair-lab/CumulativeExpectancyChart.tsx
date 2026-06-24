@@ -79,6 +79,30 @@ export function CumulativeExpectancyChart({ events, rollingN = 10, height = 140 
   const rollPath = rollPts.length > 0 ? "M" + rollPts.join(" L") : "";
 
   const zeroY = y(0);
+  const useCanvasScatter = events.length > CANVAS_SCATTER_THRESHOLD;
+
+  // Canvas overlay path — renders the same dot scatter as the SVG branch,
+  // but in one paint op instead of one DOM node per event.
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    if (!useCanvasScatter) return;
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+    const dpr = window.devicePixelRatio || 1;
+    cvs.width = W * dpr;
+    cvs.height = H * dpr;
+    const ctx = cvs.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalAlpha = 0.7;
+    for (let i = 0; i < events.length; i++) {
+      ctx.beginPath();
+      ctx.arc(x(i), y(events[i].r), 1.6, 0, Math.PI * 2);
+      ctx.fillStyle = events[i].won ? "rgb(16,185,129)" : "rgb(239,68,68)";
+      ctx.fill();
+    }
+  }, [events, useCanvasScatter, W, H]);
 
   return (
     <div className="space-y-1.5">
@@ -96,50 +120,55 @@ export function CumulativeExpectancyChart({ events, rollingN = 10, height = 140 
           <span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block" /> loss
         </span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
-        {/* zero line */}
-        {zeroY > padT && zeroY < padT + innerH && (
-          <line
-            x1={padL}
-            x2={padL + innerW}
-            y1={zeroY}
-            y2={zeroY}
-            stroke="currentColor"
-            strokeOpacity="0.2"
-            strokeDasharray="2 3"
+      <div className="relative w-full">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto block">
+          {zeroY > padT && zeroY < padT + innerH && (
+            <line
+              x1={padL}
+              x2={padL + innerW}
+              y1={zeroY}
+              y2={zeroY}
+              stroke="currentColor"
+              strokeOpacity="0.2"
+              strokeDasharray="2 3"
+            />
+          )}
+          <text x={padL - 4} y={padT + 4} textAnchor="end" className="fill-muted-foreground text-[9px]">
+            {hi.toFixed(2)}R
+          </text>
+          <text x={padL - 4} y={padT + innerH} textAnchor="end" className="fill-muted-foreground text-[9px]">
+            {lo.toFixed(2)}R
+          </text>
+          {!useCanvasScatter &&
+            events.map((e, i) => (
+              <circle
+                key={i}
+                cx={x(i)}
+                cy={y(e.r)}
+                r={1.6}
+                className={e.won ? "fill-emerald-500" : "fill-destructive"}
+                opacity={0.7}
+              />
+            ))}
+          {rollPath && (
+            <path
+              d={rollPath}
+              fill="none"
+              stroke="hsl(38 92% 50%)"
+              strokeWidth={1.4}
+              strokeDasharray="4 3"
+            />
+          )}
+          <path d={cumPath} fill="none" stroke="hsl(var(--primary))" strokeWidth={1.8} />
+        </svg>
+        {useCanvasScatter && (
+          <canvas
+            ref={canvasRef}
+            style={{ width: "100%", height: "auto", aspectRatio: `${W} / ${H}` }}
+            className="absolute inset-0 pointer-events-none"
           />
         )}
-        {/* axis labels */}
-        <text x={padL - 4} y={padT + 4} textAnchor="end" className="fill-muted-foreground text-[9px]">
-          {hi.toFixed(2)}R
-        </text>
-        <text x={padL - 4} y={padT + innerH} textAnchor="end" className="fill-muted-foreground text-[9px]">
-          {lo.toFixed(2)}R
-        </text>
-        {/* per-trade dots */}
-        {events.map((e, i) => (
-          <circle
-            key={i}
-            cx={x(i)}
-            cy={y(e.r)}
-            r={1.6}
-            className={e.won ? "fill-emerald-500" : "fill-destructive"}
-            opacity={0.7}
-          />
-        ))}
-        {/* rolling line */}
-        {rollPath && (
-          <path
-            d={rollPath}
-            fill="none"
-            stroke="hsl(38 92% 50%)"
-            strokeWidth={1.4}
-            strokeDasharray="4 3"
-          />
-        )}
-        {/* cumulative line */}
-        <path d={cumPath} fill="none" stroke="hsl(var(--primary))" strokeWidth={1.8} />
-      </svg>
+      </div>
     </div>
   );
 }
