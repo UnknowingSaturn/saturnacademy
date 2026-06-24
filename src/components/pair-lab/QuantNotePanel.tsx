@@ -197,8 +197,19 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
       {/* Walk-forward causal chart — cumulative + rolling expectancy over time. */}
       {b.events && b.events.length >= 5 && (
         <div className="border border-border/40 rounded-md p-3 bg-muted/5">
-          <div className="flex items-baseline justify-between mb-1.5">
-            <div className="text-xs font-medium">Expectancy over time</div>
+          <div className="flex items-baseline justify-between mb-1.5 gap-2 flex-wrap">
+            <div className="text-xs font-medium flex items-center gap-2">
+              Expectancy over time
+              {b.eventsRFallbackCount > 0 && (
+                <Badge
+                  variant="outline"
+                  className="text-[9px] font-mono-numbers text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/5"
+                  title={`${b.eventsRFallbackCount} of ${b.events.length} trades had no R-multiple recorded — their outcome was inferred as ±1 from net P&L sign. The cumulative line treats them as exact 1R/−1R, which biases towards round numbers.`}
+                >
+                  {b.eventsRFallbackCount}/{b.events.length} R inferred
+                </Badge>
+              )}
+            </div>
             {b.drift != null && Math.abs(b.drift) >= 15 && (
               <div className={"text-[11px] font-mono-numbers " + ((b.drift ?? 0) > 0 ? "text-profit" : "text-loss")}>
                 recent {Math.min(b.recentN, b.events.length)}: {((b.recentWinRate ?? 0) * 100).toFixed(0)}% ({(b.drift > 0 ? "+" : "") + b.drift.toFixed(0)}pp vs lifetime)
