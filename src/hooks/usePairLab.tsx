@@ -144,7 +144,14 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const missingFields =
       !fieldKeys.mfe && !fieldKeys.mae && !fieldKeys.idealStopLoss;
 
-    const symbolResolver = buildSymbolResolver(aliases);
+    const baseResolver = buildSymbolResolver(aliases);
+    const groupOverride = filters.groupOverride ?? null;
+    const symbolResolver: (raw: string) => string = groupOverride
+      ? ((raw: string) => {
+          const canonical = baseResolver(raw);
+          return groupOverride.symbols.includes(canonical) ? groupOverride.name : canonical;
+        })
+      : baseResolver;
 
     let propFirm: PropFirmContext | null = null;
     const profile = profileQuery.data;
@@ -171,6 +178,9 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       closedOnly: true,
       symbolResolver,
       propFirm,
+      dateFrom: filters.dateFrom ?? null,
+      dateTo: filters.dateTo ?? null,
+      recentN: filters.recentN ?? 10,
     });
 
     const closedTrades = trades.filter((t) => !t.is_open && !t.is_archived);
