@@ -1,19 +1,16 @@
 // ============================================================================
 // Intra-Hour Timing — per-pair half-of-hour setup landscape.
 //
-// Reads two journal observations independent of execution:
-//   • `ideal_entry_window`  — which half(s) had a setup that WORKED.
-//   • `failed_setup_half`   — which half(s) had a setup that PRINTED BUT FAILED.
-//
-// Each is `'none' | 'first' | 'second' | 'both' | null`. Together they answer:
-// when a first-half setup prints, what % work? When a second-half setup
-// prints, what % work? When both halves print in the same logged hour, which
-// half pays more often?
+// Reads the user's custom field `cf_ideal_entry_window_*` (7-state vocabulary
+// — see `src/lib/hourSetup.ts`). The value encodes both which half(s) of the
+// hour had a WORKING setup and which had one that PRINTED BUT FAILED, so we
+// can compute per-half hit rates and co-occurrence without R-multiples.
 //
 // R-multiples are deliberately ignored — R conflates window edge with your
 // own execution quality. Counting setup occurrences and outcomes — separate
 // from the trade you actually took — isolates the window question.
 // ============================================================================
+
 
 import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
@@ -22,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Clock, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Trade } from "@/types/trading";
-import { halfMatches, type HourLandscape } from "@/lib/hourSetup";
+import { decode, readIdealWindow } from "@/lib/hourSetup";
 
 interface Props {
   trades: Trade[];
@@ -68,10 +65,10 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
       const canonical = symbolResolver(t.symbol);
       symSet.add(canonical);
 
-      const worked = (t.ideal_entry_window ?? null) as HourLandscape | null;
-      const failed = (t.failed_setup_half ?? null) as HourLandscape | null;
-      const hasAny =
-        (worked && worked !== 'none') || (failed && failed !== 'none');
+      const value = readIdealWindow(t);
+      if (!value || value === 'none') continue;
+      const { firstWorked, secondWorked, firstFailed, secondFailed } = decode(value);
+      const hasAny = firstWorked || secondWorked || firstFailed || secondFailed;
       if (!hasAny) continue;
 
       let row = map.get(canonical);
@@ -89,10 +86,6 @@ export function IntraHourTiming({ trades, symbolResolver }: Props) {
       }
       row.hoursLogged += 1;
 
-      const firstWorked = halfMatches(worked, 'first');
-      const secondWorked = halfMatches(worked, 'second');
-      const firstFailed = halfMatches(failed, 'first');
-      const secondFailed = halfMatches(failed, 'second');
 
       if (firstWorked) row.first.worked += 1;
       if (firstFailed) row.first.failed += 1;
