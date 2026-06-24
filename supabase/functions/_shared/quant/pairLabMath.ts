@@ -176,13 +176,26 @@ function confidenceFor(n: number): ConfidenceLevel {
   if (n >= 15) return "medium";
   return "low";
 }
+// Unified "side of trade" classifier — mirrors src/lib/pairLabMath.ts
+// tradeSide(). Uses r_multiple_actual when present (precise, BE = 0); falls
+// back to net_pnl sign. M1 fix: streak math agreed with `sideOf()` inside
+// computeBucket but not with this older net_pnl-only loop.
+function tradeSide(t: any): 1 | -1 | 0 {
+  if (t?.r_multiple_actual != null) {
+    if (t.r_multiple_actual > 0) return 1;
+    if (t.r_multiple_actual < 0) return -1;
+    return 0;
+  }
+  const p = t?.net_pnl ?? 0;
+  return p > 0 ? 1 : p < 0 ? -1 : 0;
+}
 function longestLossStreak(rows: any[]): number {
   const sorted = [...rows]
     .filter((t) => t.net_pnl != null && t.entry_time)
     .sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)));
   let run = 0, worst = 0;
   for (const t of sorted) {
-    if ((t.net_pnl ?? 0) < 0) { run += 1; if (run > worst) worst = run; }
+    if (tradeSide(t) === -1) { run += 1; if (run > worst) worst = run; }
     else run = 0;
   }
   return worst;
