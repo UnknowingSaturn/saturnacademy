@@ -228,25 +228,18 @@ export function StrategyLab({
         <div className="flex-1 min-w-[260px]">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h3 className="font-semibold">Strategy Lab</h3>
-            <div className="flex items-center gap-1 rounded-md border border-border/60 bg-muted/20 p-0.5">
-              {SAMPLE_WINDOW_OPTIONS.map((opt) => (
-                <Button
-                  key={opt.value}
-                  size="sm"
-                  variant={sampleWindow === opt.value ? "default" : "ghost"}
-                  className="h-6 px-2 text-xs"
-                  onClick={() => setSampleWindow(opt.value)}
-                >
-                  {opt.label}
-                </Button>
-              ))}
-            </div>
+            {isComputing && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                running sweep…
+              </span>
+            )}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
             {ROTATION_MODELS.length} rotation models × {RISK_TIERS.length} risk tiers ={" "}
             {ROTATION_MODELS.length * RISK_TIERS.length} configurations. Each runs 1,200 Monte-Carlo
             paths over your real R history (N {rSample.length}) and the firm rules below. Click a
-            cell to inspect.
+            cell to inspect. Sweep runs in a background worker — UI stays responsive.
           </p>
           <p className="text-[11px] text-muted-foreground mt-1 font-mono-numbers">
             Sample: {windowMeta.n} trades
@@ -258,7 +251,7 @@ export function StrategyLab({
                 {new Date(windowMeta.last).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
               </>
             )}
-            {sampleWindow !== "all" && <span className="ml-2 italic">(filtered)</span>}
+            <span className="ml-2 italic">window from Pair Lab walk-forward</span>
           </p>
         </div>
         {best && edgePositive && !provisional && (
@@ -294,11 +287,6 @@ export function StrategyLab({
               {edge.n < 30
                 ? `Need ≥30 closed trades with R-multiples before edge can be tested (have ${edge.n}).`
                 : "The 95% confidence interval crosses zero, so any pass-prob ranking on this sample reflects path luck — not a tradeable edge. Heatmap stays visible for comparison, but no risk % is recommended. Fix the playbook (entries, exits, R per trade) before tuning size."}
-              {sampleWindow !== "all" && (
-                <span className="block mt-1 italic">
-                  Narrow window selected — switch to <strong>All</strong> for the full sample.
-                </span>
-              )}
             </div>
           </div>
         </div>
