@@ -1,14 +1,15 @@
 // ============================================================================
 // Intra-Hour Timing — per-pair half-of-hour setup landscape.
 //
-// Reads the user's custom field `cf_ideal_entry_window_*` (7-state vocabulary
-// — see `src/lib/hourSetup.ts`). The value encodes both which half(s) of the
-// hour had a WORKING setup and which had one that PRINTED BUT FAILED, so we
-// can compute per-half hit rates and co-occurrence without R-multiples.
+// Reads the user's custom field `cf_ideal_entry_window_*` (9-state vocabulary
+// — see `src/lib/hourSetup.ts`). The value independently tags each half of
+// the hour as `worked` (setup printed and played out) or `failed` (setup
+// printed but didn't follow through), so per-half hit rates and co-occurrence
+// fall out without R-multiples.
 //
-// R-multiples are deliberately ignored — R conflates window edge with your
-// own execution quality. Counting setup occurrences and outcomes — separate
-// from the trade you actually took — isolates the window question.
+// A half tagged `worked` on a losing trade still counts as a working window —
+// the tag describes the setup, not your execution. R-multiples are deliberately
+// ignored — they'd conflate window edge with execution quality.
 // ============================================================================
 
 
