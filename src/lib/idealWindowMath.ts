@@ -38,6 +38,16 @@ export interface IdealWindowFilters {
   dateTo?: string | null;
   /** Minimum sample size for a cell to be considered "trusted". */
   minN: number;
+  /** Window size (in events) for the "recent" rate used to flag drift. Default 10. */
+  recentN?: number;
+}
+
+export interface BucketEvent {
+  ts: number;
+  half: Half;
+  worked: boolean;
+  r: number | null;
+  tradeId: string;
 }
 
 export interface BucketStats {
@@ -67,6 +77,14 @@ export interface BucketStats {
   significant: boolean;
   /** True when n < minN (cell should render greyed/directional). */
   belowMinN: boolean;
+  /** Causal event timeline sorted asc by ts, for walk-forward views. */
+  events: BucketEvent[];
+  /** Worked-rate over the last `recentN` events. Null when <recentN events. */
+  recentRate: number | null;
+  /** Sample count behind recentRate. */
+  recentSamples: number;
+  /** recentRate - rate (pp swing, signed). Null when either is null. */
+  drift: number | null;
 }
 
 export interface BaselineStats {
@@ -241,6 +259,7 @@ export function bucketTrades({
     expectancy: null, expectancyCI: null, rSamples: 0,
     tradeIds: [], rateLift: null, expectancyLift: null,
     pValue: null, significant: false, belowMinN: true,
+    events: [], recentRate: null, recentSamples: 0, drift: null,
   });
 
   const byKey = new Map<string, BucketStats>();
@@ -258,14 +277,10 @@ export function bucketTrades({
     if (symbolResolver(t.symbol) !== filters.pair) continue;
     if (filters.direction && t.direction !== filters.direction) continue;
     if (filters.regime && resolveRegime(t) !== filters.regime) continue;
-    if (dateFromMs != null) {
-      const ts = Date.parse(t.entry_time);
-      if (Number.isNaN(ts) || ts < dateFromMs) continue;
-    }
-    if (dateToMs != null) {
-      const ts = Date.parse(t.entry_time);
-      if (Number.isNaN(ts) || ts > dateToMs) continue;
-    }
+    const tsMs = Date.parse(t.entry_time);
+    if (Number.isNaN(tsMs)) continue;
+    if (dateFromMs != null && tsMs < dateFromMs) continue;
+    if (dateToMs != null && tsMs > dateToMs) continue;
 
     const value = readIdealWindow(t);
     if (!value || value === "none") continue;
@@ -285,6 +300,7 @@ export function bucketTrades({
       if (!b) { b = empty(hm.hour, half); byKey.set(k, b); }
       if (worked) b.worked += 1; else b.failed += 1;
       b.tradeIds.push(t.id);
+      b.events.push({ ts: tsMs, half, worked, r, tradeId: t.id });
       if (r != null) {
         let rs = rsByKey.get(k);
         if (!rs) { rs = []; rsByKey.set(k, rs); }
@@ -298,7 +314,8 @@ export function bucketTrades({
     if (d.secondFailed) { addToBucket("second", false); baselineFailed += 1; if (r != null) baselineRs.push(r); }
   }
 
-  // Finalize each bucket: rate, CIs, expectancy.
+  // Finalize each bucket: rate, CIs, expectancy, recent-window drift.
+  const recentN = Math.max(1, filters.recentN ?? 10);
   for (const [k, b] of byKey) {
     b.n = b.worked + b.failed;
     b.rate = b.n > 0 ? b.worked / b.n : null;
@@ -308,6 +325,14 @@ export function bucketTrades({
     b.expectancy = rs.length > 0 ? rs.reduce((s, x) => s + x, 0) / rs.length : null;
     b.expectancyCI = bootstrapMeanCI(rs);
     b.belowMinN = b.n < filters.minN;
+    b.events.sort((a, c) => a.ts - c.ts);
+    if (b.events.length >= recentN) {
+      const tail = b.events.slice(-recentN);
+      const w = tail.reduce((s, e) => s + (e.worked ? 1 : 0), 0);
+      b.recentRate = w / tail.length;
+      b.recentSamples = tail.length;
+      b.drift = b.rate != null ? b.recentRate - b.rate : null;
+    }
   }
 
   const baselineN = baselineWorked + baselineFailed;
@@ -404,3 +429,43 @@ export function subGridFifteenMin({
   }
   return bins;
 }
+
+/**
+ * Causal cumulative worked-rate series from a bucket's event timeline.
+ * Index i = rate after i+1 events (i.e. uses only data up to event i).
+ * Pair with Wilson CI band by passing each cumulative (k, n) to wilsonInterval.
+ */
+export function cumulativeSeries(events: BucketEvent[]): Array<{
+  ts: number;
+  k: number;
+  n: number;
+  rate: number;
+  ci: [number, number];
+}> {
+  const out: Array<{ ts: number; k: number; n: number; rate: number; ci: [number, number] }> = [];
+  let k = 0;
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].worked) k += 1;
+    const n = i + 1;
+    out.push({ ts: events[i].ts, k, n, rate: k / n, ci: wilsonInterval(k, n) });
+  }
+  return out;
+}
+
+/** Rolling worked-rate over a window of `windowN` events (causal). */
+export function rollingRateSeries(
+  events: BucketEvent[],
+  windowN: number,
+): Array<{ ts: number; rate: number; n: number }> {
+  if (windowN < 1) return [];
+  const out: Array<{ ts: number; rate: number; n: number }> = [];
+  for (let i = 0; i < events.length; i++) {
+    const start = Math.max(0, i - windowN + 1);
+    let w = 0;
+    for (let j = start; j <= i; j++) if (events[j].worked) w += 1;
+    const n = i - start + 1;
+    out.push({ ts: events[i].ts, rate: w / n, n });
+  }
+  return out;
+}
+

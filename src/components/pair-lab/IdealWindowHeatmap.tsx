@@ -9,18 +9,20 @@
 //   - Cells with n < minN render greyed (directional only).
 // ============================================================================
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Clock, Info, Star } from "lucide-react";
+import { Clock, Info, Star, TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Trade, TradeDirection } from "@/types/trading";
 import {
   bucketTrades,
   subGridFifteenMin,
+  cumulativeSeries,
+  rollingRateSeries,
   type BucketStats,
   type Half,
   type IdealWindowFilters,
@@ -28,6 +30,11 @@ import {
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { useSymbolGroups } from "@/hooks/useSymbolGroups";
+import {
+  WalkForwardControls,
+  resolveWindow,
+  type WalkForwardState,
+} from "./WalkForwardControls";
 
 interface Props {
   trades: Trade[];
@@ -115,6 +122,32 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
   const [sortBy, setSortBy] = useState<"lift" | "expectancy" | "rate">("lift");
   const [selectedCell, setSelectedCell] = useState<{ hour: number; half: Half } | null>(null);
 
+  // Walk-forward state — lens + as-of slider. Bounds derived from trade dates.
+  const tradeMsBounds = useMemo(() => {
+    let min = Infinity, max = -Infinity;
+    for (const t of trades) {
+      const ts = Date.parse(t.entry_time);
+      if (Number.isFinite(ts)) { if (ts < min) min = ts; if (ts > max) max = ts; }
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      const now = Date.now();
+      return { minMs: now - 365 * 86_400_000, maxMs: now };
+    }
+    return { minMs: min, maxMs: Math.max(max, Date.now()) };
+  }, [trades]);
+
+  const [wf, setWf] = useState<WalkForwardState>(() => ({
+    lens: "all",
+    asOfMs: tradeMsBounds.maxMs,
+  }));
+  // Keep asOf within bounds when trades change.
+  useEffect(() => {
+    setWf((prev) => {
+      const clamped = Math.max(tradeMsBounds.minMs, Math.min(tradeMsBounds.maxMs, prev.asOfMs));
+      return clamped === prev.asOfMs ? prev : { ...prev, asOfMs: clamped };
+    });
+  }, [tradeMsBounds.minMs, tradeMsBounds.maxMs]);
+
   // Resolve scope → effective pair label + wrapped resolver that collapses
   // group members into the group's name (so bucketTrades treats them as one).
   const { pair, effectiveResolver, activeGroup } = useMemo(() => {
@@ -159,13 +192,20 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
     try { localStorage.setItem(MIN_N_STORAGE_KEY, String(n)); } catch { /* ignore */ }
   };
 
-  const filters: IdealWindowFilters | null = pair == null ? null : {
-    pair,
-    hours,
-    regime: regime === "any" ? null : regime,
-    direction: direction === "any" ? null : (direction as TradeDirection),
-    minN,
-  };
+  const filters: IdealWindowFilters | null = useMemo(() => {
+    if (pair == null) return null;
+    const { dateFrom, dateTo } = resolveWindow(wf);
+    return {
+      pair,
+      hours,
+      regime: regime === "any" ? null : regime,
+      direction: direction === "any" ? null : (direction as TradeDirection),
+      minN,
+      dateFrom,
+      dateTo,
+      recentN: 10,
+    };
+  }, [pair, hours, regime, direction, minN, wf]);
 
   const result = useMemo(() => {
     if (!filters) return null;
@@ -382,6 +422,14 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
         </div>
       </div>
 
+      {/* Walk-forward controls */}
+      <WalkForwardControls
+        state={wf}
+        onChange={(next) => { setWf(next); setSelectedCell(null); }}
+        minMs={tradeMsBounds.minMs}
+        maxMs={tradeMsBounds.maxMs}
+      />
+
       {/* Baseline strip */}
       {baseline && (
         <div className="rounded-md border border-border/60 bg-muted/10 p-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
@@ -466,6 +514,17 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
                                   {b.significant && (
                                     <Star className="w-3 h-3 fill-primary text-primary" />
                                   )}
+                                  {b.drift != null && Math.abs(b.drift) >= 0.15 && b.recentSamples >= 5 && (
+                                    b.drift > 0 ? (
+                                      <span className="inline-flex items-center gap-0.5 text-emerald-500 text-[10px]" title={`Recent ${b.recentSamples} setups: ${fmtPct(b.recentRate)} (drift ${(b.drift * 100).toFixed(0)}pp)`}>
+                                        <TrendingUp className="w-3 h-3" />{(b.drift * 100).toFixed(0)}pp
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-0.5 text-red-500 text-[10px]" title={`Recent ${b.recentSamples} setups: ${fmtPct(b.recentRate)} (drift ${(b.drift * 100).toFixed(0)}pp)`}>
+                                        <TrendingDown className="w-3 h-3" />{(b.drift * 100).toFixed(0)}pp
+                                      </span>
+                                    )
+                                  )}
                                 </div>
                                 <div className="text-[10px] text-muted-foreground tabular-nums">
                                   lift {fmtR(b.expectancyLift, true)} · n={b.n}
@@ -533,6 +592,63 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
                 </div>
               </div>
             </div>
+
+
+            {/* Walk-forward chart: cumulative rate + Wilson band + rolling-10 + per-event dots */}
+            {b.events.length >= 3 && (() => {
+              const cum = cumulativeSeries(b.events);
+              const roll = rollingRateSeries(b.events, Math.min(10, b.events.length));
+              const W = 480, H = 110, padL = 28, padR = 8, padT = 8, padB = 18;
+              const innerW = W - padL - padR;
+              const innerH = H - padT - padB;
+              const n = b.events.length;
+              const x = (i: number) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+              const y = (r: number) => padT + (1 - r) * innerH;
+              const bandPath =
+                "M" + cum.map((p, i) => `${x(i)},${y(p.ci[1])}`).join(" L") +
+                " L" + [...cum].reverse().map((p, j) => `${x(n - 1 - j)},${y(p.ci[0])}`).join(" L") + " Z";
+              const cumPath = "M" + cum.map((p, i) => `${x(i)},${y(p.rate)}`).join(" L");
+              const rollPath = "M" + roll.map((p, i) => `${x(i)},${y(p.rate)}`).join(" L");
+              const yAxisVals = [0, 0.25, 0.5, 0.75, 1];
+              return (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-3">
+                    <span>Walk-forward (causal)</span>
+                    <span className="inline-flex items-center gap-1 normal-case tracking-normal">
+                      <span className="inline-block w-3 h-0.5 bg-primary" /> cumulative
+                    </span>
+                    <span className="inline-flex items-center gap-1 normal-case tracking-normal">
+                      <span className="inline-block w-3 h-0.5 bg-orange-400" /> rolling-10
+                    </span>
+                    <span className="inline-flex items-center gap-1 normal-case tracking-normal">
+                      <span className="inline-block w-3 h-2 bg-primary/15" /> Wilson 95% CI
+                    </span>
+                  </div>
+                  <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="block">
+                    {yAxisVals.map((v) => (
+                      <g key={v}>
+                        <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)}
+                          stroke="hsl(var(--border))" strokeWidth={0.5} strokeDasharray={v === 0.5 ? undefined : "2 3"} />
+                        <text x={padL - 4} y={y(v) + 3} textAnchor="end"
+                          className="fill-muted-foreground" fontSize={9}>{Math.round(v * 100)}%</text>
+                      </g>
+                    ))}
+                    <path d={bandPath} fill="hsl(var(--primary))" fillOpacity={0.12} />
+                    <path d={cumPath} stroke="hsl(var(--primary))" strokeWidth={1.5} fill="none" />
+                    <path d={rollPath} stroke="rgb(251 146 60)" strokeWidth={1.2} fill="none" strokeDasharray="3 2" />
+                    {b.events.map((e, i) => (
+                      <circle key={i} cx={x(i)} cy={y(e.worked ? 1 : 0)} r={1.8}
+                        fill={e.worked ? "rgb(16 185 129)" : "rgb(239 68 68)"} fillOpacity={0.7} />
+                    ))}
+                  </svg>
+                  <div className="text-[10px] text-muted-foreground mt-0.5 flex justify-between font-mono-numbers">
+                    <span>{new Date(b.events[0].ts).toISOString().slice(0, 10)}</span>
+                    <span>{b.events.length} events</span>
+                    <span>{new Date(b.events[n - 1].ts).toISOString().slice(0, 10)}</span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* 15-min sub-grid */}
             {subGrid && (
