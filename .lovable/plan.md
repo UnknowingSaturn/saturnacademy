@@ -1,51 +1,43 @@
 
-## Switch SL optimization to use `cf_ideal_stop_loss` by default
+## Propagate `slSource` to AI reports
 
-### Why
-- 45 trades have ideal SL logged, 37 have MAE — coverage is the same.
-- Your trading rule places SL at structure. Ideal SL *is* that structure; MAE is just a survival heuristic for when structure isn't logged.
-- The current `max(MAE p75 × 1.15, idealSlMedian)` rule inflates SL distance whenever a trade took unusual heat and survived — which is exactly the wrong time to widen the stop forever.
+The recommendation cascade is correct in the math libs. Two report-layer touch-ups left so AI-generated reports reflect the new SL priority instead of treating ideal SL and MAE as co-equal.
 
-### Change
+### 1. Carry `slSource` / `slSourceN` into report payloads
 
-**`src/lib/pairLabMath.ts → suggestSlTp`** (currently lines ~755–770):
+**`supabase/functions/pair-lab-report/index.ts`**
+- Add `slSource` and `slSourceN` to the `RecommendationShape` type (around line 40) and to the `BaselineShape` if needed.
+- Include them in the bucket payload (around line 122) and baseline payload (around line 141):
+  ```ts
+  suggested_sl_pips: b.suggestedSlPips,
+  sl_source: b.slSource,
+  sl_source_n: b.slSourceN,
+  ```
+
+**`supabase/functions/generate-report/index.ts`**
+- Same two fields next to `suggested_sl_pips` at line 1098.
+
+### 2. Update the AI report prompt
+
+**`supabase/functions/pair-lab-report/index.ts`** (around line 181, and the equivalent guidance block):
 
 Replace:
-```ts
-suggestedSlPips = Math.max(maeCandidate ?? 0, s.idealSlMedian ?? 0);
-slMethod = "winners_mae";
-```
+> If slDrift is "too_wide" → suggest tightening to ideal_sl_median. If "too_tight" → suggest widening to mae_p75 × 1.15.
 
-With a priority cascade:
-1. If `idealSlMedian` is present → use it. `slMethod = "ideal_sl"`.
-2. Else if `maeP75Pips` is present → use `maeP75Pips × 1.15`. `slMethod = "winners_mae_fallback"`.
-3. Else → legacy.
-
-So ideal SL wins whenever it exists. MAE drops to fallback-only.
-
-### Surfacing it
-
-**`src/components/pair-lab/StrategyLab.tsx`** — the SL/TP suggestion card already shows `slMethod`. Add one line under the SL value:
-
-- When `ideal_sl`: "Source: your logged ideal SL (median of N trades)."
-- When `winners_mae_fallback`: "Source: MAE p75 × 1.15 — no ideal SL logged for this bucket."
-
-So you always know which one is driving the recommendation, per symbol/bucket.
-
-### Optional escape hatch (only if you want it)
-
-A single Pair Lab setting `SL source = [Ideal SL (default) | MAE survival | Max of both (legacy)]` persisted on the simulator profile. Skip unless you want to A/B them — the cascade above already does the right thing for your data.
-
-### Intra-hour and alternate-setup toggle
-
-Dropping both from this plan since they aren't what you asked about. We can revisit either separately.
-
-### Files
-- `src/lib/pairLabMath.ts` — replace the SL selection block, update the `slMethod` union type.
-- `supabase/functions/_shared/quant/pairLabMath.ts` — mirror the change so edge-function reports match.
-- `src/components/pair-lab/StrategyLab.tsx` — add the one-line source caption.
+With:
+> The recommended SL (`suggested_sl_pips`) is sourced per the `sl_source` field:
+> - `ideal_sl`: median of the trader's logged ideal SL across `sl_source_n` trades. Cite the SL as "based on your logged ideal SL".
+> - `winners_mae`: MAE-of-winners (no ideal SL logged for this bucket). Cite as "derived from how much heat your winners absorbed (n=…)".
+> - `winners_mae_fallback`: MAE p75 × 1.15. Cite as "fallback estimate — log ideal SL on more trades to improve this".
+>
+> For `slDrift`: "too_wide" / "too_tight" describes how the trader's initial SL compares to their own ideal SL — comment on discipline, not on changing the recommendation.
 
 ### Out of scope
-- No schema changes.
-- No changes to MFE/TP logic.
-- No removal of MAE — it remains the fallback and stays available in stats.
+- No changes to the simulator's `tighten_to_ideal` / `widen_to_mae_p75` rules — those are intentional user-selectable what-ifs.
+- No removal of MAE stats from the UI — `maeP75` remains a useful diagnostic next to ideal SL.
+
+### Files
+- `supabase/functions/pair-lab-report/index.ts` — type + payload + prompt edits.
+- `supabase/functions/generate-report/index.ts` — payload fields only.
+
+After the edits both edge functions need redeploying.
