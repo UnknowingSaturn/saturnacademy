@@ -575,6 +575,7 @@ function computeBucket(
       const v = numericCf(t as any, keys.mae);
       return v != null && t.sl_initial != null && t.entry_price != null;
     }).length,
+    loggedIdealSlCount: idealSls.length,
     slSweep,
   };
 
