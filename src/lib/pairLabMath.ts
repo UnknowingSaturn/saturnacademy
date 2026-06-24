@@ -887,6 +887,8 @@ function buildRecommendation(
 
   return {
     suggestedSlPips,
+    slSource,
+    slSourceN,
     tpLadderR,
     tp1Star,
     suggestedRiskPct,
