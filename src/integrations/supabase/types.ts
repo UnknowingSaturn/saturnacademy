@@ -1880,6 +1880,7 @@ export type Database = {
           equity_at_entry: number | null
           exit_price: number | null
           exit_time: string | null
+          first_half_setup: string | null
           gross_pnl: number | null
           id: string
           install_id: string | null
@@ -1894,6 +1895,7 @@ export type Database = {
           r_multiple_planned: number | null
           repair_state: string
           risk_percent: number | null
+          second_half_setup: string | null
           session: string | null
           sl_final: number | null
           sl_initial: number | null
@@ -1930,6 +1932,7 @@ export type Database = {
           equity_at_entry?: number | null
           exit_price?: number | null
           exit_time?: string | null
+          first_half_setup?: string | null
           gross_pnl?: number | null
           id?: string
           install_id?: string | null
@@ -1944,6 +1947,7 @@ export type Database = {
           r_multiple_planned?: number | null
           repair_state?: string
           risk_percent?: number | null
+          second_half_setup?: string | null
           session?: string | null
           sl_final?: number | null
           sl_initial?: number | null
@@ -1980,6 +1984,7 @@ export type Database = {
           equity_at_entry?: number | null
           exit_price?: number | null
           exit_time?: string | null
+          first_half_setup?: string | null
           gross_pnl?: number | null
           id?: string
           install_id?: string | null
@@ -1994,6 +1999,7 @@ export type Database = {
           r_multiple_planned?: number | null
           repair_state?: string
           risk_percent?: number | null
+          second_half_setup?: string | null
           session?: string | null
           sl_final?: number | null
           sl_initial?: number | null
