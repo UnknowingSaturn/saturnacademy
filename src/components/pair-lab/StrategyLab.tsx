@@ -65,13 +65,8 @@ function scoreCellParts(r: MCResult, inconclusiveWeight = 0.1) {
   return { passProb: r.passProb, survival, ddPenalty, inconclusivePenalty, score };
 }
 
-// Deterministic but distinct seed per cell — prevents the heatmap from showing
-// artificial similarity between cells that happen to walk the same sample path.
-function cellSeed(model: RotationModel, risk: number): number {
-  const modelIdx = ROTATION_MODELS.indexOf(model);
-  // Encode model in high bits, risk×100 in low bits.
-  return ((modelIdx + 1) * 100003) ^ Math.round(risk * 1000) ^ 0x5f3759df;
-}
+// (cellSeed now lives in the worker — keeps the per-cell PRNG seed local to
+// the thread that actually runs runMonteCarlo.)
 
 // Auto-detect average trades/day from the user's history.
 //
