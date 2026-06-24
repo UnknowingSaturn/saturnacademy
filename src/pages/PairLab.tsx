@@ -17,6 +17,7 @@ import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
 import { SimulatorProfileSettings } from "@/components/pair-lab/SimulatorProfileSettings";
 import { StrategyLab } from "@/components/pair-lab/StrategyLab";
 import { IntraHourTiming } from "@/components/pair-lab/IntraHourTiming";
+import { IdealWindowHeatmap } from "@/components/pair-lab/IdealWindowHeatmap";
 import { normalizeSession } from "@/lib/pairLabMath";
 
 export default function PairLab() {
@@ -124,14 +125,23 @@ export default function PairLab() {
         </TooltipProvider>
       )}
 
-      <Tabs defaultValue="grid">
+      <Tabs defaultValue="windows">
         <TabsList>
+          <TabsTrigger value="windows">Ideal windows</TabsTrigger>
           <TabsTrigger value="grid">Grid</TabsTrigger>
           <TabsTrigger value="simulator">Simulator</TabsTrigger>
           <TabsTrigger value="strategy">Strategy lab</TabsTrigger>
           <TabsTrigger value="timing">Intra-hour timing</TabsTrigger>
           <TabsTrigger value="aliases">Symbol aliases</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="windows" className="mt-4">
+          <IdealWindowHeatmap
+            trades={data.trades}
+            symbolResolver={data.symbolResolver}
+            allSymbols={data.symbols}
+          />
+        </TabsContent>
 
         <TabsContent value="grid" className="space-y-6 mt-4">
           {(() => {
