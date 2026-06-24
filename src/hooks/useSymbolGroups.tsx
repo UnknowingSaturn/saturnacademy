@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { setTickSizeOverrides } from "@/lib/symbolMapping";
 
 export interface SymbolGroup {
   id: string;
@@ -9,6 +11,12 @@ export interface SymbolGroup {
   name: string;
   color: string | null;
   symbols: string[];
+  /**
+   * Per-symbol tick-size override map: { "BTCUSD": 1.0, "ETHUSD": 0.1 }.
+   * Used by Pair Lab to correctly scale MAE / Ideal-SL on crypto and other
+   * instruments whose broker tick size doesn't match the default classifier.
+   */
+  tick_size_overrides: Record<string, number>;
   created_at: string;
   updated_at: string;
 }
