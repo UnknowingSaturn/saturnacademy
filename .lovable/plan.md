@@ -1,61 +1,64 @@
-## Walk-forward layer for the Analyze tab
+## Verification result
 
-Bring the Analyze tab (BucketGrid + QuantNotePanel + StrategyRanker) up to the same walk-forward standard the Ideal windows tab now has. Same primitives, same UX language — applied to the symbol × session world that uses `pairLabMath` / MFE / MAE / expectancy.
+Phases 1-4 are largely applied. The remaining gaps are duplicated walk-forward UI inside `IdealWindowHeatmap`, dead `localWf` fallback, server-side tick-size override divergence, and a stale fixture path in the verify script.
 
-### What you'll see
+### Verified clean
+- **C1** `winnersMaePips` iterates raw rows, no `sl_initial` gate (`pairLabMath.ts:715`).
+- **C2** `useTrades` account filter uses `account_id.eq.X,account_id.is.null`.
+- **C3/M6** `isUnrealized()` lives in `shared/quant/stats.ts` and is consumed by `usePairLab` + `pairLabMath`.
+- **H1** `bootstrapKellyCi` uses two independent RNG streams (`stats.ts:184-185`).
+- **M1** Both `pairLabMath.ts` and `_shared/quant/pairLabMath.ts` use `sideOf()`-driven `longestLossStreak`.
+- **M3** `baselineRs.push(r)` is gated to once per trade in `idealWindowMath.ts:290`.
+- **C4** Single `usePairLab` call in `PairLab.tsx`, bounds via `usePairLabTradeBounds`.
+- **C5** `PairLabWalkForwardContext` exists; `OverviewTab`, `StrategyTab`, `IdealWindowHeatmap` read it.
+- **H4** Strategy Lab MC offloaded to `strategyLabMC.worker.ts`.
+- **Phase 3** Tabs IA shipped; URL-bound state in `PairLab.tsx`.
+- **Phase 4** UTC parser hardened, payload extended (`walk_forward`, `recommendationConfidence`, `expectancyAtSuggestedCi`, `suggestedTpR`), `--heat-positive/--heat-negative/--chart-trail` tokens applied, `tick_size_overrides` migration + client shim shipped.
+- `sampleWindow`, `totalTradeRowsRaw`, dead `TRAIL_CAPTURE_FRAC` leak — all gone. `tsgo` is clean.
 
-1. **WalkForwardControls bar** at the top of the Analyze tab (above the baseline card).
-   - Lens toggle: All-time / 90d / 30d (relative to as-of).
-   - As-of date slider (bounded by your trade history). "Jump to today" shortcut.
-   - The same component already in use on Ideal windows — pulled out so both tabs share it.
+### Gaps to close
 
-2. **Group / individual scope selector** on Analyze.
-   - Same scope dropdown style: "Groups (merged)" + "Individual pairs" + an "All pairs" default.
-   - When a group is selected, the BucketGrid collapses every member symbol into a single row using a wrapped resolver — no per-pair-per-pair math; trades just bucket under the group name.
-   - Ad-hoc "Analyse as one" action on a row's overflow menu — select N rows → temporary group for this view.
+1. **Duplicate walk-forward UI inside `IdealWindowHeatmap`** (`IdealWindowHeatmap.tsx:144-149, 152-157, 434`).
+   The component now lives inside `IdealWindowsTab`, which sits under `PairLabWalkForwardProvider` and inherits the lens that `OverviewTab` already exposes. The component still renders its own `<WalkForwardControls>` AND still wires a `localWf` fallback. Result: two slider rows on screen, plus dead state.
+   - Remove `localWf` state and the `sharedWf ? ... : ...` branches; require context.
+   - Remove the in-component `<WalkForwardControls>` render (keep the per-pair scope/regime/direction/minN/sort selectors).
+   - Drop the `useOptionalPairLabWalkForward` import; use `usePairLabWalkForward` since the provider is now mandatory.
 
-3. **Drift signal on every BucketGrid cell.**
-   - Recent-N (default 10) worked-rate / expectancy compared to lifetime within the active lens.
-   - Cell shows a small ↑ / ↓ chip with the pp swing when |drift| ≥ 15pp AND recent N ≥ 5.
-   - Tooltip surfaces "Recent 10: 62% · +18pp vs lifetime" so it doesn't have to be inferred.
+2. **Server-side tick-size overrides** (Phase 4 open question, answer = yes).
+   `supabase/functions/_shared/quant/symbolMapping.ts` has no override path, so the AI pair-lab report uses default tick sizes while the UI uses overrides — divergence on crypto/exotic symbols.
+   - Add an in-memory override map + setter to `_shared/quant/symbolMapping.ts` (mirror `src/lib/symbolMapping.ts`).
+   - In `pair-lab-report/index.ts`, load `symbol_groups.tick_size_overrides` for the user, merge, and seed the map before running `buildBuckets`.
 
-4. **QuantNotePanel drill-down chart.**
-   - Cumulative expectancy curve with bootstrap CI band.
-   - Rolling-10 expectancy line (orange, dashed) overlaid.
-   - Per-trade R dots along the timeline (green ✓ / red ✗).
-   - Same SVG style as the Ideal windows drill-down for visual consistency.
+3. **`scripts/verify_pair_lab_math.ts` fixture path.**
+   Script reads `/tmp/verify/trades.json` unconditionally and crashes if missing. Add a clear `process.exit(1)` with a hint pointing at the dump command, so future runs don't look like a verification failure.
 
-5. **Out-of-sample mini-panel** under the baseline card.
-   - Pick a split date → "train" worked-rate / expectancy vs "test" side-by-side, per cell or for the whole baseline.
-   - Defaults to a 70/30 split on the date axis of in-scope trades.
-   - Flags cells where train was profitable but test went negative (overfit candidates).
+4. **`entry_time` persistence** (Phase 4 second open question).
+   Leave as-is. The display label + hardened parser cover the parity issue; rewriting historical `entry_time` would mutate user-owned data without an unambiguous gain. Document the decision in `brokerDst.ts` header.
 
-### How it works
+### Technical details
 
-- Extend `usePairLab` to accept `dateFrom` / `dateTo` / `recentN` / `groupOverride`, and forward them into `buildBuckets`. Trades are pre-filtered by entry timestamp before bucketing → no future leakage, no special-casing downstream.
-- Add per-bucket `events: { ts, won, r }[]` to `BucketReport` so the drift signal and cumulative chart are causal by construction. `pairLabMath.buildBuckets` already iterates the trades once; we just keep the per-event tail.
-- Compute `recentRate` / `recentExpectancy` / `drift` in the same finalize loop using `events.slice(-recentN)`. Same formula as `idealWindowMath` so the two tabs stay aligned.
-- Add a `groupOverride: { name, symbols } | null` arg. When set, `usePairLab` wraps the existing `symbolResolver` to collapse members into the group name, identical to the heatmap wrapper.
-- Extract the lens/as-of UI into `WalkForwardControls` (already created last turn) so both tabs share one component. Move `resolveWindow` next to it.
-- Out-of-sample panel = pure presentation: it calls `buildBuckets` twice with `dateTo = splitDate` and `dateFrom = splitDate`, diffs the per-cell results, renders.
+**File edits**
+- `src/components/pair-lab/IdealWindowHeatmap.tsx`
+  - Replace `useOptionalPairLabWalkForward()` with `usePairLabWalkForward()`.
+  - Delete `localWf`, `setLocalWf`, the clamp `useEffect`, and the `sharedWf ? ... : ...` ternaries (`wf`/`setWf` come straight from context).
+  - Delete the `<WalkForwardControls ... />` block at ~L434 and the surrounding "Walk-forward" header row; leave the pair/scope/regime/direction/minN/sort controls.
+  - Drop the now-unused `WalkForwardControls`, `WalkForwardState` imports; keep `resolveWindow` if still referenced (it is, for `dateFrom/dateTo`).
 
-### State / URL
+- `supabase/functions/_shared/quant/symbolMapping.ts`
+  - Add `let TICK_OVERRIDES: Record<string, number> = {}` module state.
+  - Export `setTickSizeOverrides(map)` and adjust `tickSizeForSymbol`/`pipSizeForSymbol` to consult overrides first (key by normalized symbol).
 
-- Analyze tab's existing `?symbol=&session=` deep link stays. Adds `?lens=&asOf=&scope=` so a walk-forward view is shareable / refresh-safe.
-- Lens + as-of state is local to the Analyze tab — Ideal windows keeps its own. (They diverge naturally: you'd often inspect different dates on each.)
+- `supabase/functions/pair-lab-report/index.ts`
+  - Before computing buckets: `select tick_size_overrides from symbol_groups where user_id = ...`, merge into one map, call `setTickSizeOverrides(merged)`.
+  - Reset overrides at end of the request (`setTickSizeOverrides({})`) to avoid bleed between invocations.
 
-### Files touched
+- `scripts/verify_pair_lab_math.ts`
+  - Wrap fixture reads in a `try`/`fs.existsSync` guard with a one-line hint: "run `bun scripts/dump_pair_lab_fixture.ts` first" (or print the supabase query the user should run).
 
-- `src/hooks/usePairLab.tsx` — accept date window, recentN, groupOverride. Pre-filter trades.
-- `src/lib/pairLabMath.ts` — keep per-bucket `events`, compute `recentRate` / `drift`. Add `cumulativeExpectancySeries` helper.
-- `src/pages/PairLab.tsx` — wire WalkForwardControls + scope selector into the Analyze tab; URL-sync new params.
-- `src/components/pair-lab/BucketGrid.tsx` — drift chip per cell, ad-hoc "Analyse as one" row action.
-- `src/components/pair-lab/QuantNotePanel.tsx` — append the cumulative + rolling chart.
-- New: `src/components/pair-lab/OutOfSamplePanel.tsx`.
-- New (split): `src/components/pair-lab/AnalyzeScopeSelector.tsx` (groups + individual + "All pairs", shared with the heatmap scope picker).
+- `src/lib/brokerDst.ts`
+  - Add 3-line header comment recording the decision to keep `entry_time` raw and display-only conversion.
 
-### Out of scope
-
-- Touching the simulator / StrategyRanker math — they consume the same scoped trades, so they pick up walk-forward for free.
-- Server-side caching — math stays client-side; trade volumes are well within budget.
-- Exponential time-decay weighting (revisit only if the drift signal proves noisy in practice).
+**Validation**
+- `bunx tsgo --noEmit` after edits.
+- Manual: load Pair Lab → Ideal Windows tab and confirm only one walk-forward slider remains (the one from Overview).
+- Manual: trigger pair-lab-report on a user with a crypto override and confirm `r_multiple_actual` / SL pip values in the AI payload match the UI.

@@ -24,14 +24,33 @@ import { buildSymbolResolver, normalizeSymbol } from "../shared/quant/symbolAlia
 import { ticksToPips, pipLabelForSymbol } from "../shared/quant/symbolMapping";
 import fs from "node:fs";
 
-const trades = JSON.parse(fs.readFileSync("/tmp/verify/trades.json", "utf8"));
+const FIXTURE_DIR = "/tmp/verify";
+const tradesPath = `${FIXTURE_DIR}/trades.json`;
+if (!fs.existsSync(tradesPath)) {
+  console.error(`[verify_pair_lab_math] Missing fixture at ${tradesPath}.
+
+This script diffs the project's pairLabMath against an independent
+implementation against your real trade rows. Dump fixtures first:
+
+  mkdir -p ${FIXTURE_DIR}
+  # In the Supabase SQL editor (filter by your user_id), export to JSON:
+  #   SELECT row_to_json(t) FROM trades t WHERE user_id = '<uid>' AND is_archived = false;
+  #   SELECT row_to_json(a) FROM symbol_aliases a WHERE user_id = '<uid>';
+  #   SELECT row_to_json(d) FROM custom_field_definitions d WHERE user_id = '<uid>';
+  # Save as ${FIXTURE_DIR}/trades.json, aliases.json, fields.json
+`);
+  process.exit(1);
+}
+
+const trades = JSON.parse(fs.readFileSync(tradesPath, "utf8"));
 const readJsonOrEmpty = (p: string) => {
+  if (!fs.existsSync(p)) return [];
   const raw = fs.readFileSync(p, "utf8").trim();
   if (!raw || raw === "null") return [];
   return JSON.parse(raw);
 };
-const aliases = readJsonOrEmpty("/tmp/verify/aliases.json");
-const fields = readJsonOrEmpty("/tmp/verify/fields.json");
+const aliases = readJsonOrEmpty(`${FIXTURE_DIR}/aliases.json`);
+const fields = readJsonOrEmpty(`${FIXTURE_DIR}/fields.json`);
 
 console.log(`Loaded ${trades.length} trades, ${aliases.length} aliases, ${fields.length} CF defs`);
 

@@ -30,12 +30,8 @@ import {
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { useSymbolGroups } from "@/hooks/useSymbolGroups";
-import {
-  WalkForwardControls,
-  resolveWindow,
-  type WalkForwardState,
-} from "./WalkForwardControls";
-import { useOptionalPairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
+import { resolveWindow } from "./WalkForwardControls";
+import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
 
 interface Props {
   trades: Trade[];
@@ -123,38 +119,15 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
   const [sortBy, setSortBy] = useState<"lift" | "expectancy" | "rate">("lift");
   const [selectedCell, setSelectedCell] = useState<{ hour: number; half: Half } | null>(null);
 
-  // Walk-forward state — prefer the shared Pair Lab context when present so
-  // every tab reads the same lens/as-of cutoff. Falls back to local state for
-  // legacy callers rendering the heatmap outside the page.
-  const sharedWf = useOptionalPairLabWalkForward();
-  const tradeMsBounds = useMemo(() => {
-    if (sharedWf) return { minMs: sharedWf.minMs, maxMs: sharedWf.maxMs };
-    let min = Infinity, max = -Infinity;
-    for (const t of trades) {
-      const ts = Date.parse(t.entry_time);
-      if (Number.isFinite(ts)) { if (ts < min) min = ts; if (ts > max) max = ts; }
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max)) {
-      const now = Date.now();
-      return { minMs: now - 365 * 86_400_000, maxMs: now };
-    }
-    return { minMs: min, maxMs: Math.max(max, Date.now()) };
-  }, [trades, sharedWf]);
-
-  const [localWf, setLocalWf] = useState<WalkForwardState>(() => ({
-    lens: "all",
-    asOfMs: tradeMsBounds.maxMs,
-  }));
-  const wf = sharedWf ? sharedWf.wf : localWf;
-  const setWf = sharedWf ? sharedWf.setWf : setLocalWf;
-  // Keep local asOf within bounds when trades change (only when not using shared).
+  // Walk-forward state — sourced exclusively from PairLabWalkForwardContext.
+  // OverviewTab owns the single lens slider; this component reads it. The
+  // local fallback was removed (Phase 5 cleanup) to eliminate duplicate
+  // sliders and the dead `localWf` state machine.
+  const { wf } = usePairLabWalkForward();
+  // Close any drilled-in cell when the lens shifts.
   useEffect(() => {
-    if (sharedWf) return;
-    setLocalWf((prev) => {
-      const clamped = Math.max(tradeMsBounds.minMs, Math.min(tradeMsBounds.maxMs, prev.asOfMs));
-      return clamped === prev.asOfMs ? prev : { ...prev, asOfMs: clamped };
-    });
-  }, [tradeMsBounds.minMs, tradeMsBounds.maxMs, sharedWf]);
+    setSelectedCell(null);
+  }, [wf.lens, wf.asOfMs]);
 
   // Resolve scope → effective pair label + wrapped resolver that collapses
   // group members into the group's name (so bucketTrades treats them as one).
@@ -430,13 +403,9 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
         </div>
       </div>
 
-      {/* Walk-forward controls */}
-      <WalkForwardControls
-        state={wf}
-        onChange={(next) => { setWf(next); setSelectedCell(null); }}
-        minMs={tradeMsBounds.minMs}
-        maxMs={tradeMsBounds.maxMs}
-      />
+      {/* Walk-forward lens is owned by Overview tab — no duplicate slider here. */}
+
+
 
       {/* Baseline strip */}
       {baseline && (
