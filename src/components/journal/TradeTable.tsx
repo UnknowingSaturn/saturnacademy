@@ -292,12 +292,12 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     await updateTrade.mutateAsync({ id: trade.id, profile: profile as TradeProfile });
   };
 
-  const handleHourSetupChange = async (
+  const handleHourLandscapeChange = async (
     trade: Trade,
-    half: 'first_half_setup' | 'second_half_setup',
+    field: 'ideal_entry_window' | 'failed_setup_half',
     value: string,
   ) => {
-    await updateTrade.mutateAsync({ id: trade.id, [half]: (value || null) as any });
+    await updateTrade.mutateAsync({ id: trade.id, [field]: (value || null) as HourLandscape | null });
   };
 
   const handlePlaceChange = async (trade: Trade) => {
