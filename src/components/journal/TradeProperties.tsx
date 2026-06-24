@@ -28,6 +28,14 @@ interface TradePropertiesProps {
   trade: Trade;
 }
 
+// Options for the Hour Setup Landscape fields (first_half_setup / second_half_setup).
+// Decoupled from R: "did a setup print in this half of the hour, and did it work".
+const HOUR_SETUP_OPTIONS = [
+  { value: 'none',   label: 'None',   color: 'primary', customColor: '#64748b' },
+  { value: 'worked', label: 'Worked', color: 'primary', customColor: '#10b981' },
+  { value: 'failed', label: 'Failed', color: 'primary', customColor: '#ef4444' },
+];
+
 // Convert user PropertyOption rows into BadgeSelect option shape
 function toBadgeOptions(rows?: { value: string; label: string; color: string }[]) {
   if (!rows || rows.length === 0) return [];
@@ -392,6 +400,28 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             <PlaceEditor
               value={trade.place || ""}
               onSave={(v) => updateTrade.mutateAsync({ id: trade.id, place: v || null })}
+            />
+          </PropertyRow>
+        );
+      case 'first_half_setup':
+        return (
+          <PropertyRow key="first_half_setup" label={labelFor('first_half_setup', '1st-half setup (≤ :30)')}>
+            <BadgeSelect
+              value={trade.first_half_setup ?? ""}
+              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, first_half_setup: ((v as string) || null) as any })}
+              options={HOUR_SETUP_OPTIONS}
+              placeholder="—"
+            />
+          </PropertyRow>
+        );
+      case 'second_half_setup':
+        return (
+          <PropertyRow key="second_half_setup" label={labelFor('second_half_setup', '2nd-half setup (> :30)')}>
+            <BadgeSelect
+              value={trade.second_half_setup ?? ""}
+              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, second_half_setup: ((v as string) || null) as any })}
+              options={HOUR_SETUP_OPTIONS}
+              placeholder="—"
             />
           </PropertyRow>
         );
