@@ -71,12 +71,28 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
   const expR = (b!.expectedR >= 0 ? "+" : "") + b!.expectedR.toFixed(2) + "R";
   const mfeCovColor = coverageColor(b!.loggedMfeCount, b!.n);
   const maeCovColor = coverageColor(b!.loggedMaeCount, b!.n);
+  const showDrift =
+    b!.drift != null && Math.abs(b!.drift) >= 15 && b!.recentWinRate != null;
+  const driftPositive = (b!.drift ?? 0) > 0;
   return (
     <div className={cn("space-y-0.5 text-left", provisional && "opacity-70")}>
       <div className="flex items-center gap-1 text-[11px]">
         <span>{confidenceDot(b!.confidence)}</span>
         <span className="font-medium">N {b!.n}</span>
         <span className="text-muted-foreground">· {winRatePct}%</span>
+        {showDrift && (
+          <span
+            className={cn(
+              "text-[9px] px-1 rounded font-semibold font-mono-numbers inline-flex items-center gap-0.5",
+              driftPositive
+                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                : "bg-destructive/15 text-destructive",
+            )}
+            title={`Recent ${Math.min(b!.recentN, b!.events.length)}: ${(b!.recentWinRate! * 100).toFixed(0)}% · ${driftPositive ? "+" : ""}${b!.drift!.toFixed(0)}pp vs lifetime`}
+          >
+            {driftPositive ? "↑" : "↓"}{Math.abs(b!.drift!).toFixed(0)}pp
+          </span>
+        )}
         {provisional && (
           <span
             className="text-[9px] px-1 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold"
