@@ -189,10 +189,13 @@ export default function PairLab() {
               setPropFirmMode={setPropFirmMode}
               includeUnrealized={includeUnrealized}
               setIncludeUnrealized={setIncludeUnrealized}
+              includeUnassigned={includeUnassigned}
+              setIncludeUnassigned={setIncludeUnassigned}
               scope={scope}
               setScope={setScope}
             />
           </TabsContent>
+
 
           <TabsContent value="grid" className="mt-4">
             <PairGridTab
