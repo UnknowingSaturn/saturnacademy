@@ -430,7 +430,7 @@ function longestLossStreak(rows: Trade[]): number {
   let run = 0;
   let worst = 0;
   for (const t of sorted) {
-    if ((t.net_pnl ?? 0) < 0) {
+    if (tradeSide(t) === -1) {
       run += 1;
       if (run > worst) worst = run;
     } else {
