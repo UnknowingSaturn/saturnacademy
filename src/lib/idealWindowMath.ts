@@ -38,6 +38,16 @@ export interface IdealWindowFilters {
   dateTo?: string | null;
   /** Minimum sample size for a cell to be considered "trusted". */
   minN: number;
+  /** Window size (in events) for the "recent" rate used to flag drift. Default 10. */
+  recentN?: number;
+}
+
+export interface BucketEvent {
+  ts: number;
+  half: Half;
+  worked: boolean;
+  r: number | null;
+  tradeId: string;
 }
 
 export interface BucketStats {
@@ -67,6 +77,14 @@ export interface BucketStats {
   significant: boolean;
   /** True when n < minN (cell should render greyed/directional). */
   belowMinN: boolean;
+  /** Causal event timeline sorted asc by ts, for walk-forward views. */
+  events: BucketEvent[];
+  /** Worked-rate over the last `recentN` events. Null when <recentN events. */
+  recentRate: number | null;
+  /** Sample count behind recentRate. */
+  recentSamples: number;
+  /** recentRate - rate (pp swing, signed). Null when either is null. */
+  drift: number | null;
 }
 
 export interface BaselineStats {
