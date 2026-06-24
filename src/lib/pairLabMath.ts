@@ -59,6 +59,7 @@ import {
   getCf,
   numericCf,
   multiSelectCf,
+  isUnrealized,
 } from "../../shared/quant/stats";
 export {
   quantile,
@@ -74,6 +75,7 @@ export {
   rawQuarterKellyPct,
   quarterKellyPct,
   normalizeSession,
+  isUnrealized,
 };
 
 export type ConfidenceLevel = "high" | "medium" | "low";
@@ -109,8 +111,10 @@ export interface BucketStats {
   winRateCi: [number, number] | null;
   expectedR: number;          // average R-multiple, mean of r_multiple_actual
   expectedRMedian: number;    // median R-multiple
-  /** Sum(winR) / Sum(|lossR|). null when no losses. */
+  /** Sum(winR) / Sum(|lossR|). null when no losses. Infinity is collapsed to null + `profitFactorAllWins` flag (JSON-safe). */
   profitFactor: number | null;
+  /** True when there are wins but zero losses — profit factor is mathematically undefined / unbounded. */
+  profitFactorAllWins: boolean;
   /** mean(winR) / mean(|lossR|). null when no losses or no wins. */
   payoffRatio: number | null;
   mfeP50: number | null;          // R-multiple
@@ -154,7 +158,10 @@ export interface BucketStats {
   recentExpectedR: number | null;
   /** (recentWinRate − winRate) in percentage points. null when recentWinRate null. */
   drift: number | null;
+  /** Count of trades whose `events[].r` was inferred from net_pnl sign (no r_multiple_actual). Surface as a "R inferred" badge. */
+  eventsRFallbackCount: number;
 }
+
 
 export interface SlSweepRow {
   /** Quantile of MAE distribution (e.g. 0.25, 0.40, 0.55, 0.70, 0.90). */
@@ -308,18 +315,30 @@ export interface BuildBucketsOpts {
   dateTo?: string | null;
   /** Window length for `recent*` / `drift`. Default 10. */
   recentN?: number;
+  /** When false (default) excludes ideas/paper/missed/dismissed/zero-PnL setup rows from every stat. */
+  includeUnrealized?: boolean;
+}
+
+export interface BuildBucketsResult {
+  perCell: BucketReport[];
+  perRow: BucketReport[];
+  baseline: BucketReport;
+  /** How many trades were dropped because `isUnrealized(t)` returned true. */
+  unrealizedExcluded: number;
 }
 
 export function buildBuckets(
   trades: Trade[],
   keys: PairLabFieldKeys,
   opts: BuildBucketsOpts = {},
-): { perCell: BucketReport[]; perRow: BucketReport[]; baseline: BucketReport } {
+): BuildBucketsResult {
   const closedOnly = opts.closedOnly !== false;
   const resolveSym = opts.symbolResolver ?? ((s: string) => s);
   const recentN = opts.recentN ?? 10;
   const dateFrom = opts.dateFrom ?? null;
   const dateTo = opts.dateTo ?? null;
+  const includeUnrealized = opts.includeUnrealized === true;
+  let unrealizedExcluded = 0;
   const filtered = trades.filter((t) => {
     if (closedOnly && t.is_open) return false;
     if (t.is_archived) return false;
@@ -330,6 +349,10 @@ export function buildBuckets(
       if (!ts) return false;
       if (dateFrom && ts < dateFrom) return false;
       if (dateTo && ts > dateTo) return false;
+    }
+    if (!includeUnrealized && isUnrealized(t)) {
+      unrealizedExcluded += 1;
+      return false;
     }
     return true;
   });
@@ -383,7 +406,21 @@ export function buildBuckets(
 
   perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
   perRow.sort((a, b) => b.n - a.n);
-  return { perCell, perRow, baseline };
+  return { perCell, perRow, baseline, unrealizedExcluded };
+}
+
+// Unified "side of trade" classifier — uses r_multiple_actual when present
+// (precise, BE = 0), falls back to net_pnl sign. Shared by streak math and
+// `computeBucket.sideOf` so a commission-only BE never counts as a loss in
+// one place and a non-loss in another.
+function tradeSide(t: Trade | any): 1 | -1 | 0 {
+  if (t?.r_multiple_actual != null) {
+    if (t.r_multiple_actual > 0) return 1;
+    if (t.r_multiple_actual < 0) return -1;
+    return 0;
+  }
+  const p = t?.net_pnl ?? 0;
+  return p > 0 ? 1 : p < 0 ? -1 : 0;
 }
 
 function longestLossStreak(rows: Trade[]): number {
@@ -393,7 +430,7 @@ function longestLossStreak(rows: Trade[]): number {
   let run = 0;
   let worst = 0;
   for (const t of sorted) {
-    if ((t.net_pnl ?? 0) < 0) {
+    if (tradeSide(t) === -1) {
       run += 1;
       if (run > worst) worst = run;
     } else {
@@ -532,7 +569,11 @@ function computeBucket(
 
   const sumWin = winR.reduce((s, v) => s + v, 0);
   const sumLoss = lossR.reduce((s, v) => s + v, 0);
-  const profitFactor = sumLoss > 0 ? sumWin / sumLoss : (sumWin > 0 ? Infinity : null);
+  // PF math: ratio when both sides exist; null + `allWins` flag when no
+  // losses (PF is mathematically undefined — JSON.stringify(Infinity)=null
+  // would silently look identical to "no data").
+  const profitFactorAllWins = sumLoss <= 0 && sumWin > 0;
+  const profitFactor = sumLoss > 0 ? sumWin / sumLoss : null;
   const payoffRatio = (wins.length > 0 && losses.length > 0 && lossR.length > 0)
     ? (sumWin / winR.length) / (sumLoss / lossR.length)
     : null;
@@ -583,12 +624,17 @@ function computeBucket(
 
   // Walk-forward event timeline — closed trades ordered by entry_time.
   // Used by the drift signal (recent vs lifetime) and the cumulative drilldown chart.
+  // When r_multiple_actual is missing we infer ±1 from net_pnl sign; that count
+  // is surfaced as `eventsRFallbackCount` so the UI can flag noisy buckets.
+  let eventsRFallbackCount = 0;
   const events: BucketEvent[] = [...closed]
     .filter((t) => t.entry_time)
     .sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)))
     .map((t) => {
-      const r = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual)
-        ? t.r_multiple_actual
+      const hasR = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual);
+      if (!hasR) eventsRFallbackCount += 1;
+      const r = hasR
+        ? (t.r_multiple_actual as number)
         : ((t.net_pnl ?? 0) > 0 ? 1 : (t.net_pnl ?? 0) < 0 ? -1 : 0);
       return { ts: String(t.entry_time), won: r > 0, r };
     });
@@ -615,6 +661,7 @@ function computeBucket(
     expectedR,
     expectedRMedian,
     profitFactor,
+    profitFactorAllWins,
     payoffRatio,
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),
@@ -646,6 +693,7 @@ function computeBucket(
     recentWinRate,
     recentExpectedR,
     drift,
+    eventsRFallbackCount,
   };
 
 
@@ -660,7 +708,17 @@ function computeBucket(
     mfeRPairs.push({ mfeR, rActual: t.r_multiple_actual });
   }
   // Winners' MAE in pips — drives the Sweeney SL recommendation.
-  const winnersMaePips = sweepRows.filter((r) => r.rActual > 0).map((r) => r.maePips);
+  // C1 fix (2026-06): iterate raw rows so the SL recommendation isn't gated
+  // on `sl_initial != null` (the old `sweepRows` filter excluded perfectly
+  // good winners whose initial SL wasn't recorded — only the SL-sweep needs
+  // that field, not the MAE-of-winners quantile). Mirrors edge ll. 416-422.
+  const winnersMaePips: number[] = [];
+  for (const t of rows) {
+    if (t.r_multiple_actual == null || !(t.r_multiple_actual > 0)) continue;
+    const maeTicks = numericCf(t as any, keys.mae);
+    if (maeTicks == null || !t.symbol) continue;
+    winnersMaePips.push(Math.abs(ticksToPips(t.symbol, Math.abs(maeTicks))));
+  }
   // Bucket-local trail-capture estimate (low minSample; falls back to 0.7).
   // minSample=10 mirrors the server (`estimateTrailCaptureRows`) so thin buckets
   // fall back to the same 0.7 default on both sides.

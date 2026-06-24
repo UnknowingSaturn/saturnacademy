@@ -18,6 +18,7 @@ import {
   type TrailCaptureEstimate,
 } from "@/lib/pairLabMath";
 import { TRAIL_CAPTURE_FRAC } from "@/lib/pairLabSimulator";
+import { isUnrealized } from "../../shared/quant/stats";
 
 export interface PairLabFilters {
   /** Matches trades whose planned OR actual profile equals this value. */
@@ -31,6 +32,8 @@ export interface PairLabFilters {
   groupOverride?: { name: string; symbols: string[] } | null;
   /** Window length for the per-bucket drift signal (default 10). */
   recentN?: number;
+  /** When true, includes ideas/paper/missed/dismissed setups in the math. Default false. */
+  includeUnrealized?: boolean;
 }
 
 import type { Trade } from "@/types/trading";
@@ -68,6 +71,8 @@ export interface PairLabData {
   effectiveTrailCapture: number;
   /** Heuristic warning when the same trade may appear in multiple rows. */
   partialFillFlag: PartialFillFlag | null;
+  /** Count of trades dropped because they were classified as Unrealized (ideas/paper/missed/dismissed). */
+  unrealizedExcluded: number;
 }
 
 const SESSION_ORDER = ["Tokyo", "London", "NY AM", "NY PM"];
@@ -173,7 +178,8 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       };
     }
 
-    const { perCell, perRow, baseline } = buildBuckets(trades, fieldKeys, {
+    const includeUnrealized = filters.includeUnrealized === true;
+    const { perCell, perRow, baseline, unrealizedExcluded } = buildBuckets(trades, fieldKeys, {
       profile: filters.profile ?? null,
       closedOnly: true,
       symbolResolver,
@@ -181,9 +187,29 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       dateFrom: filters.dateFrom ?? null,
       dateTo: filters.dateTo ?? null,
       recentN: filters.recentN ?? 10,
+      includeUnrealized,
     });
 
-    const closedTrades = trades.filter((t) => !t.is_open && !t.is_archived);
+    // C6 fix: pre-filter `trades` returned to consumers (StrategyLab,
+    // StrategyRanker, drilldowns) so they see the same universe `buildBuckets`
+    // operated on. Without this, downstream surfaces silently re-include the
+    // wrong profile or unrealized rows and the numbers diverge from the grid.
+    const dateFrom = filters.dateFrom ?? null;
+    const dateTo = filters.dateTo ?? null;
+    const matchesScope = (t: typeof trades[number]) => {
+      if (t.is_archived) return false;
+      if (filters.profile && t.profile !== filters.profile && t.actual_profile !== filters.profile) return false;
+      if (dateFrom || dateTo) {
+        const ts = t.entry_time ? String(t.entry_time) : null;
+        if (!ts) return false;
+        if (dateFrom && ts < dateFrom) return false;
+        if (dateTo && ts > dateTo) return false;
+      }
+      if (!includeUnrealized && isUnrealized(t)) return false;
+      return true;
+    };
+    const scopedTrades = trades.filter(matchesScope);
+    const closedTrades = scopedTrades.filter((t) => !t.is_open);
 
     const symbols = Array.from(new Set(perRow.map((r) => r.key.symbol))).sort();
     const sessions = Array.from(new Set(perCell.map((c) => c.key.session))).sort(
@@ -210,7 +236,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       totalTradeRowsRaw: trades.length,
       missingFields,
       propFirm,
-      trades,
+      trades: scopedTrades,
       symbolResolver,
       simBalance: effectiveBalance,
       simSource: profile?.sim_source ?? "manual",
@@ -218,6 +244,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       trailCapture,
       effectiveTrailCapture,
       partialFillFlag,
+      unrealizedExcluded,
     };
   }, [
     tradesQuery.data,
@@ -236,6 +263,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     filters.dateFrom,
     filters.dateTo,
     filters.recentN,
+    filters.includeUnrealized,
     filters.groupOverride?.name,
     filters.groupOverride?.symbols.join(","),
   ]);

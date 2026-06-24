@@ -32,6 +32,7 @@ export default function PairLab() {
 
   const profile = searchParams.get("profile") ?? "any";
   const propFirmMode = searchParams.get("pf") !== "0";
+  const includeUnrealized = searchParams.get("unreal") === "1";
   const selected: Selected = (() => {
     const symbol = searchParams.get("symbol");
     const session = searchParams.get("session");
@@ -47,6 +48,11 @@ export default function PairLab() {
   const setPropFirmMode = (v: boolean) => {
     const next = new URLSearchParams(searchParams);
     if (v) next.delete("pf"); else next.set("pf", "0");
+    setSearchParams(next, { replace: true });
+  };
+  const setIncludeUnrealized = (v: boolean) => {
+    const next = new URLSearchParams(searchParams);
+    if (v) next.set("unreal", "1"); else next.delete("unreal");
     setSearchParams(next, { replace: true });
   };
   const setSelected = (cell: Selected) => {
@@ -77,6 +83,7 @@ export default function PairLab() {
   const allData = usePairLab({
     profile: profile === "any" ? null : profile,
     propFirmMode,
+    includeUnrealized,
   });
 
   const { minMs, maxMs } = useMemo(() => {
@@ -104,6 +111,7 @@ export default function PairLab() {
     propFirmMode,
     dateFrom,
     dateTo,
+    includeUnrealized,
     groupOverride: activeGroup ? { name: activeGroup.name, symbols: activeGroup.symbols } : null,
   });
 
@@ -199,6 +207,12 @@ export default function PairLab() {
             <Label htmlFor="pf-mode" className="text-xs cursor-pointer">Prop-firm mode</Label>
             <Switch id="pf-mode" checked={propFirmMode} onCheckedChange={setPropFirmMode} />
           </div>
+          <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-1.5">
+            <Label htmlFor="unreal-mode" className="text-xs cursor-pointer">
+              Include unrealized
+            </Label>
+            <Switch id="unreal-mode" checked={includeUnrealized} onCheckedChange={setIncludeUnrealized} />
+          </div>
           <Select value={profile} onValueChange={setProfile}>
             <SelectTrigger className="w-[170px]">
               <SelectValue placeholder="Profile" />
@@ -213,6 +227,22 @@ export default function PairLab() {
           </Select>
         </div>
       </div>
+
+      {data.unrealizedExcluded > 0 && !includeUnrealized && (
+        <TooltipProvider delayDuration={150}>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline" className="font-mono-numbers">
+              {data.unrealizedExcluded} unrealized excluded
+            </Badge>
+            <Tooltip>
+              <TooltipTrigger className="underline decoration-dotted">why</TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                Ideas, paper trades, missed entries, manually-dismissed rows, and zero-PnL trades with no SL/TP changes don't contribute a real outcome — including them would dilute win-rate and expectancy. Toggle "Include unrealized" above to fold them back in.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
+      )}
 
       {data.missingFields && (
         <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">

@@ -273,3 +273,33 @@ export function multiSelectCf(trade: any, key: string | null): string[] {
   if (typeof v === "string" && v) return [v];
   return [];
 }
+
+// ---------------------------------------------------------------------------
+// Trade classification — "Unrealized"
+// ---------------------------------------------------------------------------
+//
+// Unrealized trades are setups that never produced a real P&L outcome: ideas,
+// paper trades, missed entries, manually-dismissed stuck rows, and zero-PNL
+// rows that closed without any SL/TP modification (broker glitches, expired
+// pendings — neither a win nor a loss). They MUST be excluded from R-stat
+// math by default; including them silently dilutes win-rate and expectancy.
+// Surface a count so the UI can show "X unrealized excluded".
+export function isUnrealized(t: any): boolean {
+  if (!t) return false;
+  const tt = t.trade_type;
+  if (tt === "idea" || tt === "paper" || tt === "missed") return true;
+  if (t.repair_state === "manual_dismiss") return true;
+  const pnl = t.net_pnl;
+  const rAct = t.r_multiple_actual;
+  const exit = t.exit_time;
+  if (
+    (pnl == null || pnl === 0) &&
+    (rAct == null) &&
+    exit != null &&
+    t.sl_initial != null && t.sl_final != null && t.sl_initial === t.sl_final &&
+    t.tp_initial == t.tp_final
+  ) {
+    return true;
+  }
+  return false;
+}

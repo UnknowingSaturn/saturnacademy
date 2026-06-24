@@ -106,6 +106,16 @@ export const MIN_STREAK_FLOOR = 3;
 /**
  * Quantiles of the per-trade MAE distribution scanned by the SL sweep.
  * Coarse on purpose — finer grids overfit noise inside a single bucket.
+ *
+ * METHODOLOGY (2026-06): The sweep replays each closed trade against a
+ * candidate SL drawn at quantile q of the bucket's MAE-pips distribution:
+ *   - If trade MAE > candidate SL → would have stopped out at −1R.
+ *   - Otherwise → realized r_actual is RESCALED by (slPipsOld / slCand).
+ * The rescale assumes a pure hard-stop strategy with no SL→BE moves, no
+ * partial fills, and proportional sizing to the new SL distance. Real
+ * outcomes that involved trailing or scale-out will diverge from this
+ * counterfactual; treat the sweep as a directional "tighter SL stops more
+ * winners" indicator, not a P&L prediction.
  */
 export const SL_SWEEP_QUANTILES: ReadonlyArray<number> = [0.25, 0.40, 0.55, 0.70, 0.90];
 
