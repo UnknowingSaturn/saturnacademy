@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
 import { SimulatorProfileSettings } from "@/components/pair-lab/SimulatorProfileSettings";
 import { StrategyLab } from "@/components/pair-lab/StrategyLab";
+import { IntraHourTiming } from "@/components/pair-lab/IntraHourTiming";
 import { normalizeSession } from "@/lib/pairLabMath";
 
 export default function PairLab() {
@@ -128,6 +129,7 @@ export default function PairLab() {
           <TabsTrigger value="grid">Grid</TabsTrigger>
           <TabsTrigger value="simulator">Simulator</TabsTrigger>
           <TabsTrigger value="strategy">Strategy lab</TabsTrigger>
+          <TabsTrigger value="timing">Intra-hour timing</TabsTrigger>
           <TabsTrigger value="aliases">Symbol aliases</TabsTrigger>
         </TabsList>
 
@@ -263,6 +265,13 @@ export default function PairLab() {
             dailyLossDollars={propFirmMode ? (data.propFirm?.dailyLossDollars ?? null) : null}
             maxDrawdownDollars={propFirmMode ? (data.propFirm?.maxDrawdownDollars ?? null) : null}
             hasPropFirmProfile={propFirmMode && data.propFirm != null && data.propFirm.dailyLossDollars != null}
+          />
+        </TabsContent>
+
+        <TabsContent value="timing" className="mt-4">
+          <IntraHourTiming
+            trades={data.trades}
+            symbolResolver={data.symbolResolver}
           />
         </TabsContent>
 
