@@ -211,6 +211,45 @@ export function SymbolGroupManager({ availableSymbols }: Props) {
             </div>
           </div>
 
+          {/* Per-symbol tick-size overrides — advanced, optional. Only the
+              symbols in this group are listed; leaving a field empty means
+              "use the default classifier" (most users never touch this). */}
+          {draftSymbols.length > 0 && (
+            <details className="rounded-md border border-border/40 bg-background/40">
+              <summary className="cursor-pointer select-none px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
+                Tick-size overrides
+                <span className="text-[10px] ml-2">
+                  (advanced — fix mis-scaled MAE on crypto / non-standard contracts)
+                </span>
+              </summary>
+              <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {draftSymbols.map((s) => (
+                  <div key={s} className="flex items-center gap-2">
+                    <span className="font-mono-numbers text-xs w-20 truncate" title={s}>
+                      {s}
+                    </span>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      step="any"
+                      min={0}
+                      placeholder="auto"
+                      value={draftOverrides[s] ?? ""}
+                      onChange={(e) => setOverride(s, e.target.value)}
+                      className="h-7 text-xs font-mono-numbers"
+                      aria-label={`Tick size override for ${s}`}
+                    />
+                  </div>
+                ))}
+                <p className="sm:col-span-2 text-[10px] text-muted-foreground">
+                  Tick = smallest price increment from your broker (e.g. 1.0 for
+                  BTCUSD quoted in whole dollars, 0.01 for cents). Pip is
+                  derived as 10× tick (1× on indices).
+                </p>
+              </div>
+            </details>
+          )}
+
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={cancel}>
               <X className="w-3.5 h-3.5 mr-1" />
