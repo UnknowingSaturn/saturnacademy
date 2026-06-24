@@ -251,13 +251,55 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
       {/* Filters row */}
       <div className="grid gap-3 md:grid-cols-[minmax(160px,1fr)_minmax(140px,auto)_minmax(140px,auto)_minmax(120px,auto)_minmax(140px,auto)]">
         <div>
-          <Label className="text-xs">Pair</Label>
-          <Select value={pair} onValueChange={(v) => { setPair(v); setSelectedCell(null); }}>
-            <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+          <Label className="text-xs flex items-center gap-1.5">
+            Scope
+            {activeGroup && (
+              <span
+                className="inline-block w-2 h-2 rounded-full"
+                style={{ backgroundColor: activeGroup.color ?? "hsl(var(--primary))" }}
+                aria-hidden
+              />
+            )}
+          </Label>
+          <Select
+            value={scope ?? ""}
+            onValueChange={(v) => { setScope(v); setSelectedCell(null); }}
+          >
+            <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="Pick pair or group" /></SelectTrigger>
             <SelectContent>
-              {allSymbols.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              {groups.length > 0 && (
+                <>
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Groups (merged)
+                  </div>
+                  {groups.map((g) => (
+                    <SelectItem key={g.id} value={`grp:${g.id}`}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="inline-block w-2 h-2 rounded-full"
+                          style={{ backgroundColor: g.color ?? "hsl(var(--primary))" }}
+                          aria-hidden
+                        />
+                        {g.name}
+                        <span className="text-muted-foreground text-[10px]">· {g.symbols.length}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground border-t mt-1 pt-2">
+                    Individual pairs
+                  </div>
+                </>
+              )}
+              {allSymbols.map((s) => (
+                <SelectItem key={s} value={`sym:${s}`}>{s}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          {activeGroup && (
+            <div className="mt-1 text-[10px] text-muted-foreground truncate" title={activeGroup.symbols.join(", ")}>
+              Merging: {activeGroup.symbols.join(", ")}
+            </div>
+          )}
         </div>
         <div>
           <Label className="text-xs">Regime</Label>
