@@ -10,6 +10,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, corsPreflight, jsonResponse } from "../_shared/cors.ts";
+import { setTickSizeOverrides } from "../_shared/quant/symbolMapping.ts";
+
+// Pinned Lovable AI Gateway model id. Keep in one place so a model swap is
+// a one-line change. If the gateway returns 404 we surface the model id in
+// the error response — silent fallback hides config drift.
+const PAIR_LAB_MODEL = "google/gemini-2.5-flash";
+
 
 interface Tp1Star {
   r: number;
@@ -79,7 +86,16 @@ interface RequestBody {
     maeP75: number | null;
   };
   propFirm?: PropFirmInput | null;
+  /**
+   * Per-symbol tick-size overrides mirrored from the client's symbol_groups
+   * config. Currently unused (this handler only consumes a pre-computed
+   * bucket) but installed for the request lifetime so any future direct
+   * buildBuckets() call inside this function matches client output for
+   * crypto/exotic-index symbols. Reset in finally to keep Deno isolates clean.
+   */
+  tickSizeOverrides?: Record<string, number> | null;
 }
+
 
 serve(async (req) => {
   const pre = corsPreflight(req);
@@ -104,9 +120,18 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return jsonResponse({ error: "LOVABLE_API_KEY not configured" }, 500);
 
+    // Install per-request tick-size overrides so any future direct
+    // buildBuckets() call inside this handler matches client output. Reset in
+    // the outer finally to keep Deno isolates clean across invocations.
+    const overrides = body.tickSizeOverrides ?? null;
+    if (overrides && typeof overrides === "object") {
+      setTickSizeOverrides(overrides);
+    }
+
     const b = body.bucket;
     const base = body.baseline;
     const pf = body.propFirm ?? null;
+
 
     const facts = {
       bucket: `${b.symbol} · ${b.session}`,
@@ -231,7 +256,7 @@ Rules:
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: PAIR_LAB_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: `Bucket facts:\n${JSON.stringify(facts, null, 2)}` },
@@ -248,7 +273,15 @@ Rules:
       if (aiResp.status === 402) {
         return jsonResponse({ error: "Lovable AI credits exhausted. Add credits in Workspace → Usage." }, 402);
       }
-      return jsonResponse({ error: `AI gateway error: ${text}` }, 500);
+      // Surface the model id loudly on 404/400 so a bad model id can't hide
+      // behind a generic "AI gateway error".
+      if (aiResp.status === 404 || aiResp.status === 400) {
+        return jsonResponse(
+          { error: `AI gateway rejected model "${PAIR_LAB_MODEL}" (${aiResp.status}): ${text}` },
+          502,
+        );
+      }
+      return jsonResponse({ error: `AI gateway error (${aiResp.status}): ${text}` }, 500);
     }
 
     const payload = await aiResp.json();
@@ -260,12 +293,17 @@ Rules:
       return jsonResponse({ error: "AI returned non-JSON content" }, 500);
     }
 
-    return jsonResponse({ note, model: "google/gemini-3-flash-preview" });
+    return jsonResponse({ note, model: PAIR_LAB_MODEL });
   } catch (err) {
     console.error("pair-lab-report error", err);
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
+  } finally {
+    // Always clear overrides so a follow-up request on the same isolate
+    // starts from defaults (no cross-request bleed).
+    setTickSizeOverrides({});
   }
 });
+
