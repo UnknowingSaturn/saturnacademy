@@ -5,8 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Wand2, Check, X, Trash2, Plus } from "lucide-react";
-import { useTrades } from "@/hooks/useTrades";
-import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import {
   useSymbolAliases,
   useUpsertSymbolAlias,
@@ -15,12 +13,15 @@ import {
 } from "@/hooks/useSymbolAliases";
 import { detectAliasSuggestions } from "@/lib/symbolAliasing";
 import { toast } from "sonner";
+import type { Trade } from "@/types/trading";
 
-export function SymbolAliasManager() {
-  const { selectedAccountId } = useAccountFilter();
-  const accountFilter =
-    selectedAccountId && selectedAccountId !== "all" ? { accountId: selectedAccountId } : undefined;
-  const tradesQuery = useTrades(accountFilter);
+interface Props {
+  /** Trades already loaded by the parent — avoids a redundant useTrades fetch. */
+  trades: Trade[];
+  isLoading?: boolean;
+}
+
+export function SymbolAliasManager({ trades, isLoading = false }: Props) {
   const aliases = useSymbolAliases();
   const upsert = useUpsertSymbolAlias();
   const remove = useDeleteSymbolAlias();
@@ -33,14 +34,14 @@ export function SymbolAliasManager() {
 
   const distinctSymbols = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const t of tradesQuery.data ?? []) {
+    for (const t of trades) {
       if (!t.symbol || t.is_archived) continue;
       counts.set(t.symbol, (counts.get(t.symbol) ?? 0) + 1);
     }
     return Array.from(counts.entries())
       .map(([symbol, count]) => ({ symbol, count }))
       .sort((a, b) => b.count - a.count);
-  }, [tradesQuery.data]);
+  }, [trades]);
 
   const suggestions = useMemo(
     () => detectAliasSuggestions(distinctSymbols, aliases.data ?? []),
@@ -66,7 +67,7 @@ export function SymbolAliasManager() {
     );
   };
 
-  if (tradesQuery.isLoading || aliases.isLoading) {
+  if (isLoading || aliases.isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
