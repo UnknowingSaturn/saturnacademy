@@ -83,7 +83,7 @@ export interface PairLabFieldKeys {
   mae: string | null;            // number (broker TICKS — convert with ticksToPips)
   idealStopLoss: string | null;  // number (broker TICKS — convert with ticksToPips)
   idealStopLossPos: string | null; // select (initial_leg | last_leg)
-  idealEntryWindow: string | null; // select (first_30min | last_30min)
+  
 }
 
 export interface BucketKey {
@@ -248,13 +248,13 @@ const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefix
   { alias: "mae",              labels: ["mae", "max adverse excursion"],                                            prefixes: ["cf_mae"] },
   { alias: "idealStopLoss",    labels: ["ideal stop-loss", "ideal stop loss", "ideal sl"],                          prefixes: ["cf_ideal_stop_loss_rnv7", "cf_ideal_stop_loss"] },
   { alias: "idealStopLossPos", labels: ["ideal stop-loss position", "ideal stop loss position"],                    prefixes: ["cf_ideal_stop_loss_position"] },
-  { alias: "idealEntryWindow", labels: ["ideal entry window"],                                                      prefixes: ["cf_ideal_entry_window"] },
+  
 ];
 
 export function resolvePairLabFieldKeys(defs: CustomFieldDef[]): PairLabFieldKeys {
   const out: PairLabFieldKeys = {
     mfe: null, mae: null,
-    idealStopLoss: null, idealStopLossPos: null, idealEntryWindow: null,
+    idealStopLoss: null, idealStopLossPos: null,
   };
   for (const entry of LABEL_MAP) {
     const byLabel = defs.find((d) => entry.labels.includes((d.label || "").trim().toLowerCase()));

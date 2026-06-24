@@ -30,8 +30,6 @@ interface TradePropertiesProps {
 
 // Hour-setup landscape options live in a shared module so the journal table,
 // the detail sidebar, and the Pair Lab read the same labels / colors.
-import { WORKED_WINDOW_BADGE_OPTIONS, FAILED_WINDOW_BADGE_OPTIONS } from "@/lib/hourSetup";
-import type { HourLandscape } from "@/lib/hourSetup";
 
 // Convert user PropertyOption rows into BadgeSelect option shape
 function toBadgeOptions(rows?: { value: string; label: string; color: string }[]) {
@@ -397,28 +395,6 @@ export function TradeProperties({ trade }: TradePropertiesProps) {
             <PlaceEditor
               value={trade.place || ""}
               onSave={(v) => updateTrade.mutateAsync({ id: trade.id, place: v || null })}
-            />
-          </PropertyRow>
-        );
-      case 'ideal_entry_window':
-        return (
-          <PropertyRow key="ideal_entry_window" label={labelFor('ideal_entry_window', 'Ideal entry window')}>
-            <BadgeSelect
-              value={trade.ideal_entry_window ?? ""}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, ideal_entry_window: ((v as string) || null) as HourLandscape | null })}
-              options={WORKED_WINDOW_BADGE_OPTIONS}
-              placeholder="—"
-            />
-          </PropertyRow>
-        );
-      case 'failed_setup_half':
-        return (
-          <PropertyRow key="failed_setup_half" label={labelFor('failed_setup_half', 'Failed setup')}>
-            <BadgeSelect
-              value={trade.failed_setup_half ?? ""}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, failed_setup_half: ((v as string) || null) as HourLandscape | null })}
-              options={FAILED_WINDOW_BADGE_OPTIONS}
-              placeholder="—"
             />
           </PropertyRow>
         );

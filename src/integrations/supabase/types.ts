@@ -1880,10 +1880,8 @@ export type Database = {
           equity_at_entry: number | null
           exit_price: number | null
           exit_time: string | null
-          failed_setup_half: string | null
           gross_pnl: number | null
           id: string
-          ideal_entry_window: string | null
           install_id: string | null
           is_archived: boolean | null
           is_open: boolean | null
@@ -1932,10 +1930,8 @@ export type Database = {
           equity_at_entry?: number | null
           exit_price?: number | null
           exit_time?: string | null
-          failed_setup_half?: string | null
           gross_pnl?: number | null
           id?: string
-          ideal_entry_window?: string | null
           install_id?: string | null
           is_archived?: boolean | null
           is_open?: boolean | null
@@ -1984,10 +1980,8 @@ export type Database = {
           equity_at_entry?: number | null
           exit_price?: number | null
           exit_time?: string | null
-          failed_setup_half?: string | null
           gross_pnl?: number | null
           id?: string
-          ideal_entry_window?: string | null
           install_id?: string | null
           is_archived?: boolean | null
           is_open?: boolean | null

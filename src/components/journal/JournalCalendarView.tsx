@@ -4,6 +4,7 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay,
 import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { decode, readIdealWindow } from "@/lib/hourSetup";
 
 interface JournalCalendarViewProps {
   trades: Trade[];
@@ -41,16 +42,15 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
       const pnl = dayTrades.reduce((sum, t) => sum + (t.net_pnl || 0), 0);
       const wins = dayTrades.filter(t => (t.net_pnl || 0) > 0).length;
       const winRate = dayTrades.length > 0 ? (wins / dayTrades.length) * 100 : 0;
-      // Count hours where a setup worked / failed in either half (uses the new
-      // landscape columns: ideal_entry_window + failed_setup_half).
-      const workedCount = dayTrades.filter(t => {
-        const v = (t as any).ideal_entry_window;
-        return v === 'first' || v === 'second' || v === 'both';
-      }).length;
-      const failedCount = dayTrades.filter(t => {
-        const v = (t as any).failed_setup_half;
-        return v === 'first' || v === 'second' || v === 'both';
-      }).length;
+      // Count hours where a setup worked / failed in either half — sourced from
+      // the per-trade custom field `cf_ideal_entry_window_*` (7-state value).
+      let workedCount = 0;
+      let failedCount = 0;
+      for (const t of dayTrades) {
+        const d = decode(readIdealWindow(t));
+        if (d.firstWorked || d.secondWorked) workedCount += 1;
+        if (d.firstFailed || d.secondFailed) failedCount += 1;
+      }
 
       dayDataMap.set(dayKey, {
         date: day,

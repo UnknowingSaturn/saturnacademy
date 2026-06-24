@@ -132,7 +132,6 @@ export function useUpdateTrade() {
         'r_multiple_actual', 'r_multiple_planned', 'session', 'is_open',
         'playbook_id', 'profile', 'place', 'trade_number', 'account_id',
         'actual_playbook_id', 'actual_profile', 'actual_regime',
-        'ideal_entry_window', 'failed_setup_half'
       ] as const;
 
       for (const field of scalarFields) {
