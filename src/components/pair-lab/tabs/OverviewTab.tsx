@@ -24,10 +24,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Info, Layers, Shield } from "lucide-react";
+import { Info, Layers, Shield, AlertTriangle, Clock } from "lucide-react";
 import { WalkForwardControls } from "@/components/pair-lab/WalkForwardControls";
 import { useSymbolGroups } from "@/hooks/useSymbolGroups";
 import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
+import { classifySymbol, getTickSizeOverrides } from "@/lib/symbolMapping";
+import { normalizeSymbol } from "../../../../shared/quant/symbolAliasing";
 import type { usePairLab } from "@/hooks/usePairLab";
 
 type PairLabData = ReturnType<typeof usePairLab>;
@@ -70,6 +72,30 @@ export function OverviewTab({
   ).length;
   const slCoverage = closed.length > 0 ? withSl / closed.length : 1;
   const slWarn = closed.length >= 10 && slCoverage < 0.7;
+
+  // H3 — flag crypto symbols that ship MAE data without a tick-size override.
+  // The default classifier ticks crypto at 0.01, which is wrong for any broker
+  // that quotes BTC/ETH in whole dollars — MAE would render ~100× too large.
+  const cryptoWithoutOverride = useMemo(() => {
+    const overrides = getTickSizeOverrides();
+    const offenders = new Set<string>();
+    for (const t of closed) {
+      if (!t.symbol) continue;
+      if (classifySymbol(t.symbol) !== "crypto") continue;
+      if (overrides[normalizeSymbol(t.symbol)] != null) continue;
+      // Treat presence of any logged MAE custom-field value as the trigger —
+      // until that exists, the mis-scaling is invisible.
+      const cf = (t as any).custom_fields;
+      const hasMae =
+        cf &&
+        typeof cf === "object" &&
+        Object.entries(cf).some(
+          ([k, v]) => /mae/i.test(k) && v != null && v !== "",
+        );
+      if (hasMae) offenders.add(t.symbol);
+    }
+    return Array.from(offenders);
+  }, [closed]);
 
   return (
     <div className="space-y-6">
@@ -249,6 +275,28 @@ export function OverviewTab({
         </Card>
       )}
 
+      {/* H3 — crypto without tick-size override produces ~100× mis-scaled MAE. */}
+      {cryptoWithoutOverride.length > 0 && (
+        <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">
+          <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <div className="font-medium mb-1">
+              Crypto symbols with logged MAE but no tick-size override.
+            </div>
+            <div className="text-muted-foreground text-xs leading-relaxed">
+              {cryptoWithoutOverride.join(", ")} —{" "}
+              the default classifier ticks crypto at 0.01. If your broker
+              quotes these in whole dollars (most do for BTC/ETH), MAE and
+              Ideal-SL will render ~100× too large and SL recommendations will
+              be unusable. Set a tick-size override under{" "}
+              <span className="font-medium text-foreground">Setup → Symbol groups</span>{" "}
+              (e.g. BTCUSD = 1.0, ETHUSD = 0.1).
+            </div>
+          </div>
+        </Card>
+      )}
+
+
       {/* Baseline summary */}
       <Card className="p-4">
         <div className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
@@ -310,6 +358,18 @@ export function OverviewTab({
             ? "active account"
             : "simulator profile"}{" "}
           @ ${data.simBalance.toLocaleString()}
+        </div>
+        {/* M7 — make the timezone the walk-forward window is read in explicit.
+            All Pair Lab math uses each trade's `entry_time` UTC instant. CSV-
+            imported broker-local timestamps were normalized to UTC at ingest
+            via the account's BrokerDstProfile. */}
+        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground/80">
+          <Clock className="w-3 h-3" aria-hidden="true" />
+          <span>
+            Times read in <span className="font-medium text-foreground">UTC</span>.
+            Broker-local CSV imports are converted via your account's DST profile
+            at ingest.
+          </span>
         </div>
       </Card>
     </div>

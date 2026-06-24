@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { setTickSizeOverrides } from "@/lib/symbolMapping";
 
 export interface SymbolGroup {
   id: string;
@@ -9,6 +11,12 @@ export interface SymbolGroup {
   name: string;
   color: string | null;
   symbols: string[];
+  /**
+   * Per-symbol tick-size override map: { "BTCUSD": 1.0, "ETHUSD": 0.1 }.
+   * Used by Pair Lab to correctly scale MAE / Ideal-SL on crypto and other
+   * instruments whose broker tick size doesn't match the default classifier.
+   */
+  tick_size_overrides: Record<string, number>;
   created_at: string;
   updated_at: string;
 }
@@ -28,12 +36,36 @@ export function useSymbolGroups() {
         .select("*")
         .order("name", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as SymbolGroup[];
+      return (data ?? []).map((row: any) => ({
+        ...row,
+        tick_size_overrides:
+          row?.tick_size_overrides && typeof row.tick_size_overrides === "object"
+            ? (row.tick_size_overrides as Record<string, number>)
+            : {},
+      })) as SymbolGroup[];
     },
   });
 
+  // Install merged per-symbol tick-size overrides into the client-side
+  // symbol mapping shim whenever the groups change. Later group keys win
+  // on conflict — UI surfaces conflicts in the group editor.
+  useEffect(() => {
+    const merged: Record<string, number> = {};
+    for (const g of query.data ?? []) {
+      for (const [k, v] of Object.entries(g.tick_size_overrides ?? {})) {
+        if (typeof v === "number" && Number.isFinite(v) && v > 0) merged[k] = v;
+      }
+    }
+    setTickSizeOverrides(merged);
+  }, [query.data]);
+
   const create = useMutation({
-    mutationFn: async (input: { name: string; color?: string | null; symbols: string[] }) => {
+    mutationFn: async (input: {
+      name: string;
+      color?: string | null;
+      symbols: string[];
+      tick_size_overrides?: Record<string, number>;
+    }) => {
       if (!user) throw new Error("Not signed in");
       const { data, error } = await supabase
         .from("symbol_groups")
@@ -42,6 +74,7 @@ export function useSymbolGroups() {
           name: input.name,
           color: input.color ?? null,
           symbols: input.symbols,
+          tick_size_overrides: input.tick_size_overrides ?? {},
         })
         .select()
         .single();
@@ -56,7 +89,13 @@ export function useSymbolGroups() {
   });
 
   const update = useMutation({
-    mutationFn: async (input: { id: string; name?: string; color?: string | null; symbols?: string[] }) => {
+    mutationFn: async (input: {
+      id: string;
+      name?: string;
+      color?: string | null;
+      symbols?: string[];
+      tick_size_overrides?: Record<string, number>;
+    }) => {
       const { id, ...rest } = input;
       const { data, error } = await supabase
         .from("symbol_groups")

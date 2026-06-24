@@ -99,7 +99,9 @@ export function CumulativeExpectancyChart({ events, rollingN = 10, height = 140 
     for (let i = 0; i < events.length; i++) {
       ctx.beginPath();
       ctx.arc(x(i), y(events[i].r), 1.6, 0, Math.PI * 2);
-      ctx.fillStyle = events[i].won ? "rgb(16,185,129)" : "rgb(239,68,68)";
+      ctx.fillStyle = events[i].won
+        ? "hsl(var(--heat-positive))"
+        : "hsl(var(--heat-negative))";
       ctx.fill();
     }
   }, [events, useCanvasScatter, W, H]);
@@ -154,7 +156,7 @@ export function CumulativeExpectancyChart({ events, rollingN = 10, height = 140 
             <path
               d={rollPath}
               fill="none"
-              stroke="hsl(38 92% 50%)"
+              stroke="hsl(var(--chart-trail))"
               strokeWidth={1.4}
               strokeDasharray="4 3"
             />
