@@ -46,6 +46,17 @@ interface BucketInput {
   suggestedRiskPctPropFirm: number | null;
   bindingConstraint: "kelly" | "prop_firm_dd" | "hard_cap" | null;
   edgeVsBaseline: { winRateDelta: number; expectedRDelta: number } | null;
+  /** Phase-4 additions — confidence + walk-forward provenance. */
+  recommendationConfidence?: "validated" | "low" | "insufficient";
+  suggestedTpR?: number | null;
+  expectancyAtSuggested?: number | null;
+  expectancyAtSuggestedCi?: [number, number] | null;
+  walkForward?: {
+    inSampleE: number;
+    outOfSampleE: number;
+    degradationPct: number;
+    oosN: number;
+  } | null;
   topTradeIds: string[];
   bottomTradeIds: string[];
 }
