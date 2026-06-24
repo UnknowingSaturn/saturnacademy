@@ -1,33 +1,44 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+// ============================================================================
+// Pair Lab — top-level shell.
+//
+// Owns URL-bound state (profile, prop-firm, unrealized, scope, selection,
+// active tab, walk-forward lens) and the single `usePairLab` data call.
+// Everything else lives in the tab components under ./components/pair-lab/tabs.
+//
+// Tab IA (Phase 3 redesign):
+//   Overview     — controls + baseline + warnings (writes to context)
+//   Pair Grid    — BucketGrid + per-cell QuantNote drill-down
+//   Ideal Windows— pair × hour × half heatmap
+//   Strategy     — Ranker + Risk×Rotation Lab + Out-of-Sample (one sample)
+//   Setup        — Simulator profile / Groups / Aliases
+// ============================================================================
+
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, FlaskConical, Info, Shield, X, Layers } from "lucide-react";
+import { Loader2, FlaskConical } from "lucide-react";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 import { usePairLab } from "@/hooks/usePairLab";
 import { usePairLabTradeBounds } from "@/hooks/usePairLabTradeBounds";
 import { useSymbolGroups } from "@/hooks/useSymbolGroups";
-import { BucketGrid } from "@/components/pair-lab/BucketGrid";
-
-import { QuantNotePanel } from "@/components/pair-lab/QuantNotePanel";
-import { SymbolAliasManager } from "@/components/pair-lab/SymbolAliasManager";
-import { SymbolGroupManager } from "@/components/pair-lab/SymbolGroupManager";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { StrategyRanker } from "@/components/pair-lab/StrategyRanker";
-import { SimulatorProfileSettings } from "@/components/pair-lab/SimulatorProfileSettings";
-import { StrategyLab } from "@/components/pair-lab/StrategyLab";
-import { IdealWindowHeatmap } from "@/components/pair-lab/IdealWindowHeatmap";
-import { WalkForwardControls, resolveWindow, type WalkForwardState } from "@/components/pair-lab/WalkForwardControls";
-import { OutOfSamplePanel } from "@/components/pair-lab/OutOfSamplePanel";
-import { normalizeSession } from "@/lib/pairLabMath";
+import {
+  resolveWindow,
+  type WalkForwardState,
+} from "@/components/pair-lab/WalkForwardControls";
 import { PairLabWalkForwardProvider } from "@/contexts/PairLabWalkForwardContext";
+import { OverviewTab } from "@/components/pair-lab/tabs/OverviewTab";
+import { PairGridTab, type Selected } from "@/components/pair-lab/tabs/PairGridTab";
+import { IdealWindowsTab } from "@/components/pair-lab/tabs/IdealWindowsTab";
+import { StrategyTab } from "@/components/pair-lab/tabs/StrategyTab";
+import { SetupTab } from "@/components/pair-lab/tabs/SetupTab";
 
-type Selected = { symbol: string; session: string } | null;
+const VALID_TABS = new Set([
+  "overview",
+  "grid",
+  "windows",
+  "strategy",
+  "setup",
+]);
 
 export default function PairLab() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -35,6 +46,9 @@ export default function PairLab() {
   const profile = searchParams.get("profile") ?? "any";
   const propFirmMode = searchParams.get("pf") !== "0";
   const includeUnrealized = searchParams.get("unreal") === "1";
+  const scope = searchParams.get("scope") ?? "all";
+  const tabParam = searchParams.get("tab") ?? "overview";
+  const tab = VALID_TABS.has(tabParam) ? tabParam : "overview";
   const selected: Selected = (() => {
     const symbol = searchParams.get("symbol");
     const session = searchParams.get("session");
@@ -42,56 +56,57 @@ export default function PairLab() {
     return { symbol, session };
   })();
 
-  const setProfile = (v: string) => {
+  const patchParams = (mut: (next: URLSearchParams) => void) => {
     const next = new URLSearchParams(searchParams);
-    if (v === "any") next.delete("profile"); else next.set("profile", v);
-    setSearchParams(next, { replace: true });
-  };
-  const setPropFirmMode = (v: boolean) => {
-    const next = new URLSearchParams(searchParams);
-    if (v) next.delete("pf"); else next.set("pf", "0");
-    setSearchParams(next, { replace: true });
-  };
-  const setIncludeUnrealized = (v: boolean) => {
-    const next = new URLSearchParams(searchParams);
-    if (v) next.set("unreal", "1"); else next.delete("unreal");
-    setSearchParams(next, { replace: true });
-  };
-  const setSelected = (cell: Selected) => {
-    const next = new URLSearchParams(searchParams);
-    if (!cell) {
-      next.delete("symbol");
-      next.delete("session");
-    } else {
-      next.set("symbol", cell.symbol);
-      next.set("session", cell.session);
-    }
+    mut(next);
     setSearchParams(next, { replace: true });
   };
 
-  const headerRef = useRef<HTMLDivElement | null>(null);
+  const setProfile = (v: string) =>
+    patchParams((p) => (v === "any" ? p.delete("profile") : p.set("profile", v)));
+  const setPropFirmMode = (v: boolean) =>
+    patchParams((p) => (v ? p.delete("pf") : p.set("pf", "0")));
+  const setIncludeUnrealized = (v: boolean) =>
+    patchParams((p) => (v ? p.set("unreal", "1") : p.delete("unreal")));
+  const setScope = (v: string) =>
+    patchParams((p) => {
+      if (v === "all") p.delete("scope");
+      else p.set("scope", v);
+      p.delete("symbol");
+      p.delete("session");
+    });
+  const setTab = (v: string) =>
+    patchParams((p) => (v === "overview" ? p.delete("tab") : p.set("tab", v)));
+  const setSelected = (cell: Selected) =>
+    patchParams((p) => {
+      if (!cell) {
+        p.delete("symbol");
+        p.delete("session");
+      } else {
+        p.set("symbol", cell.symbol);
+        p.set("session", cell.session);
+      }
+    });
 
-  // Walk-forward state — Analyze tab only. Ideal windows owns its own state.
+  // Resolve active scope group for data filtering.
   const { groups } = useSymbolGroups();
-  // Scope: "all" | "grp:<id>"
-  const scope = searchParams.get("scope") ?? "all";
   const activeGroup = useMemo(() => {
     if (!scope.startsWith("grp:")) return null;
     const id = scope.slice(4);
     return groups.find((g) => g.id === id) ?? null;
   }, [scope, groups]);
 
-  // Bounds for the as-of slider — derived directly from the trades cache
-  // (no extra fetch, no extra buildBuckets pass). Previously `usePairLab`
-  // was called twice: once unfiltered to compute bounds, once filtered for
-  // display. That doubled buildBuckets work and forced two re-derivations
-  // per render. Now a single call below feeds every panel.
+  // Single source of truth for the as-of slider bounds (no double fetch).
   const { minMs, maxMs } = usePairLabTradeBounds();
-
-  const [wf, setWf] = useState<WalkForwardState>({ lens: "all", asOfMs: Date.now() });
-  // Clamp asOf into actual data range once data arrives.
+  const [wf, setWf] = useState<WalkForwardState>({
+    lens: "all",
+    asOfMs: Date.now(),
+  });
   useEffect(() => {
-    setWf((s) => ({ ...s, asOfMs: Math.max(minMs, Math.min(maxMs, s.asOfMs)) }));
+    setWf((s) => ({
+      ...s,
+      asOfMs: Math.max(minMs, Math.min(maxMs, s.asOfMs)),
+    }));
   }, [minMs, maxMs]);
 
   const { dateFrom, dateTo } = useMemo(() => resolveWindow(wf), [wf]);
@@ -102,60 +117,10 @@ export default function PairLab() {
     dateFrom,
     dateTo,
     includeUnrealized,
-    groupOverride: activeGroup ? { name: activeGroup.name, symbols: activeGroup.symbols } : null,
+    groupOverride: activeGroup
+      ? { name: activeGroup.name, symbols: activeGroup.symbols }
+      : null,
   });
-
-  const setScope = (v: string) => {
-    const next = new URLSearchParams(searchParams);
-    if (v === "all") next.delete("scope"); else next.set("scope", v);
-    next.delete("symbol");
-    next.delete("session");
-    setSearchParams(next, { replace: true });
-  };
-
-  // Scroll selection header into view when a cell is picked.
-  useEffect(() => {
-    if (!selected) return;
-    requestAnimationFrame(() => {
-      headerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, [selected?.symbol, selected?.session]);
-
-  // Esc clears the current selection.
-  useEffect(() => {
-    if (!selected) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSelected(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.symbol, selected?.session]);
-
-  const selectedBucket = useMemo(() => {
-    if (!selected) return null;
-    if (selected.session === "All sessions") {
-      return data.perRow.find((r) => r.key.symbol === selected.symbol) ?? null;
-    }
-    return (
-      data.perCell.find(
-        (c) => c.key.symbol === selected.symbol && c.key.session === selected.session,
-      ) ?? null
-    );
-  }, [selected, data.perRow, data.perCell]);
-
-  const scopedTrades = useMemo(() => {
-    if (!selected) return data.trades;
-    return data.trades.filter((t) => {
-      if (!t.symbol) return false;
-      const canonical = data.symbolResolver(t.symbol);
-      if (canonical !== selected.symbol) return false;
-      if (selected.session !== "All sessions") {
-        return normalizeSession(t.session) === selected.session;
-      }
-      return true;
-    });
-  }, [selected, data.trades, data.symbolResolver]);
 
   if (data.isLoading) {
     return (
@@ -164,10 +129,6 @@ export default function PairLab() {
       </div>
     );
   }
-
-  const scopeLabel = selected ? `${selected.symbol} · ${selected.session}` : "All trades in scope";
-  const sourceLabel =
-    data.simSource === "active_account" ? "active account" : "simulator profile";
 
   return (
     <div className="space-y-6 p-6 animate-fade-in">
@@ -178,93 +139,18 @@ export default function PairLab() {
       />
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-            <FlaskConical className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold">Pair Lab</h1>
-            <p className="text-xs text-muted-foreground">
-              {data.totalTrades} closed trades in scope · {data.perCell.length} cells · {data.perRow.length} canonical pairs
-            </p>
-          </div>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+          <FlaskConical className="w-5 h-5 text-primary" />
         </div>
-
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-1.5">
-            <Shield className="w-3.5 h-3.5 text-primary" />
-            <Label htmlFor="pf-mode" className="text-xs cursor-pointer">Prop-firm mode</Label>
-            <Switch id="pf-mode" checked={propFirmMode} onCheckedChange={setPropFirmMode} />
-          </div>
-          <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-1.5">
-            <Label htmlFor="unreal-mode" className="text-xs cursor-pointer">
-              Include unrealized
-            </Label>
-            <Switch id="unreal-mode" checked={includeUnrealized} onCheckedChange={setIncludeUnrealized} />
-          </div>
-          <Select value={profile} onValueChange={setProfile}>
-            <SelectTrigger className="w-[170px]">
-              <SelectValue placeholder="Profile" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="any">Any profile</SelectItem>
-              <SelectItem value="continuation">Continuation</SelectItem>
-              <SelectItem value="range">Range</SelectItem>
-              <SelectItem value="reversal">Reversal</SelectItem>
-              <SelectItem value="hindsight">Hindsight</SelectItem>
-            </SelectContent>
-          </Select>
+        <div>
+          <h1 className="text-2xl font-semibold">Pair Lab</h1>
+          <p className="text-xs text-muted-foreground">
+            {data.totalTrades} closed trades in scope · {data.perCell.length}{" "}
+            cells · {data.perRow.length} canonical pairs
+          </p>
         </div>
       </div>
-
-      {data.unrealizedExcluded > 0 && !includeUnrealized && (
-        <TooltipProvider delayDuration={150}>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="outline" className="font-mono-numbers">
-              {data.unrealizedExcluded} unrealized excluded
-            </Badge>
-            <Tooltip>
-              <TooltipTrigger className="underline decoration-dotted">why</TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
-                Ideas, paper trades, missed entries, manually-dismissed rows, and zero-PnL trades with no SL/TP changes don't contribute a real outcome — including them would dilute win-rate and expectancy. Toggle "Include unrealized" above to fold them back in.
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </TooltipProvider>
-      )}
-
-      {data.missingFields && (
-        <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">
-          <Info className="w-4 h-4 text-amber-500 mt-0.5" />
-          <div className="text-sm">
-            <div className="font-medium mb-1">No excursion fields detected.</div>
-            <div className="text-muted-foreground">
-              Add custom fields named <span className="font-mono text-foreground">MFE (RR)</span>,{" "}
-              <span className="font-mono text-foreground">MAE</span>, and{" "}
-              <span className="font-mono text-foreground">Ideal Stop-Loss</span> from
-              the Journal settings, then fill them in on your closed trades to power this page.
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {data.partialFillFlag && (
-        <TooltipProvider delayDuration={150}>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Info className="w-3.5 h-3.5 text-amber-500" />
-            <span>
-              {data.partialFillFlag.trades} trades in {data.partialFillFlag.groups} groups may be partial-fill duplicates.
-            </span>
-            <Tooltip>
-              <TooltipTrigger className="underline decoration-dotted">why</TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
-                Trades sharing account · symbol · entry-minute are counted independently today, which can inflate sample sizes and distort MFE/MAE quantiles. Consolidation isn't implemented yet.
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </TooltipProvider>
-      )}
 
       <PairLabWalkForwardProvider
         value={{
@@ -279,205 +165,54 @@ export default function PairLab() {
           propFirmMode,
         }}
       >
-      <Tabs defaultValue="windows">
-        <TabsList>
-          <TabsTrigger value="windows">Ideal windows</TabsTrigger>
-          <TabsTrigger value="analyze">Analyze</TabsTrigger>
-          <TabsTrigger value="strategy">Strategy lab</TabsTrigger>
-          <TabsTrigger value="groups">Pair groups</TabsTrigger>
-          <TabsTrigger value="aliases">Symbol aliases</TabsTrigger>
-        </TabsList>
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="grid">Pair Grid</TabsTrigger>
+            <TabsTrigger value="windows">Ideal Windows</TabsTrigger>
+            <TabsTrigger value="strategy">Strategy</TabsTrigger>
+            <TabsTrigger value="setup">Setup</TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="windows" className="mt-4">
-          <IdealWindowHeatmap
-            trades={data.trades}
-            symbolResolver={data.symbolResolver}
-            allSymbols={data.symbols}
-          />
-        </TabsContent>
-
-        <TabsContent value="analyze" className="space-y-6 mt-4">
-          {/* Walk-forward + scope controls */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 items-stretch">
-            <WalkForwardControls state={wf} onChange={setWf} minMs={minMs} maxMs={maxMs} />
-            <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/10 p-3">
-              <Layers className="w-3.5 h-3.5 text-muted-foreground" />
-              <Label className="text-xs">Scope</Label>
-              <Select value={scope} onValueChange={setScope}>
-                <SelectTrigger className="h-8 w-[200px] text-xs">
-                  <SelectValue placeholder="All pairs" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All pairs (individual)</SelectItem>
-                  {groups.length > 0 && (
-                    <SelectGroup>
-                      <SelectLabel className="text-[10px] uppercase tracking-wider">Groups (merged)</SelectLabel>
-                      {groups.map((g) => (
-                        <SelectItem key={g.id} value={`grp:${g.id}`}>
-                          <span className="inline-flex items-center gap-1.5">
-                            <span
-                              className="w-2 h-2 rounded-full inline-block"
-                              style={{ backgroundColor: g.color ?? "hsl(var(--primary))" }}
-                            />
-                            {g.name}
-                            <span className="text-muted-foreground text-[10px]">· {g.symbols.length}</span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  )}
-                </SelectContent>
-              </Select>
-              {activeGroup && (
-                <span className="text-[10px] text-muted-foreground max-w-[180px] truncate" title={activeGroup.symbols.join(", ")}>
-                  merging {activeGroup.symbols.length}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {(() => {
-            const closed = data.trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
-            const withSl = closed.filter((t) => t.sl_initial != null && t.entry_price != null).length;
-            const coverage = closed.length > 0 ? withSl / closed.length : 1;
-            if (closed.length >= 10 && coverage < 0.7) {
-              return (
-                <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">
-                  <Info className="w-4 h-4 text-amber-500 mt-0.5" />
-                  <div className="text-sm">
-                    <div className="font-medium mb-1">
-                      Only {withSl} of {closed.length} closed trades have <code className="text-xs">sl_initial</code> + <code className="text-xs">entry_price</code> recorded.
-                    </div>
-                    <div className="text-muted-foreground text-xs leading-relaxed">
-                      MAE and Ideal-SL are logged in broker ticks; they need each trade's initial-SL distance to convert into R.
-                      Trades without it are ineligible for MAE-based stop-out detection and for the "Tighten SL → ideal" preset.
-                      Fill SL in the journal to unlock those rows.
-                    </div>
-                  </div>
-                </Card>
-              );
-            }
-            return null;
-          })()}
-
-          {/* Baseline summary */}
-          <Card className="p-4">
-            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-sm">
-              <span className="text-xs uppercase tracking-wider text-muted-foreground">Baseline</span>
-              <span><span className="text-muted-foreground">N</span> <span className="font-mono-numbers font-semibold">{data.baseline.n}</span></span>
-              <span><span className="text-muted-foreground">Win rate</span> <span className="font-mono-numbers font-semibold">{(data.baseline.winRate * 100).toFixed(1)}%</span></span>
-              <span><span className="text-muted-foreground">Expected R</span> <span className="font-mono-numbers font-semibold">{(data.baseline.expectedR >= 0 ? "+" : "") + data.baseline.expectedR.toFixed(2)}R</span></span>
-              <span><span className="text-muted-foreground">MFE p75</span> <span className="font-mono-numbers font-semibold">{data.baseline.mfeP75?.toFixed(2) ?? "—"}R</span></span>
-              <span><span className="text-muted-foreground">MAE p75</span> <span className="font-mono-numbers font-semibold">{data.baseline.maeP75 != null ? `${data.baseline.maeP75.toFixed(2)}R` : "—"}</span></span>
-              {data.baseline.recommendation.suggestedRiskPct != null && (
-                <Badge variant="outline">Baseline ¼-Kelly: {data.baseline.recommendation.suggestedRiskPct.toFixed(2)}%</Badge>
-              )}
-              {propFirmMode && data.propFirm && data.propFirm.dailyLossDollars != null && (
-                <Badge variant="outline" className="border-primary/40 text-primary">
-                  PF budget: ${data.propFirm.dailyLossDollars.toFixed(0)}/day
-                </Badge>
-              )}
-            </div>
-          </Card>
-
-          <BucketGrid
-            symbols={data.symbols}
-            sessions={data.sessions}
-            perCell={data.perCell}
-            perRow={data.perRow}
-            selected={selected}
-            onSelect={(cell) => setSelected(cell)}
-          />
-
-          {/* Out-of-sample split — train/test integrity check within the active window. */}
-          {data.totalTrades >= 30 && (
-            <OutOfSamplePanel
-              trades={data.trades}
-              fieldKeys={data.fieldKeys}
-              symbolResolver={data.symbolResolver}
-              propFirm={propFirmMode ? data.propFirm : null}
-              dateFrom={dateFrom}
-              dateTo={dateTo}
+          <TabsContent value="overview" className="mt-4">
+            <OverviewTab
+              data={data}
+              profile={profile}
+              setProfile={setProfile}
+              propFirmMode={propFirmMode}
+              setPropFirmMode={setPropFirmMode}
+              includeUnrealized={includeUnrealized}
+              setIncludeUnrealized={setIncludeUnrealized}
+              scope={scope}
+              setScope={setScope}
             />
-          )}
+          </TabsContent>
 
-
-
-          {/* Sticky selection header — always rendered, content changes with scope */}
-          <div
-            ref={headerRef}
-            className="sticky top-0 z-10 -mx-6 px-6 py-3 bg-background/95 backdrop-blur border-y border-border/60 scroll-mt-4"
-          >
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2 text-sm flex-wrap">
-                <span className="text-xs uppercase tracking-wider text-muted-foreground">Simulating</span>
-                <span className="font-medium">{scopeLabel}</span>
-                <span className="text-xs text-muted-foreground">
-                  · ${data.simBalance.toLocaleString()} from {sourceLabel}
-                </span>
-                {selected && (
-                  <span className="text-[10px] text-muted-foreground/70 ml-1">
-                    (Esc to clear)
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <SimulatorProfileSettings />
-                {selected && (
-                  <Button variant="ghost" size="sm" onClick={() => setSelected(null)}>
-                    <X className="w-3 h-3 mr-1" />
-                    Clear
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {selectedBucket && (
-            <QuantNotePanel
-              bucket={selectedBucket}
-              baseline={data.baseline}
-              propFirm={propFirmMode ? data.propFirm : null}
+          <TabsContent value="grid" className="mt-4">
+            <PairGridTab
+              data={data}
+              propFirmMode={propFirmMode}
+              selected={selected}
+              setSelected={setSelected}
             />
-          )}
+          </TabsContent>
 
-          {data.simBalance > 0 ? (
-            <StrategyRanker
-              trades={scopedTrades}
-              fieldKeys={data.fieldKeys}
-              balance={data.simBalance}
-              propFirm={propFirmMode ? data.propFirm : null}
-              scopeLabel={scopeLabel}
-              defaultRiskPct={data.defaultSimRiskPct}
-              trailCapture={data.trailCapture}
-              effectiveTrailCapture={data.effectiveTrailCapture}
+          <TabsContent value="windows" className="mt-4">
+            <IdealWindowsTab data={data} />
+          </TabsContent>
+
+          <TabsContent value="strategy" className="mt-4">
+            <StrategyTab
+              data={data}
+              propFirmMode={propFirmMode}
+              selected={selected}
             />
-          ) : (
-            <Card className="p-6 text-sm text-muted-foreground text-center">
-              Set a notional balance in your simulator profile to convert R into $.
-            </Card>
-          )}
-        </TabsContent>
+          </TabsContent>
 
-
-        <TabsContent value="strategy" className="mt-4">
-          <StrategyLab
-            trades={data.trades}
-            defaultAccountSize={data.simBalance > 0 ? data.simBalance : 100_000}
-            dailyLossDollars={propFirmMode ? (data.propFirm?.dailyLossDollars ?? null) : null}
-            maxDrawdownDollars={propFirmMode ? (data.propFirm?.maxDrawdownDollars ?? null) : null}
-            hasPropFirmProfile={propFirmMode && data.propFirm != null && data.propFirm.dailyLossDollars != null}
-          />
-        </TabsContent>
-
-        <TabsContent value="groups" className="mt-4">
-          <SymbolGroupManager availableSymbols={data.symbols} />
-        </TabsContent>
-
-        <TabsContent value="aliases" className="mt-4">
-          <SymbolAliasManager trades={data.trades} isLoading={data.isLoading} />
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="setup" className="mt-4">
+            <SetupTab data={data} />
+          </TabsContent>
+        </Tabs>
       </PairLabWalkForwardProvider>
     </div>
   );
