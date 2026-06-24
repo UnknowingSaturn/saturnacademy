@@ -28,13 +28,9 @@ interface TradePropertiesProps {
   trade: Trade;
 }
 
-// Options for the Hour Setup Landscape fields (first_half_setup / second_half_setup).
-// Decoupled from R: "did a setup print in this half of the hour, and did it work".
-const HOUR_SETUP_OPTIONS = [
-  { value: 'none',   label: 'None',   color: 'primary', customColor: '#64748b' },
-  { value: 'worked', label: 'Worked', color: 'primary', customColor: '#10b981' },
-  { value: 'failed', label: 'Failed', color: 'primary', customColor: '#ef4444' },
-];
+// Hour-setup landscape options live in a shared module so the journal table,
+// the detail sidebar, and the Pair Lab read the same labels / colors.
+import { HOUR_SETUP_BADGE_OPTIONS as HOUR_SETUP_OPTIONS } from "@/lib/hourSetup";
 
 // Convert user PropertyOption rows into BadgeSelect option shape
 function toBadgeOptions(rows?: { value: string; label: string; color: string }[]) {

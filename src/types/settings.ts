@@ -284,6 +284,10 @@ export const DEFAULT_COLUMNS: ColumnDefinition[] = [
   { key: 'actual_regime', label: 'Actual Regime', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'regime', category: 'editable' },
   { key: 'emotional_state_before', label: 'Emotion', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(90px, 1.2fr)', propertyName: 'emotion', category: 'editable' },
   { key: 'place', label: 'Place', type: 'text', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'editable' },
+  // Retrospective per-hour setup observations — drives Pair Lab Timing analysis.
+  // Off by default; user enables from Settings → Fields.
+  { key: 'first_half_setup',  label: '1st-half (≤ :30)', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(100px, 1.1fr)', category: 'editable' },
+  { key: 'second_half_setup', label: '2nd-half (> :30)', type: 'select', sortable: true, filterable: true, hideable: true, width: 'minmax(100px, 1.1fr)', category: 'editable' },
   // Optional toggleable system fields (off by default — enable from Fields settings)
   { key: 'direction', label: 'Direction', type: 'badge', sortable: true, filterable: true, hideable: true, width: 'minmax(70px, 0.7fr)', category: 'calculated' },
   { key: 'net_pnl', label: 'P&L', type: 'number', sortable: true, filterable: true, hideable: true, width: 'minmax(80px, 1fr)', category: 'calculated' },
