@@ -251,14 +251,13 @@ export function JournalCalendarView({ trades, onTradeClick }: JournalCalendarVie
                       <span className="text-xs text-muted-foreground">
                         {day.tradeCount}t
                       </span>
-                      {(day.firstHalfWorked > 0 || day.secondHalfWorked > 0) && (
+                      {(day.workedCount > 0 || day.failedCount > 0) && (
                         <span
-                          className="absolute top-1 right-1 text-[9px] font-medium text-profit/80 leading-none"
-                          title={`Worked setups — 1st: ${day.firstHalfWorked}, 2nd: ${day.secondHalfWorked}`}
+                          className="absolute top-1 right-1 text-[9px] font-medium leading-none flex gap-1"
+                          title={`Setup landscape — worked: ${day.workedCount}, failed: ${day.failedCount}`}
                         >
-                          {day.firstHalfWorked > 0 && `1·${day.firstHalfWorked}`}
-                          {day.firstHalfWorked > 0 && day.secondHalfWorked > 0 && ' '}
-                          {day.secondHalfWorked > 0 && `2·${day.secondHalfWorked}`}
+                          {day.workedCount > 0 && <span className="text-profit/80">W·{day.workedCount}</span>}
+                          {day.failedCount > 0 && <span className="text-loss/80">F·{day.failedCount}</span>}
                         </span>
                       )}
                     </>
