@@ -79,24 +79,12 @@ export default function PairLab() {
     return groups.find((g) => g.id === id) ?? null;
   }, [scope, groups]);
 
-  // Use unfiltered hook once to find the date bounds of the user's data.
-  const allData = usePairLab({
-    profile: profile === "any" ? null : profile,
-    propFirmMode,
-    includeUnrealized,
-  });
-
-  const { minMs, maxMs } = useMemo(() => {
-    const ts = allData.trades
-      .filter((t) => !t.is_open && !t.is_archived && t.entry_time)
-      .map((t) => new Date(String(t.entry_time)).getTime())
-      .filter((n) => Number.isFinite(n));
-    if (ts.length === 0) {
-      const now = Date.now();
-      return { minMs: now - 90 * 86_400_000, maxMs: now };
-    }
-    return { minMs: Math.min(...ts), maxMs: Math.max(...ts) };
-  }, [allData.trades]);
+  // Bounds for the as-of slider — derived directly from the trades cache
+  // (no extra fetch, no extra buildBuckets pass). Previously `usePairLab`
+  // was called twice: once unfiltered to compute bounds, once filtered for
+  // display. That doubled buildBuckets work and forced two re-derivations
+  // per render. Now a single call below feeds every panel.
+  const { minMs, maxMs } = usePairLabTradeBounds();
 
   const [wf, setWf] = useState<WalkForwardState>({ lens: "all", asOfMs: Date.now() });
   // Clamp asOf into actual data range once data arrives.
