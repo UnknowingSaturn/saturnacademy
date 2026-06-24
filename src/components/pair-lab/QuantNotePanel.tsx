@@ -70,9 +70,15 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
             tpLadderR: bucket.recommendation.tpLadderR,
             tp1Star: bucket.recommendation.tp1Star,
             suggestedRiskPct: bucket.recommendation.suggestedRiskPct,
+            // B-fix: surface Kelly CI + PF so the LLM can speak to risk-sizing
+            // uncertainty and overall profitability without recomputing math.
+            suggestedRiskPctCi: bucket.recommendation.suggestedRiskPctCi,
             suggestedRiskPctPropFirm: bucket.recommendation.suggestedRiskPctPropFirm,
             bindingConstraint: bucket.recommendation.bindingConstraint,
             edgeVsBaseline: bucket.recommendation.edgeVsBaseline,
+            profitFactor: bucket.profitFactor,
+            profitFactorAllWins: bucket.profitFactorAllWins,
+
             // Phase-4 additions — let the LLM speak to confidence + OOS.
             recommendationConfidence: bucket.recommendation.recommendationConfidence,
             suggestedTpR: bucket.recommendation.suggestedTpR,
