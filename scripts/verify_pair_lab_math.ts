@@ -70,14 +70,19 @@ console.log(`buildBuckets → ${bucketed.perCell.length} cells, baseline n=${buc
 // -------- independent recomputation per cell --------
 type Row = { symbol: string; session: string; netPnl: number; r: number | null;
              cf: Record<string, any>; rawSymbol: string };
-const rows: Row[] = trades.map((t: any) => ({
-  rawSymbol: t.symbol,
-  symbol: resolveSym(t.symbol),
-  session: t.session || "Unknown",
-  netPnl: Number(t.net_pnl),
-  r: t.r_multiple_actual != null ? Number(t.r_multiple_actual) : null,
-  cf: t.custom_fields ?? {},
-}));
+// L2 fix: independent recompute MUST exclude open trades, otherwise rows
+// with net_pnl=null leak through and `wins/losses` diverge from buildBuckets
+// (which has `closedOnly: true`). Mirror the same filter here.
+const rows: Row[] = trades
+  .filter((t: any) => !t.is_open && !t.is_archived && t.net_pnl != null)
+  .map((t: any) => ({
+    rawSymbol: t.symbol,
+    symbol: resolveSym(t.symbol),
+    session: t.session || "Unknown",
+    netPnl: Number(t.net_pnl),
+    r: t.r_multiple_actual != null ? Number(t.r_multiple_actual) : null,
+    cf: t.custom_fields ?? {},
+  }));
 
 const SESSION_LABELS: Record<string,string> = {
   tokyo:"Tokyo", asia:"Tokyo", london:"London", ny_am:"NY AM", ny_pm:"NY PM",
