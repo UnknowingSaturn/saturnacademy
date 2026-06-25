@@ -138,23 +138,11 @@ export function hourMinuteInTz(
 // Stats primitives — Wilson CI and bootstrap mean CI live in shared/quant/stats
 // so the client and edge functions cannot drift. The private mulberry32 +
 // fixed-seed bootstrap that used to live here has been deleted; the shared
-// helpers use a value-hash seed (more reproducible per-bucket).
+// helpers use a value-hash seed (more reproducible per-bucket). Local wrapper
+// shims (`wilsonInterval`, `bootstrapMeanCI`) were removed in Phase C — call
+// sites now use `wilsonCi`/`bootstrapMeanCi` directly.
 // ---------------------------------------------------------------------------
 
-/** Two-sided Wilson score interval — never returns null in this module's usage
- *  (callers gate on n>0), but the shared helper can return null when n<=0. */
-export function wilsonInterval(
-  successes: number,
-  n: number,
-  z = 1.96,
-): [number, number] {
-  return wilsonCi(successes, n, z) ?? [0, 0];
-}
-
-/** Bootstrap 95% CI on the mean — re-export of the shared implementation. */
-export function bootstrapMeanCI(values: number[]): [number, number] | null {
-  return bootstrapMeanCi(values);
-}
 
 /** Standard normal CDF via the Abramowitz & Stegun approximation. */
 function normalCdf(x: number): number {
@@ -297,11 +285,11 @@ export function bucketTrades({
   for (const [k, b] of byKey) {
     b.n = b.worked + b.failed;
     b.rate = b.n > 0 ? b.worked / b.n : null;
-    b.rateCI = b.n > 0 ? wilsonInterval(b.worked, b.n) : null;
+    b.rateCI = b.n > 0 ? (wilsonCi(b.worked, b.n) ?? [0, 0]) : null;
     const rs = rsByKey.get(k) ?? [];
     b.rSamples = rs.length;
     b.expectancy = rs.length > 0 ? rs.reduce((s, x) => s + x, 0) / rs.length : null;
-    b.expectancyCI = bootstrapMeanCI(rs);
+    b.expectancyCI = bootstrapMeanCi(rs);
     b.belowMinN = b.n < filters.minN;
     b.events.sort((a, c) => a.ts - c.ts);
     if (b.events.length >= recentN) {
@@ -411,7 +399,7 @@ export function subGridFifteenMin({
 /**
  * Causal cumulative worked-rate series from a bucket's event timeline.
  * Index i = rate after i+1 events (i.e. uses only data up to event i).
- * Pair with Wilson CI band by passing each cumulative (k, n) to wilsonInterval.
+ * Pair with Wilson CI band by passing each cumulative (k, n) to wilsonCi.
  */
 export function cumulativeSeries(events: BucketEvent[]): Array<{
   ts: number;
@@ -425,7 +413,7 @@ export function cumulativeSeries(events: BucketEvent[]): Array<{
   for (let i = 0; i < events.length; i++) {
     if (events[i].worked) k += 1;
     const n = i + 1;
-    out.push({ ts: events[i].ts, k, n, rate: k / n, ci: wilsonInterval(k, n) });
+    out.push({ ts: events[i].ts, k, n, rate: k / n, ci: wilsonCi(k, n) ?? [0, 0] });
   }
   return out;
 }

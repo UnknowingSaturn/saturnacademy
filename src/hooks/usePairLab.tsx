@@ -17,12 +17,8 @@ import {
   type PropFirmContext,
   type TrailCaptureEstimate,
 } from "@/lib/pairLabMath";
+import { TRAIL_CAPTURE_FRAC } from "@/lib/pairLabSimulator";
 import { isUnrealized } from "../../shared/quant/stats";
-
-// Fallback trail-capture ratio when the user's logged sample is too thin for
-// `estimateTrailCapture` to produce one. Keeps usePairLab from importing the
-// simulator module for a single constant.
-const DEFAULT_TRAIL_CAPTURE = 0.7;
 
 export interface PairLabFilters {
   /** Matches trades whose planned OR actual profile equals this value. */
@@ -231,7 +227,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     );
 
     const trailCapture = estimateTrailCapture(closedTrades, fieldKeys);
-    const effectiveTrailCapture = trailCapture?.ratio ?? DEFAULT_TRAIL_CAPTURE;
+    const effectiveTrailCapture = trailCapture?.ratio ?? TRAIL_CAPTURE_FRAC;
     const partialFillFlag = detectPartialFills(closedTrades);
 
     return {
