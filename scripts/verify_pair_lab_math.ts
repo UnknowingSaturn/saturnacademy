@@ -228,4 +228,15 @@ const ci1 = bootstrapMeanCi(allR);
 const ci2 = bootstrapMeanCi(allR);
 console.log(`\nBootstrap mean CI determinism: ci1=${JSON.stringify(ci1)} ci2=${JSON.stringify(ci2)} stable=${ci1?.[0] === ci2?.[0] && ci1?.[1] === ci2?.[1]}`);
 
+// Profit factor sanity on baseline — Sum(winR) / Sum(|lossR|).
+// Mirrors shared/quant/stats convention: null when no losses, with the
+// `profitFactorAllWins` flag set on the baseline payload.
+const sumW = wRs.reduce((s, v) => s + v, 0);
+const sumL = lRs.reduce((s, v) => s + v, 0);
+const pfIndep = sumL > 0 ? sumW / sumL : null;
+const pfProj = bucketed.baseline.profitFactor;
+const pfAllWinsProj = bucketed.baseline.profitFactorAllWins;
+const pfAllWinsIndep = sumL <= 0 && sumW > 0;
+console.log(`\nBaseline profitFactor: indep=${pfIndep?.toFixed(4) ?? "null"} proj=${pfProj?.toFixed(4) ?? "null"} agree=${near(pfIndep, pfProj)} (allWins indep=${pfAllWinsIndep} proj=${pfAllWinsProj})`);
+
 console.log(`\n${fail === 0 ? "✅ ALL CHECKS PASSED" : `❌ ${fail} bucket(s) failed`}`);
