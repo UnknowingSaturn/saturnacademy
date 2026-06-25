@@ -22,10 +22,7 @@ export type IdealWindowValue =
   | "second_failed"
   | "both_failed"
   | "first_worked_second_failed"
-  | "first_failed_second_worked"
-  // Legacy alias kept for backward compatibility with rows written before the
-  // 9-state vocabulary. Decoded as first_worked + second_failed by convention.
-  | "mixed";
+  | "first_failed_second_worked";
 
 export const IDEAL_WINDOW_VALUES: IdealWindowValue[] = [
   "none",
@@ -37,8 +34,11 @@ export const IDEAL_WINDOW_VALUES: IdealWindowValue[] = [
   "both_failed",
   "first_worked_second_failed",
   "first_failed_second_worked",
-  "mixed",
 ];
+
+// Legacy values still accepted on read for backward compatibility with rows
+// written before the 9-state vocabulary. Not offered in the picker UI.
+const LEGACY_IDEAL_WINDOW_VALUES = new Set<string>(["mixed"]);
 
 export interface IdealWindowOption {
   value: IdealWindowValue;
