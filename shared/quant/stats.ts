@@ -352,6 +352,8 @@ export function isUnrealized(t: any): boolean {
   const exit = t.exit_time;
   const pnlMissing = pnl == null || pnl === 0;
   const rMissing = rAct == null;
+  if (!pnlMissing || !rMissing || exit == null) return false;
+
   const slUntouched =
     t.sl_initial != null &&
     t.sl_final != null &&
@@ -361,9 +363,24 @@ export function isUnrealized(t: any): boolean {
     (t.tp_initial != null &&
       t.tp_final != null &&
       Number(t.tp_initial) === Number(t.tp_final));
-  if (pnlMissing && rMissing && exit != null && slUntouched && tpUntouched) {
-    return true;
-  }
+
+  // Phase I expansion: also classify "flat fills" — broker filled the order
+  // and closed it at (or within a tick of) the entry price with no SL/TP work
+  // and no PnL. These are not real trades; including them as zero-R losses
+  // drags expectancy toward 0 the same way idea/paper rows do.
+  const ep = t.entry_price != null ? Number(t.entry_price) : null;
+  const xp = t.exit_price != null ? Number(t.exit_price) : null;
+  const flatFill =
+    ep != null && xp != null && Number.isFinite(ep) && Number.isFinite(xp) && ep === xp;
+
+  // Partial-fill heuristic: rows with an explicitly empty fills array confirm
+  // the order never built size — treat like an idea/expired pending.
+  const partialFills = Array.isArray(t.partial_fills) ? t.partial_fills : null;
+  const noFills = partialFills != null && partialFills.length === 0;
+
+  if (slUntouched && tpUntouched) return true;
+  if (flatFill && (slUntouched || tpUntouched)) return true;
+  if (noFills) return true;
   return false;
 }
 
