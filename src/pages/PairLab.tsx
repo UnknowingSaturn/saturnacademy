@@ -166,7 +166,6 @@ export default function PairLab() {
           maxMs,
           profile: profile === "any" ? null : profile,
           scope,
-          recentN: 10,
           includeUnrealized,
           propFirmMode,
         }}
@@ -193,8 +192,11 @@ export default function PairLab() {
               setIncludeUnassigned={setIncludeUnassigned}
               scope={scope}
               setScope={setScope}
+              groups={groups}
+              activeGroup={activeGroup}
             />
           </TabsContent>
+
 
 
           <TabsContent value="grid" className="mt-4">
