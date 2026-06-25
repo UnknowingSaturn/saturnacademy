@@ -322,22 +322,80 @@ export function multiSelectCf(trade: any, key: string | null): string[] {
 // pendings — neither a win nor a loss). They MUST be excluded from R-stat
 // math by default; including them silently dilutes win-rate and expectancy.
 // Surface a count so the UI can show "X unrealized excluded".
+//
+// HARDENED (Phase H/13):
+//   - Open positions are NEVER unrealized — they're live with a pending
+//     outcome. Letting them fall into the zero-PnL branch would erase
+//     in-flight trades from analytical surfaces the second their pnl
+//     happened to read null.
+//   - SL/TP equality uses null-aware Number coercion + strict === instead
+//     of loose `==`. Loose equality silently coerces "" / "0" / 0 / null /
+//     undefined into each other and produced false positives on partially
+//     filled forms.
+//   - The zero-PnL / untouched-orders branch only fires for trade_type
+//     'executed' (or unspecified). It will not re-classify rows that
+//     already carry an explicit non-executed label.
 export function isUnrealized(t: any): boolean {
   if (!t) return false;
+  // Live positions: explicit category, never "unrealized".
+  if (t.is_open === true) return false;
+
   const tt = t.trade_type;
   if (tt === "idea" || tt === "paper" || tt === "missed") return true;
   if (t.repair_state === "manual_dismiss") return true;
+
+  // Only consider the zero-PnL / untouched-orders branch for executed rows.
+  if (tt && tt !== "executed") return false;
+
   const pnl = t.net_pnl;
   const rAct = t.r_multiple_actual;
   const exit = t.exit_time;
-  if (
-    (pnl == null || pnl === 0) &&
-    (rAct == null) &&
-    exit != null &&
-    t.sl_initial != null && t.sl_final != null && t.sl_initial === t.sl_final &&
-    t.tp_initial == t.tp_final
-  ) {
+  const pnlMissing = pnl == null || pnl === 0;
+  const rMissing = rAct == null;
+  const slUntouched =
+    t.sl_initial != null &&
+    t.sl_final != null &&
+    Number(t.sl_initial) === Number(t.sl_final);
+  const tpUntouched =
+    (t.tp_initial == null && t.tp_final == null) ||
+    (t.tp_initial != null &&
+      t.tp_final != null &&
+      Number(t.tp_initial) === Number(t.tp_final));
+  if (pnlMissing && rMissing && exit != null && slUntouched && tpUntouched) {
     return true;
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Naive-timestamp detector (Phase H/12)
+// ---------------------------------------------------------------------------
+//
+// A timestamp string is "naive" when it carries no timezone designator (no
+// trailing `Z` and no `±HH:MM` offset). Naive strings are interpreted
+// differently by `new Date(...)` depending on the host JS engine and the
+// user's OS locale — Chrome may read it as local time, Safari as UTC, and
+// Node may differ from both. Pair Lab math standardizes via
+// `brokerLocalToUtc`, but we still flag raw naive strings so the UI can
+// prompt the user to configure the account's DST profile or re-ingest with
+// timezone-qualified timestamps.
+const NAIVE_TS_DETECTOR =
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+const TZ_TS_DETECTOR = /(Z|[+-]\d{2}:?\d{2})$/;
+
+export function isNaiveTimestamp(s: unknown): boolean {
+  if (typeof s !== "string") return false;
+  const trimmed = s.trim();
+  if (!trimmed) return false;
+  if (TZ_TS_DETECTOR.test(trimmed)) return false;
+  return NAIVE_TS_DETECTOR.test(trimmed);
+}
+
+/** Counts trades whose `entry_time` is a naive (TZ-less) string. */
+export function countNaiveEntryTimes(
+  trades: Array<{ entry_time?: unknown }>,
+): number {
+  let n = 0;
+  for (const t of trades) if (isNaiveTimestamp(t?.entry_time)) n += 1;
+  return n;
 }
