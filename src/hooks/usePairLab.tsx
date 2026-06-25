@@ -84,6 +84,10 @@ export interface PairLabData {
   partialFillFlag: PartialFillFlag | null;
   /** Count of trades dropped because they were classified as Unrealized (ideas/paper/missed/dismissed). */
   unrealizedExcluded: number;
+  /** Count of in-scope trades with NULL account_id (folded in when `includeUnassigned`). */
+  orphanIncluded: number;
+  /** Count of closed trades whose R was inferred from net_pnl sign (no `r_multiple_actual`). */
+  rFallbackCount: number;
 }
 
 const SESSION_ORDER = ["Tokyo", "London", "NY AM", "NY PM"];
@@ -246,6 +250,13 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const effectiveTrailCapture = trailCapture?.ratio ?? TRAIL_CAPTURE_FRAC;
     const partialFillFlag = detectPartialFills(closedTrades);
 
+    // Header chips: orphan rows actually in scope, and R-fallback (sign-inferred)
+    // count drawn from the baseline cell which mirrors what the grid renders.
+    const orphanIncluded = includeUnassigned
+      ? scopedTrades.filter((t) => t.account_id == null).length
+      : 0;
+    const rFallbackCount = baseline.eventsRFallbackCount ?? 0;
+
     return {
       isLoading:
         tradesQuery.isLoading ||
@@ -270,6 +281,8 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       effectiveTrailCapture,
       partialFillFlag,
       unrealizedExcluded,
+      orphanIncluded,
+      rFallbackCount,
     };
   }, [
     tradesQuery.data,
