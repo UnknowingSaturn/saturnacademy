@@ -92,6 +92,7 @@ import {
   numericCf,
   multiSelectCf,
   isUnrealized,
+  wilsonCi,
 } from "../../../../shared/quant/stats.ts";
 export {
   quantile,
@@ -107,21 +108,11 @@ export {
   numericCf,
   multiSelectCf,
   isUnrealized,
+  wilsonCi,
 };
 
 
 
-export function parseTpLabel(s: string): number | null {
-  if (!s) return null;
-  const clean = s.trim().toUpperCase();
-  const ratio = clean.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
-  if (ratio) { const a = Number(ratio[1]), b = Number(ratio[2]); if (a > 0) return b / a; }
-  const tp = clean.match(/^TP\s*(\d+(?:\.\d+)?)$/);
-  if (tp) return Number(tp[1]);
-  const num = clean.match(/^(\d+(?:\.\d+)?)R?$/);
-  if (num) return Number(num[1]);
-  return null;
-}
 
 export interface BucketKey { symbol: string; session: string }
 export interface Tp1Star { r: number; hitRate: number; hitRateCi: [number, number] | null; expectancyR: number }
@@ -217,14 +208,8 @@ function longestLossStreak(rows: any[]): number {
   }
   return worst;
 }
-function wilsonCi(successes: number, n: number, z = 1.96): [number, number] | null {
-  if (n <= 0) return null;
-  const p = successes / n;
-  const denom = 1 + (z * z) / n;
-  const centre = (p + (z * z) / (2 * n)) / denom;
-  const margin = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denom;
-  return [Math.max(0, centre - margin), Math.min(1, centre + margin)];
-}
+
+
 
 function computeTp1Star(
   pairs: Array<{ mfeR: number; rActual: number | null }>,
@@ -390,7 +375,6 @@ export function computeBucket(
     .filter((v): v is number => v != null && v < 0)
     .map((v) => Math.abs(v));
 
-  const mfes = rows.map((t) => numericCf(t, keys.mfe)).filter((v): v is number => v != null);
   // Paired (mfeR, rActual) for the empirical-miss tp1Star computation.
   const tp1StarPairs: Array<{ mfeR: number; rActual: number | null }> = [];
   for (const t of rows) {
@@ -398,7 +382,6 @@ export function computeBucket(
     if (m == null) continue;
     tp1StarPairs.push({ mfeR: m, rActual: t.r_multiple_actual ?? null });
   }
-  void mfes;
 
   // MAE is stored in TICKS. Convert to pips for the SL math, R for distribution.
   const maesR: number[] = [];

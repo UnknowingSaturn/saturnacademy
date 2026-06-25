@@ -314,7 +314,6 @@ function confidenceFor(n: number): ConfidenceLevel {
 
 export interface BuildBucketsOpts {
   profile?: string | null;
-  actualProfile?: string | null;
   closedOnly?: boolean;
   symbolResolver?: (raw: string) => string;
   propFirm?: PropFirmContext | null;
@@ -351,7 +350,6 @@ export function buildBuckets(
     if (closedOnly && t.is_open) return false;
     if (t.is_archived) return false;
     if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) return false;
-    if (opts.actualProfile && t.actual_profile !== opts.actualProfile) return false;
     if (dateFrom || dateTo) {
       const ts = t.entry_time ? String(t.entry_time) : null;
       if (!ts) return false;

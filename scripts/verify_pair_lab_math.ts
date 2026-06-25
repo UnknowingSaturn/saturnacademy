@@ -78,7 +78,6 @@ function kellyIndep(p: number, w: number, l: number): number | null {
 }
 
 // -------- shape trades for buildBuckets --------
-// -------- shape trades for buildBuckets --------
 // Use the SAME symbol resolver on both sides so we're comparing apples to apples
 // (independent recomputation and buildBuckets must group identically).
 const resolveSym = buildSymbolResolver(aliases);
