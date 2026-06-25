@@ -39,7 +39,9 @@ interface Props {
 const DAY = 86_400_000;
 
 function fmt(ms: number) {
-  return new Date(ms).toISOString().slice(0, 10);
+  // ISO date is already UTC; label it so the user knows the split-axis frame
+  // matches the rest of Pair Lab (entry_time read in UTC).
+  return `${new Date(ms).toISOString().slice(0, 10)} (UTC)`;
 }
 
 export function OutOfSamplePanel({
