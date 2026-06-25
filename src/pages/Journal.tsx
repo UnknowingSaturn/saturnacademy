@@ -204,7 +204,7 @@ export default function Journal() {
     }
 
     return result;
-  }, [trades, symbolFilter, sessionFilter, resultFilter, tradeTypeFilter, modelFilter, activeFilters, selectedAccountId, periodRange]);
+  }, [trades, symbolFilter, sessionFilter, resultFilter, tradeTypeFilter, modelFilter, activeFilters, selectedAccountId, periodRange, symbolResolver]);
 
   const getTradeValue = (trade: Trade, column: string): any => {
     switch (column) {
