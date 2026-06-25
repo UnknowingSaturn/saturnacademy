@@ -3,6 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import { useTrades } from "@/hooks/useTrades";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
+import { useSymbolAliases } from "@/hooks/useSymbolAliases";
+import { buildSymbolResolver } from "@/lib/symbolAliasing";
 
 import { TradeTable } from "@/components/journal/TradeTable";
 import { DriftTray } from "@/components/journal/DriftTray";
