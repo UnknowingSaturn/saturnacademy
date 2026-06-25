@@ -141,6 +141,17 @@ for (const cell of bucketed.perCell) {
   // Server's MAE p75 widen is in pips; convert ticks→pips using canonical symbol.
   const maePips = maeValsTicks.map((t) => ticksToPips(cell.key.symbol, t));
 
+  // Independent expectedR + Wilson winRate CI per cell.
+  const rOnly = mine.map((r) => r.r).filter((v): v is number => v != null);
+  const indep_expectedR = rOnly.length ? meanIndep(rOnly) : 0;
+  const indep_wrCi = mine.length > 0 ? (() => {
+    const n = mine.length, z = 1.96, p = wins / n;
+    const d = 1 + z * z / n;
+    const c = (p + z * z / (2 * n)) / d;
+    const m = (z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d;
+    return [Math.max(0, c - m), Math.min(1, c + m)] as [number, number];
+  })() : null;
+
   const indep_n = mine.length;
   const indep_wr = winRate;
   const indep_mfeP50 = qIndep(mfeVals, 0.5);
@@ -156,10 +167,15 @@ for (const cell of bucketed.perCell) {
   const checks: Array<[string, number | null, number | null]> = [
     ["n", indep_n, proj_n],
     ["winRate", indep_wr, proj_wr],
+    ["expectedR", indep_expectedR, cell.expectedR],
     ["mfeP50", indep_mfeP50, proj_mfeP50],
     ["mfeP75", indep_mfeP75, proj_mfeP75],
     ["maeP75Pips", indep_maeP75Pips, proj_maeP75Pips],
   ];
+  if (indep_wrCi && cell.winRateCi) {
+    checks.push(["winRateCi.lo", indep_wrCi[0], cell.winRateCi[0]]);
+    checks.push(["winRateCi.hi", indep_wrCi[1], cell.winRateCi[1]]);
+  }
   const bad = checks.filter(([_, a, b]) => !near(a, b));
   if (bad.length) {
     failures.push(`${key} (n=${indep_n}): ` + bad.map(([k, a, b]) => `${k} indep=${a} proj=${b}`).join("; "));
