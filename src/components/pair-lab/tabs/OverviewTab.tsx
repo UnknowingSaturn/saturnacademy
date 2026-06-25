@@ -464,6 +464,33 @@ export function OverviewTab({
               </Tooltip>
             </TooltipProvider>
           )}
+          {/* H/12 — naive-timestamp chip. Counts trades whose `entry_time`
+              has no timezone designator. `brokerLocalToUtc` will still parse
+              them deterministically via the account's DST profile, but the
+              presence of TZ-less rows is a data-quality signal worth
+              surfacing so users can re-ingest or fix the broker export. */}
+          {data.naiveTimestampCount > 0 && (
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="border-muted-foreground/40 text-muted-foreground cursor-help"
+                  >
+                    {data.naiveTimestampCount} naive ts
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  These trades have <code>entry_time</code> without a timezone
+                  (no <code>Z</code> or <code>±HH:MM</code>). Pair Lab parses
+                  them deterministically via the account's broker-DST profile,
+                  but TZ-qualified imports are safer. Set the account's broker
+                  DST profile in Settings → Account, or re-ingest with
+                  ISO 8601 + offset.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
         <div className="mt-3 text-[11px] text-muted-foreground">
           {data.totalTrades} closed trades · {data.perCell.length} cells ·{" "}

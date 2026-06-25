@@ -18,7 +18,7 @@ import {
   type TrailCaptureEstimate,
 } from "@/lib/pairLabMath";
 import { TRAIL_CAPTURE_FRAC } from "@/lib/pairLabSimulator";
-import { isUnrealized } from "../../shared/quant/stats";
+import { isUnrealized, countNaiveEntryTimes } from "../../shared/quant/stats";
 
 export interface PairLabFilters {
   /** Matches trades whose planned OR actual profile equals this value. */
@@ -256,6 +256,9 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       ? scopedTrades.filter((t) => t.account_id == null).length
       : 0;
     const rFallbackCount = baseline.eventsRFallbackCount ?? 0;
+    // Phase H/12: detector for TZ-less entry_time strings in the active scope.
+    // Surfaced as a header chip so users can fix DST profile / re-ingest.
+    const naiveTimestampCount = countNaiveEntryTimes(scopedTrades);
 
     return {
       isLoading:
@@ -283,6 +286,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       unrealizedExcluded,
       orphanIncluded,
       rFallbackCount,
+      naiveTimestampCount,
     };
   }, [
     tradesQuery.data,

@@ -3,6 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import { useTrades } from "@/hooks/useTrades";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
+import { useSymbolAliases } from "@/hooks/useSymbolAliases";
+import { buildSymbolResolver } from "@/lib/symbolAliasing";
 
 import { TradeTable } from "@/components/journal/TradeTable";
 import { DriftTray } from "@/components/journal/DriftTray";
@@ -58,6 +60,16 @@ export default function Journal() {
   const { data: trades, isLoading } = useTrades();
   const { data: settings } = useUserSettings();
   const { selectedAccountId, accounts } = useAccountFilter();
+  const { data: aliases } = useSymbolAliases();
+
+  // Phase H/11: canonicalize broker symbol variants before filtering/grouping
+  // so "EURUSD" matches "EURUSD+", "EURUSD.r", and any saved alias. Match
+  // both the raw and resolved spellings so users can still type the broker
+  // name verbatim.
+  const symbolResolver = useMemo(
+    () => buildSymbolResolver(aliases ?? []),
+    [aliases],
+  );
 
   // Read model filter from URL params on mount
   useEffect(() => {
@@ -130,11 +142,16 @@ export default function Journal() {
       result = result.filter(trade => trade.playbook_id === modelFilter || trade.playbook?.name === modelFilter);
     }
 
-    // Symbol filter
+    // Symbol filter (canonicalized: matches raw broker symbol OR the
+    // alias-resolved canonical, so "EURUSD" finds EURUSD+/EURUSD.r too).
     if (symbolFilter) {
-      result = result.filter(trade => 
-        trade.symbol.toLowerCase().includes(symbolFilter.toLowerCase())
-      );
+      const needle = symbolFilter.toLowerCase();
+      const needleCanonical = symbolResolver(symbolFilter).toLowerCase();
+      result = result.filter(trade => {
+        const raw = (trade.symbol || "").toLowerCase();
+        const canonical = symbolResolver(trade.symbol || "").toLowerCase();
+        return raw.includes(needle) || canonical.includes(needleCanonical);
+      });
     }
 
     // Session filter
@@ -187,12 +204,12 @@ export default function Journal() {
     }
 
     return result;
-  }, [trades, symbolFilter, sessionFilter, resultFilter, tradeTypeFilter, modelFilter, activeFilters, selectedAccountId, periodRange]);
+  }, [trades, symbolFilter, sessionFilter, resultFilter, tradeTypeFilter, modelFilter, activeFilters, selectedAccountId, periodRange, symbolResolver]);
 
   const getTradeValue = (trade: Trade, column: string): any => {
     switch (column) {
       case 'trade_number': return trade.trade_number;
-      case 'symbol': return trade.symbol;
+      case 'symbol': return symbolResolver(trade.symbol || "");
       case 'session': return trade.session;
       case 'account': 
         const account = accounts?.find(a => a.id === trade.account_id);
