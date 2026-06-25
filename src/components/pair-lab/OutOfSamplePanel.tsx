@@ -34,6 +34,9 @@ interface Props {
   propFirm: PropFirmContext | null;
   dateFrom: string | null;
   dateTo: string;
+  // F4 fix: forwarded into the worker so OOS buckets agree with the main grid
+  // when the user toggles "Include unrealized" on.
+  includeUnrealized: boolean;
 }
 
 const DAY = 86_400_000;
