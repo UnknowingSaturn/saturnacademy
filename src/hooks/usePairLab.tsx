@@ -286,6 +286,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       unrealizedExcluded,
       orphanIncluded,
       rFallbackCount,
+      naiveTimestampCount,
     };
   }, [
     tradesQuery.data,
