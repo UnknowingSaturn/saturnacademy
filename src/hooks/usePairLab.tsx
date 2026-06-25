@@ -217,6 +217,13 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const dateTo = filters.dateTo ?? null;
     const matchesScope = (t: typeof trades[number]) => {
       if (t.is_archived) return false;
+      // G9 fix: exclude open positions from analytical surfaces.
+      // Historical R-multiple, MAE/MFE and SL replay are undefined for
+      // live trades; including them silently mixed unrealized rows into
+      // the grid and chart. `buildBuckets` already filters via `closedOnly`,
+      // but downstream consumers (StrategyLab, drilldowns) re-derived from
+      // `trades` and saw the leak.
+      if (t.is_open) return false;
       if (filters.profile && t.profile !== filters.profile && t.actual_profile !== filters.profile) return false;
       if (dateFrom || dateTo) {
         const ts = t.entry_time ? String(t.entry_time) : null;
@@ -228,7 +235,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       return true;
     };
     const scopedTrades = trades.filter(matchesScope);
-    const closedTrades = scopedTrades.filter((t) => !t.is_open);
+    const closedTrades = scopedTrades;
 
     const symbols = Array.from(new Set(perRow.map((r) => r.key.symbol))).sort();
     const sessions = Array.from(new Set(perCell.map((c) => c.key.session))).sort(
