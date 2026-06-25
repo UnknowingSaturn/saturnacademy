@@ -21,7 +21,7 @@
 
 import type { Trade, TradeDirection, RegimeType } from "@/types/trading";
 import { decode, readIdealWindow } from "@/lib/hourSetup";
-import { wilsonCi, bootstrapMeanCi } from "../../shared/quant/stats";
+import { wilsonCi, bootstrapMeanCi, isUnrealized } from "../../shared/quant/stats";
 
 export type Half = "first" | "second";
 
@@ -232,6 +232,10 @@ export function bucketTrades({
   for (const t of trades) {
     if (t.is_archived) continue;
     if (!t.symbol) continue;
+    // F3 fix: exclude ideas/paper/missed/zero-PnL-no-mod from the heatmap.
+    // Tagged ideas inflate the failed-rate (they never executed) and pull
+    // R-expectancy toward null. Mirrors buildBuckets' default behaviour.
+    if (isUnrealized(t as any)) continue;
     if (symbolResolver(t.symbol) !== filters.pair) continue;
     if (filters.direction && t.direction !== filters.direction) continue;
     if (filters.regime && resolveRegime(t) !== filters.regime) continue;
