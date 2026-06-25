@@ -85,6 +85,9 @@ const EMPTY: DecodedIdealWindow = {
 
 /** Decode the 9-state value into independent boolean flags for math/UI. */
 export function decode(value: IdealWindowValue | string | null | undefined): DecodedIdealWindow {
+  // Legacy "mixed" is a DB-only string (not in IdealWindowValue). Handle it
+  // before the switch so the switch deals only with the canonical 9 states.
+  if (value === "mixed") return { ...EMPTY, firstWorked: true, secondFailed: true };
   switch (value) {
     case "first_worked":               return { ...EMPTY, firstWorked: true };
     case "second_worked":              return { ...EMPTY, secondWorked: true };
@@ -94,12 +97,10 @@ export function decode(value: IdealWindowValue | string | null | undefined): Dec
     case "both_failed":                return { ...EMPTY, firstFailed: true, secondFailed: true };
     case "first_worked_second_failed": return { ...EMPTY, firstWorked: true, secondFailed: true };
     case "first_failed_second_worked": return { ...EMPTY, firstFailed: true, secondWorked: true };
-    // Legacy "mixed" was an ambiguous 1✓/1✗ split. Map it to first_worked +
-    // second_failed by convention so existing rows still feed the math.
-    case "mixed":                      return { ...EMPTY, firstWorked: true, secondFailed: true };
     default:                           return { ...EMPTY };
   }
 }
+
 
 /** Look up the user's `cf_ideal_entry_window_*` key on a Trade's custom_fields. */
 export function readIdealWindow(trade: Trade | { custom_fields?: any } | null | undefined): IdealWindowValue | null {
