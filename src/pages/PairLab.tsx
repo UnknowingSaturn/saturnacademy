@@ -217,6 +217,7 @@ export default function PairLab() {
               data={data}
               propFirmMode={propFirmMode}
               selected={selected}
+              includeUnrealized={includeUnrealized}
             />
           </TabsContent>
 

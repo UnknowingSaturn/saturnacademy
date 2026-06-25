@@ -63,7 +63,12 @@ export interface PairLabData {
   sessions: string[];
   /** Closed (non-archived) trades in scope. Matches what the grid actually counts. */
   totalTrades: number;
-  missingFields: boolean;
+  /**
+   * F5 fix: per-field detection. `any` is true when at least one expected
+   * field could not be resolved (silent label rename + recreate breaks both
+   * label and prefix matchers — surface specifically which one is missing).
+   */
+  missingFields: { mfe: boolean; mae: boolean; idealStopLoss: boolean; any: boolean };
   propFirm: PropFirmContext | null;
   trades: Trade[];
   symbolResolver: (raw: string) => string;
@@ -156,8 +161,12 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const defs = (defsQuery.data ?? []).map((d) => ({ key: d.key, label: d.label }));
     const aliases = aliasesQuery.data ?? [];
     const fieldKeys = resolvePairLabFieldKeys(defs);
-    const missingFields =
-      !fieldKeys.mfe && !fieldKeys.mae && !fieldKeys.idealStopLoss;
+    const missingFields = {
+      mfe: !fieldKeys.mfe,
+      mae: !fieldKeys.mae,
+      idealStopLoss: !fieldKeys.idealStopLoss,
+      any: !fieldKeys.mfe || !fieldKeys.mae || !fieldKeys.idealStopLoss,
+    };
 
     const baseResolver = buildSymbolResolver(aliases);
     const groupOverride = filters.groupOverride ?? null;

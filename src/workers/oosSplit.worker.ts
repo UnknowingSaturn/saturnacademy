@@ -26,6 +26,9 @@ export interface OosSplitRequest {
   dateFrom: string | null;
   dateTo: string;
   splitIso: string;
+  // F4 fix: parent must pass the toggle through so train/test agree with the
+  // main grid. Default false matches buildBuckets' default.
+  includeUnrealized: boolean;
 }
 
 export interface OosSplitDelta {
@@ -53,6 +56,7 @@ self.onmessage = (e: MessageEvent<{ id: number; params: OosSplitRequest }>) => {
     closedOnly: true,
     dateFrom: params.dateFrom,
     dateTo: params.splitIso,
+    includeUnrealized: params.includeUnrealized,
   });
   const testRes = buildBuckets(params.trades, params.fieldKeys, {
     symbolResolver: resolver,
@@ -60,6 +64,7 @@ self.onmessage = (e: MessageEvent<{ id: number; params: OosSplitRequest }>) => {
     closedOnly: true,
     dateFrom: params.splitIso,
     dateTo: params.dateTo,
+    includeUnrealized: params.includeUnrealized,
   });
 
   const cellKey = (b: BucketReport) => `${b.key.symbol}__${b.key.session}`;

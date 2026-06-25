@@ -267,24 +267,39 @@ export function OverviewTab({
         </TooltipProvider>
       )}
 
-      {data.missingFields && (
-        <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">
-          <Info className="w-4 h-4 text-amber-500 mt-0.5" />
-          <div className="text-sm">
-            <div className="font-medium mb-1">
-              No excursion fields detected.
+      {data.missingFields.any && (() => {
+        // F5 fix: list the specific missing field(s). Old banner only fired
+        // when ALL three were missing — silent label-rename + recreate (new
+        // key bypasses both label & prefix matchers) went undetected.
+        const missing: Array<{ key: string; label: string }> = [];
+        if (data.missingFields.mfe) missing.push({ key: "mfe", label: "MFE (RR)" });
+        if (data.missingFields.mae) missing.push({ key: "mae", label: "MAE" });
+        if (data.missingFields.idealStopLoss) missing.push({ key: "isl", label: "Ideal Stop-Loss" });
+        const allMissing = missing.length === 3;
+        return (
+          <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">
+            <Info className="w-4 h-4 text-amber-500 mt-0.5" />
+            <div className="text-sm">
+              <div className="font-medium mb-1">
+                {allMissing ? "No excursion fields detected." : "Missing excursion field(s)."}
+              </div>
+              <div className="text-muted-foreground">
+                Add or rename custom field(s) named{" "}
+                {missing.map((m, i) => (
+                  <span key={m.key}>
+                    <span className="font-mono text-foreground">{m.label}</span>
+                    {i < missing.length - 2 ? ", " : i === missing.length - 2 ? ", and " : ""}
+                  </span>
+                ))}{" "}
+                in Journal settings. Pair Lab matches on the exact label
+                (case-insensitive) or a <span className="font-mono">cf_mfe</span> /{" "}
+                <span className="font-mono">cf_mae</span> /{" "}
+                <span className="font-mono">cf_ideal_stop_loss</span> key prefix.
+              </div>
             </div>
-            <div className="text-muted-foreground">
-              Add custom fields named{" "}
-              <span className="font-mono text-foreground">MFE (RR)</span>,{" "}
-              <span className="font-mono text-foreground">MAE</span>, and{" "}
-              <span className="font-mono text-foreground">Ideal Stop-Loss</span>{" "}
-              from the Journal settings, then fill them in on your closed
-              trades to power this page.
-            </div>
-          </div>
-        </Card>
-      )}
+          </Card>
+        );
+      })()}
 
       {data.partialFillFlag && (
         <TooltipProvider delayDuration={150}>

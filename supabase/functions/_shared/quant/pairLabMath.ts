@@ -376,8 +376,13 @@ export function computeBucket(
     .map((v) => Math.abs(v));
 
   // Paired (mfeR, rActual) for the empirical-miss tp1Star computation.
+  // F2 fix: skip unrealized rows (ideas/paper/missed + zero-PnL-no-mod). They
+  // pass the `net_pnl != null` gate above but contribute fake `{mfeR, r:0}`
+  // pairs that suppress hit-rate and pull expectancy toward zero. Client
+  // (src/lib/pairLabMath.ts) already filters; edge was the divergence.
   const tp1StarPairs: Array<{ mfeR: number; rActual: number | null }> = [];
   for (const t of rows) {
+    if (isUnrealized(t)) continue;
     const m = numericCf(t, keys.mfe);
     if (m == null) continue;
     tp1StarPairs.push({ mfeR: m, rActual: t.r_multiple_actual ?? null });

@@ -269,6 +269,13 @@ const SESSION_LABELS: Record<string, string> = {
   overlap: "Overlap",
   london_ny: "Overlap",
   "london/ny": "Overlap",
+  // F1 fix: detectSessionFromUtc() emits "overlap_london_ny" for 8–12 ET, and
+  // the EA tagger may emit "ny_london"/"london_ny_overlap" variants. Without
+  // these aliases the heatmap silently splits the Overlap session into raw-
+  // string buckets.
+  overlap_london_ny: "Overlap",
+  ny_london: "Overlap",
+  london_ny_overlap: "Overlap",
   off_hours: "Off-hours",
   off: "Off-hours",
   weekend: "Off-hours",

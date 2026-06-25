@@ -26,6 +26,7 @@ interface Props {
   data: PairLabData;
   propFirmMode: boolean;
   selected: Selected;
+  includeUnrealized: boolean;
 }
 
 function SectionHeader({
@@ -59,7 +60,7 @@ function SectionHeader({
   );
 }
 
-export function StrategyTab({ data, propFirmMode, selected }: Props) {
+export function StrategyTab({ data, propFirmMode, selected, includeUnrealized }: Props) {
   const { dateFrom, dateTo } = usePairLabWalkForward();
 
   // When the user has a cell selected in Pair Grid, narrow the strategy
@@ -155,6 +156,7 @@ export function StrategyTab({ data, propFirmMode, selected }: Props) {
             propFirm={propFirmMode ? data.propFirm : null}
             dateFrom={dateFrom}
             dateTo={dateTo}
+            includeUnrealized={includeUnrealized}
           />
         </section>
       )}
