@@ -156,6 +156,7 @@ export function StrategyTab({ data, propFirmMode, selected, includeUnrealized }:
             propFirm={propFirmMode ? data.propFirm : null}
             dateFrom={dateFrom}
             dateTo={dateTo}
+            includeUnrealized={includeUnrealized}
           />
         </section>
       )}
