@@ -417,6 +417,53 @@ export function OverviewTab({
                 PF budget: ${data.propFirm.dailyLossDollars.toFixed(0)}/day
               </Badge>
             )}
+          {/* G7 — R-fallback badge. When a trade has no `r_multiple_actual`,
+              its outcome is inferred as ±1 from net P&L sign so winRate and
+              the cumulative line stay populated. Surface the count so users
+              know which buckets lean on inference. */}
+          {data.rFallbackCount > 0 && data.totalTrades > 0 && (
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/40 text-amber-600 dark:text-amber-400 cursor-help"
+                  >
+                    {data.rFallbackCount}/{data.totalTrades} R inferred
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  These trades had no <code>r_multiple_actual</code> recorded;
+                  Pair Lab inferred ±1R from the net-P&L sign so they still
+                  contribute to win-rate and the cumulative chart. Expected-R
+                  rounds toward whole numbers when inference dominates a cell.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {/* G8 — orphan notice. `Include orphan trades` (account_id IS NULL)
+              defaults ON to match the Journal. Surface the count so users see
+              when cross-account rows are folded into the in-scope window. */}
+          {includeUnassigned && data.orphanIncluded > 0 && (
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="border-muted-foreground/40 text-muted-foreground cursor-help"
+                  >
+                    +{data.orphanIncluded} orphan
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  Trades with no <code>account_id</code> (legacy CSV imports,
+                  advisory closes) are included in this scope — matches the
+                  Journal default. Toggle "Include orphan trades" off to
+                  restrict to the selected account only.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
         <div className="mt-3 text-[11px] text-muted-foreground">
           {data.totalTrades} closed trades · {data.perCell.length} cells ·{" "}
