@@ -47,16 +47,19 @@ export interface IdealWindowOption {
   color: string;
 }
 
+// Colors come from semantic design tokens so light/dark themes stay in sync
+// with the rest of the heatmap. `--heat-positive` = worked, `--heat-negative`
+// = failed, `--chart-trail` = mixed-half outcomes, `--muted-foreground` = none.
 export const IDEAL_WINDOW_OPTIONS: IdealWindowOption[] = [
-  { value: "none",                       label: "None",              color: "#64748B" },
-  { value: "first_worked",               label: "1st ✓",             color: "#10B981" },
-  { value: "second_worked",              label: "2nd ✓",             color: "#059669" },
-  { value: "both_worked",                label: "Both ✓",            color: "#047857" },
-  { value: "first_failed",               label: "1st ✗",             color: "#EF4444" },
-  { value: "second_failed",              label: "2nd ✗",             color: "#DC2626" },
-  { value: "both_failed",                label: "Both ✗",            color: "#991B1B" },
-  { value: "first_worked_second_failed", label: "1st ✓ · 2nd ✗",     color: "#F59E0B" },
-  { value: "first_failed_second_worked", label: "1st ✗ · 2nd ✓",     color: "#D97706" },
+  { value: "none",                       label: "None",              color: "hsl(var(--muted-foreground))" },
+  { value: "first_worked",               label: "1st ✓",             color: "hsl(var(--heat-positive))" },
+  { value: "second_worked",              label: "2nd ✓",             color: "hsl(var(--heat-positive))" },
+  { value: "both_worked",                label: "Both ✓",            color: "hsl(var(--heat-positive))" },
+  { value: "first_failed",               label: "1st ✗",             color: "hsl(var(--heat-negative))" },
+  { value: "second_failed",              label: "2nd ✗",             color: "hsl(var(--heat-negative))" },
+  { value: "both_failed",                label: "Both ✗",            color: "hsl(var(--heat-negative))" },
+  { value: "first_worked_second_failed", label: "1st ✓ · 2nd ✗",     color: "hsl(var(--chart-trail))" },
+  { value: "first_failed_second_worked", label: "1st ✗ · 2nd ✓",     color: "hsl(var(--chart-trail))" },
 ];
 
 export const IDEAL_WINDOW_BADGE_OPTIONS = IDEAL_WINDOW_OPTIONS.map(o => ({

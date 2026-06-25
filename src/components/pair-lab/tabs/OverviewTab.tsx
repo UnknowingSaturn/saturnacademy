@@ -83,6 +83,23 @@ export function OverviewTab({
   const slCoverage = closed.length > 0 ? withSl / closed.length : 1;
   const slWarn = closed.length >= 10 && slCoverage < 0.7;
 
+  // Profile vocabulary — drive the picker from what's actually tagged on the
+  // user's trades so custom profiles (e.g. "breakout", "scalp") show up. The
+  // four canonical names stay as a fallback for empty accounts so first-time
+  // users still see the documented options. Always include "(All)" via the
+  // sentinel "any" value handled by the math layer.
+  const profileOptions = useMemo(() => {
+    const FALLBACK = ["continuation", "range", "reversal", "hindsight"];
+    const found = Array.from(
+      new Set(
+        data.trades
+          .map((t) => (t as any).profile ?? (t as any).actual_profile)
+          .filter((v): v is string => typeof v === "string" && v.length > 0),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+    return found.length > 0 ? found : FALLBACK;
+  }, [data.trades]);
+
   // H3 — flag crypto symbols that ship MAE data without a tick-size override.
   // The default classifier ticks crypto at 0.01, which is wrong for any broker
   // that quotes BTC/ETH in whole dollars — MAE would render ~100× too large.
@@ -166,11 +183,12 @@ export function OverviewTab({
               <SelectValue placeholder="Profile" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="any">Any profile</SelectItem>
-              <SelectItem value="continuation">Continuation</SelectItem>
-              <SelectItem value="range">Range</SelectItem>
-              <SelectItem value="reversal">Reversal</SelectItem>
-              <SelectItem value="hindsight">Hindsight</SelectItem>
+              <SelectItem value="any">(All) profiles</SelectItem>
+              {profileOptions.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p.charAt(0).toUpperCase() + p.slice(1)}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/10 px-3 py-1.5">

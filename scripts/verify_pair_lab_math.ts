@@ -19,6 +19,7 @@ import {
   rawQuarterKellyPct,
   bootstrapMeanCi,
   wilsonCi,
+  normalizeSession,
 } from "../shared/quant/stats";
 import { buildSymbolResolver, normalizeSymbol } from "../shared/quant/symbolAliasing";
 import { ticksToPips, pipLabelForSymbol } from "../shared/quant/symbolMapping";
@@ -102,12 +103,11 @@ const rows: Row[] = trades
     cf: t.custom_fields ?? {},
   }));
 
-const SESSION_LABELS: Record<string,string> = {
-  tokyo:"Tokyo", asia:"Tokyo", london:"London", ny_am:"NY AM", ny_pm:"NY PM",
-  ny:"NY AM", new_york:"NY AM", new_york_am:"NY AM", new_york_pm:"NY PM",
-};
-const normSess = (s: string) => SESSION_LABELS[s?.toLowerCase?.()] ?? s ?? "Unknown";
-rows.forEach((r) => { r.session = normSess(r.session); });
+// Session normalization MUST come from shared/quant/stats so the script can't
+// silently drift from the project's canonical 8-entry → label map. The local
+// dict we used to keep here was a copy-paste foot-gun (e.g. it never knew
+// about "frankfurt" or "sydney").
+rows.forEach((r) => { r.session = normalizeSession(r.session); });
 
 const cellMap = new Map<string, Row[]>();
 for (const r of rows) {
@@ -141,6 +141,17 @@ for (const cell of bucketed.perCell) {
   // Server's MAE p75 widen is in pips; convert ticks→pips using canonical symbol.
   const maePips = maeValsTicks.map((t) => ticksToPips(cell.key.symbol, t));
 
+  // Independent expectedR + Wilson winRate CI per cell.
+  const rOnly = mine.map((r) => r.r).filter((v): v is number => v != null);
+  const indep_expectedR = rOnly.length ? meanIndep(rOnly) : 0;
+  const indep_wrCi = mine.length > 0 ? (() => {
+    const n = mine.length, z = 1.96, p = wins / n;
+    const d = 1 + z * z / n;
+    const c = (p + z * z / (2 * n)) / d;
+    const m = (z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d;
+    return [Math.max(0, c - m), Math.min(1, c + m)] as [number, number];
+  })() : null;
+
   const indep_n = mine.length;
   const indep_wr = winRate;
   const indep_mfeP50 = qIndep(mfeVals, 0.5);
@@ -156,10 +167,15 @@ for (const cell of bucketed.perCell) {
   const checks: Array<[string, number | null, number | null]> = [
     ["n", indep_n, proj_n],
     ["winRate", indep_wr, proj_wr],
+    ["expectedR", indep_expectedR, cell.expectedR],
     ["mfeP50", indep_mfeP50, proj_mfeP50],
     ["mfeP75", indep_mfeP75, proj_mfeP75],
     ["maeP75Pips", indep_maeP75Pips, proj_maeP75Pips],
   ];
+  if (indep_wrCi && cell.winRateCi) {
+    checks.push(["winRateCi.lo", indep_wrCi[0], cell.winRateCi[0]]);
+    checks.push(["winRateCi.hi", indep_wrCi[1], cell.winRateCi[1]]);
+  }
   const bad = checks.filter(([_, a, b]) => !near(a, b));
   if (bad.length) {
     failures.push(`${key} (n=${indep_n}): ` + bad.map(([k, a, b]) => `${k} indep=${a} proj=${b}`).join("; "));
@@ -211,5 +227,16 @@ console.log(`\nWilson CI on baseline winRate: indep=[${ciIndep[0].toFixed(6)},${
 const ci1 = bootstrapMeanCi(allR);
 const ci2 = bootstrapMeanCi(allR);
 console.log(`\nBootstrap mean CI determinism: ci1=${JSON.stringify(ci1)} ci2=${JSON.stringify(ci2)} stable=${ci1?.[0] === ci2?.[0] && ci1?.[1] === ci2?.[1]}`);
+
+// Profit factor sanity on baseline — Sum(winR) / Sum(|lossR|).
+// Mirrors shared/quant/stats convention: null when no losses, with the
+// `profitFactorAllWins` flag set on the baseline payload.
+const sumW = wRs.reduce((s, v) => s + v, 0);
+const sumL = lRs.reduce((s, v) => s + v, 0);
+const pfIndep = sumL > 0 ? sumW / sumL : null;
+const pfProj = bucketed.baseline.profitFactor;
+const pfAllWinsProj = bucketed.baseline.profitFactorAllWins;
+const pfAllWinsIndep = sumL <= 0 && sumW > 0;
+console.log(`\nBaseline profitFactor: indep=${pfIndep?.toFixed(4) ?? "null"} proj=${pfProj?.toFixed(4) ?? "null"} agree=${near(pfIndep, pfProj)} (allWins indep=${pfAllWinsIndep} proj=${pfAllWinsProj})`);
 
 console.log(`\n${fail === 0 ? "✅ ALL CHECKS PASSED" : `❌ ${fail} bucket(s) failed`}`);
