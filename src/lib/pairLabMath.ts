@@ -993,16 +993,25 @@ function buildRecommendation(
   // to distribute the daily-loss budget over N consecutive full stops.
   let suggestedRiskPctPropFirm: number | null = null;
   let bindingConstraint: BucketRecommendation["bindingConstraint"] = null;
-  if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null) {
+  // G6 parity: mirror edge — require `dailyLossDollars > 0` (treat 0 as
+  // unset, not as a hard floor of 0.1%) and fall back hardCap to 2 when
+  // `hardCapPct <= 0` so a missing profile setting doesn't clamp to 0.
+  if (
+    propFirm &&
+    propFirm.balance > 0 &&
+    propFirm.dailyLossDollars != null &&
+    propFirm.dailyLossDollars > 0
+  ) {
     const streak = Math.max(MIN_STREAK_FLOOR, s.worstLosingStreak || 0);
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
     const ddCappedPct = dailyBudgetPct / streak;
-    suggestedRiskPctPropFirm = Math.max(0.1, Math.min(propFirm.hardCapPct, ddCappedPct));
+    const hardCap = propFirm.hardCapPct > 0 ? propFirm.hardCapPct : 2;
+    suggestedRiskPctPropFirm = Math.max(0.1, Math.min(hardCap, ddCappedPct));
 
     if (suggestedRiskPct == null) {
       bindingConstraint = "prop_firm_dd";
     } else if (suggestedRiskPctPropFirm < suggestedRiskPct) {
-      bindingConstraint = suggestedRiskPctPropFirm >= propFirm.hardCapPct - 0.001
+      bindingConstraint = suggestedRiskPctPropFirm >= hardCap - 0.001
         ? "hard_cap"
         : "prop_firm_dd";
     } else {
