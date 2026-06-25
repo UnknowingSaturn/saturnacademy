@@ -60,6 +60,16 @@ export default function Journal() {
   const { data: trades, isLoading } = useTrades();
   const { data: settings } = useUserSettings();
   const { selectedAccountId, accounts } = useAccountFilter();
+  const { data: aliases } = useSymbolAliases();
+
+  // Phase H/11: canonicalize broker symbol variants before filtering/grouping
+  // so "EURUSD" matches "EURUSD+", "EURUSD.r", and any saved alias. Match
+  // both the raw and resolved spellings so users can still type the broker
+  // name verbatim.
+  const symbolResolver = useMemo(
+    () => buildSymbolResolver(aliases ?? []),
+    [aliases],
+  );
 
   // Read model filter from URL params on mount
   useEffect(() => {
