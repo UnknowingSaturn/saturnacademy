@@ -142,11 +142,16 @@ export default function Journal() {
       result = result.filter(trade => trade.playbook_id === modelFilter || trade.playbook?.name === modelFilter);
     }
 
-    // Symbol filter
+    // Symbol filter (canonicalized: matches raw broker symbol OR the
+    // alias-resolved canonical, so "EURUSD" finds EURUSD+/EURUSD.r too).
     if (symbolFilter) {
-      result = result.filter(trade => 
-        trade.symbol.toLowerCase().includes(symbolFilter.toLowerCase())
-      );
+      const needle = symbolFilter.toLowerCase();
+      const needleCanonical = symbolResolver(symbolFilter).toLowerCase();
+      result = result.filter(trade => {
+        const raw = (trade.symbol || "").toLowerCase();
+        const canonical = symbolResolver(trade.symbol || "").toLowerCase();
+        return raw.includes(needle) || canonical.includes(needleCanonical);
+      });
     }
 
     // Session filter
