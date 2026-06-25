@@ -302,6 +302,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     filters.dateTo,
     filters.recentN,
     filters.includeUnrealized,
+    includeUnassigned,
     filters.groupOverride?.name,
     filters.groupOverride?.symbols.join(","),
   ]);
