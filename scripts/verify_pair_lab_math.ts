@@ -103,12 +103,11 @@ const rows: Row[] = trades
     cf: t.custom_fields ?? {},
   }));
 
-const SESSION_LABELS: Record<string,string> = {
-  tokyo:"Tokyo", asia:"Tokyo", london:"London", ny_am:"NY AM", ny_pm:"NY PM",
-  ny:"NY AM", new_york:"NY AM", new_york_am:"NY AM", new_york_pm:"NY PM",
-};
-const normSess = (s: string) => SESSION_LABELS[s?.toLowerCase?.()] ?? s ?? "Unknown";
-rows.forEach((r) => { r.session = normSess(r.session); });
+// Session normalization MUST come from shared/quant/stats so the script can't
+// silently drift from the project's canonical 8-entry → label map. The local
+// dict we used to keep here was a copy-paste foot-gun (e.g. it never knew
+// about "frankfurt" or "sydney").
+rows.forEach((r) => { r.session = normalizeSession(r.session); });
 
 const cellMap = new Map<string, Row[]>();
 for (const r of rows) {
