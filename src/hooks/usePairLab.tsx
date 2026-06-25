@@ -88,6 +88,8 @@ export interface PairLabData {
   orphanIncluded: number;
   /** Count of closed trades whose R was inferred from net_pnl sign (no `r_multiple_actual`). */
   rFallbackCount: number;
+  /** Count of trades with naive (no-TZ) entry_time strings in current scope. */
+  naiveTimestampCount: number;
 }
 
 const SESSION_ORDER = ["Tokyo", "London", "NY AM", "NY PM"];
