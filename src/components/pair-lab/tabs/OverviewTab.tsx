@@ -183,11 +183,12 @@ export function OverviewTab({
               <SelectValue placeholder="Profile" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="any">Any profile</SelectItem>
-              <SelectItem value="continuation">Continuation</SelectItem>
-              <SelectItem value="range">Range</SelectItem>
-              <SelectItem value="reversal">Reversal</SelectItem>
-              <SelectItem value="hindsight">Hindsight</SelectItem>
+              <SelectItem value="any">(All) profiles</SelectItem>
+              {profileOptions.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p.charAt(0).toUpperCase() + p.slice(1)}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/10 px-3 py-1.5">
