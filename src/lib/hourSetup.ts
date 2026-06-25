@@ -108,9 +108,10 @@ export function readIdealWindow(trade: Trade | { custom_fields?: any } | null | 
   for (const k of Object.keys(cf)) {
     if (k.startsWith("cf_ideal_entry_window")) {
       const v = cf[k];
-      if (typeof v === "string" && (IDEAL_WINDOW_VALUES as string[]).includes(v)) {
-        return v as IdealWindowValue;
-      }
+      if (typeof v !== "string") continue;
+      if ((IDEAL_WINDOW_VALUES as string[]).includes(v)) return v as IdealWindowValue;
+      // Legacy rows: accept on read, decode normalizes to the 9-state grid.
+      if (LEGACY_IDEAL_WINDOW_VALUES.has(v)) return v as IdealWindowValue;
     }
   }
   return null;
