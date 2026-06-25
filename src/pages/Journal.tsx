@@ -209,7 +209,7 @@ export default function Journal() {
   const getTradeValue = (trade: Trade, column: string): any => {
     switch (column) {
       case 'trade_number': return trade.trade_number;
-      case 'symbol': return trade.symbol;
+      case 'symbol': return symbolResolver(trade.symbol || "");
       case 'session': return trade.session;
       case 'account': 
         const account = accounts?.find(a => a.id === trade.account_id);
