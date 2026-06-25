@@ -256,6 +256,9 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       ? scopedTrades.filter((t) => t.account_id == null).length
       : 0;
     const rFallbackCount = baseline.eventsRFallbackCount ?? 0;
+    // Phase H/12: detector for TZ-less entry_time strings in the active scope.
+    // Surfaced as a header chip so users can fix DST profile / re-ingest.
+    const naiveTimestampCount = countNaiveEntryTimes(scopedTrades);
 
     return {
       isLoading:
