@@ -2,9 +2,14 @@
 // OutOfSamplePanel — train/test split on the date axis.
 //
 // Splits the in-scope trades chronologically at `splitDate` (default 70/30 by
-// time), runs `buildBuckets` independently on each half, and shows where the
-// baseline + per-cell expectancy held up out-of-sample. Cells profitable in
-// train but negative in test are flagged as overfit candidates.
+// calendar position), runs `buildBuckets` independently on each half in a Web
+// Worker, and shows where the baseline + per-cell expectancy held up
+// out-of-sample. Cells profitable in train but negative in test are flagged
+// as overfit candidates.
+//
+// Perf: dual buildBuckets runs off the main thread (oosSplit.worker). The
+// slider stays at native 60fps; the heavy recompute is debounced 150ms.
+// Slider bounds come from usePairLabTradeBounds — no per-memo full-sort.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from "react";
@@ -12,14 +17,15 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Trade } from "@/types/trading";
-import {
-  buildBuckets,
-  type BucketReport,
-  type PairLabFieldKeys,
-  type PropFirmContext,
+import type {
+  PairLabFieldKeys,
+  PropFirmContext,
 } from "@/lib/pairLabMath";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
+import { useOosSplit } from "@/hooks/useOosSplit";
+import { usePairLabTradeBounds } from "@/hooks/usePairLabTradeBounds";
 
 interface Props {
   trades: Trade[];
@@ -36,12 +42,6 @@ function fmt(ms: number) {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-function deltaCell(train: BucketReport | null, test: BucketReport | null) {
-  if (!train || !test || train.n < 5 || test.n < 5) return null;
-  const overfit = train.expectedR > 0 && test.expectedR <= 0;
-  return { train, test, overfit };
-}
-
 export function OutOfSamplePanel({
   trades,
   fieldKeys,
@@ -50,25 +50,19 @@ export function OutOfSamplePanel({
   dateFrom,
   dateTo,
 }: Props) {
-  // Bound the slider by the in-scope trade timestamps.
-  const { minMs, maxMs, defaultSplit } = useMemo(() => {
-    const tsList = trades
-      .filter((t) => !t.is_open && !t.is_archived && t.entry_time)
-      .map((t) => new Date(String(t.entry_time)).getTime())
-      .filter((n) => Number.isFinite(n))
-      .sort((a, b) => a - b);
-    const min = tsList[0] ?? Date.now() - 90 * DAY;
-    const max = tsList[tsList.length - 1] ?? Date.now();
-    // 70/30 by time index, not by calendar — handles bursty trading.
-    const split = tsList.length > 0
-      ? tsList[Math.floor(tsList.length * 0.7)] ?? max
-      : (min + max) / 2;
-    return { minMs: min, maxMs: max, defaultSplit: split };
-  }, [trades]);
+  // Slider bounds come from the shared bounds hook (single O(n) pass on the
+  // cached trade list — no per-memo sort here). The 70/30 split is computed
+  // as a linear calendar fraction of [min,max]; it used to be index-based
+  // (sort + percentile) which was O(n log n) on every slider drag.
+  const { minMs, maxMs } = usePairLabTradeBounds();
+  const defaultSplit = useMemo(
+    () => Math.round(minMs + 0.7 * (maxMs - minMs)),
+    [minMs, maxMs],
+  );
 
   // Two-stage state: `sliderMs` updates instantly so the slider feels
-  // responsive; `splitMs` (which drives the heavy buildBuckets call) is
-  // committed 150ms after the user stops dragging.
+  // responsive; `splitMs` (which drives the worker postMessage) is committed
+  // 150ms after the user stops dragging.
   const [splitMs, setSplitMs] = useState<number>(defaultSplit);
   const [sliderMs, setSliderMs] = useState<number>(defaultSplit);
   const commitSplit = useDebouncedCallback((v: number) => setSplitMs(v), 150);
@@ -77,44 +71,60 @@ export function OutOfSamplePanel({
     setSplitMs(defaultSplit);
   }, [defaultSplit]);
 
-  const { train, test, deltas } = useMemo(() => {
-    const splitIso = new Date(splitMs).toISOString();
-    const trainRes = buildBuckets(trades, fieldKeys, {
-      symbolResolver,
-      propFirm,
-      closedOnly: true,
-      dateFrom,
-      dateTo: splitIso,
-    });
-    const testRes = buildBuckets(trades, fieldKeys, {
-      symbolResolver,
-      propFirm,
-      closedOnly: true,
-      dateFrom: splitIso,
-      dateTo,
-    });
-    const cellKey = (b: BucketReport) => `${b.key.symbol}__${b.key.session}`;
-    const testMap = new Map(testRes.perCell.map((b) => [cellKey(b), b]));
-    const out: Array<{ symbol: string; session: string; train: BucketReport; test: BucketReport; overfit: boolean }> = [];
-    for (const tr of trainRes.perCell) {
-      const te = testMap.get(cellKey(tr));
-      const d = deltaCell(tr, te ?? null);
-      if (d) {
-        out.push({ symbol: tr.key.symbol, session: tr.key.session, ...d });
-      }
+  // Stable raw → canonical map so the worker can rebuild the resolver
+  // function. Recomputed only when the trade slice or aliases shift.
+  const resolverMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of trades) {
+      if (!t.symbol) continue;
+      if (map[t.symbol] != null) continue;
+      map[t.symbol] = symbolResolver(t.symbol);
     }
-    out.sort((a, b) => (b.overfit ? 1 : 0) - (a.overfit ? 1 : 0) || b.train.n - a.train.n);
-    return { train: trainRes.baseline, test: testRes.baseline, deltas: out };
-  }, [trades, fieldKeys, symbolResolver, propFirm, dateFrom, dateTo, splitMs]);
+    return map;
+  }, [trades, symbolResolver]);
 
+  const params = useMemo(
+    () => ({
+      trades,
+      fieldKeys,
+      resolverMap,
+      propFirm,
+      dateFrom,
+      dateTo,
+      splitIso: new Date(splitMs).toISOString(),
+    }),
+    [trades, fieldKeys, resolverMap, propFirm, dateFrom, dateTo, splitMs],
+  );
+
+  const { result, isComputing } = useOosSplit(params);
+
+  // First-paint skeleton — once we have a result, keep rendering it while
+  // newer requests recompute (avoids the table flickering between drags).
+  if (!result) {
+    return (
+      <Card className="p-4 space-y-3">
+        <Skeleton className="h-5 w-64" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-2 w-full" />
+        <Skeleton className="h-24 w-full" />
+      </Card>
+    );
+  }
+
+  const { trainBaseline: train, testBaseline: test, deltas } = result;
   const overfitCount = deltas.filter((d) => d.overfit).length;
 
   return (
     <Card className="p-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="space-y-0.5">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2">
             Out-of-sample split
+            {isComputing && (
+              <span className="text-[10px] text-muted-foreground/60">
+                recomputing…
+              </span>
+            )}
           </div>
           <div className="text-sm">
             Train: <span className="font-mono-numbers">N {train.n} · {(train.winRate * 100).toFixed(0)}% · {(train.expectedR >= 0 ? "+" : "") + train.expectedR.toFixed(2)}R</span>

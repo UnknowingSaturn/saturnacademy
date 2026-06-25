@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Info, Layers, Shield, AlertTriangle, Clock } from "lucide-react";
 import { WalkForwardControls } from "@/components/pair-lab/WalkForwardControls";
-import { useSymbolGroups } from "@/hooks/useSymbolGroups";
+import type { SymbolGroup } from "@/hooks/useSymbolGroups";
 import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
 import { classifySymbol, getTickSizeOverrides } from "@/lib/symbolMapping";
 import { normalizeSymbol } from "../../../../shared/quant/symbolAliasing";
@@ -47,6 +47,13 @@ interface Props {
   setIncludeUnassigned: (v: boolean) => void;
   scope: string;
   setScope: (v: string) => void;
+  /** Symbol groups list — passed from PairLab.tsx to avoid a second
+   *  useSymbolGroups subscription (which would trigger a duplicate query
+   *  + re-derive on every group mutation). */
+  groups: SymbolGroup[];
+  /** Resolved active group when `scope` starts with "grp:". Resolved once in
+   *  PairLab.tsx and passed down so OverviewTab + usePairLab agree. */
+  activeGroup: SymbolGroup | null;
 }
 
 export function OverviewTab({
@@ -61,14 +68,11 @@ export function OverviewTab({
   setIncludeUnassigned,
   scope,
   setScope,
+  groups,
+  activeGroup,
 }: Props) {
 
   const { wf, setWf, minMs, maxMs } = usePairLabWalkForward();
-  const { groups } = useSymbolGroups();
-  const activeGroup = useMemo(() => {
-    if (!scope.startsWith("grp:")) return null;
-    return groups.find((g) => g.id === scope.slice(4)) ?? null;
-  }, [scope, groups]);
 
   const closed = data.trades.filter(
     (t) => !t.is_open && !t.is_archived && t.net_pnl != null,

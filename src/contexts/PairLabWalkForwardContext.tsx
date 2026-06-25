@@ -24,7 +24,6 @@ export interface PairLabWalkForwardValue {
   profile: string | null;
   /** Scope key: "all" | "grp:<id>" | "sym:<SYMBOL>". */
   scope: string;
-  recentN: number;
   includeUnrealized: boolean;
   propFirmMode: boolean;
 }
