@@ -54,6 +54,7 @@ export function OutOfSamplePanel({
   propFirm,
   dateFrom,
   dateTo,
+  includeUnrealized,
 }: Props) {
   // Slider bounds come from the shared bounds hook (single O(n) pass on the
   // cached trade list — no per-memo sort here). The 70/30 split is computed
@@ -97,8 +98,9 @@ export function OutOfSamplePanel({
       dateFrom,
       dateTo,
       splitIso: new Date(splitMs).toISOString(),
+      includeUnrealized,
     }),
-    [trades, fieldKeys, resolverMap, propFirm, dateFrom, dateTo, splitMs],
+    [trades, fieldKeys, resolverMap, propFirm, dateFrom, dateTo, splitMs, includeUnrealized],
   );
 
   const { result, isComputing } = useOosSplit(params);
