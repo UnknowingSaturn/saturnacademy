@@ -52,9 +52,32 @@ export const WINNERS_MAE_SL_BUFFER = 1.10;
 export const MAE_P75_WIDEN_BUFFER = 1.15;
 
 /**
- * SL-drift "aligned" band: the ratio of slInitialMedian / idealSlMedian must
- * fall inside [MIN, MAX] to count as aligned. Outside the band the bucket is
- * tagged "too_wide" or "too_tight".
+ * SL-drift "aligned" band: classifies how the trader's *actual* initial SL
+ * compares to the bucket's empirically derived ideal SL.
+ *
+ *   ratio = idealSlMedian / slInitialMedian
+ *
+ *   ratio < SL_DRIFT_ALIGNED_MIN  (default 0.80) → "too_wide"
+ *     Trader's SL is materially wider than the ideal — they bleed extra R
+ *     on losers without a corresponding hit-rate gain. Tighten toward the
+ *     ideal to lift expectancy without changing the playbook.
+ *
+ *   ratio > SL_DRIFT_ALIGNED_MAX  (default 1.20) → "too_tight"
+ *     Trader's SL is materially tighter than the ideal — they get stopped
+ *     out of trades that would otherwise have worked. Widen toward the ideal
+ *     (or accept the lower hit-rate as a deliberate cost).
+ *
+ *   else → "aligned" — within ±20% of ideal, no execution-discipline flag.
+ *
+ * Band rationale: the ±20% gate is a tradeoff between (a) catching real
+ * mis-sizing — bucket medians wander by ~10-15% with sample size n=30 —
+ * and (b) ignoring noise. Tightening the band (e.g. 0.90/1.10) makes the
+ * flag chronically lit on small buckets; widening it (0.70/1.30) lets a
+ * full ~30% mis-size pass without comment.
+ *
+ * IMPORTANT: this flag describes *execution discipline*, not the suggested
+ * SL itself. AI/report consumers must NOT use slDrift to override the
+ * suggested_sl_pips number — they live in different surfaces.
  */
 export const SL_DRIFT_ALIGNED_MIN = 0.80;
 export const SL_DRIFT_ALIGNED_MAX = 1.20;
