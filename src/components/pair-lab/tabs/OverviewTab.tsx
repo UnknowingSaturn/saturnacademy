@@ -100,18 +100,17 @@ export function OverviewTab({
     return found.length > 0 ? found : FALLBACK;
   }, [data.trades]);
 
-  // H3 — flag crypto symbols that ship MAE data without a tick-size override.
-  // The default classifier ticks crypto at 0.01, which is wrong for any broker
-  // that quotes BTC/ETH in whole dollars — MAE would render ~100× too large.
-  const cryptoWithoutOverride = useMemo(() => {
+  // G10 — flag crypto OR index symbols that ship MAE data without a tick-size
+  // override. Defaults: crypto=0.01 (wrong for BTC/ETH quoted in whole $),
+  // index=1.0 (wrong for NAS100/US30 quoted in 0.1). Either mis-scales MAE.
+  const tickSizeOffenders = useMemo(() => {
     const overrides = getTickSizeOverrides();
     const offenders = new Set<string>();
     for (const t of closed) {
       if (!t.symbol) continue;
-      if (classifySymbol(t.symbol) !== "crypto") continue;
+      const cls = classifySymbol(t.symbol);
+      if (cls !== "crypto" && cls !== "index") continue;
       if (overrides[normalizeSymbol(t.symbol)] != null) continue;
-      // Treat presence of any logged MAE custom-field value as the trigger —
-      // until that exists, the mis-scaling is invisible.
       const cf = (t as any).custom_fields;
       const hasMae =
         cf &&
@@ -343,22 +342,22 @@ export function OverviewTab({
         </Card>
       )}
 
-      {/* H3 — crypto without tick-size override produces ~100× mis-scaled MAE. */}
-      {cryptoWithoutOverride.length > 0 && (
+      {/* G10 — crypto or index without tick-size override produces mis-scaled MAE. */}
+      {tickSizeOffenders.length > 0 && (
         <Card className="p-4 flex items-start gap-3 border-amber-500/30 bg-amber-500/5">
           <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
           <div className="text-sm">
             <div className="font-medium mb-1">
-              Crypto symbols with logged MAE but no tick-size override.
+              Symbols with logged MAE but no tick-size override.
             </div>
             <div className="text-muted-foreground text-xs leading-relaxed">
-              {cryptoWithoutOverride.join(", ")} —{" "}
-              the default classifier ticks crypto at 0.01. If your broker
-              quotes these in whole dollars (most do for BTC/ETH), MAE and
-              Ideal-SL will render ~100× too large and SL recommendations will
-              be unusable. Set a tick-size override under{" "}
+              {tickSizeOffenders.join(", ")} —{" "}
+              defaults are crypto=0.01 and index=1.0. If your broker quotes
+              crypto in whole dollars or indices in 0.1, MAE and Ideal-SL will
+              be 10–100× mis-scaled and SL recommendations will be unusable.
+              Set a per-symbol tick-size under{" "}
               <span className="font-medium text-foreground">Setup → Symbol groups</span>{" "}
-              (e.g. BTCUSD = 1.0, ETHUSD = 0.1).
+              (e.g. BTCUSD = 1.0, NAS100 = 0.1).
             </div>
           </div>
         </Card>
@@ -418,6 +417,53 @@ export function OverviewTab({
                 PF budget: ${data.propFirm.dailyLossDollars.toFixed(0)}/day
               </Badge>
             )}
+          {/* G7 — R-fallback badge. When a trade has no `r_multiple_actual`,
+              its outcome is inferred as ±1 from net P&L sign so winRate and
+              the cumulative line stay populated. Surface the count so users
+              know which buckets lean on inference. */}
+          {data.rFallbackCount > 0 && data.totalTrades > 0 && (
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/40 text-amber-600 dark:text-amber-400 cursor-help"
+                  >
+                    {data.rFallbackCount}/{data.totalTrades} R inferred
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  These trades had no <code>r_multiple_actual</code> recorded;
+                  Pair Lab inferred ±1R from the net-P&L sign so they still
+                  contribute to win-rate and the cumulative chart. Expected-R
+                  rounds toward whole numbers when inference dominates a cell.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {/* G8 — orphan notice. `Include orphan trades` (account_id IS NULL)
+              defaults ON to match the Journal. Surface the count so users see
+              when cross-account rows are folded into the in-scope window. */}
+          {includeUnassigned && data.orphanIncluded > 0 && (
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="border-muted-foreground/40 text-muted-foreground cursor-help"
+                  >
+                    +{data.orphanIncluded} orphan
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  Trades with no <code>account_id</code> (legacy CSV imports,
+                  advisory closes) are included in this scope — matches the
+                  Journal default. Toggle "Include orphan trades" off to
+                  restrict to the selected account only.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
         <div className="mt-3 text-[11px] text-muted-foreground">
           {data.totalTrades} closed trades · {data.perCell.length} cells ·{" "}

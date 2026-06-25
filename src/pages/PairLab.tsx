@@ -46,7 +46,9 @@ export default function PairLab() {
   const profile = searchParams.get("profile") ?? "any";
   const propFirmMode = searchParams.get("pf") !== "0";
   const includeUnrealized = searchParams.get("unreal") === "1";
-  const includeUnassigned = searchParams.get("orphans") === "1";
+  // G8 parity: Journal shows orphan (account_id IS NULL) trades by default;
+  // Pair Lab now matches. Explicit `orphans=0` opts out.
+  const includeUnassigned = searchParams.get("orphans") !== "0";
   const scope = searchParams.get("scope") ?? "all";
   const tabParam = searchParams.get("tab") ?? "overview";
   const tab = VALID_TABS.has(tabParam) ? tabParam : "overview";
@@ -70,7 +72,7 @@ export default function PairLab() {
   const setIncludeUnrealized = (v: boolean) =>
     patchParams((p) => (v ? p.set("unreal", "1") : p.delete("unreal")));
   const setIncludeUnassigned = (v: boolean) =>
-    patchParams((p) => (v ? p.set("orphans", "1") : p.delete("orphans")));
+    patchParams((p) => (v ? p.delete("orphans") : p.set("orphans", "0")));
   const setScope = (v: string) =>
     patchParams((p) => {
       if (v === "all") p.delete("scope");

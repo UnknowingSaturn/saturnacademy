@@ -84,6 +84,10 @@ export interface PairLabData {
   partialFillFlag: PartialFillFlag | null;
   /** Count of trades dropped because they were classified as Unrealized (ideas/paper/missed/dismissed). */
   unrealizedExcluded: number;
+  /** Count of in-scope trades with NULL account_id (folded in when `includeUnassigned`). */
+  orphanIncluded: number;
+  /** Count of closed trades whose R was inferred from net_pnl sign (no `r_multiple_actual`). */
+  rFallbackCount: number;
 }
 
 const SESSION_ORDER = ["Tokyo", "London", "NY AM", "NY PM"];
@@ -217,6 +221,13 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const dateTo = filters.dateTo ?? null;
     const matchesScope = (t: typeof trades[number]) => {
       if (t.is_archived) return false;
+      // G9 fix: exclude open positions from analytical surfaces.
+      // Historical R-multiple, MAE/MFE and SL replay are undefined for
+      // live trades; including them silently mixed unrealized rows into
+      // the grid and chart. `buildBuckets` already filters via `closedOnly`,
+      // but downstream consumers (StrategyLab, drilldowns) re-derived from
+      // `trades` and saw the leak.
+      if (t.is_open) return false;
       if (filters.profile && t.profile !== filters.profile && t.actual_profile !== filters.profile) return false;
       if (dateFrom || dateTo) {
         const ts = t.entry_time ? String(t.entry_time) : null;
@@ -228,7 +239,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       return true;
     };
     const scopedTrades = trades.filter(matchesScope);
-    const closedTrades = scopedTrades.filter((t) => !t.is_open);
+    const closedTrades = scopedTrades;
 
     const symbols = Array.from(new Set(perRow.map((r) => r.key.symbol))).sort();
     const sessions = Array.from(new Set(perCell.map((c) => c.key.session))).sort(
@@ -238,6 +249,13 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const trailCapture = estimateTrailCapture(closedTrades, fieldKeys);
     const effectiveTrailCapture = trailCapture?.ratio ?? TRAIL_CAPTURE_FRAC;
     const partialFillFlag = detectPartialFills(closedTrades);
+
+    // Header chips: orphan rows actually in scope, and R-fallback (sign-inferred)
+    // count drawn from the baseline cell which mirrors what the grid renders.
+    const orphanIncluded = includeUnassigned
+      ? scopedTrades.filter((t) => t.account_id == null).length
+      : 0;
+    const rFallbackCount = baseline.eventsRFallbackCount ?? 0;
 
     return {
       isLoading:
@@ -263,6 +281,8 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       effectiveTrailCapture,
       partialFillFlag,
       unrealizedExcluded,
+      orphanIncluded,
+      rFallbackCount,
     };
   }, [
     tradesQuery.data,
@@ -282,6 +302,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     filters.dateTo,
     filters.recentN,
     filters.includeUnrealized,
+    includeUnassigned,
     filters.groupOverride?.name,
     filters.groupOverride?.symbols.join(","),
   ]);
