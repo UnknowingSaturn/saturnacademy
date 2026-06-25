@@ -1,64 +1,72 @@
-## Verification result
+# Pair Lab Remediation Audit (Phases A–I)
 
-Phases 1-4 are largely applied. The remaining gaps are duplicated walk-forward UI inside `IdealWindowHeatmap`, dead `localWf` fallback, server-side tick-size override divergence, and a stale fixture path in the verify script.
+I re-read every file touched by Phases A–I and grepped the codebase for the symbols each phase added or purged. **All 24 fixes are in place and reachable from the live UI**, with one minor cleanup worth doing.
 
-### Verified clean
-- **C1** `winnersMaePips` iterates raw rows, no `sl_initial` gate (`pairLabMath.ts:715`).
-- **C2** `useTrades` account filter uses `account_id.eq.X,account_id.is.null`.
-- **C3/M6** `isUnrealized()` lives in `shared/quant/stats.ts` and is consumed by `usePairLab` + `pairLabMath`.
-- **H1** `bootstrapKellyCi` uses two independent RNG streams (`stats.ts:184-185`).
-- **M1** Both `pairLabMath.ts` and `_shared/quant/pairLabMath.ts` use `sideOf()`-driven `longestLossStreak`.
-- **M3** `baselineRs.push(r)` is gated to once per trade in `idealWindowMath.ts:290`.
-- **C4** Single `usePairLab` call in `PairLab.tsx`, bounds via `usePairLabTradeBounds`.
-- **C5** `PairLabWalkForwardContext` exists; `OverviewTab`, `StrategyTab`, `IdealWindowHeatmap` read it.
-- **H4** Strategy Lab MC offloaded to `strategyLabMC.worker.ts`.
-- **Phase 3** Tabs IA shipped; URL-bound state in `PairLab.tsx`.
-- **Phase 4** UTC parser hardened, payload extended (`walk_forward`, `recommendationConfidence`, `expectancyAtSuggestedCi`, `suggestedTpR`), `--heat-positive/--heat-negative/--chart-trail` tokens applied, `tick_size_overrides` migration + client shim shipped.
-- `sampleWindow`, `totalTradeRowsRaw`, dead `TRAIL_CAPTURE_FRAC` leak — all gone. `tsgo` is clean.
+## Phase-by-phase verification
 
-### Gaps to close
+### Phase A/B/C — Correctness, parity, dead-code
+- ✅ `isUnrealized` is the single source of truth — imported by `usePairLab`, `idealWindowMath`, both `pairLabMath` modules, and the OOS worker.
+- ✅ Prop-firm Kelly math matches client ↔ edge: both gate on `dailyLossDollars > 0` and default `hardCapPct` to 2 when ≤ 0 (`src/lib/pairLabMath.ts:1002`, `supabase/.../pairLabMath.ts:522`).
+- ✅ Purged shims are gone: zero hits for `wilsonInterval`, `bootstrapMeanCI`, `parseTpLabel`, `actualProfile`, `DEFAULT_TRAIL_CAPTURE`, `totalTradeRowsRaw`. The `idealWindowMath` header comment documents the removal.
 
-1. **Duplicate walk-forward UI inside `IdealWindowHeatmap`** (`IdealWindowHeatmap.tsx:144-149, 152-157, 434`).
-   The component now lives inside `IdealWindowsTab`, which sits under `PairLabWalkForwardProvider` and inherits the lens that `OverviewTab` already exposes. The component still renders its own `<WalkForwardControls>` AND still wires a `localWf` fallback. Result: two slider rows on screen, plus dead state.
-   - Remove `localWf` state and the `sharedWf ? ... : ...` branches; require context.
-   - Remove the in-component `<WalkForwardControls>` render (keep the per-pair scope/regime/direction/minN/sort selectors).
-   - Drop the `useOptionalPairLabWalkForward` import; use `usePairLabWalkForward` since the provider is now mandatory.
+### Phase D — State + perf
+- ✅ `useSymbolGroups()` is called **once** in `PairLab.tsx:98`; `OverviewTab` consumes it as a prop (only the `SymbolGroup` type is imported).
+- ✅ OOS dual-bucket build runs in `src/workers/oosSplit.worker.ts` via `useOosSplit`; `OutOfSamplePanel` reads bounds from `usePairLabTradeBounds` (no per-memo full sort).
+- ✅ `recentN` is no longer in `PairLabWalkForwardContext` (grep returns empty). `usePairLab` still accepts the optional filter and defaults to 10, so the field was cleanly retired without breaking callers.
 
-2. **Server-side tick-size overrides** (Phase 4 open question, answer = yes).
-   `supabase/functions/_shared/quant/symbolMapping.ts` has no override path, so the AI pair-lab report uses default tick sizes while the UI uses overrides — divergence on crypto/exotic symbols.
-   - Add an in-memory override map + setter to `_shared/quant/symbolMapping.ts` (mirror `src/lib/symbolMapping.ts`).
-   - In `pair-lab-report/index.ts`, load `symbol_groups.tick_size_overrides` for the user, merge, and seed the map before running `buildBuckets`.
+### Phase E — UX + verify script
+- ✅ `scripts/verify_pair_lab_math.ts` imports `normalizeSession` from shared, runs per-cell `expectedR` + Wilson `winRateCi` lo/hi checks (lines 144–177), and validates baseline `profitFactor` + `profitFactorAllWins` (lines 233–240).
+- ✅ `IDEAL_WINDOW_OPTIONS` uses `hsl(var(--heat-positive|--heat-negative|--chart-trail|--muted-foreground))` exclusively.
+- ✅ `OutOfSamplePanel` formats dates with the `(UTC)` suffix and the dynamic profile picker derives from real trade values.
 
-3. **`scripts/verify_pair_lab_math.ts` fixture path.**
-   Script reads `/tmp/verify/trades.json` unconditionally and crashes if missing. Add a clear `process.exit(1)` with a hint pointing at the dump command, so future runs don't look like a verification failure.
+### Phase F — Critical bugs (1–5)
+- ✅ **F1 session aliasing**: `SESSION_LABELS` in `shared/quant/stats.ts:276–278` maps `overlap_london_ny`, `ny_london`, and `london_ny_overlap` all to "Overlap".
+- ✅ **F2 edge filter**: `tp1StarPairs` loop in edge math now starts with `if (isUnrealized(t)) continue;` (line 385).
+- ✅ **F3 ideal-windows filter**: `idealWindowMath.ts:238` skips unrealized rows.
+- ✅ **F4 OOS context**: `includeUnrealized` is threaded `PairLab → StrategyTab → OutOfSamplePanel → useOosSplit → worker` (worker uses it on both train and test buckets, lines 59 + 67).
+- ✅ **F5 missing-field diagnostics**: `usePairLab` returns the structured `missingFields` object and `OverviewTab` surfaces field-specific warnings.
 
-4. **`entry_time` persistence** (Phase 4 second open question).
-   Leave as-is. The display label + hardened parser cover the parity issue; rewriting historical `entry_time` would mutate user-owned data without an unambiguous gain. Document the decision in `brokerDst.ts` header.
+### Phase G — Parity (6–10)
+- ✅ Prop-firm parity (see Phase A).
+- ✅ `rFallbackCount` flows through the hook and renders as the amber "{n}/{N} R inferred" badge (`OverviewTab.tsx:432`).
+- ✅ Orphan default is on (`includeUnassigned`) with the "+N orphan" muted chip at line 455 and the toggle at line 159.
+- ✅ Open-trade leakage: `usePairLab` filters `t.is_open` twice (lines 117 + 232) — once in the baseline pass, once in `scopedTrades`.
+- ✅ `tickSizeOffenders` covers crypto + indices and renders the warning at `OverviewTab.tsx:346`.
 
-### Technical details
+### Phase H — Architecture (11–15)
+- ✅ Journal alias resolver: `Journal.tsx` memoizes `symbolResolver` and applies it in the filter (line 152) and the `getTradeValue('symbol')` sort case (line 212).
+- ✅ `countNaiveEntryTimes` is exported from `shared/quant/stats.ts:412`, wired into `usePairLab` (line 263), exposed on `PairLabData.naiveTimestampCount`, and rendered at `OverviewTab.tsx:472`.
+- ✅ Hardened `isUnrealized` keeps the `is_open` guard, executed-only zero-PnL branch, and strict-equality SL/TP checks.
+- ✅ `SL_DRIFT_ALIGNED_MIN/MAX` JSDoc explains the 0.80/1.20 band and the discipline-vs-suggested-SL distinction.
 
-**File edits**
-- `src/components/pair-lab/IdealWindowHeatmap.tsx`
-  - Replace `useOptionalPairLabWalkForward()` with `usePairLabWalkForward()`.
-  - Delete `localWf`, `setLocalWf`, the clamp `useEffect`, and the `sharedWf ? ... : ...` ternaries (`wf`/`setWf` come straight from context).
-  - Delete the `<WalkForwardControls ... />` block at ~L434 and the surrounding "Walk-forward" header row; leave the pair/scope/regime/direction/minN/sort controls.
-  - Drop the now-unused `WalkForwardControls`, `WalkForwardState` imports; keep `resolveWindow` if still referenced (it is, for `dateFrom/dateTo`).
+### Phase I — Cleanup (16–19)
+- ✅ `bootstrapKellyCi` uses two seeded streams (`randPayoff` + `randBinom`, `shared/quant/stats.ts:184–185`).
+- ✅ Naive-timestamp detector + UI chip (covered above).
+- ✅ `"mixed"` is removed from the `IdealWindowValue` union and `IDEAL_WINDOW_VALUES` picker list; a runtime-only `LEGACY_IDEAL_WINDOW_VALUES` set keeps `readIdealWindow` backward-compatible and `decode("mixed")` still maps to `first_worked + second_failed`.
+- ✅ Expanded `isUnrealized` partial-fill heuristic adds the "flat-fill" branch (`entry_price === exit_price` + one untouched side) and the empty `partial_fills` branch.
 
-- `supabase/functions/_shared/quant/symbolMapping.ts`
-  - Add `let TICK_OVERRIDES: Record<string, number> = {}` module state.
-  - Export `setTickSizeOverrides(map)` and adjust `tickSizeForSymbol`/`pipSizeForSymbol` to consult overrides first (key by normalized symbol).
+## One residual cleanup worth doing
 
-- `supabase/functions/pair-lab-report/index.ts`
-  - Before computing buckets: `select tick_size_overrides from symbol_groups where user_id = ...`, merge into one map, call `setTickSizeOverrides(merged)`.
-  - Reset overrides at end of the request (`setTickSizeOverrides({})`) to avoid bleed between invocations.
+**Dead `case "mixed"` in `decode` switch.** `IdealWindowValue` no longer includes `"mixed"`, so TypeScript treats the case as unreachable for the typed path. Since the parameter is `IdealWindowValue | string | null | undefined` the case still fires for legacy DB strings, so the behavior is correct, but the comment + case look inconsistent with the union now that `"mixed"` is a "legacy string only" value.
 
-- `scripts/verify_pair_lab_math.ts`
-  - Wrap fixture reads in a `try`/`fs.existsSync` guard with a one-line hint: "run `bun scripts/dump_pair_lab_fixture.ts` first" (or print the supabase query the user should run).
+Proposed micro-fix (build mode):
 
-- `src/lib/brokerDst.ts`
-  - Add 3-line header comment recording the decision to keep `entry_time` raw and display-only conversion.
+```ts
+// In src/lib/hourSetup.ts decode()
+// Legacy "mixed" arrives as a plain string (not in IdealWindowValue) — handle
+// it before the switch so the switch only deals with the canonical 9 states.
+if (value === "mixed") return { ...EMPTY, firstWorked: true, secondFailed: true };
+```
 
-**Validation**
-- `bunx tsgo --noEmit` after edits.
-- Manual: load Pair Lab → Ideal Windows tab and confirm only one walk-forward slider remains (the one from Overview).
-- Manual: trigger pair-lab-report on a user with a crypto override and confirm `r_multiple_actual` / SL pip values in the AI payload match the UI.
+…and drop the `case "mixed":` branch + comment from inside the switch.
+
+## What I did NOT find any regressions in
+
+- No remaining call sites for purged helpers.
+- No duplicate `useSymbolGroups` / `useSymbolAliases` subscriptions in PairLab tabs.
+- No edge-vs-client divergence on `isUnrealized`, `normalizeSession`, `bootstrapKellyCi`, or prop-firm Kelly gating.
+- No render path that bypasses `includeUnrealized` (heatmap, grid, OOS worker, edge report all gate on it).
+
+## Recommendation
+
+Approve the one-line cleanup above (Phase I follow-up). Everything else from Phases A–I is verified and behaving as designed.
