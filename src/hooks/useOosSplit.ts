@@ -1,7 +1,8 @@
 // ============================================================================
 // useOosSplit — runs the OOS dual-buildBuckets in a Web Worker so the slider
 // stays responsive. Mirrors useStrategyLabSweep: monotonic request IDs, latest
-// reply wins, terminate-on-unmount.
+// reply wins, terminate-on-unmount. R5.1 adds error/onmessageerror handling so
+// a worker crash clears the spinner instead of hanging the panel.
 // ============================================================================
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,17 +14,16 @@ import type {
 export interface OosSplitState {
   result: OosSplitResponse | null;
   isComputing: boolean;
+  error: string | null;
 }
 
 export function useOosSplit(params: OosSplitRequest | null): OosSplitState {
   const [result, setResult] = useState<OosSplitResponse | null>(null);
   const [isComputing, setIsComputing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const lastId = useRef(0);
 
-  // Stable key — re-run only when meaningful inputs change. Trades is the
-  // costly piece; identity-stable in usePairLab's memo, so JSON.stringify on
-  // the rest plus a length+first/last id check is enough.
   const key = useMemo(() => {
     if (!params) return null;
     return JSON.stringify({
@@ -36,8 +36,6 @@ export function useOosSplit(params: OosSplitRequest | null): OosSplitState {
       resolver: params.resolverMap,
       propFirm: params.propFirm,
       fieldKeys: params.fieldKeys,
-      // J6 fix: toggle was excluded so the OOS panel kept stale results when
-      // the user flipped "Include unrealized" in the header.
       includeUnrealized: params.includeUnrealized,
     });
   }, [params]);
@@ -51,8 +49,18 @@ export function useOosSplit(params: OosSplitRequest | null): OosSplitState {
       workerRef.current.onmessage = (e: MessageEvent<OosSplitResponse>) => {
         if (e.data.id !== lastId.current) return;
         setResult(e.data);
+        setError(null);
         setIsComputing(false);
       };
+      const onFail = (fallback: string) => (e: Event) => {
+        const detail = (e as ErrorEvent).message || fallback;
+        // eslint-disable-next-line no-console
+        console.error("[useOosSplit] worker error:", detail);
+        setError(detail);
+        setIsComputing(false);
+      };
+      workerRef.current.onerror = onFail("OOS worker crashed");
+      workerRef.current.onmessageerror = onFail("OOS worker message error");
     }
     return () => {
       workerRef.current?.terminate();
@@ -65,9 +73,10 @@ export function useOosSplit(params: OosSplitRequest | null): OosSplitState {
     lastId.current += 1;
     const id = lastId.current;
     setIsComputing(true);
+    setError(null);
     workerRef.current.postMessage({ id, params });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  return { result, isComputing };
+  return { result, isComputing, error };
 }
