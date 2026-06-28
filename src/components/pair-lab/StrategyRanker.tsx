@@ -98,7 +98,13 @@ function StrategyDetailPanel({ result }: { result: ReplayResult }) {
           <div className="text-xs font-mono-numbers text-muted-foreground">
             {sl != null ? (
               <>
-                Median applied: <span className="text-foreground font-semibold">{sl.toFixed(1)} pips</span>
+                Median applied:{" "}
+                <span
+                  className="text-foreground font-semibold"
+                  title="Aggregated across every eligible symbol in this preset's sample. Displayed in pips (FX/metals/crypto/oil) — index-only strategies should read this as points, since 1 point = 1 tick on NAS100/US30/DAX."
+                >
+                  {sl.toFixed(1)} pips/pts
+                </span>
                 {slRange && (
                   <span> · IQR {slRange[0].toFixed(1)}–{slRange[1].toFixed(1)}</span>
                 )}
