@@ -452,8 +452,10 @@ function tradeSide(t: Trade | any): 1 | -1 | 0 {
 }
 
 function longestLossStreak(rows: Trade[]): number {
+  // R1.1: closed-only gate via `!is_open`. Previously `net_pnl != null` let
+  // MT5 floating P&L on live positions bleed into streak math.
   const sorted = [...rows]
-    .filter((t) => t.net_pnl != null && t.entry_time)
+    .filter((t) => !t.is_open && t.entry_time)
     .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)));
   let run = 0;
   let worst = 0;
@@ -517,7 +519,9 @@ function computeBucket(
   propFirm: PropFirmContext | null,
   recentN: number = 10,
 ): BucketReport {
-  const closed = rows.filter((t) => t.net_pnl != null);
+  // R1.1: closed-only gate via `!is_open`. The previous `net_pnl != null`
+  // filter let floating-P&L on live positions enter win/loss/Kelly math.
+  const closed = rows.filter((t) => !t.is_open);
 
   const sideOf = (t: Trade): 1 | -1 | 0 => {
     if (t.r_multiple_actual != null) {
@@ -531,11 +535,13 @@ function computeBucket(
   const wins = closed.filter((t) => sideOf(t) === 1);
   const losses = closed.filter((t) => sideOf(t) === -1);
 
-  const rActuals = closed.map((t) => t.r_multiple_actual).filter((v): v is number => v != null);
-  const winR = wins.map((t) => t.r_multiple_actual).filter((v): v is number => v != null && v > 0);
+  // R1.3: explicitly reject NaN/Infinity. Previously `!= null` let
+  // pathological R values through and shifted both mean and CI.
+  const rActuals = closed.map((t) => t.r_multiple_actual).filter((v): v is number => v != null && Number.isFinite(v));
+  const winR = wins.map((t) => t.r_multiple_actual).filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
   const lossR = losses
     .map((t) => t.r_multiple_actual)
-    .filter((v): v is number => v != null && v < 0)
+    .filter((v): v is number => v != null && Number.isFinite(v) && v < 0)
     .map((v) => Math.abs(v));
 
   const mfes = rows.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
@@ -652,12 +658,17 @@ function computeBucket(
         else { sumR += r.rActual * (r.slPips / slCand); }
       }
       const meanR = sumR / sweepRows.length;
+      // R1.5: baseline must come from the same population the sweep replays
+      // over (sweepRows: trades with both MAE+SL). Previously deltaR used the
+      // whole-bucket expectedR, which biases every Δ in one direction when
+      // MAE coverage is incomplete.
+      const sweepBaseR = sweepRows.reduce((s, r) => s + r.rActual, 0) / sweepRows.length;
       sweepOut.push({
         q,
         slPips: slCand,
         pctStopped: stopped / sweepRows.length,
         meanR,
-        deltaR: meanR - expectedR,
+        deltaR: meanR - sweepBaseR,
       });
     }
     if (sweepOut.length > 0) slSweep = sweepOut;
@@ -672,7 +683,9 @@ function computeBucket(
   let eventsRFallbackCount = 0;
   const events: BucketEvent[] = [...closed]
     .filter((t) => t.entry_time)
-    .sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)))
+    // R1.6: numeric epoch sort. localeCompare on ISO strings drifts at the
+    // OOS 70/30 boundary when entries mix `Z` and `+00:00` suffixes.
+    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)))
     .map((t) => {
       const hasR = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual);
       if (!hasR) eventsRFallbackCount += 1;
@@ -885,11 +898,13 @@ export function runWalkForward(
   // ideas/paper/missed could land in either IS or OOS slice, leaking noise
   // into the degradation %.
   const closed = rows.filter(
-    (t) => t.net_pnl != null && t.entry_time && !isUnrealized(t as any),
+    // R1.1: closed-only gate via `!is_open`.
+    (t) => !t.is_open && t.entry_time && !isUnrealized(t as any),
   );
   if (closed.length < 30) return null;
   const sorted = [...closed].sort(
-    (a, b) => String(a.entry_time).localeCompare(String(b.entry_time)),
+    // R1.6: numeric epoch sort.
+    (a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)),
   );
   const cutoff = Math.floor(sorted.length * 0.7);
   const isRows = sorted.slice(0, cutoff);
