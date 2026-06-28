@@ -21,7 +21,7 @@
 
 import type { Trade, TradeDirection, RegimeType } from "@/types/trading";
 import { decode, readIdealWindow } from "@/lib/hourSetup";
-import { wilsonCi, bootstrapMeanCi, isUnrealized } from "../../shared/quant/stats";
+import { wilsonCi, bootstrapMeanCi, isUnrealized, bhSignificant } from "../../shared/quant/stats";
 
 export type Half = "first" | "second";
 
