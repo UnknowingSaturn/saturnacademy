@@ -134,13 +134,13 @@ export function OutOfSamplePanel({
             )}
           </div>
           <div className="text-sm">
-            Train: <span className="font-mono-numbers">N {train.n} · {(train.winRate * 100).toFixed(0)}% · {(train.expectedR >= 0 ? "+" : "") + train.expectedR.toFixed(2)}R</span>
+            Train: <span className="font-mono-numbers">N {train.n} · {(train.winRate * 100).toFixed(0)}% · {fmtR(train.expectedR)}</span>
             <span className="text-muted-foreground"> → </span>
-            Test: <span className="font-mono-numbers">N {test.n} · {(test.winRate * 100).toFixed(0)}% · {(test.expectedR >= 0 ? "+" : "") + test.expectedR.toFixed(2)}R</span>
+            Test: <span className="font-mono-numbers">N {test.n} · {(test.winRate * 100).toFixed(0)}% · {fmtR(test.expectedR)}</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {train.expectedR > 0 && test.expectedR <= 0 && (
+          {Number.isFinite(train.expectedR) && Number.isFinite(test.expectedR) && train.expectedR > 0 && test.expectedR <= 0 && (
             <Badge variant="destructive" className="text-[10px]">Baseline degraded OOS</Badge>
           )}
           {overfitCount > 0 && (
