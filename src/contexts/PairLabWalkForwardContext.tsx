@@ -38,9 +38,24 @@ export function PairLabWalkForwardProvider({
   value: Omit<PairLabWalkForwardValue, "dateFrom" | "dateTo">;
 }) {
   const resolved = useMemo(() => resolveWindow(value.wf), [value.wf]);
+  // M1 fix: depend on the individual stable primitives instead of the parent's
+  // (always-new) `value` object literal. Without this every PairLab render
+  // produced a new context identity, forcing all six consumers to re-render.
   const merged = useMemo<PairLabWalkForwardValue>(
     () => ({ ...value, dateFrom: resolved.dateFrom, dateTo: resolved.dateTo }),
-    [value, resolved.dateFrom, resolved.dateTo],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      value.wf,
+      value.setWf,
+      value.minMs,
+      value.maxMs,
+      value.profile,
+      value.scope,
+      value.includeUnrealized,
+      value.propFirmMode,
+      resolved.dateFrom,
+      resolved.dateTo,
+    ],
   );
   return <Ctx.Provider value={merged}>{children}</Ctx.Provider>;
 }
