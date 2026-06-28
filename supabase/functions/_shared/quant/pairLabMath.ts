@@ -333,16 +333,18 @@ function pickBestTp(
 function runWalkForward(rows: any[], keys: PairLabFieldKeys):
   | { inSampleE: number; outOfSampleE: number; degradationPct: number; oosN: number }
   | null {
-  // O1 parity — exclude unrealized before chronological split.
+  // R1.1 + O1 parity — closed-only via `!is_open`, exclude unrealized.
   const closed = rows.filter(
-    (t) => t.net_pnl != null && t.entry_time && !isUnrealized(t),
+    (t) => !t.is_open && t.entry_time && !isUnrealized(t),
   );
   if (closed.length < 30) return null;
-  const sorted = [...closed].sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)));
+  // R1.6 parity: numeric epoch sort.
+  const sorted = [...closed].sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)));
   const cutoff = Math.floor(sorted.length * 0.7);
   const isRows = sorted.slice(0, cutoff);
   const oosRows = sorted.slice(cutoff);
-  if (oosRows.length < 9) return null;
+  // Q4 parity: standardise on 10.
+  if (oosRows.length < 10) return null;
   const isPairs = collectMfeRPairs(isRows, keys);
   const oosPairs = collectMfeRPairs(oosRows, keys);
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
