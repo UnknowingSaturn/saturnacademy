@@ -93,8 +93,10 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
     );
   }
   const provisional = tier === "provisional";
-  const winRatePct = (b!.winRate * 100).toFixed(0);
-  const expR = (b!.expectedR >= 0 ? "+" : "") + b!.expectedR.toFixed(2) + "R";
+  const hasExpR = Number.isFinite(b!.expectedR);
+  const expR = hasExpR
+    ? (b!.expectedR >= 0 ? "+" : "") + b!.expectedR.toFixed(2) + "R"
+    : "—";
   const mfeCovColor = coverageColor(b!.loggedMfeCount, b!.n);
   const maeCovColor = coverageColor(b!.loggedMaeCount, b!.n);
   const showDrift =
