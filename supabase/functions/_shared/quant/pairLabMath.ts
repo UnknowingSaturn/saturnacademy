@@ -369,6 +369,8 @@ export function computeBucket(
   rows: any[],
   keys: PairLabFieldKeys,
   propFirm?: PropFirmContext | null,
+  rawSymbols: string[] = [],
+  recentN = 10,
 ): BucketReport {
   // R1.1 parity: closed-only gate via `!is_open`.
   const closed = rows.filter((t) => !t.is_open);
