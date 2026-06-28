@@ -119,60 +119,66 @@ export interface Tp1Star { r: number; hitRate: number; hitRateCi: [number, numbe
 
 export interface BucketReport {
   key: BucketKey;
+  /** Raw broker symbols rolled up into this canonical key (parity with client). */
+  rawSymbols: string[];
   n: number;
   wins: number;
   losses: number;
   winRate: number;
+  /** Wilson 95% CI on win rate. null when n=0. */
+  winRateCi: [number, number] | null;
   expectedR: number;          // NaN when expectedRSamples === 0
   expectedRMedian: number;    // NaN when expectedRSamples === 0
   expectedRSamples: number;
   expectedRCi: [number, number] | null;
+  /** One-sided bootstrap p-value that expectedR > 0. null when n < 5. */
+  expectancyPValue: number | null;
   mfeP50: number | null;
   mfeP75: number | null;
+  /** Min/max of logged MFE (R). null when no samples. */
+  mfeMin: number | null;
+  mfeMax: number | null;
   maeP50: number | null;
   maeP75: number | null;
   maeP75Pips: number | null;
+  /** Raw MAE tick quantiles (display in user-preferred units). */
+  maeP50Ticks: number | null;
+  maeP75Ticks: number | null;
+  maeMinTicks: number | null;
+  maeMaxTicks: number | null;
   idealSlMedianPips: number | null;
   slInitialMedianPips: number | null;
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   confidence: ConfidenceLevel;
   suggestedSlPips: number | null;
-  /** Provenance of `suggestedSlPips`. See client BucketRecommendation.slSource. */
   slSource: "ideal_sl" | "winners_mae" | "winners_mae_fallback" | "legacy";
-  /** N trades backing the SL source. null when legacy. */
   slSourceN: number | null;
-  /** "pips" for FX/metals/crypto/oil, "points" for indices. */
   slUnit: "pips" | "points";
   tpLadderR: number[];
-  /** TP that wins the MFE-grid expectancy search (R). null when fallback used. */
   suggestedTpR: number | null;
-  /** Expectancy at the chosen TP cell. null when fallback used. */
   expectancyAtSuggested: number | null;
-  /** Bootstrap 95% CI on expectancyAtSuggested. null when fallback used. */
   expectancyAtSuggestedCi: [number, number] | null;
-  /** "validated" (CI > 0) | "low" (CI ≤ 0) | "insufficient" (fallback used). */
   recommendationConfidence: "validated" | "low" | "insufficient";
-  /** Walk-forward IS/OOS check on the SL/TP recommendation. null when N<30 or OOS<5. */
   walkForward: { inSampleE: number; outOfSampleE: number; degradationPct: number; oosN: number } | null;
   tp1Star: Tp1Star | null;
   suggestedRiskPct: number | null;
-  /** True when raw quarter-Kelly is positive but below 0.25% — edge too thin to size meaningfully. */
   riskBelowFloor: boolean;
-  /** Bootstrap 95% CI on the raw quarter-Kelly fraction. null when n<10. */
   suggestedRiskPctCi: [number, number] | null;
-  /**
-   * Prop-firm-aware cap on suggested risk (% of balance). null when no
-   * prop-firm context. Renamed from `suggestedRiskPctPropFirmCap` so the field
-   * matches the client `BucketRecommendation.suggestedRiskPctPropFirm` 1:1.
-   */
   suggestedRiskPctPropFirm: number | null;
-  /** Sum(winR)/Sum(lossR). null when no losses (use `profitFactorAllWins`). */
+  /** mean(winR) / mean(|lossR|). null when no losses or no wins. */
+  payoffRatio: number | null;
   profitFactor: number | null;
-  /** True when there are wins but zero losses — PF is mathematically undefined. */
   profitFactorAllWins: boolean;
   worstLosingStreak: number;
   loggedMfeCount: number;
   loggedMaeCount: number;
+  /** Count of trades with logged ideal-SL. */
+  loggedIdealSlCount: number;
+  /** Walk-forward drift fields — parity with client. */
+  recentN: number;
+  recentWinRate: number | null;
+  recentExpectedR: number | null;
+  drift: number | null;
   topTradeIds: string[];
   bottomTradeIds: string[];
 }
@@ -363,6 +369,8 @@ export function computeBucket(
   rows: any[],
   keys: PairLabFieldKeys,
   propFirm?: PropFirmContext | null,
+  rawSymbols: string[] = [],
+  recentN = 10,
 ): BucketReport {
   // R1.1 parity: closed-only gate via `!is_open`.
   const closed = rows.filter((t) => !t.is_open);
@@ -401,9 +409,12 @@ export function computeBucket(
   // MAE is stored in TICKS. Convert to pips for the SL math, R for distribution.
   const maesR: number[] = [];
   const maesPips: number[] = [];
+  const maesTicks: number[] = [];
   for (const t of rows) {
     const maeTicks = numericCf(t, keys.mae);
-    if (maeTicks == null || !t.symbol) continue;
+    if (maeTicks == null) continue;
+    maesTicks.push(Math.abs(maeTicks));
+    if (!t.symbol) continue;
     maesPips.push(Math.abs(ticksToPips(t.symbol, Math.abs(maeTicks))));
     const r = ticksToR(maeTicks, t);
     if (r != null) maesR.push(r);
@@ -553,21 +564,54 @@ export function computeBucket(
 
   const slUnit = key.symbol && key.symbol !== "All" ? pipLabelForSymbol(key.symbol) : "pips";
 
+  // R2 parity additions — payoff ratio, expectancy p-value, walk-forward drift.
+  const payoffRatio = (wins.length > 0 && losses.length > 0 && lossR.length > 0)
+    ? (sumWin / winR.length) / (sumLoss / lossR.length)
+    : null;
+
+  const eventR: number[] = [...closed]
+    .filter((t) => t.entry_time)
+    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)))
+    .map((t) => {
+      const hasR = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual);
+      return hasR
+        ? (t.r_multiple_actual as number)
+        : ((t.net_pnl ?? 0) > 0 ? 1 : (t.net_pnl ?? 0) < 0 ? -1 : 0);
+    });
+  const tail = eventR.slice(-recentN);
+  const recentEnough = tail.length >= 5;
+  const recentWinRate = recentEnough
+    ? tail.filter((r) => r > 0).length / tail.length
+    : null;
+  const recentExpectedR = recentEnough
+    ? tail.reduce((s, r) => s + r, 0) / tail.length
+    : null;
+  const drift = recentWinRate != null ? (recentWinRate - winRate) * 100 : null;
+
   return {
     key,
+    rawSymbols,
     n,
     wins: wins.length,
     losses: losses.length,
     winRate,
+    winRateCi: n > 0 ? wilsonCi(wins.length, n) : null,
     expectedR,
     expectedRMedian: median(rActuals) ?? NaN,
     expectedRSamples: rActuals.length,
     expectedRCi: bootstrapMeanCi(rActuals),
+    expectancyPValue: bootstrapPositivePValue(rActuals),
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),
+    mfeMin: mfes.length > 0 ? mfes.reduce((a, b) => (a < b ? a : b)) : null,
+    mfeMax: mfes.length > 0 ? mfes.reduce((a, b) => (a > b ? a : b)) : null,
     maeP50: median(maesR),
     maeP75: quantile(maesR, 0.75),
     maeP75Pips,
+    maeP50Ticks: median(maesTicks),
+    maeP75Ticks: quantile(maesTicks, 0.75),
+    maeMinTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a < b ? a : b)) : null,
+    maeMaxTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a > b ? a : b)) : null,
     idealSlMedianPips: idealMed,
     slInitialMedianPips: slInitMed,
     slDrift,
@@ -587,15 +631,20 @@ export function computeBucket(
     riskBelowFloor,
     suggestedRiskPctCi,
     suggestedRiskPctPropFirm,
+    payoffRatio,
     profitFactor,
     profitFactorAllWins,
-
     worstLosingStreak: worstStreak,
     loggedMfeCount: closed.filter((t) => numericCf(t, keys.mfe) != null).length,
     loggedMaeCount: closed.filter((t) => {
       const v = numericCf(t, keys.mae);
       return v != null && t.sl_initial != null && t.entry_price != null;
     }).length,
+    loggedIdealSlCount: idealSls.length,
+    recentN,
+    recentWinRate,
+    recentExpectedR,
+    drift,
     topTradeIds,
     bottomTradeIds,
   };
@@ -648,7 +697,9 @@ export function buildBuckets(
   let unrealizedExcluded = 0;
   const closed: any[] = [];
   for (const t of trades) {
-    if (t.is_open || t.is_archived || t.net_pnl == null) continue;
+    // R1.1 parity: closed-only via `!is_open` (drop MT5 floating-P&L on live trades).
+    if (t.is_open || t.is_archived) continue;
+    if (t.net_pnl == null) continue;
     if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) continue;
     if (dateFrom || dateTo) {
       const ts = t.entry_time ? String(t.entry_time) : null;
@@ -659,8 +710,9 @@ export function buildBuckets(
     if (!includeUnrealized && isUnrealized(t)) { unrealizedExcluded += 1; continue; }
     closed.push(t);
   }
-  const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm);
+  const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm, []);
   const cellMap = new Map<string, any[]>();
+  const rawSymbolsByKey = new Map<string, Set<string>>();
   for (const t of closed) {
     if (!t.symbol) continue;
     const canonical = resolveSym(t.symbol);
@@ -668,11 +720,14 @@ export function buildBuckets(
     const k = `${canonical}__${sess}`;
     if (!cellMap.has(k)) cellMap.set(k, []);
     cellMap.get(k)!.push(t);
+    if (!rawSymbolsByKey.has(k)) rawSymbolsByKey.set(k, new Set());
+    rawSymbolsByKey.get(k)!.add(String(t.symbol));
   }
   const perCell: BucketReport[] = [];
   cellMap.forEach((rows, k) => {
     const [symbol, session] = k.split("__");
-    perCell.push(computeBucket({ symbol, session }, rows, keys, propFirm));
+    const raws = Array.from(rawSymbolsByKey.get(k) ?? []).sort();
+    perCell.push(computeBucket({ symbol, session }, rows, keys, propFirm, raws));
   });
   perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
   return { perCell, baseline, unrealizedExcluded };
