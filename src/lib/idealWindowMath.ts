@@ -301,7 +301,9 @@ export function bucketTrades({
       const w = tail.reduce((s, e) => s + (e.worked ? 1 : 0), 0);
       b.recentRate = w / tail.length;
       b.recentSamples = tail.length;
-      b.drift = b.rate != null ? b.recentRate - b.rate : null;
+      // Stored as percentage points (matches `BucketStats.drift` in pairLabMath
+      // so the 15pp drift-arrow threshold is unit-consistent across surfaces).
+      b.drift = b.rate != null ? (b.recentRate - b.rate) * 100 : null;
     }
   }
 
