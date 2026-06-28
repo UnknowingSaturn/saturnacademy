@@ -299,6 +299,26 @@ export function resolvePairLabFieldKeys(defs: CustomFieldDef[]): PairLabFieldKey
   return out;
 }
 
+/**
+ * K2 fix: when more than one custom field matches a Pair-Lab alias (e.g. the
+ * user created `cf_mae_v1` and `cf_mae_v2`), `resolvePairLabFieldKeys` picks
+ * the first via `Array.find` and silently discards the second. Returns the
+ * set of aliases that had >1 matching definition so the UI can warn.
+ */
+export function detectAmbiguousFieldKeys(defs: CustomFieldDef[]): Set<keyof PairLabFieldKeys> {
+  const ambiguous = new Set<keyof PairLabFieldKeys>();
+  for (const entry of LABEL_MAP) {
+    const byLabel = defs.filter((d) => entry.labels.includes((d.label || "").trim().toLowerCase()));
+    if (byLabel.length > 1) { ambiguous.add(entry.alias); continue; }
+    // Only count prefix collisions when the label didn't already nail down
+    // a single match — label wins over prefix in resolvePairLabFieldKeys.
+    if (byLabel.length === 1) continue;
+    const byPrefix = defs.filter((d) => entry.prefixes.some((p) => (d.key || "").startsWith(p)));
+    if (byPrefix.length > 1) ambiguous.add(entry.alias);
+  }
+  return ambiguous;
+}
+
 // ----------------------------------------------------------------------------
 // Robust statistics — unified primitives live in shared/quant/stats.
 // Imported + re-exported at the top of this file. Nothing else needed here.
