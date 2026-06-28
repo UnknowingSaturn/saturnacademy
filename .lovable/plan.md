@@ -1,72 +1,88 @@
-# Pair Lab Remediation Audit (Phases A–I)
+# Pair Lab Audit — Findings & Remediation Plan
 
-I re-read every file touched by Phases A–I and grepped the codebase for the symbols each phase added or purged. **All 24 fixes are in place and reachable from the live UI**, with one minor cleanup worth doing.
+Three parallel deep-audits (Math, UI/State, Data Pipeline) surfaced 27 issues. Below is a phased fix list, ordered by severity. Each item is a pure code change; no UX restructure.
 
-## Phase-by-phase verification
+---
 
-### Phase A/B/C — Correctness, parity, dead-code
-- ✅ `isUnrealized` is the single source of truth — imported by `usePairLab`, `idealWindowMath`, both `pairLabMath` modules, and the OOS worker.
-- ✅ Prop-firm Kelly math matches client ↔ edge: both gate on `dailyLossDollars > 0` and default `hardCapPct` to 2 when ≤ 0 (`src/lib/pairLabMath.ts:1002`, `supabase/.../pairLabMath.ts:522`).
-- ✅ Purged shims are gone: zero hits for `wilsonInterval`, `bootstrapMeanCI`, `parseTpLabel`, `actualProfile`, `DEFAULT_TRAIL_CAPTURE`, `totalTradeRowsRaw`. The `idealWindowMath` header comment documents the removal.
+## Phase J — Critical Correctness (crashes, data loss, silent leaks)
 
-### Phase D — State + perf
-- ✅ `useSymbolGroups()` is called **once** in `PairLab.tsx:98`; `OverviewTab` consumes it as a prop (only the `SymbolGroup` type is imported).
-- ✅ OOS dual-bucket build runs in `src/workers/oosSplit.worker.ts` via `useOosSplit`; `OutOfSamplePanel` reads bounds from `usePairLabTradeBounds` (no per-memo full sort).
-- ✅ `recentN` is no longer in `PairLabWalkForwardContext` (grep returns empty). `usePairLab` still accepts the optional filter and defaults to 10, so the field was cleanly retired without breaking callers.
+**J1.** `supabase/functions/_shared/quant/pairLabMath.ts:546` — `mfes` is referenced but never declared in edge `computeBucket` → **ReferenceError** on every edge-side report. Add `const mfes = rows.map(t => numericCf(t, keys.mfe)).filter(...)` before the return.
 
-### Phase E — UX + verify script
-- ✅ `scripts/verify_pair_lab_math.ts` imports `normalizeSession` from shared, runs per-cell `expectedR` + Wilson `winRateCi` lo/hi checks (lines 144–177), and validates baseline `profitFactor` + `profitFactorAllWins` (lines 233–240).
-- ✅ `IDEAL_WINDOW_OPTIONS` uses `hsl(var(--heat-positive|--heat-negative|--chart-trail|--muted-foreground))` exclusively.
-- ✅ `OutOfSamplePanel` formats dates with the `(UTC)` suffix and the dynamic profile picker derives from real trade values.
+**J2.** Same file:584 — edge `buildBuckets` signature is missing `profile`, `dateFrom`, `dateTo`, `recentN`, `includeUnrealized`. Mirror the client `BuildBucketsOpts` so server reports honor walk-forward, profile, and unrealized filters.
 
-### Phase F — Critical bugs (1–5)
-- ✅ **F1 session aliasing**: `SESSION_LABELS` in `shared/quant/stats.ts:276–278` maps `overlap_london_ny`, `ny_london`, and `london_ny_overlap` all to "Overlap".
-- ✅ **F2 edge filter**: `tp1StarPairs` loop in edge math now starts with `if (isUnrealized(t)) continue;` (line 385).
-- ✅ **F3 ideal-windows filter**: `idealWindowMath.ts:238` skips unrealized rows.
-- ✅ **F4 OOS context**: `includeUnrealized` is threaded `PairLab → StrategyTab → OutOfSamplePanel → useOosSplit → worker` (worker uses it on both train and test buckets, lines 59 + 67).
-- ✅ **F5 missing-field diagnostics**: `usePairLab` returns the structured `missingFields` object and `OverviewTab` surfaces field-specific warnings.
+**J3.** `src/hooks/usePairLab.tsx:114` — `detectPartialFills` uses a stale "two rows in the same minute" heuristic and ignores `trade_partial_fills` (already on `t.partial_fills`). Rewrite to count `t.partial_fills.length > 0`, eliminating both false positives (scalpers) and false negatives (real partial exits).
 
-### Phase G — Parity (6–10)
-- ✅ Prop-firm parity (see Phase A).
-- ✅ `rFallbackCount` flows through the hook and renders as the amber "{n}/{N} R inferred" badge (`OverviewTab.tsx:432`).
-- ✅ Orphan default is on (`includeUnassigned`) with the "+N orphan" muted chip at line 455 and the toggle at line 159.
-- ✅ Open-trade leakage: `usePairLab` filters `t.is_open` twice (lines 117 + 232) — once in the baseline pass, once in `scopedTrades`.
-- ✅ `tickSizeOffenders` covers crypto + indices and renders the warning at `OverviewTab.tsx:346`.
+**J4.** `src/hooks/usePairLab.tsx:293` — symbol-groups data (which installs `tick_size_overrides`) is **not** in `usePairLab`'s `useMemo` deps. First render computes buckets with empty overrides; if no other dep changes, stale tick math sticks. Add `useSymbolGroups().data` (or pass overrides explicitly) to the dep array.
 
-### Phase H — Architecture (11–15)
-- ✅ Journal alias resolver: `Journal.tsx` memoizes `symbolResolver` and applies it in the filter (line 152) and the `getTradeValue('symbol')` sort case (line 212).
-- ✅ `countNaiveEntryTimes` is exported from `shared/quant/stats.ts:412`, wired into `usePairLab` (line 263), exposed on `PairLabData.naiveTimestampCount`, and rendered at `OverviewTab.tsx:472`.
-- ✅ Hardened `isUnrealized` keeps the `is_open` guard, executed-only zero-PnL branch, and strict-equality SL/TP checks.
-- ✅ `SL_DRIFT_ALIGNED_MIN/MAX` JSDoc explains the 0.80/1.20 band and the discipline-vs-suggested-SL distinction.
+**J5.** `src/workers/oosSplit.worker.ts:62-68` — `splitIso` boundary is inclusive in both train & test ⇒ trades at the split timestamp leak into both halves. Shift test `dateFrom` by +1 ms.
 
-### Phase I — Cleanup (16–19)
-- ✅ `bootstrapKellyCi` uses two seeded streams (`randPayoff` + `randBinom`, `shared/quant/stats.ts:184–185`).
-- ✅ Naive-timestamp detector + UI chip (covered above).
-- ✅ `"mixed"` is removed from the `IdealWindowValue` union and `IDEAL_WINDOW_VALUES` picker list; a runtime-only `LEGACY_IDEAL_WINDOW_VALUES` set keeps `readIdealWindow` backward-compatible and `decode("mixed")` still maps to `first_worked + second_failed`.
-- ✅ Expanded `isUnrealized` partial-fill heuristic adds the "flat-fill" branch (`entry_price === exit_price` + one untouched side) and the empty `partial_fills` branch.
+**J6.** `src/hooks/useOosSplit.ts:29` — `includeUnrealized` excluded from the memoization fingerprint ⇒ toggling the header switch leaves stale OOS results. Add it to the JSON key object.
 
-## One residual cleanup worth doing
+**J7.** `src/lib/pairLabSimulator.ts:494` — `dailyLossDollars === 0` is treated as a real 0 cap, busting every path on any loss. Guard with `> 0` to match client `buildRecommendation` and edge `computeBucket`.
 
-**Dead `case "mixed"` in `decode` switch.** `IdealWindowValue` no longer includes `"mixed"`, so TypeScript treats the case as unreachable for the typed path. Since the parameter is `IdealWindowValue | string | null | undefined` the case still fires for legacy DB strings, so the behavior is correct, but the comment + case look inconsistent with the union now that `"mixed"` is a "legacy string only" value.
+---
 
-Proposed micro-fix (build mode):
+## Phase K — Math & Parity Hardening
 
-```ts
-// In src/lib/hourSetup.ts decode()
-// Legacy "mixed" arrives as a plain string (not in IdealWindowValue) — handle
-// it before the switch so the switch only deals with the canonical 9 states.
-if (value === "mixed") return { ...EMPTY, firstWorked: true, secondFailed: true };
-```
+**K1.** `shared/quant/stats.ts:192` — `bootstrapKellyCi` resamples wins and losses from the same `randPayoff` stream, so the documented independence is not real and CI widths are mildly underestimated. Add a third seeded stream `randLoss = makeSeededRng(seedBase ^ 0x27d4eb2d)` for the loss loop.
 
-…and drop the `case "mixed":` branch + comment from inside the switch.
+**K2.** `src/lib/pairLabMath.ts:285-299` — `resolvePairLabFieldKeys` uses `Array.find`, silently ignoring a second `cf_mae_*` / `cf_mfe_*` definition. Switch to `filter`, expose an `ambiguousFields` flag alongside `missingFields`, and surface it in the Overview warnings.
 
-## What I did NOT find any regressions in
+**K3.** `src/lib/time.ts:99` — `detectSessionFromUtc` formats the hour with `currentDisplayTimezone` (Tokyo/London users get the wrong session bucket). Hardcode `timeZone: 'America/New_York'`.
 
-- No remaining call sites for purged helpers.
-- No duplicate `useSymbolGroups` / `useSymbolAliases` subscriptions in PairLab tabs.
-- No edge-vs-client divergence on `isUnrealized`, `normalizeSession`, `bootstrapKellyCi`, or prop-firm Kelly gating.
-- No render path that bypasses `includeUnrealized` (heatmap, grid, OOS worker, edge report all gate on it).
+**K4.** `src/lib/brokerDst.ts:136` — fallback path for non-matching naive timestamps calls `new Date(s)` (locale-dependent) then subtracts the DST offset, risking a double shift. Log a warning and return `new Date(s)` unchanged.
 
-## Recommendation
+**K5.** `src/hooks/usePairLab.tsx:263` — `countNaiveEntryTimes` runs only on `scopedTrades` (closed). Run it on the full `trades` array so open trades with naive TZ strings still surface in the header chip.
 
-Approve the one-line cleanup above (Phase I follow-up). Everything else from Phases A–I is verified and behaving as designed.
+---
+
+## Phase L — Journal ↔ Pair Lab Data Parity
+
+**L1.** `src/pages/Journal.tsx:60` — `useTrades()` is called with no account filter ⇒ fetches all accounts and filters in JS. Pass `{ accountId: selectedAccountId !== "all" ? selectedAccountId : undefined, includeUnassigned: true }` to mirror Pair Lab and shrink the wire payload for multi-account users.
+
+**L2.** Add `countNaiveEntryTimes(...)` chip to Journal header so the DST/naive-timestamp signal is symmetric with Pair Lab.
+
+**L3.** `src/hooks/useTrades.tsx:22` — stale doc comment says Pair Lab passes `includeUnassigned: false`; current default is `true`. Update the JSDoc.
+
+---
+
+## Phase M — UI/State/Perf & Cleanup
+
+**M1.** `src/contexts/PairLabWalkForwardContext.tsx:41` + `src/pages/PairLab.tsx:163` — inline `value={{…}}` object recreated every render forces all 6 consumers to re-render. Either `useMemo` the value at the call site, or change `merged`'s deps to the individual primitives. *(Highest-leverage perf fix.)*
+
+**M2.** `src/components/pair-lab/IdealWindowHeatmap.tsx:178` — shadow `resolveWindow(wf)` call; read `dateFrom/dateTo` from `usePairLabWalkForward()` instead (already on the context).
+
+**M3.** `src/components/pair-lab/tabs/StrategyTab.tsx` — drop the `propFirmMode` prop and read it from context to remove the prop/context dup (M10 of UI audit).
+
+**M4.** `src/components/pair-lab/QuantNotePanel.tsx:36` — clear `note/loading/error` on `[bucket.key.symbol, bucket.key.session]` change so stale AI text doesn't follow a new cell selection.
+
+**M5.** `src/components/pair-lab/StrategyLab.tsx:122,137` — `useEffect(() => setTradesPerDay(detectedTpd), [detectedTpd])` so the auto-detected trades/day updates when scope/lens changes. Also delete the dead `const filteredTrades = trades;` alias and use `trades` directly.
+
+**M6.** `src/hooks/useStrategyLabSweep.ts:27` — replace full `JSON.stringify(params)` with a lightweight fingerprint (length + first/last sample id + scalars), mirroring `useOosSplit`.
+
+**M7.** `src/pages/PairLab.tsx:107-116` — URL-bind walk-forward `lens` and `asof` so reload/share preserves the window. Also URL-bind the Ideal Windows pair scope (`idw_scope`).
+
+**M8.** `src/components/pair-lab/tabs/OverviewTab.tsx:77` — wrap `closed` in `useMemo([data.trades])` so `tickSizeOffenders` stops invalidating every render.
+
+**M9.** Tokenize remaining hard-coded colors:
+- `IdealWindowHeatmap.tsx:91-92` rgba literals → `hsl(var(--heat-positive|negative) / α)`
+- `CumulativeExpectancyChart.tsx:103` SVG `fill-emerald-500` → inline `hsl(var(--heat-positive))` to match the canvas branch
+- Scattered `text-emerald-*` / `bg-emerald-*` in `BucketGrid`, `StrategyRanker`, `StrategyLab` → `text-profit` / `bg-profit/15` / `border-profit/30`
+
+**M10.** Add an Escape-key handler to the `IdealWindowHeatmap` drill-down panel for parity with `PairGridTab`.
+
+**M11.** `src/lib/hourSetup.ts:90` — surface a one-time UI hint ("N trades have legacy `mixed` tags — decoded as 1st✓ · 2nd✗") in the Ideal Windows tab when legacy rows are detected.
+
+**M12.** `src/lib/pairLabSimulator.ts:162-174` — delete the duplicated local `getCf`/`numericCf` and import from `shared/quant/stats`.
+
+---
+
+## Out of scope (verified correct, do not change)
+
+Wilson CI · profit-factor formula (both sides) · expectancy · degradation % · SL drift band 0.80–1.20 · session-label map · `isUnrealized` (open-guard, flat-fill, empty `partial_fills`) · `isNaiveTimestamp` regex · `hardCapPct` default 2% · `computeNetPnl` sign convention · `eventsRFallbackCount` counting · `propFirmMonteCarlo` block bootstrap · `strategyLabMC.worker` per-cell seeding · `pair-lab-report` model id & error surfacing.
+
+---
+
+## Suggested execution
+
+Approve as a single batch (J→K→L→M) or run J+K first (correctness) and review before L+M. Each item is independently mergeable; nothing requires a schema change.
