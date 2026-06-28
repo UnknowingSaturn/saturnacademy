@@ -407,9 +407,12 @@ export function computeBucket(
   // MAE is stored in TICKS. Convert to pips for the SL math, R for distribution.
   const maesR: number[] = [];
   const maesPips: number[] = [];
+  const maesTicks: number[] = [];
   for (const t of rows) {
     const maeTicks = numericCf(t, keys.mae);
-    if (maeTicks == null || !t.symbol) continue;
+    if (maeTicks == null) continue;
+    maesTicks.push(Math.abs(maeTicks));
+    if (!t.symbol) continue;
     maesPips.push(Math.abs(ticksToPips(t.symbol, Math.abs(maeTicks))));
     const r = ticksToR(maeTicks, t);
     if (r != null) maesR.push(r);
