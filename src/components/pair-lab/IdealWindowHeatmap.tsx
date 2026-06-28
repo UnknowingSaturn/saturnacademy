@@ -186,7 +186,6 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
 
   const filters: IdealWindowFilters | null = useMemo(() => {
     if (pair == null) return null;
-    const { dateFrom, dateTo } = resolveWindow(wf);
     return {
       pair,
       hours,
@@ -197,7 +196,7 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
       dateTo,
       recentN: 10,
     };
-  }, [pair, hours, regime, direction, minN, wf]);
+  }, [pair, hours, regime, direction, minN, dateFrom, dateTo]);
 
   const result = useMemo(() => {
     if (!filters) return null;
