@@ -1083,9 +1083,9 @@ function buildRecommendation(
 // ----------------------------------------------------------------------------
 // Empirical trail-capture estimate
 //
-// Replaces the hardcoded TRAIL_CAPTURE_FRAC = 0.8 in the simulator when the
-// user has enough trades with both MFE and r_actual logged. Excludes all-out
-// exits at TP (r_actual == MFE) since those have no trail to measure.
+// Replaces the hardcoded TRAIL_CAPTURE_FRAC fallback (currently 0.7) in the
+// simulator when the user has enough trades with both MFE and r_actual logged.
+// Excludes all-out exits at TP (r_actual == MFE) since those have no trail.
 // ----------------------------------------------------------------------------
 
 export interface TrailCaptureEstimate {
