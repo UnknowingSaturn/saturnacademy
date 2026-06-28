@@ -47,6 +47,10 @@ function fmt(ms: number) {
   return `${new Date(ms).toISOString().slice(0, 10)} (UTC)`;
 }
 
+function fmtR(v: number): string {
+  return Number.isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(2) + "R" : "—";
+}
+
 export function OutOfSamplePanel({
   trades,
   fieldKeys,
