@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { bhSignificant, type BucketReport } from "@/lib/pairLabMath";
+import { useDistanceUnit, formatDistance, nativeUnitForSymbol } from "@/hooks/useDistanceUnit";
 import {
   classifyDataTier,
   DATA_TIER_INSUFFICIENT_N,
