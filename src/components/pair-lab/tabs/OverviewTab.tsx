@@ -74,6 +74,7 @@ export function OverviewTab({
 }: Props) {
 
   const { wf, setWf, minMs, maxMs } = usePairLabWalkForward();
+  const { unit: distanceUnit, setUnit: setDistanceUnit } = useDistanceUnit();
 
   const closed = data.trades.filter(
     (t) => !t.is_open && !t.is_archived && t.net_pnl != null,
@@ -522,6 +523,55 @@ export function OverviewTab({
               </TooltipProvider>
             );
           })()}
+        </div>
+        {/* Distance display unit — pure presentation toggle. Storage stays in
+            broker ticks; "native" shows pips (FX/metals/crypto/oil) or points
+            (indices) matching TradingView's measure tool; "ticks" surfaces
+            the raw broker unit so values can be pasted into an MT5 EA. */}
+        <div className="mt-3 flex items-center gap-2 text-[11px]">
+          <span className="text-muted-foreground">Distance:</span>
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="inline-flex rounded-md border border-border overflow-hidden cursor-help">
+                  <button
+                    type="button"
+                    onClick={() => setDistanceUnit("native")}
+                    className={
+                      "px-2 py-0.5 transition-colors " +
+                      (distanceUnit === "native"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background text-muted-foreground hover:bg-muted")
+                    }
+                    aria-pressed={distanceUnit === "native"}
+                  >
+                    pips / points
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDistanceUnit("ticks")}
+                    className={
+                      "px-2 py-0.5 transition-colors border-l border-border " +
+                      (distanceUnit === "ticks"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background text-muted-foreground hover:bg-muted")
+                    }
+                    aria-pressed={distanceUnit === "ticks"}
+                  >
+                    ticks
+                  </button>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                MAE and Ideal-SL are stored in broker <strong>ticks</strong>
+                (MT5's <code>Point()</code>). Display converts to{" "}
+                <strong>pips</strong> on FX/metals/crypto/oil (1 pip = 10
+                ticks) and <strong>points</strong> on indices (1 point = 1
+                tick). Switch to ticks when you want raw values for an EA
+                input.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
         <div className="mt-3 text-[11px] text-muted-foreground">
           {data.totalTrades} closed trades · {data.perCell.length} cells ·{" "}
