@@ -13,6 +13,7 @@ import {
   buildBuckets,
   estimateTrailCapture,
   resolvePairLabFieldKeys,
+  detectAmbiguousFieldKeys,
   type PairLabFieldKeys,
   type BucketReport,
   type PropFirmContext,
@@ -70,6 +71,12 @@ export interface PairLabData {
    * label and prefix matchers — surface specifically which one is missing).
    */
   missingFields: { mfe: boolean; mae: boolean; idealStopLoss: boolean; any: boolean };
+  /**
+   * K2 fix: set of field aliases that resolved to more than one custom-field
+   * definition. Pair Lab picks the first match silently; this exposes the
+   * collision so the UI can ask the user to delete or rename the duplicate.
+   */
+  ambiguousFields: { mfe: boolean; mae: boolean; idealStopLoss: boolean; any: boolean };
   propFirm: PropFirmContext | null;
   trades: Trade[];
   symbolResolver: (raw: string) => string;
