@@ -78,7 +78,9 @@ self.onmessage = (e: MessageEvent<{ id: number; params: OosSplitRequest }>) => {
   const deltas: OosSplitDelta[] = [];
   for (const tr of trainRes.perCell) {
     const te = testMap.get(cellKey(tr));
-    if (!te || tr.n < 5 || te.n < 5) continue;
+    // O3 fix: require ≥10 trades per side before reporting a delta — 5 was
+    // below the bootstrap-CI usability threshold (DATA_TIER_INSUFFICIENT_N).
+    if (!te || tr.n < 10 || te.n < 10) continue;
     deltas.push({
       symbol: tr.key.symbol,
       session: tr.key.session,

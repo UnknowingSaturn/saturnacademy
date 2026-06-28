@@ -483,7 +483,7 @@ function computeTp1Star(
   pairs: Array<{ mfeR: number; rActual: number | null }>,
   avgLossR: number,
 ): Tp1Star | null {
-  if (pairs.length < 5) return null;
+  if (pairs.length < 10) return null; // O4 fix: 5 was too noisy for a TP recommendation
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
   const fallbackMiss = -Math.abs(avgLossR);
@@ -869,7 +869,12 @@ export function runWalkForward(
   rows: Trade[],
   keys: PairLabFieldKeys,
 ): BucketRecommendation["walkForward"] {
-  const closed = rows.filter((t) => t.net_pnl != null && t.entry_time);
+  // O1 fix: drop unrealized rows BEFORE the chronological split. Previously
+  // ideas/paper/missed could land in either IS or OOS slice, leaking noise
+  // into the degradation %.
+  const closed = rows.filter(
+    (t) => t.net_pnl != null && t.entry_time && !isUnrealized(t as any),
+  );
   if (closed.length < 30) return null;
   const sorted = [...closed].sort(
     (a, b) => String(a.entry_time).localeCompare(String(b.entry_time)),

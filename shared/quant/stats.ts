@@ -192,16 +192,21 @@ export function bootstrapKellyCi(
   const ks: number[] = [];
   const baseP = nW / n;
   for (let i = 0; i < iters; i++) {
-    let sw = 0;
-    for (let j = 0; j < nW; j++) sw += wins[Math.floor(randPayoff() * nW)];
-    let sl = 0;
-    for (let j = 0; j < nL; j++) sl += losses[Math.floor(randLoss() * nL)];
-    const avgW = sw / nW;
-    const avgL = sl / nL;
-    if (!(avgW > 0) || !(avgL > 0)) continue;
+    // N1 fix: draw the binomial win-count first, then resample EXACTLY `w`
+    // wins and `n-w` losses. The previous loop hardcoded resample sizes
+    // to `nW`/`nL` regardless of `w`, decoupling win-rate from payoff
+    // distribution and shrinking the Kelly CI below its true sampling width.
     let w = 0;
     for (let j = 0; j < n; j++) if (randBinom() < baseP) w += 1;
     if (w === 0 || w === n) continue;
+    const l = n - w;
+    let sw = 0;
+    for (let j = 0; j < w; j++) sw += wins[Math.floor(randPayoff() * nW)];
+    let sl = 0;
+    for (let j = 0; j < l; j++) sl += losses[Math.floor(randLoss() * nL)];
+    const avgW = sw / w;
+    const avgL = sl / l;
+    if (!(avgW > 0) || !(avgL > 0)) continue;
     const p = w / n;
     const b = avgW / avgL;
     const kelly = (b * p - (1 - p)) / b;

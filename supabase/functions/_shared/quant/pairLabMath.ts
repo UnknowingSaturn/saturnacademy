@@ -215,7 +215,7 @@ function computeTp1Star(
   pairs: Array<{ mfeR: number; rActual: number | null }>,
   avgLossR: number,
 ): Tp1Star | null {
-  if (pairs.length < 5) return null;
+  if (pairs.length < 10) return null; // O4 parity
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
   const fallbackMiss = -Math.abs(avgLossR);
@@ -330,7 +330,10 @@ function pickBestTp(
 function runWalkForward(rows: any[], keys: PairLabFieldKeys):
   | { inSampleE: number; outOfSampleE: number; degradationPct: number; oosN: number }
   | null {
-  const closed = rows.filter((t) => t.net_pnl != null && t.entry_time);
+  // O1 parity — exclude unrealized before chronological split.
+  const closed = rows.filter(
+    (t) => t.net_pnl != null && t.entry_time && !isUnrealized(t),
+  );
   if (closed.length < 30) return null;
   const sorted = [...closed].sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)));
   const cutoff = Math.floor(sorted.length * 0.7);
@@ -524,9 +527,12 @@ export function computeBucket(
   // Prop-firm cap — mirrors src/lib/pairLabMath.ts exactly:
   //   ddCappedPct = (dailyLossDollars / balance) * 100 / max(3, worstLosingStreak)
   //   clamped to [0.1, propFirm.hardCapPct].
+  // N10 fix: compute longestLossStreak once and reuse for both prop-firm cap
+  // and the report's worstLosingStreak field.
+  const worstStreak = longestLossStreak(rows);
   let suggestedRiskPctPropFirm: number | null = null;
   if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null && propFirm.dailyLossDollars > 0) {
-    const streak = Math.max(MIN_STREAK_FLOOR, longestLossStreak(rows) || 0);
+    const streak = Math.max(MIN_STREAK_FLOOR, worstStreak || 0);
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
     const ddCappedPct = dailyBudgetPct / streak;
     const hardCap = propFirm.hardCapPct > 0 ? propFirm.hardCapPct : 2;
@@ -576,7 +582,7 @@ export function computeBucket(
     profitFactor,
     profitFactorAllWins,
 
-    worstLosingStreak: longestLossStreak(rows),
+    worstLosingStreak: worstStreak,
     loggedMfeCount: closed.filter((t) => numericCf(t, keys.mfe) != null).length,
     loggedMaeCount: closed.filter((t) => {
       const v = numericCf(t, keys.mae);
