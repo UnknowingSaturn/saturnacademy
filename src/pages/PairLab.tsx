@@ -130,7 +130,10 @@ export default function PairLab() {
   });
 
 
-  if (data.isLoading) {
+  // P-UI: Only show the full-page spinner on the FIRST load. Subsequent refetches
+  // (filter / lens / as-of changes) now keep the provider + tabs mounted so
+  // local tab state (selected cell, drill-down scroll, etc.) is preserved.
+  if (data.isLoading && data.totalTrades === 0) {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -152,7 +155,12 @@ export default function PairLab() {
           <FlaskConical className="w-5 h-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-2xl font-semibold">Pair Lab</h1>
+          <h1 className="text-2xl font-semibold flex items-center gap-2">
+            Pair Lab
+            {data.isLoading && (
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" aria-label="refreshing" />
+            )}
+          </h1>
           <p className="text-xs text-muted-foreground">
             {data.totalTrades} closed trades in scope · {data.perCell.length}{" "}
             cells · {data.perRow.length} canonical pairs

@@ -46,26 +46,36 @@ function cellSeed(model: RotationModel, risk: number, models: RotationModel[]): 
 
 self.onmessage = (e: MessageEvent<{ id: number; params: StrategyLabSweepRequest }>) => {
   const { id, params } = e.data;
-  const out: StrategyLabSweepCell[] = [];
-  for (const model of params.rotationModels) {
-    for (const risk of params.riskTiers) {
-      const mc: MCParams = {
-        rSample: params.rSample,
-        riskPerTradeFrac: risk / 100,
-        numAccounts: params.numAccounts,
-        accountSize: params.accountSize,
-        dailyLossPct: params.dailyLossPct,
-        maxLossPct: params.maxLossPct,
-        targetPct: params.targetPct / 100,
-        tradesPerDay: params.tradesPerDay,
-        maxDays: params.windowDays,
-        rotationModel: model,
-        maxLossMode: params.trailingDD ? "trailing" : "static",
-        paths: params.paths,
-        seed: cellSeed(model, risk, params.rotationModels),
-      };
-      out.push({ key: `${model}|${risk}`, risk, model, result: runMonteCarlo(mc) });
+  try {
+    const out: StrategyLabSweepCell[] = [];
+    for (const model of params.rotationModels) {
+      for (const risk of params.riskTiers) {
+        const mc: MCParams = {
+          rSample: params.rSample,
+          riskPerTradeFrac: risk / 100,
+          numAccounts: params.numAccounts,
+          accountSize: params.accountSize,
+          dailyLossPct: params.dailyLossPct,
+          maxLossPct: params.maxLossPct,
+          targetPct: params.targetPct / 100,
+          tradesPerDay: params.tradesPerDay,
+          maxDays: params.windowDays,
+          rotationModel: model,
+          maxLossMode: params.trailingDD ? "trailing" : "static",
+          paths: params.paths,
+          seed: cellSeed(model, risk, params.rotationModels),
+        };
+        out.push({ key: `${model}|${risk}`, risk, model, result: runMonteCarlo(mc) });
+      }
     }
+    (self as unknown as Worker).postMessage({ id, cells: out });
+  } catch (err) {
+    // Q11: surface the failure to the parent instead of leaving the UI hung
+    // on "simulating…" forever when one cell throws (typically NaN R inputs).
+    (self as unknown as Worker).postMessage({
+      id,
+      cells: [],
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
-  (self as unknown as Worker).postMessage({ id, cells: out });
 };

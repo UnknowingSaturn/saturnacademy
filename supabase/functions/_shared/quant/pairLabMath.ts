@@ -123,8 +123,9 @@ export interface BucketReport {
   wins: number;
   losses: number;
   winRate: number;
-  expectedR: number;
-  expectedRMedian: number;
+  expectedR: number;          // NaN when expectedRSamples === 0
+  expectedRMedian: number;    // NaN when expectedRSamples === 0
+  expectedRSamples: number;
   expectedRCi: [number, number] | null;
   mfeP50: number | null;
   mfeP75: number | null;
@@ -420,7 +421,7 @@ export function computeBucket(
 
   const n = closed.length;
   const winRate = n > 0 ? wins.length / n : 0;
-  const expectedR = mean(rActuals);
+  const expectedR = rActuals.length > 0 ? mean(rActuals) : NaN;
   const idealMed = median(idealSls);
   const slInitMed = median(slInitials);
   let slDrift: BucketReport["slDrift"] = null;
@@ -553,7 +554,8 @@ export function computeBucket(
     losses: losses.length,
     winRate,
     expectedR,
-    expectedRMedian: median(rActuals) ?? 0,
+    expectedRMedian: median(rActuals) ?? NaN,
+    expectedRSamples: rActuals.length,
     expectedRCi: bootstrapMeanCi(rActuals),
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),

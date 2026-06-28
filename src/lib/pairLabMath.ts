@@ -109,8 +109,10 @@ export interface BucketStats {
   winRate: number;            // 0–1
   /** Wilson 95% CI on win rate, null when n < 5. */
   winRateCi: [number, number] | null;
-  expectedR: number;          // average R-multiple, mean of r_multiple_actual
-  expectedRMedian: number;    // median R-multiple
+  expectedR: number;          // mean of r_multiple_actual; NaN when expectedRSamples === 0
+  expectedRMedian: number;    // median R-multiple; NaN when expectedRSamples === 0
+  /** Count of trades with a finite `r_multiple_actual` — denominator behind expectedR/expectedRMedian. */
+  expectedRSamples: number;
   /** Sum(winR) / Sum(|lossR|). null when no losses. Infinity is collapsed to null + `profitFactorAllWins` flag (JSON-safe). */
   profitFactor: number | null;
   /** True when there are wins but zero losses — profit factor is mathematically undefined / unbounded. */
@@ -452,7 +454,7 @@ function tradeSide(t: Trade | any): 1 | -1 | 0 {
 function longestLossStreak(rows: Trade[]): number {
   const sorted = [...rows]
     .filter((t) => t.net_pnl != null && t.entry_time)
-    .sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)));
+    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)));
   let run = 0;
   let worst = 0;
   for (const t of sorted) {
@@ -595,8 +597,11 @@ function computeBucket(
 
   const n = closed.length;
   const winRate = n > 0 ? wins.length / n : 0;
-  const expectedR = mean(rActuals);
-  const expectedRMedian = median(rActuals) ?? 0;
+  // expectedR is NaN (not 0) when there is zero R coverage so the UI can
+  // distinguish "no data" from a true zero-edge bucket. `expectedRSamples`
+  // surfaces the underlying denominator for coverage chips.
+  const expectedR = rActuals.length > 0 ? mean(rActuals) : NaN;
+  const expectedRMedian = median(rActuals) ?? NaN;
 
   const sumWin = winR.reduce((s, v) => s + v, 0);
   const sumLoss = lossR.reduce((s, v) => s + v, 0);
@@ -698,6 +703,7 @@ function computeBucket(
     winRateCi: n > 0 ? wilsonCi(wins.length, n) : null,
     expectedR,
     expectedRMedian,
+    expectedRSamples: rActuals.length,
     profitFactor,
     profitFactorAllWins,
     payoffRatio,
@@ -826,15 +832,21 @@ function collectMfeRPairs(rows: Trade[], keys: PairLabFieldKeys): MfePair[] {
 /** Grid-search the best TP in R-space against MFE pairs. */
 function pickBestTp(
   pairs: MfePair[],
-  _trail: number,
 ): { tpR: number; expectancy: number; ladder: number[]; ci: [number, number] | null } | null {
   if (pairs.length < 10) return null;
+  // Q5: dynamic ceiling. Hard-cap 4R hid genuine outsize-MFE edges (e.g. news).
+  // Extend grid to the 95th-percentile MFE (clamped to [4R, 10R]) so we can
+  // surface 5R+ TPs on pairs that consistently print large excursions.
+  const sortedMfe = pairs.map((p) => p.mfeR).sort((a, b) => a - b);
+  const p95 = sortedMfe[Math.min(sortedMfe.length - 1, Math.floor(sortedMfe.length * 0.95))] ?? 4;
+  const ceiling = Math.min(10, Math.max(4, Math.ceil(p95 * 4) / 4));
   const grid: number[] = [];
-  for (let r = 0.5; r <= 4.0001; r += 0.25) grid.push(Math.round(r * 4) / 4);
+  for (let r = 0.5; r <= ceiling + 1e-6; r += 0.25) grid.push(Math.round(r * 4) / 4);
   const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs) }));
   let best: { tp: number; e: number } | null = null;
   for (const c of scored) if (!best || c.e > best.e) best = c;
   if (!best || !(best.e > 0)) return null;
+
 
   // Bootstrap CI on expectancy at the winning TP cell.
   let hash = pairs.length * 1000003;
@@ -882,7 +894,8 @@ export function runWalkForward(
   const cutoff = Math.floor(sorted.length * 0.7);
   const isRows = sorted.slice(0, cutoff);
   const oosRows = sorted.slice(cutoff);
-  if (oosRows.length < 9) return null;
+  // Q4: standardise on DATA_TIER_INSUFFICIENT_N (10) — previously 9 inconsistently.
+  if (oosRows.length < 10) return null;
 
   const isPairs = collectMfeRPairs(isRows, keys);
   const oosPairs = collectMfeRPairs(oosRows, keys);
@@ -892,7 +905,7 @@ export function runWalkForward(
   // longer pass `trail` into `scoreTp`/`pickBestTp` (dead parameter removed),
   // but `pickBestTp`'s signature still accepts it as `_trail` for API
   // stability — passing 0 is a no-op.
-  const isPick = pickBestTp(isPairs, 0);
+  const isPick = pickBestTp(isPairs);
   if (!isPick) return null;
   const inSampleE = isPick.expectancy;
   const outOfSampleE = scoreTp(isPick.tpR, oosPairs);
@@ -970,7 +983,7 @@ function buildRecommendation(
   let tpMethod: "mfe_grid" | "legacy" = "legacy";
   let tpLadderR: number[] = [];
 
-  const pick = pickBestTp(ctx.mfeRPairs, ctx.trailCapture);
+  const pick = pickBestTp(ctx.mfeRPairs);
   if (pick) {
     suggestedTpR = pick.tpR;
     expectancyAtSuggested = pick.expectancy;
@@ -1077,9 +1090,9 @@ function buildRecommendation(
 // ----------------------------------------------------------------------------
 // Empirical trail-capture estimate
 //
-// Replaces the hardcoded TRAIL_CAPTURE_FRAC = 0.8 in the simulator when the
-// user has enough trades with both MFE and r_actual logged. Excludes all-out
-// exits at TP (r_actual == MFE) since those have no trail to measure.
+// Replaces the hardcoded TRAIL_CAPTURE_FRAC fallback (currently 0.7) in the
+// simulator when the user has enough trades with both MFE and r_actual logged.
+// Excludes all-out exits at TP (r_actual == MFE) since those have no trail.
 // ----------------------------------------------------------------------------
 
 export interface TrailCaptureEstimate {

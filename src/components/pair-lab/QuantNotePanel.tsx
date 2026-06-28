@@ -129,7 +129,7 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
 
   const b = bucket;
   const fmtR = (v: number | null | undefined) =>
-    v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "R";
+    v == null || !Number.isFinite(v) ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "R";
   const driftBadge =
     b.slDrift === "too_wide" ? (
       <Badge variant="outline" className="text-loss border-loss/40 bg-loss/10 text-[10px]">stops too wide</Badge>

@@ -47,6 +47,10 @@ function fmt(ms: number) {
   return `${new Date(ms).toISOString().slice(0, 10)} (UTC)`;
 }
 
+function fmtR(v: number): string {
+  return Number.isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(2) + "R" : "—";
+}
+
 export function OutOfSamplePanel({
   trades,
   fieldKeys,
@@ -134,13 +138,13 @@ export function OutOfSamplePanel({
             )}
           </div>
           <div className="text-sm">
-            Train: <span className="font-mono-numbers">N {train.n} · {(train.winRate * 100).toFixed(0)}% · {(train.expectedR >= 0 ? "+" : "") + train.expectedR.toFixed(2)}R</span>
+            Train: <span className="font-mono-numbers">N {train.n} · {(train.winRate * 100).toFixed(0)}% · {fmtR(train.expectedR)}</span>
             <span className="text-muted-foreground"> → </span>
-            Test: <span className="font-mono-numbers">N {test.n} · {(test.winRate * 100).toFixed(0)}% · {(test.expectedR >= 0 ? "+" : "") + test.expectedR.toFixed(2)}R</span>
+            Test: <span className="font-mono-numbers">N {test.n} · {(test.winRate * 100).toFixed(0)}% · {fmtR(test.expectedR)}</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {train.expectedR > 0 && test.expectedR <= 0 && (
+          {Number.isFinite(train.expectedR) && Number.isFinite(test.expectedR) && train.expectedR > 0 && test.expectedR <= 0 && (
             <Badge variant="destructive" className="text-[10px]">Baseline degraded OOS</Badge>
           )}
           {overfitCount > 0 && (
@@ -193,15 +197,15 @@ export function OutOfSamplePanel({
                   >
                     <td className="py-1 pr-3 font-sans">{d.symbol} · {d.session}{d.overfit && <span className="ml-1.5 text-[10px] text-amber-600 dark:text-amber-400">overfit?</span>}</td>
                     <td className="text-right px-3">{d.train.n}</td>
-                    <td className={"text-right px-3 " + (d.train.expectedR >= 0 ? "text-profit" : "text-loss")}>
-                      {(d.train.expectedR >= 0 ? "+" : "") + d.train.expectedR.toFixed(2)}R
+                    <td className={"text-right px-3 " + (Number.isFinite(d.train.expectedR) && d.train.expectedR >= 0 ? "text-profit" : Number.isFinite(d.train.expectedR) ? "text-loss" : "text-muted-foreground")}>
+                      {fmtR(d.train.expectedR)}
                     </td>
                     <td className="text-right px-3">{d.test.n}</td>
-                    <td className={"text-right px-3 " + (d.test.expectedR >= 0 ? "text-profit" : "text-loss")}>
-                      {(d.test.expectedR >= 0 ? "+" : "") + d.test.expectedR.toFixed(2)}R
+                    <td className={"text-right px-3 " + (Number.isFinite(d.test.expectedR) && d.test.expectedR >= 0 ? "text-profit" : Number.isFinite(d.test.expectedR) ? "text-loss" : "text-muted-foreground")}>
+                      {fmtR(d.test.expectedR)}
                     </td>
-                    <td className={"text-right pl-3 " + (delta >= 0 ? "text-profit" : "text-loss")}>
-                      {(delta >= 0 ? "+" : "") + delta.toFixed(2)}R
+                    <td className={"text-right pl-3 " + (Number.isFinite(delta) && delta >= 0 ? "text-profit" : Number.isFinite(delta) ? "text-loss" : "text-muted-foreground")}>
+                      {fmtR(delta)}
                     </td>
                   </tr>
                 );
