@@ -387,9 +387,9 @@ export function OverviewTab({
           <span>
             <span className="text-muted-foreground">Expected R</span>{" "}
             <span className="font-mono-numbers font-semibold">
-              {(data.baseline.expectedR >= 0 ? "+" : "") +
-                data.baseline.expectedR.toFixed(2)}
-              R
+              {Number.isFinite(data.baseline.expectedR)
+                ? (data.baseline.expectedR >= 0 ? "+" : "") + data.baseline.expectedR.toFixed(2) + "R"
+                : "—"}
             </span>
           </span>
           <span>
