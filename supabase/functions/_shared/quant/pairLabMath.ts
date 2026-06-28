@@ -119,60 +119,66 @@ export interface Tp1Star { r: number; hitRate: number; hitRateCi: [number, numbe
 
 export interface BucketReport {
   key: BucketKey;
+  /** Raw broker symbols rolled up into this canonical key (parity with client). */
+  rawSymbols: string[];
   n: number;
   wins: number;
   losses: number;
   winRate: number;
+  /** Wilson 95% CI on win rate. null when n=0. */
+  winRateCi: [number, number] | null;
   expectedR: number;          // NaN when expectedRSamples === 0
   expectedRMedian: number;    // NaN when expectedRSamples === 0
   expectedRSamples: number;
   expectedRCi: [number, number] | null;
+  /** One-sided bootstrap p-value that expectedR > 0. null when n < 5. */
+  expectancyPValue: number | null;
   mfeP50: number | null;
   mfeP75: number | null;
+  /** Min/max of logged MFE (R). null when no samples. */
+  mfeMin: number | null;
+  mfeMax: number | null;
   maeP50: number | null;
   maeP75: number | null;
   maeP75Pips: number | null;
+  /** Raw MAE tick quantiles (display in user-preferred units). */
+  maeP50Ticks: number | null;
+  maeP75Ticks: number | null;
+  maeMinTicks: number | null;
+  maeMaxTicks: number | null;
   idealSlMedianPips: number | null;
   slInitialMedianPips: number | null;
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   confidence: ConfidenceLevel;
   suggestedSlPips: number | null;
-  /** Provenance of `suggestedSlPips`. See client BucketRecommendation.slSource. */
   slSource: "ideal_sl" | "winners_mae" | "winners_mae_fallback" | "legacy";
-  /** N trades backing the SL source. null when legacy. */
   slSourceN: number | null;
-  /** "pips" for FX/metals/crypto/oil, "points" for indices. */
   slUnit: "pips" | "points";
   tpLadderR: number[];
-  /** TP that wins the MFE-grid expectancy search (R). null when fallback used. */
   suggestedTpR: number | null;
-  /** Expectancy at the chosen TP cell. null when fallback used. */
   expectancyAtSuggested: number | null;
-  /** Bootstrap 95% CI on expectancyAtSuggested. null when fallback used. */
   expectancyAtSuggestedCi: [number, number] | null;
-  /** "validated" (CI > 0) | "low" (CI ≤ 0) | "insufficient" (fallback used). */
   recommendationConfidence: "validated" | "low" | "insufficient";
-  /** Walk-forward IS/OOS check on the SL/TP recommendation. null when N<30 or OOS<5. */
   walkForward: { inSampleE: number; outOfSampleE: number; degradationPct: number; oosN: number } | null;
   tp1Star: Tp1Star | null;
   suggestedRiskPct: number | null;
-  /** True when raw quarter-Kelly is positive but below 0.25% — edge too thin to size meaningfully. */
   riskBelowFloor: boolean;
-  /** Bootstrap 95% CI on the raw quarter-Kelly fraction. null when n<10. */
   suggestedRiskPctCi: [number, number] | null;
-  /**
-   * Prop-firm-aware cap on suggested risk (% of balance). null when no
-   * prop-firm context. Renamed from `suggestedRiskPctPropFirmCap` so the field
-   * matches the client `BucketRecommendation.suggestedRiskPctPropFirm` 1:1.
-   */
   suggestedRiskPctPropFirm: number | null;
-  /** Sum(winR)/Sum(lossR). null when no losses (use `profitFactorAllWins`). */
+  /** mean(winR) / mean(|lossR|). null when no losses or no wins. */
+  payoffRatio: number | null;
   profitFactor: number | null;
-  /** True when there are wins but zero losses — PF is mathematically undefined. */
   profitFactorAllWins: boolean;
   worstLosingStreak: number;
   loggedMfeCount: number;
   loggedMaeCount: number;
+  /** Count of trades with logged ideal-SL. */
+  loggedIdealSlCount: number;
+  /** Walk-forward drift fields — parity with client. */
+  recentN: number;
+  recentWinRate: number | null;
+  recentExpectedR: number | null;
+  drift: number | null;
   topTradeIds: string[];
   bottomTradeIds: string[];
 }
