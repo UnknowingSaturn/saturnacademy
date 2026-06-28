@@ -32,7 +32,7 @@ export function classifySymbol(raw: string): SymbolClass {
   const n = normalizeSymbol(raw);
   if (/^XAU/.test(n) || n === "GOLD" || n === "GLD") return "metal_xau";
   if (/^XAG/.test(n) || n === "SILVER" || n === "SLV") return "metal_xag";
-  if (/^(BTC|ETH|LTC|XRP|XBT|BCH|SOL|ADA|DOT)/.test(n)) return "crypto";
+  if (/^(BTC|XBT|ETH|LTC|XRP|BCH|SOL|ADA|DOT|DOGE|MATIC|POL|AVAX|BNB|LINK|UNI|SHIB|TRX|ATOM|ARB|OP|APT|NEAR|FIL|ICP|ETC|XLM|AAVE)/.test(n)) return "crypto";
   if (/(USOIL|UKOIL|WTI|BRENT|XTIUSD|XBRUSD|USOUSD|UKOUSD|CRUDE)/.test(n)) return "oil";
   if (
     /(NAS100|US100|USTEC|NDX|SPX|US500|US30|DJ30|DJI|DAX|DE40|DE30|GER40|GER30|UK100|FTSE|JP225|JPN225|NIKKEI|N225|HK50|HSI|EU50|STOXX|AUS200|US2000|RUSSELL|FRA40|CAC|CHINA50|CN50|A50)/.test(n)
