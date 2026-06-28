@@ -199,9 +199,11 @@ function tradeSide(t: any): 1 | -1 | 0 {
   return p > 0 ? 1 : p < 0 ? -1 : 0;
 }
 function longestLossStreak(rows: any[]): number {
+  // R1.1 parity: closed-only via `!is_open` (drop floating-P&L on live trades).
+  // R1.6 parity: numeric epoch sort instead of localeCompare on ISO strings.
   const sorted = [...rows]
-    .filter((t) => t.net_pnl != null && t.entry_time)
-    .sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)));
+    .filter((t) => !t.is_open && t.entry_time)
+    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)));
   let run = 0, worst = 0;
   for (const t of sorted) {
     if (tradeSide(t) === -1) { run += 1; if (run > worst) worst = run; }
@@ -360,7 +362,8 @@ export function computeBucket(
   keys: PairLabFieldKeys,
   propFirm?: PropFirmContext | null,
 ): BucketReport {
-  const closed = rows.filter((t) => t.net_pnl != null);
+  // R1.1 parity: closed-only gate via `!is_open`.
+  const closed = rows.filter((t) => !t.is_open);
   const sideOf = (t: any): 1 | -1 | 0 => {
     if (t.r_multiple_actual != null) {
       if (t.r_multiple_actual > 0) return 1;
@@ -373,10 +376,11 @@ export function computeBucket(
   const wins = closed.filter((t) => sideOf(t) === 1);
   const losses = closed.filter((t) => sideOf(t) === -1);
 
-  const rActuals = closed.map((t) => t.r_multiple_actual).filter((v): v is number => v != null);
-  const winR = wins.map((t) => t.r_multiple_actual).filter((v): v is number => v != null && v > 0);
+  // R1.3 parity: drop NaN/Infinity from R samples.
+  const rActuals = closed.map((t) => t.r_multiple_actual).filter((v): v is number => v != null && Number.isFinite(v));
+  const winR = wins.map((t) => t.r_multiple_actual).filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
   const lossR = losses.map((t) => t.r_multiple_actual)
-    .filter((v): v is number => v != null && v < 0)
+    .filter((v): v is number => v != null && Number.isFinite(v) && v < 0)
     .map((v) => Math.abs(v));
 
   // Paired (mfeR, rActual) for the empirical-miss tp1Star computation.
