@@ -317,7 +317,7 @@ export function bucketTrades({
     rSamples: baselineRs.length,
   };
 
-  // Lift + significance.
+  // Lift + raw p-values.
   for (const b of byKey.values()) {
     if (baseline.rate != null && b.rate != null) {
       b.rateLift = b.rate - baseline.rate;
@@ -327,8 +327,15 @@ export function bucketTrades({
     }
     const test = twoProportionZTest(b.worked, b.n, baseline.worked, baseline.n);
     b.pValue = test?.p ?? null;
-    b.significant = !b.belowMinN && b.pValue != null && b.pValue < 0.05;
+    b.significant = false; // set below via BH-FDR
   }
+
+  // N2 fix: Benjamini-Hochberg FDR across all eligible cells. The previous
+  // naive p<0.05 across ~48 buckets produced ~2-3 spurious "significant"
+  // cells per heatmap. Cells flagged belowMinN are excluded from the test.
+  const eligible = [...byKey.values()].filter((b) => !b.belowMinN && b.pValue != null);
+  const sig = bhSignificant(eligible.map((b) => b.pValue));
+  for (let i = 0; i < eligible.length; i++) eligible[i].significant = sig[i];
 
   return { byKey, baseline, scopedTradeCount: scoped };
 }
