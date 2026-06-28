@@ -7,6 +7,7 @@ import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { useAccount } from "@/hooks/useAccounts";
 import { useSymbolAliases } from "@/hooks/useSymbolAliases";
 import { useSimulatorProfile } from "@/hooks/useSimulatorProfile";
+import { useSymbolGroups } from "@/hooks/useSymbolGroups";
 import { buildSymbolResolver } from "@/lib/symbolAliasing";
 import {
   buildBuckets,
@@ -110,21 +111,20 @@ function usePropFirmRules(firmId: string | null | undefined) {
   });
 }
 
-/** Detect possible partial-fill duplication: same account+symbol within 1 minute. */
+/**
+ * J3 fix: use the real `trade_partial_fills` data attached to each Trade
+ * (via `t.partial_fills`) instead of a same-minute heuristic that produced
+ * false positives for scalpers and missed real partial exits.
+ */
 function detectPartialFills(trades: Trade[]): PartialFillFlag | null {
-  const groups = new Map<string, number>();
+  let n = 0;
   for (const t of trades) {
     if (t.is_open || t.is_archived) continue;
-    if (!t.symbol || !t.entry_time || !t.account_id) continue;
-    // Round to minute resolution.
-    const minute = String(t.entry_time).slice(0, 16);
-    const k = `${t.account_id}|${t.symbol}|${minute}`;
-    groups.set(k, (groups.get(k) ?? 0) + 1);
+    if ((t.partial_fills?.length ?? 0) > 0) n += 1;
   }
-  let g = 0;
-  let n = 0;
-  groups.forEach((count) => { if (count > 1) { g += 1; n += count; } });
-  return g > 0 ? { groups: g, trades: n } : null;
+  // `groups` is kept on the type for downstream UI; with the per-trade signal
+  // each flagged trade IS its own group, so groups == n.
+  return n > 0 ? { groups: n, trades: n } : null;
 }
 
 export function usePairLab(filters: PairLabFilters = {}): PairLabData {
@@ -139,6 +139,11 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
   const defsQuery = useCustomFieldDefinitions();
   const aliasesQuery = useSymbolAliases();
   const profileQuery = useSimulatorProfile();
+  // J4 fix: tick-size overrides are installed by useSymbolGroups as a side
+  // effect. Subscribe here so the memo below re-runs once the data arrives —
+  // otherwise the first bucket-math pass executes against an empty override
+  // map and never re-computes (no other dep changes when overrides flip).
+  const groupsQuery = useSymbolGroups();
 
   const useActiveAccount = profileQuery.data?.sim_source === "active_account";
   const accountQuery = useAccount(
@@ -258,9 +263,11 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       ? scopedTrades.filter((t) => t.account_id == null).length
       : 0;
     const rFallbackCount = baseline.eventsRFallbackCount ?? 0;
-    // Phase H/12: detector for TZ-less entry_time strings in the active scope.
-    // Surfaced as a header chip so users can fix DST profile / re-ingest.
-    const naiveTimestampCount = countNaiveEntryTimes(scopedTrades);
+    // Phase H/12 + K5: detect TZ-less entry_time strings across the whole
+    // user trade set (incl. open positions and out-of-window rows) so the
+    // header chip surfaces every offender, not just what survived the scope
+    // filter.
+    const naiveTimestampCount = countNaiveEntryTimes(trades);
 
     return {
       isLoading:
@@ -300,6 +307,11 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     profileQuery.data,
     profileQuery.isLoading,
     rulesQuery.data,
+    // J4 — re-run when overrides install/change so MAE / Ideal-SL scaling
+    // matches the canonical tick map. The hook itself doesn't read groupsQuery
+    // directly; the effect inside useSymbolGroups writes the overrides into
+    // the shared symbolMapping module that pairLabMath consults.
+    groupsQuery.groups,
     effectiveBalance,
     effectiveFirmId,
     filters.profile,
