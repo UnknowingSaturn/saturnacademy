@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import type { BucketReport, PropFirmContext } from "@/lib/pairLabMath";
 import { Link } from "react-router-dom";
 import { CumulativeExpectancyChart } from "@/components/pair-lab/CumulativeExpectancyChart";
+import { useDistanceUnit, formatDistance, nativeUnitForSymbol } from "@/hooks/useDistanceUnit";
 
 
 interface QuantNote {
@@ -36,6 +37,7 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
   const [note, setNote] = useState<QuantNote | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { unit: distanceUnit } = useDistanceUnit();
 
   const generate = async () => {
     setLoading(true);
@@ -207,10 +209,12 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
             <div className="text-muted-foreground">SL drift</div>
             <div className="font-mono-numbers font-semibold text-sm">
               {b.slInitialMedian != null && b.idealSlMedian != null
-                ? `${b.slInitialMedian.toFixed(0)} → ${b.idealSlMedian.toFixed(0)}`
+                ? `${formatDistance(b.key.symbol, b.slInitialMedian, b.slUnit ?? nativeUnitForSymbol(b.key.symbol), distanceUnit)} → ${formatDistance(b.key.symbol, b.idealSlMedian, b.slUnit ?? nativeUnitForSymbol(b.key.symbol), distanceUnit)}`
                 : "—"}
             </div>
-            <div className="text-[10px] text-muted-foreground">planned → ideal (pips)</div>
+            <div className="text-[10px] text-muted-foreground">
+              planned → ideal ({distanceUnit === "ticks" ? "ticks" : (b.slUnit ?? nativeUnitForSymbol(b.key.symbol))})
+            </div>
           </div>
         </div>
       )}
@@ -297,7 +301,16 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
               <div>
                 <div className="text-muted-foreground">SL</div>
                 <div className="font-mono-numbers font-semibold text-sm">
-                  {r.suggestedSlPips != null ? `${r.suggestedSlPips.toFixed(0)} pips` : "—"}
+                  {formatDistance(
+                    b.key.symbol,
+                    r.suggestedSlPips,
+                    // r.slUnit may exist on the recommendation; fall back to
+                    // the bucket-level unit, then to the symbol classifier.
+                    (r as { slUnit?: "pips" | "points" }).slUnit
+                      ?? b.slUnit
+                      ?? nativeUnitForSymbol(b.key.symbol),
+                    distanceUnit,
+                  )}
                 </div>
                 {r.slSource !== "legacy" && (
                   <div className="text-[10px] text-muted-foreground">
