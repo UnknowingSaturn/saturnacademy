@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Info, Layers, Shield, AlertTriangle, Clock } from "lucide-react";
 import { WalkForwardControls } from "@/components/pair-lab/WalkForwardControls";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import type { SymbolGroup } from "@/hooks/useSymbolGroups";
 import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
 import { classifySymbol, getTickSizeOverrides } from "@/lib/symbolMapping";
