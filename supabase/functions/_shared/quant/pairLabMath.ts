@@ -330,7 +330,10 @@ function pickBestTp(
 function runWalkForward(rows: any[], keys: PairLabFieldKeys):
   | { inSampleE: number; outOfSampleE: number; degradationPct: number; oosN: number }
   | null {
-  const closed = rows.filter((t) => t.net_pnl != null && t.entry_time);
+  // O1 parity — exclude unrealized before chronological split.
+  const closed = rows.filter(
+    (t) => t.net_pnl != null && t.entry_time && !isUnrealized(t),
+  );
   if (closed.length < 30) return null;
   const sorted = [...closed].sort((a, b) => String(a.entry_time).localeCompare(String(b.entry_time)));
   const cutoff = Math.floor(sorted.length * 0.7);
