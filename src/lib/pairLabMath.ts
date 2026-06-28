@@ -703,6 +703,7 @@ function computeBucket(
     winRateCi: n > 0 ? wilsonCi(wins.length, n) : null,
     expectedR,
     expectedRMedian,
+    expectedRSamples: rActuals.length,
     profitFactor,
     profitFactorAllWins,
     payoffRatio,
