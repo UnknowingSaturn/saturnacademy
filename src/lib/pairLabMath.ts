@@ -888,7 +888,8 @@ export function runWalkForward(
   const cutoff = Math.floor(sorted.length * 0.7);
   const isRows = sorted.slice(0, cutoff);
   const oosRows = sorted.slice(cutoff);
-  if (oosRows.length < 9) return null;
+  // Q4: standardise on DATA_TIER_INSUFFICIENT_N (10) — previously 9 inconsistently.
+  if (oosRows.length < 10) return null;
 
   const isPairs = collectMfeRPairs(isRows, keys);
   const oosPairs = collectMfeRPairs(oosRows, keys);
