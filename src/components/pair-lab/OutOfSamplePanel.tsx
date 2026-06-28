@@ -197,15 +197,15 @@ export function OutOfSamplePanel({
                   >
                     <td className="py-1 pr-3 font-sans">{d.symbol} · {d.session}{d.overfit && <span className="ml-1.5 text-[10px] text-amber-600 dark:text-amber-400">overfit?</span>}</td>
                     <td className="text-right px-3">{d.train.n}</td>
-                    <td className={"text-right px-3 " + (d.train.expectedR >= 0 ? "text-profit" : "text-loss")}>
-                      {(d.train.expectedR >= 0 ? "+" : "") + d.train.expectedR.toFixed(2)}R
+                    <td className={"text-right px-3 " + (Number.isFinite(d.train.expectedR) && d.train.expectedR >= 0 ? "text-profit" : Number.isFinite(d.train.expectedR) ? "text-loss" : "text-muted-foreground")}>
+                      {fmtR(d.train.expectedR)}
                     </td>
                     <td className="text-right px-3">{d.test.n}</td>
-                    <td className={"text-right px-3 " + (d.test.expectedR >= 0 ? "text-profit" : "text-loss")}>
-                      {(d.test.expectedR >= 0 ? "+" : "") + d.test.expectedR.toFixed(2)}R
+                    <td className={"text-right px-3 " + (Number.isFinite(d.test.expectedR) && d.test.expectedR >= 0 ? "text-profit" : Number.isFinite(d.test.expectedR) ? "text-loss" : "text-muted-foreground")}>
+                      {fmtR(d.test.expectedR)}
                     </td>
-                    <td className={"text-right pl-3 " + (delta >= 0 ? "text-profit" : "text-loss")}>
-                      {(delta >= 0 ? "+" : "") + delta.toFixed(2)}R
+                    <td className={"text-right pl-3 " + (Number.isFinite(delta) && delta >= 0 ? "text-profit" : Number.isFinite(delta) ? "text-loss" : "text-muted-foreground")}>
+                      {fmtR(delta)}
                     </td>
                   </tr>
                 );
