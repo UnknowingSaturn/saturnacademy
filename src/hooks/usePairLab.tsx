@@ -297,6 +297,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       sessions,
       totalTrades: closedTrades.length,
       missingFields,
+      ambiguousFields,
       propFirm,
       trades: scopedTrades,
       symbolResolver,
