@@ -832,15 +832,21 @@ function collectMfeRPairs(rows: Trade[], keys: PairLabFieldKeys): MfePair[] {
 /** Grid-search the best TP in R-space against MFE pairs. */
 function pickBestTp(
   pairs: MfePair[],
-  _trail: number,
 ): { tpR: number; expectancy: number; ladder: number[]; ci: [number, number] | null } | null {
   if (pairs.length < 10) return null;
+  // Q5: dynamic ceiling. Hard-cap 4R hid genuine outsize-MFE edges (e.g. news).
+  // Extend grid to the 95th-percentile MFE (clamped to [4R, 10R]) so we can
+  // surface 5R+ TPs on pairs that consistently print large excursions.
+  const sortedMfe = pairs.map((p) => p.mfeR).sort((a, b) => a - b);
+  const p95 = sortedMfe[Math.min(sortedMfe.length - 1, Math.floor(sortedMfe.length * 0.95))] ?? 4;
+  const ceiling = Math.min(10, Math.max(4, Math.ceil(p95 * 4) / 4));
   const grid: number[] = [];
-  for (let r = 0.5; r <= 4.0001; r += 0.25) grid.push(Math.round(r * 4) / 4);
+  for (let r = 0.5; r <= ceiling + 1e-6; r += 0.25) grid.push(Math.round(r * 4) / 4);
   const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs) }));
   let best: { tp: number; e: number } | null = null;
   for (const c of scored) if (!best || c.e > best.e) best = c;
   if (!best || !(best.e > 0)) return null;
+
 
   // Bootstrap CI on expectancy at the winning TP cell.
   let hash = pairs.length * 1000003;
