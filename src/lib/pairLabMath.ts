@@ -869,7 +869,12 @@ export function runWalkForward(
   rows: Trade[],
   keys: PairLabFieldKeys,
 ): BucketRecommendation["walkForward"] {
-  const closed = rows.filter((t) => t.net_pnl != null && t.entry_time);
+  // O1 fix: drop unrealized rows BEFORE the chronological split. Previously
+  // ideas/paper/missed could land in either IS or OOS slice, leaking noise
+  // into the degradation %.
+  const closed = rows.filter(
+    (t) => t.net_pnl != null && t.entry_time && !isUnrealized(t as any),
+  );
   if (closed.length < 30) return null;
   const sorted = [...closed].sort(
     (a, b) => String(a.entry_time).localeCompare(String(b.entry_time)),
