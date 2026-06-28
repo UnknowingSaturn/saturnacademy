@@ -697,7 +697,9 @@ export function buildBuckets(
   let unrealizedExcluded = 0;
   const closed: any[] = [];
   for (const t of trades) {
-    if (t.is_open || t.is_archived || t.net_pnl == null) continue;
+    // R1.1 parity: closed-only via `!is_open` (drop MT5 floating-P&L on live trades).
+    if (t.is_open || t.is_archived) continue;
+    if (t.net_pnl == null) continue;
     if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) continue;
     if (dateFrom || dateTo) {
       const ts = t.entry_time ? String(t.entry_time) : null;
@@ -708,8 +710,9 @@ export function buildBuckets(
     if (!includeUnrealized && isUnrealized(t)) { unrealizedExcluded += 1; continue; }
     closed.push(t);
   }
-  const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm);
+  const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm, []);
   const cellMap = new Map<string, any[]>();
+  const rawSymbolsByKey = new Map<string, Set<string>>();
   for (const t of closed) {
     if (!t.symbol) continue;
     const canonical = resolveSym(t.symbol);
@@ -717,11 +720,14 @@ export function buildBuckets(
     const k = `${canonical}__${sess}`;
     if (!cellMap.has(k)) cellMap.set(k, []);
     cellMap.get(k)!.push(t);
+    if (!rawSymbolsByKey.has(k)) rawSymbolsByKey.set(k, new Set());
+    rawSymbolsByKey.get(k)!.add(String(t.symbol));
   }
   const perCell: BucketReport[] = [];
   cellMap.forEach((rows, k) => {
     const [symbol, session] = k.split("__");
-    perCell.push(computeBucket({ symbol, session }, rows, keys, propFirm));
+    const raws = Array.from(rawSymbolsByKey.get(k) ?? []).sort();
+    perCell.push(computeBucket({ symbol, session }, rows, keys, propFirm, raws));
   });
   perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
   return { perCell, baseline, unrealizedExcluded };
