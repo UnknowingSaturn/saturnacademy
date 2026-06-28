@@ -36,6 +36,9 @@ export function useOosSplit(params: OosSplitRequest | null): OosSplitState {
       resolver: params.resolverMap,
       propFirm: params.propFirm,
       fieldKeys: params.fieldKeys,
+      // J6 fix: toggle was excluded so the OOS panel kept stale results when
+      // the user flipped "Include unrealized" in the header.
+      includeUnrealized: params.includeUnrealized,
     });
   }, [params]);
 

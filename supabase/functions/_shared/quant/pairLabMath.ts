@@ -466,6 +466,12 @@ export function computeBucket(
 
   // ----- TP: MFE-based expectancy grid (no survivorship bias). -----
   const mfeRPairs = collectMfeRPairs(rows, keys);
+  // J1 fix: `mfes` was referenced in the return block but never declared on
+  // the edge side, throwing a ReferenceError on every server-side report.
+  // Mirror the client (`src/lib/pairLabMath.ts`) collection.
+  const mfes = rows
+    .map((t: any) => numericCf(t, keys.mfe))
+    .filter((v): v is number => v != null);
   const trailCapture = estimateTrailCaptureRows(rows, keys);
   const pick = pickBestTp(mfeRPairs, trailCapture);
   let suggestedTpR: number | null = null;
@@ -581,24 +587,62 @@ export function computeBucket(
   };
 }
 
+// J2 fix: mirror the client `BuildBucketsOpts` shape so any server-side report
+// honours profile / walk-forward / unrealized exactly like the UI. The legacy
+// positional `(trades, keys, propFirm, symbolResolver)` calling convention is
+// still accepted at the type-level by detecting if the 3rd arg is an opts
+// object — but new callers should pass opts.
+export interface EdgeBuildBucketsOpts {
+  propFirm?: PropFirmContext | null;
+  symbolResolver?: (raw: string) => string;
+  profile?: string | null;
+  /** ISO bounds on entry_time (inclusive). */
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  /** Walk-forward drift window. Default 10. */
+  recentN?: number;
+  /** Include ideas/paper/missed/dismissed/zero-PnL setup rows. Default false. */
+  includeUnrealized?: boolean;
+}
+
 export function buildBuckets(
   trades: any[],
   keys: PairLabFieldKeys,
-  propFirm?: PropFirmContext | null,
-  symbolResolver?: (raw: string) => string,
+  optsOrPropFirm?: EdgeBuildBucketsOpts | PropFirmContext | null,
+  symbolResolverLegacy?: (raw: string) => string,
 ): {
   perCell: BucketReport[];
   baseline: BucketReport;
   unrealizedExcluded: number;
 } {
-  const resolveSym = symbolResolver ?? ((s: string) => s);
-  // CE1 fix: gate idea/paper/missed/manual-dismiss + zero-PnL no-mod rows the
-  // same way the client does so any future scheduled job/report matches the UI.
+  // Back-compat: callers historically passed `(trades, keys, propFirm, resolver)`.
+  // Detect the opts shape by the absence of PropFirmContext-only fields.
+  const isOpts =
+    optsOrPropFirm != null &&
+    typeof optsOrPropFirm === "object" &&
+    !("balance" in (optsOrPropFirm as PropFirmContext));
+  const opts: EdgeBuildBucketsOpts = isOpts
+    ? (optsOrPropFirm as EdgeBuildBucketsOpts)
+    : { propFirm: (optsOrPropFirm as PropFirmContext | null) ?? null, symbolResolver: symbolResolverLegacy };
+
+  const propFirm = opts.propFirm ?? null;
+  const resolveSym = opts.symbolResolver ?? ((s: string) => s);
+  const includeUnrealized = opts.includeUnrealized === true;
+  const dateFrom = opts.dateFrom ?? null;
+  const dateTo = opts.dateTo ?? null;
+
   let unrealizedExcluded = 0;
   const closed: any[] = [];
   for (const t of trades) {
     if (t.is_open || t.is_archived || t.net_pnl == null) continue;
-    if (isUnrealized(t)) { unrealizedExcluded += 1; continue; }
+    if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) continue;
+    if (dateFrom || dateTo) {
+      const ts = t.entry_time ? String(t.entry_time) : null;
+      if (!ts) continue;
+      if (dateFrom && ts < dateFrom) continue;
+      if (dateTo && ts > dateTo) continue;
+    }
+    if (!includeUnrealized && isUnrealized(t)) { unrealizedExcluded += 1; continue; }
     closed.push(t);
   }
   const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm);
@@ -616,7 +660,6 @@ export function buildBuckets(
     const [symbol, session] = k.split("__");
     perCell.push(computeBucket({ symbol, session }, rows, keys, propFirm));
   });
-  // Match client ordering: sort by N descending (stable, sample-size first).
   perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
   return { perCell, baseline, unrealizedExcluded };
 }
