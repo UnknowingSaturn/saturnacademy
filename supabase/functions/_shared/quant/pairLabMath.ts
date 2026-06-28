@@ -123,8 +123,9 @@ export interface BucketReport {
   wins: number;
   losses: number;
   winRate: number;
-  expectedR: number;
-  expectedRMedian: number;
+  expectedR: number;          // NaN when expectedRSamples === 0
+  expectedRMedian: number;    // NaN when expectedRSamples === 0
+  expectedRSamples: number;
   expectedRCi: [number, number] | null;
   mfeP50: number | null;
   mfeP75: number | null;
