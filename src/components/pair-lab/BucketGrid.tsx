@@ -149,7 +149,7 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
       </div>
       <div className={cn(
         "text-sm font-mono-numbers font-semibold",
-        provisional
+        provisional || !hasExpR
           ? "text-muted-foreground"
           : b!.expectedR >= 0 ? "text-profit" : "text-loss",
       )}>
