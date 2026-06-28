@@ -215,7 +215,7 @@ function computeTp1Star(
   pairs: Array<{ mfeR: number; rActual: number | null }>,
   avgLossR: number,
 ): Tp1Star | null {
-  if (pairs.length < 5) return null;
+  if (pairs.length < 10) return null; // O4 parity
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
   const fallbackMiss = -Math.abs(avgLossR);
