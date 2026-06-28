@@ -46,6 +46,7 @@ function coverageColor(logged: number, total: number) {
 }
 
 function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | null }) {
+  const { unit: distanceUnit } = useDistanceUnit();
   const tier = tierFor(b);
   if (tier === "empty") {
     return <span className="text-xs text-muted-foreground">—</span>;
@@ -175,7 +176,7 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
                 ? "text-amber-600 dark:text-amber-400"
                 : "text-muted-foreground",
           )}
-          title={`Suggested TP ${b!.recommendation.suggestedTpR.toFixed(2)}R · SL ${b!.recommendation.suggestedSlPips?.toFixed(0) ?? "–"} pips · confidence ${b!.recommendation.recommendationConfidence}`}
+          title={`Suggested TP ${b!.recommendation.suggestedTpR.toFixed(2)}R · SL ${formatDistance(b!.key.symbol, b!.recommendation.suggestedSlPips, b!.slUnit ?? nativeUnitForSymbol(b!.key.symbol), distanceUnit)} · confidence ${b!.recommendation.recommendationConfidence}`}
         >
           → TP {b!.recommendation.suggestedTpR.toFixed(2)}R
         </div>
