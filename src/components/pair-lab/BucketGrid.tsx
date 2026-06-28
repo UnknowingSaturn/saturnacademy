@@ -93,6 +93,7 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
     );
   }
   const provisional = tier === "provisional";
+  const winRatePct = (b!.winRate * 100).toFixed(0);
   const hasExpR = Number.isFinite(b!.expectedR);
   const expR = hasExpR
     ? (b!.expectedR >= 0 ? "+" : "") + b!.expectedR.toFixed(2) + "R"
