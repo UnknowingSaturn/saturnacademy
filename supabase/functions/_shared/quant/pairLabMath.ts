@@ -564,21 +564,56 @@ export function computeBucket(
 
   const slUnit = key.symbol && key.symbol !== "All" ? pipLabelForSymbol(key.symbol) : "pips";
 
+  // R2 parity additions — payoff ratio, expectancy p-value, walk-forward drift.
+  const sumWin = winR.reduce((s, v) => s + v, 0);
+  const sumLoss = lossR.reduce((s, v) => s + v, 0);
+  const payoffRatio = (wins.length > 0 && losses.length > 0 && lossR.length > 0)
+    ? (sumWin / winR.length) / (sumLoss / lossR.length)
+    : null;
+
+  const eventR: number[] = [...closed]
+    .filter((t) => t.entry_time)
+    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)))
+    .map((t) => {
+      const hasR = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual);
+      return hasR
+        ? (t.r_multiple_actual as number)
+        : ((t.net_pnl ?? 0) > 0 ? 1 : (t.net_pnl ?? 0) < 0 ? -1 : 0);
+    });
+  const tail = eventR.slice(-recentN);
+  const recentEnough = tail.length >= 5;
+  const recentWinRate = recentEnough
+    ? tail.filter((r) => r > 0).length / tail.length
+    : null;
+  const recentExpectedR = recentEnough
+    ? tail.reduce((s, r) => s + r, 0) / tail.length
+    : null;
+  const drift = recentWinRate != null ? (recentWinRate - winRate) * 100 : null;
+
   return {
     key,
+    rawSymbols,
     n,
     wins: wins.length,
     losses: losses.length,
     winRate,
+    winRateCi: n > 0 ? wilsonCi(wins.length, n) : null,
     expectedR,
     expectedRMedian: median(rActuals) ?? NaN,
     expectedRSamples: rActuals.length,
     expectedRCi: bootstrapMeanCi(rActuals),
+    expectancyPValue: bootstrapPositivePValue(rActuals),
     mfeP50: median(mfes),
     mfeP75: quantile(mfes, 0.75),
+    mfeMin: mfes.length > 0 ? mfes.reduce((a, b) => (a < b ? a : b)) : null,
+    mfeMax: mfes.length > 0 ? mfes.reduce((a, b) => (a > b ? a : b)) : null,
     maeP50: median(maesR),
     maeP75: quantile(maesR, 0.75),
     maeP75Pips,
+    maeP50Ticks: median(maesTicks),
+    maeP75Ticks: quantile(maesTicks, 0.75),
+    maeMinTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a < b ? a : b)) : null,
+    maeMaxTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a > b ? a : b)) : null,
     idealSlMedianPips: idealMed,
     slInitialMedianPips: slInitMed,
     slDrift,
@@ -598,15 +633,20 @@ export function computeBucket(
     riskBelowFloor,
     suggestedRiskPctCi,
     suggestedRiskPctPropFirm,
+    payoffRatio,
     profitFactor,
     profitFactorAllWins,
-
     worstLosingStreak: worstStreak,
     loggedMfeCount: closed.filter((t) => numericCf(t, keys.mfe) != null).length,
     loggedMaeCount: closed.filter((t) => {
       const v = numericCf(t, keys.mae);
       return v != null && t.sl_initial != null && t.entry_price != null;
     }).length,
+    loggedIdealSlCount: idealSls.length,
+    recentN,
+    recentWinRate,
+    recentExpectedR,
+    drift,
     topTradeIds,
     bottomTradeIds,
   };
