@@ -107,7 +107,25 @@ export function OutOfSamplePanel({
     [trades, fieldKeys, resolverMap, propFirm, dateFrom, dateTo, splitMs, includeUnrealized],
   );
 
-  const { result, isComputing } = useOosSplit(params);
+  const { result, isComputing, error } = useOosSplit(params);
+
+  // R5.1 — surface worker faults so the panel can recover instead of
+  // sitting on a skeleton forever.
+  if (error && !result) {
+    return (
+      <Card className="p-4 space-y-2">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground">
+          Out-of-sample split
+        </div>
+        <div className="text-sm text-destructive">
+          OOS computation failed: {error}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          Try narrowing the date range or refreshing.
+        </div>
+      </Card>
+    );
+  }
 
   // First-paint skeleton — once we have a result, keep rendering it while
   // newer requests recompute (avoids the table flickering between drags).
@@ -121,6 +139,7 @@ export function OutOfSamplePanel({
       </Card>
     );
   }
+
 
   const { trainBaseline: train, testBaseline: test, deltas } = result;
   const overfitCount = deltas.filter((d) => d.overfit).length;
