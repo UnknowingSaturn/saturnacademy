@@ -156,22 +156,12 @@ export const TP_SOURCE_LABELS: Record<AtRSource, string> = {
 };
 
 // ----------------------------------------------------------------------------
-// Field readers
+// Field readers — single source of truth lives in shared/quant/stats.
+// M12 cleanup: dropped the local byte-for-byte copy so future tweaks to the
+// shared `numericCf` (string-numbers, locale parsing, etc.) propagate here.
 // ----------------------------------------------------------------------------
 
-function getCf(trade: any, key: string | null): unknown {
-  if (!key) return undefined;
-  const cf = trade?.custom_fields;
-  if (!cf || typeof cf !== "object") return undefined;
-  return cf[key];
-}
-
-function numericCf(trade: any, key: string | null): number | null {
-  const v = getCf(trade, key);
-  if (v === undefined || v === null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
+import { numericCf } from "../../shared/quant/stats";
 
 
 /** Distance from entry to initial stop, expressed in pips (or points for indices). */
@@ -491,7 +481,10 @@ function buildResult(
 
   let verdict: ReplayResult["propFirmVerdict"] = "n/a";
   let bustNote: string | null = null;
-  if (opts.propFirm && opts.propFirm.dailyLossDollars != null) {
+  // J7 fix: `dailyLossDollars === 0` previously made every losing trade trip
+  // the cap. Treat 0/null/negative as "not set" to match buildRecommendation
+  // and edge computeBucket.
+  if (opts.propFirm && opts.propFirm.dailyLossDollars != null && opts.propFirm.dailyLossDollars > 0) {
     const dailyCap = opts.propFirm.dailyLossDollars;
     for (const [day, sum] of dailyDollars) {
       if (sum < -dailyCap) {

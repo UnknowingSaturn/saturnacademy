@@ -181,7 +181,13 @@ export function bootstrapKellyCi(
   if (n < 10 || nW === 0 || nL === 0) return null;
 
   const seedBase = (n * 1000003) ^ Math.floor((wins[0] ?? 0) * 1000);
+  // K1 fix: three independent streams so payoff, loss, and binomial draws
+  // genuinely decorrelate within one iteration. Previously wins+losses both
+  // consumed `randPayoff`, so the loss draw's state depended on the win
+  // draw's output — bootstrap CI was mildly tighter than the true sampling
+  // distribution.
   const randPayoff = makeSeededRng(seedBase);
+  const randLoss = makeSeededRng(seedBase ^ 0x27d4eb2d);
   const randBinom = makeSeededRng(seedBase ^ 0x5bd1e995);
   const ks: number[] = [];
   const baseP = nW / n;
@@ -189,7 +195,7 @@ export function bootstrapKellyCi(
     let sw = 0;
     for (let j = 0; j < nW; j++) sw += wins[Math.floor(randPayoff() * nW)];
     let sl = 0;
-    for (let j = 0; j < nL; j++) sl += losses[Math.floor(randPayoff() * nL)];
+    for (let j = 0; j < nL; j++) sl += losses[Math.floor(randLoss() * nL)];
     const avgW = sw / nW;
     const avgL = sl / nL;
     if (!(avgW > 0) || !(avgL > 0)) continue;

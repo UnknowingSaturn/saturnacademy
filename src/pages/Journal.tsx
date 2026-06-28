@@ -57,9 +57,17 @@ export default function Journal() {
   const [customFrom, setCustomFrom] = useState<Date | undefined>();
   const [customTo, setCustomTo] = useState<Date | undefined>();
 
-  const { data: trades, isLoading } = useTrades();
-  const { data: settings } = useUserSettings();
   const { selectedAccountId, accounts } = useAccountFilter();
+  // L1 fix: push the account filter into Supabase instead of fetching every
+  // trade and trimming client-side. Mirrors Pair Lab; orphan rows
+  // (account_id IS NULL) stay included by default to preserve historical
+  // Journal behaviour.
+  const { data: trades, isLoading } = useTrades(
+    selectedAccountId && selectedAccountId !== "all"
+      ? { accountId: selectedAccountId, includeUnassigned: true }
+      : undefined,
+  );
+  const { data: settings } = useUserSettings();
   const { data: aliases } = useSymbolAliases();
 
   // Phase H/11: canonicalize broker symbol variants before filtering/grouping
@@ -130,12 +138,10 @@ export default function Journal() {
       }
     });
 
-    // Global account filter
-    if (selectedAccountId !== "all") {
-      result = result.filter(trade => 
-        trade.account_id === selectedAccountId || trade.account_id === null
-      );
-    }
+    // L1 fix: account scoping is now pushed into the SQL query above; no
+    // client-side re-filter needed. Earlier this branch also forced orphans
+    // (account_id IS NULL) to be visible whenever an account was selected,
+    // which `includeUnassigned: true` in useTrades preserves at the source.
 
     // Model/Strategy filter (from URL)
     if (modelFilter) {

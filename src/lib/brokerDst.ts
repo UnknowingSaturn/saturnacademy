@@ -133,11 +133,16 @@ export function brokerLocalToUtc(
 
   const m = NAIVE_TS_RE.exec(s);
   if (!m) {
-    // Last-resort fallback for unexpected formats — surface the issue rather
-    // than silently producing locale-dependent garbage.
-    const fallback = new Date(s);
-    const offsetH = resolveBrokerOffsetHours(profile, fallback, manualOffsetHours);
-    return new Date(fallback.getTime() - offsetH * 3_600_000);
+    // K4 fix: previously fell back to `new Date(s)` THEN subtracted the
+    // broker DST offset. `new Date(s)` on a naive string is locale-dependent
+    // (Chrome = local, Node = UTC), so the subsequent offset shift could
+    // double-shift the instant. Safer to surface the parse failure and
+    // return the JS-parsed Date unchanged — the strict regex above already
+    // handles every MT5 / CSV pattern we ingest.
+    if (typeof console !== "undefined") {
+      console.warn(`[brokerDst] unrecognized timestamp shape, returning unshifted: ${s}`);
+    }
+    return new Date(s);
   }
 
   const [, yyyy, mo, dd, hh, mm, ss = "0", frac = "0"] = m;

@@ -30,7 +30,6 @@ import {
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
 import { useSymbolGroups } from "@/hooks/useSymbolGroups";
-import { resolveWindow } from "./WalkForwardControls";
 import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
 
 interface Props {
@@ -87,9 +86,11 @@ function cellTone(b: BucketStats | undefined, minN: number): { bg: string; ring:
   // small-N cells are still visibly colored (just dimmer than trusted cells).
   const conf = Math.max(0.25, Math.min(1, b.n / (minN * 2)));
   const alpha = (0.10 + 0.50 * intensity) * conf;
+  // M9 fix: tokens, not raw rgba — so the heatmap follows the theme and
+  // matches the chart canvas (which already reads --heat-positive/--heat-negative).
   const bg = clamped >= 0
-    ? `rgba(16,185,129,${alpha.toFixed(3)})`   // emerald
-    : `rgba(239,68,68,${alpha.toFixed(3)})`;   // red
+    ? `hsl(var(--heat-positive) / ${alpha.toFixed(3)})`
+    : `hsl(var(--heat-negative) / ${alpha.toFixed(3)})`;
   const ring = b.significant
     ? "border-primary/60"
     : b.belowMinN
@@ -120,14 +121,24 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
   const [selectedCell, setSelectedCell] = useState<{ hour: number; half: Half } | null>(null);
 
   // Walk-forward state — sourced exclusively from PairLabWalkForwardContext.
-  // OverviewTab owns the single lens slider; this component reads it. The
-  // local fallback was removed (Phase 5 cleanup) to eliminate duplicate
-  // sliders and the dead `localWf` state machine.
-  const { wf } = usePairLabWalkForward();
+  // OverviewTab owns the single lens slider; this component reads it. M2 fix:
+  // read the already-resolved dateFrom/dateTo from context instead of
+  // re-running `resolveWindow(wf)` here. Single source of truth.
+  const { wf, dateFrom, dateTo } = usePairLabWalkForward();
   // Close any drilled-in cell when the lens shifts.
   useEffect(() => {
     setSelectedCell(null);
   }, [wf.lens, wf.asOfMs]);
+
+  // M10 — Escape closes drill-down, parity with PairGridTab.
+  useEffect(() => {
+    if (!selectedCell) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedCell(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedCell]);
 
   // Resolve scope → effective pair label + wrapped resolver that collapses
   // group members into the group's name (so bucketTrades treats them as one).
@@ -175,7 +186,6 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
 
   const filters: IdealWindowFilters | null = useMemo(() => {
     if (pair == null) return null;
-    const { dateFrom, dateTo } = resolveWindow(wf);
     return {
       pair,
       hours,
@@ -186,7 +196,7 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
       dateTo,
       recentN: 10,
     };
-  }, [pair, hours, regime, direction, minN, wf]);
+  }, [pair, hours, regime, direction, minN, dateFrom, dateTo]);
 
   const result = useMemo(() => {
     if (!filters) return null;

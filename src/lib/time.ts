@@ -95,11 +95,15 @@ export function formatFullDateTimeET(utcTimestamp: string | Date): string {
  * Detect trading session from a UTC timestamp using session times in ET.
  * Live EA trades arrive in UTC; CSV imports are normalized to UTC at import time
  * via src/lib/brokerDst.ts, so consumers should always pass UTC timestamps here.
+ *
+ * K3 fix: previously formatted against `currentDisplayTimezone`. For users
+ * with display set to London/Tokyo, session buckets were silently shifted.
+ * Session definitions are ET-anchored regardless of display preference.
  */
 export function detectSessionFromUtc(utcTimestamp: string | Date): SessionType {
   const date = new Date(utcTimestamp);
   const hourStr = new Intl.DateTimeFormat('en-US', {
-    timeZone: currentDisplayTimezone,
+    timeZone: 'America/New_York',
     hour: 'numeric',
     hour12: false,
   }).format(date);

@@ -50,6 +50,12 @@ self.onmessage = (e: MessageEvent<{ id: number; params: OosSplitRequest }>) => {
   const { id, params } = e.data;
   const resolver = (s: string) => params.resolverMap[s] ?? s;
 
+  // J5 fix: buildBuckets' dateFrom/dateTo are both INCLUSIVE. A trade at
+  // exactly `splitIso` would land in both train and test halves, leaking IS
+  // signal into OOS. Shift the test window's lower bound by +1 ms so the
+  // boundary trade is counted once (in train).
+  const testFromIso = new Date(Date.parse(params.splitIso) + 1).toISOString();
+
   const trainRes = buildBuckets(params.trades, params.fieldKeys, {
     symbolResolver: resolver,
     propFirm: params.propFirm,
@@ -62,7 +68,7 @@ self.onmessage = (e: MessageEvent<{ id: number; params: OosSplitRequest }>) => {
     symbolResolver: resolver,
     propFirm: params.propFirm,
     closedOnly: true,
-    dateFrom: params.splitIso,
+    dateFrom: testFromIso,
     dateTo: params.dateTo,
     includeUnrealized: params.includeUnrealized,
   });

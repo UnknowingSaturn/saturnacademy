@@ -491,6 +491,36 @@ export function OverviewTab({
               </Tooltip>
             </TooltipProvider>
           )}
+          {/* K2 — duplicate custom-field detector. `resolvePairLabFieldKeys`
+              silently picks the first match when the user has more than one
+              field aliased to MFE/MAE/Ideal-SL (e.g. after a rename + recreate).
+              Surface the collision so the wrong one can be archived. */}
+          {data.ambiguousFields.any && (() => {
+            const dup: string[] = [];
+            if (data.ambiguousFields.mfe) dup.push("MFE");
+            if (data.ambiguousFields.mae) dup.push("MAE");
+            if (data.ambiguousFields.idealStopLoss) dup.push("Ideal SL");
+            return (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      variant="outline"
+                      className="border-amber-500/40 text-amber-600 cursor-help"
+                    >
+                      duplicate field: {dup.join(", ")}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs">
+                    More than one custom field maps to{" "}
+                    {dup.join(" / ")}. Pair Lab uses the first match and ignores the
+                    rest, which can silently bias bucket math. Archive the
+                    duplicate in Settings → Custom Fields.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            );
+          })()}
         </div>
         <div className="mt-3 text-[11px] text-muted-foreground">
           {data.totalTrades} closed trades · {data.perCell.length} cells ·{" "}
