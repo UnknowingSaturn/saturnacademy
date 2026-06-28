@@ -362,6 +362,7 @@ export function subGridFifteenMin({
 
   for (const t of trades) {
     if (t.is_archived || !t.symbol) continue;
+    if (isUnrealized(t as any)) continue; // O2 fix: drop ideas/paper/missed
     if (symbolResolver(t.symbol) !== filters.pair) continue;
     if (filters.direction && t.direction !== filters.direction) continue;
     if (filters.regime && resolveRegime(t) !== filters.regime) continue;
