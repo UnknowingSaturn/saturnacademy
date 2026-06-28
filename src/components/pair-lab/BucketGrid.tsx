@@ -7,6 +7,7 @@ import { useDistanceUnit, formatDistance, nativeUnitForSymbol } from "@/hooks/us
 import {
   classifyDataTier,
   DATA_TIER_INSUFFICIENT_N,
+  DATA_TIER_INSUFFICIENT_COVERAGE,
   type DataTier,
 } from "../../../shared/quant/config";
 
@@ -52,21 +53,43 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
     return <span className="text-xs text-muted-foreground">—</span>;
   }
   if (tier === "insufficient") {
-    // Too few samples or coverage too low — render the count + hint, nothing else.
-    // We intentionally hide expectancy / win% / TP so a 3-trade cell can't masquerade as a result.
+    // Distinguish the two gates so the cell doesn't lie about WHY it's red:
+    //   sample   → genuinely fewer than 10 trades
+    //   coverage → enough trades, but <30% have MFE/MAE logged
+    const covPct = b!.n > 0
+      ? Math.max(b!.loggedMfeCount, b!.loggedMaeCount) / b!.n
+      : 0;
+    const reason: "sample" | "coverage" =
+      b!.n < DATA_TIER_INSUFFICIENT_N ? "sample" : "coverage";
+    const minCovPct = Math.round(DATA_TIER_INSUFFICIENT_COVERAGE * 100);
+    const hint = reason === "sample"
+      ? `too few — need ≥${DATA_TIER_INSUFFICIENT_N}`
+      : `low coverage — need ≥${minCovPct}% MFE/MAE`;
+    const tipBody = reason === "sample"
+      ? `Only ${b!.n} closed trade${b!.n === 1 ? "" : "s"} in this cell. Need at least ${DATA_TIER_INSUFFICIENT_N} to publish a recommendation.`
+      : `${b!.n} closed trades, but only ${b!.loggedMfeCount} have MFE logged (${(covPct * 100).toFixed(1)}%). Log MFE/MAE on ≥${minCovPct}% of trades to unlock the recommendation.`;
     return (
-      <div className="space-y-0.5 text-left">
-        <div className="flex items-center gap-1 text-[11px]">
-          <span>🔴</span>
-          <span className="font-medium">N {b!.n}</span>
-        </div>
-        <div className="text-[10px] text-muted-foreground italic">
-          too few — need ≥{DATA_TIER_INSUFFICIENT_N}
-        </div>
-        <div className="text-[10px] text-muted-foreground font-mono-numbers">
-          {b!.loggedMfeCount}/{b!.n} MFE · {b!.loggedMaeCount}/{b!.n} MAE
-        </div>
-      </div>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="space-y-0.5 text-left cursor-help">
+              <div className="flex items-center gap-1 text-[11px]">
+                <span>🔴</span>
+                <span className="font-medium">N {b!.n}</span>
+              </div>
+              <div className="text-[10px] text-muted-foreground italic">
+                {hint}
+              </div>
+              <div className="text-[10px] text-destructive font-mono-numbers">
+                {b!.loggedMfeCount}/{b!.n} MFE · {b!.loggedMaeCount}/{b!.n} MAE
+              </div>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[260px] text-xs">
+            {tipBody}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
   const provisional = tier === "provisional";
