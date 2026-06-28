@@ -905,7 +905,7 @@ export function runWalkForward(
   // longer pass `trail` into `scoreTp`/`pickBestTp` (dead parameter removed),
   // but `pickBestTp`'s signature still accepts it as `_trail` for API
   // stability — passing 0 is a no-op.
-  const isPick = pickBestTp(isPairs, 0);
+  const isPick = pickBestTp(isPairs);
   if (!isPick) return null;
   const inSampleE = isPick.expectancy;
   const outOfSampleE = scoreTp(isPick.tpR, oosPairs);
@@ -983,7 +983,7 @@ function buildRecommendation(
   let tpMethod: "mfe_grid" | "legacy" = "legacy";
   let tpLadderR: number[] = [];
 
-  const pick = pickBestTp(ctx.mfeRPairs, ctx.trailCapture);
+  const pick = pickBestTp(ctx.mfeRPairs);
   if (pick) {
     suggestedTpR = pick.tpR;
     expectancyAtSuggested = pick.expectancy;
