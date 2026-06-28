@@ -527,9 +527,12 @@ export function computeBucket(
   // Prop-firm cap — mirrors src/lib/pairLabMath.ts exactly:
   //   ddCappedPct = (dailyLossDollars / balance) * 100 / max(3, worstLosingStreak)
   //   clamped to [0.1, propFirm.hardCapPct].
+  // N10 fix: compute longestLossStreak once and reuse for both prop-firm cap
+  // and the report's worstLosingStreak field.
+  const worstStreak = longestLossStreak(rows);
   let suggestedRiskPctPropFirm: number | null = null;
   if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null && propFirm.dailyLossDollars > 0) {
-    const streak = Math.max(MIN_STREAK_FLOOR, longestLossStreak(rows) || 0);
+    const streak = Math.max(MIN_STREAK_FLOOR, worstStreak || 0);
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
     const ddCappedPct = dailyBudgetPct / streak;
     const hardCap = propFirm.hardCapPct > 0 ? propFirm.hardCapPct : 2;
