@@ -64,6 +64,15 @@ export function getTickSizeOverrides(): Readonly<Record<string, number>> {
 }
 
 function defaultTickSize(raw: string): number {
+  const n = normalizeSymbol(raw);
+  // Per-symbol factory defaults — most brokers price these at a coarser tick
+  // than the asset-class default would suggest. Without these overrides MAE→pips
+  // is silently 10–100× off until the user sets a Symbol Groups override.
+  if (n.startsWith("BTC") || n.startsWith("XBT")) return 1.0;     // BTCUSD: most brokers 1.0 (some 0.10)
+  if (n.startsWith("ETH")) return 0.1;                            // ETHUSD: most brokers 0.10
+  if (/^(NAS100|US100|USTEC|NDX)/.test(n)) return 0.25;           // CME-quoted Nasdaq
+  if (/^(SPX500|US500)/.test(n)) return 0.25;                      // CME-quoted S&P
+  if (/^(US30|DJ30|DJI)/.test(n)) return 1.0;                      // Dow
   switch (classifySymbol(raw)) {
     case "fx5": return 0.00001;
     case "fx3": return 0.001;
