@@ -582,7 +582,7 @@ export function computeBucket(
     profitFactor,
     profitFactorAllWins,
 
-    worstLosingStreak: longestLossStreak(rows),
+    worstLosingStreak: worstStreak,
     loggedMfeCount: closed.filter((t) => numericCf(t, keys.mfe) != null).length,
     loggedMaeCount: closed.filter((t) => {
       const v = numericCf(t, keys.mae);
