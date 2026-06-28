@@ -109,8 +109,10 @@ export interface BucketStats {
   winRate: number;            // 0–1
   /** Wilson 95% CI on win rate, null when n < 5. */
   winRateCi: [number, number] | null;
-  expectedR: number;          // average R-multiple, mean of r_multiple_actual
-  expectedRMedian: number;    // median R-multiple
+  expectedR: number;          // mean of r_multiple_actual; NaN when expectedRSamples === 0
+  expectedRMedian: number;    // median R-multiple; NaN when expectedRSamples === 0
+  /** Count of trades with a finite `r_multiple_actual` — denominator behind expectedR/expectedRMedian. */
+  expectedRSamples: number;
   /** Sum(winR) / Sum(|lossR|). null when no losses. Infinity is collapsed to null + `profitFactorAllWins` flag (JSON-safe). */
   profitFactor: number | null;
   /** True when there are wins but zero losses — profit factor is mathematically undefined / unbounded. */
