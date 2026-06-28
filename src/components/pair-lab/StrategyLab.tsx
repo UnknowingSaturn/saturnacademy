@@ -181,7 +181,7 @@ export function StrategyLab({
     };
   }, [rSample, numAccounts, accountSize, dailyLossPct, maxLossPct, targetPct, tradesPerDay, windowDays, trailingDD]);
 
-  const { cells: rawCells, isComputing } = useStrategyLabSweep(sweepRequest);
+  const { cells: rawCells, isComputing, error: sweepError } = useStrategyLabSweep(sweepRequest);
 
   const cells = useMemo(() => {
     return rawCells.map((c) => {
@@ -205,6 +205,19 @@ export function StrategyLab({
       </Card>
     );
   }
+
+  // R5.1 — surface worker faults so the lab can recover instead of hanging.
+  if (sweepError && cells.length === 0) {
+    return (
+      <Card className="p-6 space-y-2 text-sm">
+        <div className="text-destructive">Strategy sweep failed: {sweepError}</div>
+        <div className="text-xs text-muted-foreground">
+          The Monte Carlo worker crashed. Try reducing the trade range or refreshing.
+        </div>
+      </Card>
+    );
+  }
+
 
   // Tier the simulator off the R-sample feeding the Monte Carlo. With <30 R
   // samples the bootstrap CI on pass-prob is wide; show numbers but flag them.
