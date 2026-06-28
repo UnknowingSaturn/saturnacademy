@@ -16,9 +16,9 @@ export function useTrades(filters?: {
   isArchived?: boolean;
   /**
    * When true (default), an `accountId` filter also includes rows whose
-   * `account_id IS NULL` (legacy imports, advisory closes) — keeps Dashboard /
-   * Reports parity. Pair Lab passes `false` so account-scoped views don't mix
-   * orphan trades into expectancy buckets.
+   * `account_id IS NULL` (legacy imports, advisory closes). Both Journal and
+   * Pair Lab now default this on so the two views show the same universe;
+   * pass `false` explicitly when you want strict account-only scope.
    */
   includeUnassigned?: boolean;
 }) {
