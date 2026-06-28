@@ -565,8 +565,6 @@ export function computeBucket(
   const slUnit = key.symbol && key.symbol !== "All" ? pipLabelForSymbol(key.symbol) : "pips";
 
   // R2 parity additions — payoff ratio, expectancy p-value, walk-forward drift.
-  const sumWin = winR.reduce((s, v) => s + v, 0);
-  const sumLoss = lossR.reduce((s, v) => s + v, 0);
   const payoffRatio = (wins.length > 0 && losses.length > 0 && lossR.length > 0)
     ? (sumWin / winR.length) / (sumLoss / lossR.length)
     : null;
