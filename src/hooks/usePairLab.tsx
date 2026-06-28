@@ -185,6 +185,13 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       idealStopLoss: !fieldKeys.idealStopLoss,
       any: !fieldKeys.mfe || !fieldKeys.mae || !fieldKeys.idealStopLoss,
     };
+    const ambiguousSet = detectAmbiguousFieldKeys(defs);
+    const ambiguousFields = {
+      mfe: ambiguousSet.has("mfe"),
+      mae: ambiguousSet.has("mae"),
+      idealStopLoss: ambiguousSet.has("idealStopLoss"),
+      any: ambiguousSet.has("mfe") || ambiguousSet.has("mae") || ambiguousSet.has("idealStopLoss"),
+    };
 
     const baseResolver = buildSymbolResolver(aliases);
     const groupOverride = filters.groupOverride ?? null;
