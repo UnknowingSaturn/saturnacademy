@@ -7,6 +7,7 @@ import { useDistanceUnit, formatDistance, nativeUnitForSymbol } from "@/hooks/us
 import {
   classifyDataTier,
   DATA_TIER_INSUFFICIENT_N,
+  DATA_TIER_INSUFFICIENT_COVERAGE,
   type DataTier,
 } from "../../../shared/quant/config";
 
