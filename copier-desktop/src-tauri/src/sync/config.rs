@@ -9,10 +9,12 @@ const CONFIG_FILE_NAME: &str = "saturn_copier_config.json";
 pub async fn fetch_config(api_key: &str) -> Result<CopierConfig, ConfigError> {
     tracing::info!("Fetching configuration from cloud...");
 
+    let install_id = load_or_create_install_id().unwrap_or_else(|_| "unknown".to_string());
     let client = reqwest::Client::new();
     let response = client
         .get(format!("{}/copier-config", API_BASE_URL))
         .header("x-api-key", api_key)
+        .header("x-install-id", &install_id)
         .send()
         .await
         .map_err(|e| ConfigError::NetworkError(e.to_string()))?;
