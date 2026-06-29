@@ -284,14 +284,31 @@ export function useArchivedTrades() {
   return useQuery({
     queryKey: tradeKeys.archived,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('trades')
-        .select(TRADE_SELECT)
-        .eq('is_archived', true)
-        .order('archived_at', { ascending: false });
-
-      if (error) throw error;
-      return (data || []).map(transformTrade);
+      // T-4: paginate to bypass the 1,000-row PostgREST cap.
+      const PAGE = 1000;
+      const MAX_ROWS = 25_000;
+      const all: any[] = [];
+      let offset = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await supabase
+          .from('trades')
+          .select(TRADE_SELECT)
+          .eq('is_archived', true)
+          .order('archived_at', { ascending: false })
+          .range(offset, offset + PAGE - 1);
+        if (error) throw error;
+        const rows = data ?? [];
+        all.push(...rows);
+        if (rows.length < PAGE) break;
+        offset += PAGE;
+        if (all.length >= MAX_ROWS) {
+          // eslint-disable-next-line no-console
+          console.warn(`[useArchivedTrades] hit MAX_ROWS=${MAX_ROWS}; older trades omitted`);
+          break;
+        }
+      }
+      return all.map(transformTrade);
     },
   });
 }
