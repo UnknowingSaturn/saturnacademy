@@ -9,6 +9,8 @@
 // the R sample.
 // ============================================================================
 
+import { wilsonCi, ensureUtcMs } from "../../shared/quant/stats";
+
 export type RotationModel =
   | "one_only"
   | "simultaneous"
