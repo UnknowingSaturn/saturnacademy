@@ -176,3 +176,6 @@ function CumulativeExpectancyChartImpl({ events, rollingN = 10, height = 140 }: 
     </div>
   );
 }
+
+// S2.14: re-render only when the actual chart inputs change.
+export const CumulativeExpectancyChart = memo(CumulativeExpectancyChartImpl);
