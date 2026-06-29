@@ -413,10 +413,11 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
         <p className="text-sm text-muted-foreground">No trades in this bucket — nothing to analyze.</p>
       )}
 
-      {tooFewSamples && bucket.n > 0 && (
+      {lowConfidence && bucket.n > 0 && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          Bucket has {bucket.n} trades — below the 15-trade threshold. Add more closed trades before generating
-          an AI note, or the model will narrate noise as signal.
+          Bucket has {bucket.n} trades but the bootstrap CI on expectancy is too wide / overlaps zero.
+          Add more closed trades (or tighten the lens window) before generating an AI note, or the model
+          will narrate noise as signal.
         </p>
       )}
 
