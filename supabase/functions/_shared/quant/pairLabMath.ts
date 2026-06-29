@@ -475,7 +475,7 @@ export function computeBucket(
 
   const n = closed.length;
   const winRate = n > 0 ? wins.length / n : 0;
-  const expectedR = rActuals.length > 0 ? mean(rActuals) : NaN;
+  const expectedR = mean(rActuals) ?? NaN;
   const idealMed = median(idealSls);
   const slInitMed = median(slInitials);
   let slDrift: BucketReport["slDrift"] = null;
