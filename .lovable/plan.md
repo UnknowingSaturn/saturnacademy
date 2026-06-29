@@ -1,41 +1,60 @@
-## Verification result: 9 of 10 S4 items landed correctly; 1 parity gap on the edge mirror
+# Phase T — Cross-Page Root-Cause Remediation
 
-### Verified correct
-- **S4.1** `useTrades.tsx` paginates via `.range()` with a hard cap.
-- **S4.2** `ensureUtcMs` sweep complete in `idealWindowMath.ts`, `propFirmMonteCarlo.ts`, `usePairLabTradeBounds.ts` — no remaining `Date.parse` / `new Date(string)` on trade timestamps in those files.
-- **S4.3** `usePairLab.tsx#matchesScope` parses `dateFrom` / `dateTo` / `entry_time` through `ensureUtcMs` instead of string-compare.
-- **S4.4** Kelly uses `rWinRate` from the R-subsample population and exposes `rCoverageWarning` — landed in **both** `src/lib/pairLabMath.ts` and `supabase/functions/_shared/quant/pairLabMath.ts`; `BucketReport` / `BucketRecommendation` types extended on both sides.
-- **S4.5** `pair-lab-report/index.ts` reads `idealSlMedianPips` / `slInitialMedianPips` (matches the renamed client fields). AI quant note will populate SL drift again.
-- **S4.6 (client only)** `src/lib/pairLabSimulator.ts:388` now books `-slScale * remainingFrac` when the runner stopped under the new SL after a partial fill. The other-arm `lastFilledAtR * remainingFrac` at line 398 is the not-stopped branch and is correct.
-- **S4.7** TP-grid ceiling uses interpolated `quantile(sortedMfe, 0.95)` in both client and edge.
-- **S4.8** `scripts/verify_pair_lab_math.ts` filter now mirrors `buildBuckets` (`!isUnrealized(t)` instead of `net_pnl != null`); `isUnrealized` is imported.
-- **S4.10** `STRATEGY_PRESETS.current` exitRule uses empty `partials`; `usePairLab` JSDoc updated to reference `TRAIL_CAPTURE_FALLBACK`.
-- Project typecheck (`bunx tsgo --noEmit`) is clean.
+A read-only audit of every non-PairLab surface found 12 real defects (1 critical, 5 high, 4 medium, plus low-severity polish). They cluster around three root causes: (1) inverted streak iteration, (2) un-paginated Supabase queries silently capped at 1 000 rows, and (3) timezone handling that bypasses the user's settings.
 
-### Outstanding — single parity gap
+## Critical
 
-**S4.6 edge mirror not patched.** `supabase/functions/_shared/quant/pairLabSimulator.ts:243` still reads:
+**T-1. Dashboard "current streak" returns the oldest run, not the current one.**
+`src/hooks/useDashboardMetrics.tsx:54` loops `i = 0 → n` over ascending-sorted trades and breaks on the first direction change, so it reports the streak that *opens* the account history instead of the live tail. Reverse the loop (`i = sorted.length - 1; i >= 0; i--`).
 
-```ts
-else if (strategy.exitRule.runner === "all_out_at_last_partial") booked += lastFilledAtR * remainingFrac;
-```
+## High
 
-inside the `stoppedUnderNewSl && anyFilled` branch. Every server-side preset replay that triggers this path (notably the `*_all_out_at_last_partial` presets seeded in this same file) will continue to overstate expectancy by `(lastFilledAtR + slScale) × remainingFrac`, so the AI report's preset rankings and the client `StrategyRanker` will diverge for any bucket whose dominant losers came after a partial fill.
+**T-2. Reports max-consecutive-wins/losses computed on reverse-sorted trades.**
+`useReports.tsx:60` walks `filteredTrades` (newest-first from `useTrades`) without re-sorting. Sort ascending by `entry_time` before the loop. Same metric is surfaced by `ReportMetricsGrid`.
 
-### Proposed fix (one-line, mirrors client S4.6)
+**T-3. `usePlaybookStats` silently capped at 1 000 trades.**
+`usePlaybookStats.tsx:175` issues an unbounded `.select()` so every playbook win-rate, equity curve, avgR, profit-factor, and streak is wrong above 1 k closed trades. Apply the same paginated `.range()` loop used in `useTrades` (S4.1).
 
-`supabase/functions/_shared/quant/pairLabSimulator.ts` line 243 — change the stopped-under-new-SL arm only (leave line 251 untouched):
+**T-4. `useArchivedTrades` silently capped at 1 000 rows.**
+`useTrades.tsx:283`. Paginate the same way.
 
-```ts
-else if (strategy.exitRule.runner === "all_out_at_last_partial") booked += -slScale * remainingFrac;
-```
+**T-5. `generate-report` edge function silently capped at 1 000 trades.**
+Both primary trade queries in `supabase/functions/generate-report/index.ts` (~lines 1311 and 1483) lack `.range()`. Reports for active months render on truncated data. Add the paginated loop in both branches.
 
-Add a short `// S4.6 parity:` comment referencing the client fix so the next audit can grep for it.
+**T-6. `useOpenTrades` compliance check ignores user's session timezone.**
+`useOpenTrades.tsx:72` calls `detectSessionFromUtc` which hardcodes `America/New_York` (`src/lib/time.ts:106`). UK/EU traders see false session-filter violations in the live compliance ring. Add a client `classifySession` that reads the user's `session_definitions` rows (already loaded by the edge function) and use it here.
 
-### Optional follow-up (not in S4 scope)
+## Medium
 
-The `WARNED_SESSIONS` Set leak (L3), `brokerDst.ts:98` half-hour offsets (L2), and edge `BucketReport.slSweep` (L1) remain deferred as planned — call them out only if you want them folded in.
+**T-7. Reports period boundaries use browser-local week/month.**
+`useReports.tsx:37` compares UTC entry_time against `startOfWeek(new Date())` which is local-midnight. Non-UTC users get a 1-day boundary mismatch on the W/M/Q toggle. Compute boundaries in UTC.
 
-### Recommendation
+**T-8. `schedule-reports` defaults `broker_utc_offset` to `+2` for unset accounts.**
+`supabase/functions/schedule-reports/index.ts:55`. Default to `0` (or `user_settings.display_timezone`) so UTC users get reports at 09:00 UTC, not 07:00 UTC.
 
-Approve to land the one-line edge mirror patch and re-run typecheck. No other changes needed for S4 to be fully closed.
+**T-9. `get-shared-report` `shared_report_trades` query un-paginated.**
+`supabase/functions/get-shared-report/index.ts:62`. Add `.range(0, 4999)` (curated reports rarely exceed this, but the silent truncation must go).
+
+**T-10. `tradeEventProcessor` double-counts commission/swap after snapshot-repair re-close.**
+`supabase/functions/_shared/tradeEventProcessor.ts:428` seeds `totalCommission = existingTrade.commission` then adds every fill's commission again. Zero-initialize and accumulate from fills only, matching the orphan-exit path (~line 291).
+
+## Low (rolled in opportunistically)
+
+- **T-11.** Replace direct `Date.parse(...)` with `ensureUtcMs` in `src/lib/tradeMath.ts:127` and `supabase/functions/_shared/quant/pairLabMath.ts:274,278` for parity with the S4.2 sweep.
+- **T-12.** Add `.range(0, 999)` to `useOpenTrades` query (`useOpenTrades.tsx:53`) — copier slaves can exceed 1 k open positions.
+- **T-13.** Dashboard per-account filter should include `account_id === null` to match `useTrades`' `includeUnassigned: true` convention (`src/pages/Dashboard.tsx:31`).
+- **T-14.** Compute `readAccuracy` in `usePlaybookStats` derived-metrics loop (it's currently always 0%, displayed by `PlaybookHealthCard`).
+- **T-15.** Replace `text-white` in `src/pages/Accounts.tsx:165` with a semantic token.
+
+## Out of scope (flagged, not fixed)
+
+- `useBalanceHistory` N+1 baseline query — perf only, no correctness issue.
+- Full RLS audit on `shared_report_trades` — needs DB-level confirmation; current code path is sound via owner-only insert RLS.
+
+## Verification per item
+
+After edits, run `bunx tsgo --noEmit`, then targeted smoke checks:
+- T-1/T-2: unit-style assertion on a constructed trade array (newest vs oldest streak).
+- T-3/T-4/T-5/T-9: log the row count returned vs `count: 'exact'` to confirm pagination terminates correctly.
+- T-6/T-7/T-8: log the resolved session key / period boundary against a non-ET timezone fixture.
+- T-10: replay a snapshot-repair fixture and assert `net_pnl === gross + commission + swap` once, not twice.
