@@ -1032,6 +1032,19 @@ void ProcessEventFile(string fullPath, string filename)
    }
    
    string eventType = ExtractJsonString(content, "event_type");
+   
+   // U-2: Session filter ONLY blocks NEW entries. Exits/modifies/partial
+   // closes must always be honored to avoid stranding positions outside session.
+   if(eventType == "entry" && !CheckSessionFilter())
+   {
+      if(InpVerboseMode)
+         Print("Outside allowed session - skipping entry ", idempotencyKey);
+      LogMessage("Skipped entry outside session: " + idempotencyKey);
+      MarkEventExecuted(idempotencyKey, 0, 0);
+      MoveToExecuted(fullPath, filename);
+      return;
+   }
+   
    long masterPositionId = (long)ExtractJsonNumber(content, "position_id");
    string masterSymbol = ExtractJsonString(content, "symbol");
    string direction = ExtractJsonString(content, "direction");
