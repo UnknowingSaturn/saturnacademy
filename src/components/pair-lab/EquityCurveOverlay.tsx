@@ -14,27 +14,34 @@ const DEFAULT_COLORS = [
   "hsl(var(--muted-foreground))",
 ];
 
-export function EquityCurveOverlay({ results, colors = DEFAULT_COLORS }: Props) {
+function EquityCurveOverlayImpl({ results, colors = DEFAULT_COLORS }: Props) {
   if (results.length === 0) return null;
 
-  const maxLen = Math.max(...results.map((r) => r.equityCurve.length));
-  const data = Array.from({ length: maxLen }, (_, i) => {
-    const row: Record<string, number | string> = { i };
-    results.forEach((r, idx) => {
-      row[`s${idx}`] = r.equityCurve[i]?.equity ?? r.equityCurve[r.equityCurve.length - 1]?.equity ?? 0;
+  // S2.14: rebuild the equity / underwater datasets only when `results`
+  // identity actually changes — recharts is happy to re-render, but
+  // recomputing two O(maxLen · results.length) arrays on every parent tick
+  // is what produces slider jank in Strategy Lab.
+  const { data, underData, maxUnderLen } = useMemo(() => {
+    const maxLen = Math.max(...results.map((r) => r.equityCurve.length));
+    const data = Array.from({ length: maxLen }, (_, i) => {
+      const row: Record<string, number | string> = { i };
+      results.forEach((r, idx) => {
+        row[`s${idx}`] = r.equityCurve[i]?.equity ?? r.equityCurve[r.equityCurve.length - 1]?.equity ?? 0;
+      });
+      return row;
     });
-    return row;
-  });
 
-  const maxUnderLen = Math.max(...results.map((r) => r.underwaterCurve?.length ?? 0));
-  const underData = Array.from({ length: maxUnderLen }, (_, i) => {
-    const row: Record<string, number | string> = { i };
-    results.forEach((r, idx) => {
-      const uw = r.underwaterCurve?.[i]?.underwater ?? r.underwaterCurve?.[r.underwaterCurve.length - 1]?.underwater ?? 0;
-      row[`u${idx}`] = uw;
+    const maxUnderLen = Math.max(...results.map((r) => r.underwaterCurve?.length ?? 0));
+    const underData = Array.from({ length: maxUnderLen }, (_, i) => {
+      const row: Record<string, number | string> = { i };
+      results.forEach((r, idx) => {
+        const uw = r.underwaterCurve?.[i]?.underwater ?? r.underwaterCurve?.[r.underwaterCurve.length - 1]?.underwater ?? 0;
+        row[`u${idx}`] = uw;
+      });
+      return row;
     });
-    return row;
-  });
+    return { data, underData, maxUnderLen };
+  }, [results]);
 
   return (
     <div className="space-y-1">
