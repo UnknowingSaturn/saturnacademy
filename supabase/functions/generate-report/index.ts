@@ -1030,7 +1030,7 @@ async function computeQuantBlock(
 ): Promise<any> {
   try {
     let qQ = admin.from('trades')
-      .select('id, symbol, session, entry_time, net_pnl, r_multiple_actual, sl_initial, entry_price, custom_fields, is_open, is_archived, trade_type')
+      .select('id, symbol, session, entry_time, exit_time, net_pnl, r_multiple_actual, sl_initial, sl_final, entry_price, custom_fields, is_open, is_archived, trade_type, trade_modifications(id, field, old_value, new_value, occurred_at)')
       .eq('user_id', targetUserId)
       .gte('entry_time', period_start)
       .lt('entry_time', period_end)

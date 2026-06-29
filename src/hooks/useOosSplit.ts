@@ -48,6 +48,13 @@ export function useOosSplit(params: OosSplitRequest | null): OosSplitState {
       );
       workerRef.current.onmessage = (e: MessageEvent<OosSplitResponse>) => {
         if (e.data.id !== lastId.current) return;
+        // S1.1 fix: worker error payload posts {trainBaseline:null, ...}; the
+        // panel destructures `.n` and white-screens. Surface the error instead.
+        if (e.data.error || !e.data.trainBaseline || !e.data.testBaseline) {
+          setError(e.data.error ?? "OOS worker returned no baseline");
+          setIsComputing(false);
+          return;
+        }
         setResult(e.data);
         setError(null);
         setIsComputing(false);

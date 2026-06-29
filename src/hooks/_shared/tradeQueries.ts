@@ -19,7 +19,8 @@ export const TRADE_SELECT = `
   ai_reviews (*),
   account:accounts (*),
   trade_partial_fills (*),
-  trade_repair_events (*)
+  trade_repair_events (*),
+  trade_modifications (id, field, old_value, new_value, occurred_at)
 `;
 
 // useOpenTrades historically used `accounts(*)` (unaliased) instead of

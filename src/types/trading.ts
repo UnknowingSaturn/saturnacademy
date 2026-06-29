@@ -127,7 +127,10 @@ export interface Trade {
   duration_seconds: number | null;
   partial_closes: PartialClose[];
   partial_fills?: PartialFill[];
+  trade_partial_fills?: PartialFill[];
   repair_events?: RepairEvent[];
+  /** Typed SL/TP change history (joined via tradeQueries TRADE_SELECT). */
+  trade_modifications?: TradeModification[];
   is_open: boolean;
   awaiting_exit?: boolean;
   is_archived?: boolean;
@@ -193,6 +196,14 @@ export interface RepairEvent {
   source: string | null;
   metadata: Record<string, unknown>;
   applied_at: string;
+}
+
+export interface TradeModification {
+  id: string;
+  field: string;
+  old_value: number | null;
+  new_value: number | null;
+  occurred_at: string;
 }
 
 export interface Playbook {

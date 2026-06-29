@@ -142,6 +142,20 @@ export function OutOfSamplePanel({
 
 
   const { trainBaseline: train, testBaseline: test, deltas } = result;
+  // S1.1 belt-and-suspenders: even if `result` slipped through with null
+  // baselines, render a recoverable error card instead of crashing on `.n`.
+  if (!train || !test) {
+    return (
+      <Card className="p-4 space-y-2">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground">
+          Out-of-sample split
+        </div>
+        <div className="text-sm text-destructive">
+          OOS baselines unavailable for the current scope.
+        </div>
+      </Card>
+    );
+  }
   const overfitCount = deltas.filter((d) => d.overfit).length;
 
   return (

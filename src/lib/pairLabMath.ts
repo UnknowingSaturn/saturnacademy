@@ -21,6 +21,7 @@
 // ============================================================================
 
 import type { Trade } from "@/types/trading";
+import { resolveSlAtMae } from "@/lib/tradeMath";
 import { tickSizeForSymbol, pipSizeForSymbol, ticksToPips, pipLabelForSymbol } from "@/lib/symbolMapping";
 import {
   TP1_STAR_MIN_HIT_RATE,
@@ -560,6 +561,12 @@ function computeBucket(
 
   // MAE is stored in TICKS. Convert each value to pips for the SL math and to
   // R for the distribution display.
+  //
+  // S1.3 fix: SL distance for the R denominator now uses `resolveSlAtMae(t)`
+  // (sl_final / latest sl modification ≤ exit), not raw `sl_initial`. Trades
+  // moved to BE before the worst drawdown bar therefore drop out of `maesR`
+  // instead of producing tiny 0.10–0.30 R-at-risk values that systematically
+  // tightened the recommended SL.
   const maesR: number[] = [];
   const maesPips: number[] = [];
   /** Per-trade tuples used by the SL sweep — needs MAE-pips, planned SL-pips, and actual R. */
@@ -574,8 +581,9 @@ function computeBucket(
     if (!(pip > 0)) continue;
     const maePips = ticksToPips(t.symbol, Math.abs(maeTicks));
     maesPips.push(maePips);
-    if (t.sl_initial != null && t.entry_price != null) {
-      const slDistPips = Math.abs(t.entry_price - t.sl_initial) / pip;
+    const slDistPrice = resolveSlAtMae(t);
+    if (slDistPrice != null) {
+      const slDistPips = slDistPrice / pip;
       if (slDistPips > 0) {
         maesR.push(maePips / slDistPips);
         if (t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual)) {

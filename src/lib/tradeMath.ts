@@ -85,6 +85,59 @@ export function getWeightedAvgExitPrice(trade: Trade): number | null {
   return weighted / totalLots;
 }
 
+/**
+ * Volume-weighted average entry price.
+ *
+ * NOTE: As of 2026-06 the schema stores only the final entry price on the
+ * trade row — `trade_partial_fills` tracks partial CLOSES (DEAL_ENTRY_OUT),
+ * not scaled-entry fills (DEAL_ENTRY_IN). The broker's `entry_price` IS the
+ * volume-weighted entry for the lots actually opened. This helper is the
+ * single API consumers should call; if scaled-entry tracking lands later,
+ * compute the VWAP here without touching every call site.
+ */
+export function getWeightedAvgEntryPrice(trade: Trade): number | null {
+  if (trade.entry_price == null || !Number.isFinite(trade.entry_price)) return null;
+  return trade.entry_price;
+}
+
+/**
+ * Resolve the stop-loss distance that was in force at the moment of maximum
+ * adverse excursion.
+ *
+ * The cf_mae custom field is just a number — no `mae_logged_at` timestamp —
+ * so we can't pinpoint the SL state at the exact drawdown bar. The
+ * conservative proxy: use `sl_final` (the SL the broker reports at close)
+ * because a 50-pip-risk trade moved to BE before a 15-pip drawdown should
+ * NOT count as 0.30 R-at-risk — the user was risking ≈ 0 at that point.
+ *
+ * Fallback cascade:
+ *   1. trade_modifications: most recent SL change with occurred_at ≤ exit_time
+ *   2. trade.sl_final
+ *   3. trade.sl_initial
+ *
+ * Returns the absolute SL distance from entry in price units, or null if
+ * indeterminate or BE'd (distance ≤ 0) — caller should treat null as "drop
+ * this trade from the MAE-R distribution".
+ */
+export function resolveSlAtMae(trade: Trade): number | null {
+  if (trade.entry_price == null) return null;
+  let effectiveSl: number | null = null;
+  const mods = trade.trade_modifications;
+  if (Array.isArray(mods) && mods.length > 0 && trade.exit_time) {
+    const exitMs = Date.parse(trade.exit_time);
+    const slMods = mods
+      .filter((m) => m && m.field === "sl" && m.new_value != null && Date.parse(m.occurred_at) <= exitMs)
+      .sort((a, b) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at));
+    if (slMods.length > 0 && slMods[0].new_value != null) {
+      effectiveSl = Number(slMods[0].new_value);
+    }
+  }
+  if (effectiveSl == null) effectiveSl = trade.sl_final ?? trade.sl_initial ?? null;
+  if (effectiveSl == null) return null;
+  const dist = Math.abs(trade.entry_price - effectiveSl);
+  return dist > 0 ? dist : null;
+}
+
 export function hasMultipleCloses(trade: Trade): boolean {
   return getAllCloseFills(trade).length > 1;
 }
