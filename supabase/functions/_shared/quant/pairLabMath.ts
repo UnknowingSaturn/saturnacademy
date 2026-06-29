@@ -251,12 +251,43 @@ function computeTp1Star(
   return best;
 }
 
+/**
+ * S1.3 parity: resolve the SL distance in force at MAE. We don't have an MAE
+ * timestamp, so the conservative proxy is the SL active at exit_time —
+ * captured via `trade_modifications` (most recent SL change ≤ exit_time)
+ * falling back to sl_final, then sl_initial. Returns null when distance ≤ 0
+ * (e.g., trade moved to BE) so the caller drops the row from maesR.
+ */
+function resolveSlAtMaePrice(t: any): number | null {
+  if (t.entry_price == null) return null;
+  let effectiveSl: number | null = null;
+  const mods = t.trade_modifications;
+  if (Array.isArray(mods) && mods.length > 0 && t.exit_time) {
+    const exitMs = Date.parse(String(t.exit_time));
+    let bestMs = -Infinity;
+    for (const m of mods) {
+      if (!m || m.field !== "sl" || m.new_value == null) continue;
+      const ms = Date.parse(String(m.occurred_at));
+      if (Number.isFinite(ms) && ms <= exitMs && ms > bestMs) {
+        bestMs = ms;
+        effectiveSl = Number(m.new_value);
+      }
+    }
+  }
+  if (effectiveSl == null) effectiveSl = t.sl_final ?? t.sl_initial ?? null;
+  if (effectiveSl == null) return null;
+  const dist = Math.abs(t.entry_price - effectiveSl);
+  return dist > 0 ? dist : null;
+}
+
 /** Convert a stored `cf_mae` / `cf_ideal_stop_loss` value (TICKS) into the per-trade R-multiple, given the trade's SL distance. */
 function ticksToR(ticks: number, t: any): number | null {
-  if (t.sl_initial == null || t.entry_price == null || !t.symbol) return null;
+  if (!t.symbol) return null;
   const pip = pipSizeForSymbol(t.symbol);
   if (!(pip > 0)) return null;
-  const slDistPips = Math.abs(t.entry_price - t.sl_initial) / pip;
+  const slDistPrice = resolveSlAtMaePrice(t);
+  if (slDistPrice == null) return null;
+  const slDistPips = slDistPrice / pip;
   if (!(slDistPips > 0)) return null;
   const pips = ticksToPips(t.symbol, Math.abs(ticks));
   return pips / slDistPips;

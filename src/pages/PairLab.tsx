@@ -13,7 +13,7 @@
 //   Setup        — Simulator profile / Groups / Aliases
 // ============================================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, FlaskConical } from "lucide-react";
@@ -59,39 +59,62 @@ export default function PairLab() {
     return { symbol, session };
   })();
 
-  const patchParams = (mut: (next: URLSearchParams) => void) => {
-    const next = new URLSearchParams(searchParams);
-    mut(next);
-    setSearchParams(next, { replace: true });
-  };
+  // S1.7 fix: memoize all URL-state mutators so child effects that depend on
+  // them (e.g. PairGridTab's Escape-to-deselect listener) don't tear down and
+  // re-subscribe on every parent re-render — slider drags previously dropped
+  // keystrokes in the gap between detach and re-attach.
+  const patchParams = useCallback(
+    (mut: (next: URLSearchParams) => void) => {
+      const next = new URLSearchParams(searchParams);
+      mut(next);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
 
-  const setProfile = (v: string) =>
-    patchParams((p) => (v === "any" ? p.delete("profile") : p.set("profile", v)));
-  const setPropFirmMode = (v: boolean) =>
-    patchParams((p) => (v ? p.delete("pf") : p.set("pf", "0")));
-  const setIncludeUnrealized = (v: boolean) =>
-    patchParams((p) => (v ? p.set("unreal", "1") : p.delete("unreal")));
-  const setIncludeUnassigned = (v: boolean) =>
-    patchParams((p) => (v ? p.delete("orphans") : p.set("orphans", "0")));
-  const setScope = (v: string) =>
-    patchParams((p) => {
-      if (v === "all") p.delete("scope");
-      else p.set("scope", v);
-      p.delete("symbol");
-      p.delete("session");
-    });
-  const setTab = (v: string) =>
-    patchParams((p) => (v === "overview" ? p.delete("tab") : p.set("tab", v)));
-  const setSelected = (cell: Selected) =>
-    patchParams((p) => {
-      if (!cell) {
+  const setProfile = useCallback(
+    (v: string) => patchParams((p) => (v === "any" ? p.delete("profile") : p.set("profile", v))),
+    [patchParams],
+  );
+  const setPropFirmMode = useCallback(
+    (v: boolean) => patchParams((p) => (v ? p.delete("pf") : p.set("pf", "0"))),
+    [patchParams],
+  );
+  const setIncludeUnrealized = useCallback(
+    (v: boolean) => patchParams((p) => (v ? p.set("unreal", "1") : p.delete("unreal"))),
+    [patchParams],
+  );
+  const setIncludeUnassigned = useCallback(
+    (v: boolean) => patchParams((p) => (v ? p.delete("orphans") : p.set("orphans", "0"))),
+    [patchParams],
+  );
+  const setScope = useCallback(
+    (v: string) =>
+      patchParams((p) => {
+        if (v === "all") p.delete("scope");
+        else p.set("scope", v);
         p.delete("symbol");
         p.delete("session");
-      } else {
-        p.set("symbol", cell.symbol);
-        p.set("session", cell.session);
-      }
-    });
+      }),
+    [patchParams],
+  );
+  const setTab = useCallback(
+    (v: string) => patchParams((p) => (v === "overview" ? p.delete("tab") : p.set("tab", v))),
+    [patchParams],
+  );
+  const setSelected = useCallback(
+    (cell: Selected) =>
+      patchParams((p) => {
+        if (!cell) {
+          p.delete("symbol");
+          p.delete("session");
+        } else {
+          p.set("symbol", cell.symbol);
+          p.set("session", cell.session);
+        }
+      }),
+    [patchParams],
+  );
 
 
   // Resolve active scope group for data filtering.
