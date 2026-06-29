@@ -240,7 +240,9 @@ function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucke
     if (stoppedUnderNewSl && !anyFilled) booked += -1 * remainingFrac;
     else if (stoppedUnderNewSl && anyFilled) {
       if (strategy.exitRule.runner === "be_after_first_tp") booked += 0;
-      else if (strategy.exitRule.runner === "all_out_at_last_partial") booked += lastFilledAtR * remainingFrac;
+      // S4.6 parity (mirrors src/lib/pairLabSimulator.ts): when the runner stopped under
+      // the new SL after a partial fill, the runner exited at the stop — not at the last TP.
+      else if (strategy.exitRule.runner === "all_out_at_last_partial") booked += -slScale * remainingFrac;
       else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail" };
         const mfeNewR = proof.loggedMfe / slScale;
