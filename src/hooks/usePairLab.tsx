@@ -70,7 +70,7 @@ export interface PairLabData {
    * field could not be resolved (silent label rename + recreate breaks both
    * label and prefix matchers — surface specifically which one is missing).
    */
-  missingFields: { mfe: boolean; mae: boolean; idealStopLoss: boolean; any: boolean };
+  missingFields: { mfe: boolean; mae: boolean; idealStopLoss: boolean; any: boolean; message: string | null };
   /**
    * K2 fix: set of field aliases that resolved to more than one custom-field
    * definition. Pair Lab picks the first match silently; this exposes the
