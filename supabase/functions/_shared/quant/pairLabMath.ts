@@ -168,6 +168,8 @@ export interface BucketReport {
   suggestedRiskPctPropFirm: number | null;
   /** mean(winR) / mean(|lossR|). null when no losses or no wins. */
   payoffRatio: number | null;
+  /** S2.3: trade count that inferred R from net_pnl sign (parity with client). */
+  eventsRFallbackCount: number;
   profitFactor: number | null;
   profitFactorAllWins: boolean;
   worstLosingStreak: number;
