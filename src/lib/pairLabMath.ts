@@ -711,7 +711,7 @@ function computeBucket(
     .filter((t) => t.entry_time)
     // R1.6: numeric epoch sort. localeCompare on ISO strings drifts at the
     // OOS 70/30 boundary when entries mix `Z` and `+00:00` suffixes.
-    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)))
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time))
     .map((t) => {
       const hasR = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual);
       if (!hasR) eventsRFallbackCount += 1;
