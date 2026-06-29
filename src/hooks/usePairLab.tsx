@@ -100,7 +100,9 @@ export interface PairLabData {
   naiveTimestampCount: number;
 }
 
-const SESSION_ORDER = ["Tokyo", "London", "NY AM", "NY PM"];
+// S2.6: "Overlap" (London/NY) inserted between London and NY AM so it sorts
+// chronologically instead of being indexOf=-1 → top of axis.
+const SESSION_ORDER = ["Tokyo", "London", "Overlap", "NY AM", "NY PM", "Other"];
 
 function usePropFirmRules(firmId: string | null | undefined) {
   return useQuery({
