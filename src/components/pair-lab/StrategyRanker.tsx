@@ -23,6 +23,7 @@ import {
 } from "@/lib/pairLabSimulator";
 import { STRATEGY_PRESETS } from "@/lib/pairLabPresets";
 import { EquityCurveOverlay } from "./EquityCurveOverlay";
+import { useDistanceUnit, formatDistance, nativeUnitForSymbol } from "@/hooks/useDistanceUnit";
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext, TrailCaptureEstimate } from "@/lib/pairLabMath";
 import { classifyDataTier, DATA_TIER_VALIDATED_N } from "../../../shared/quant/config";
