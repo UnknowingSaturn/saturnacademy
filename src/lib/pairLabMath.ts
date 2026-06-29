@@ -987,12 +987,13 @@ function buildRecommendation(
   let slSourceN: number | null = null;
 
   const IDEAL_SL_MIN_N = 5;
+  const idealMed = s.idealSlMedianPips ?? s.idealSlMedian ?? null;
   if (
-    s.idealSlMedian != null &&
-    s.idealSlMedian > 0 &&
+    idealMed != null &&
+    idealMed > 0 &&
     s.loggedIdealSlCount >= IDEAL_SL_MIN_N
   ) {
-    suggestedSlPips = s.idealSlMedian;
+    suggestedSlPips = idealMed;
     slSource = "ideal_sl";
     slSourceN = s.loggedIdealSlCount;
   } else {
