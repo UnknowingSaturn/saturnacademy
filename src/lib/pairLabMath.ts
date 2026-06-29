@@ -21,6 +21,7 @@
 // ============================================================================
 
 import type { Trade } from "@/types/trading";
+import { resolveSlAtMae } from "@/lib/tradeMath";
 import { tickSizeForSymbol, pipSizeForSymbol, ticksToPips, pipLabelForSymbol } from "@/lib/symbolMapping";
 import {
   TP1_STAR_MIN_HIT_RATE,
