@@ -1,5 +1,6 @@
 import type { Trade, PartialClose } from "@/types/trading";
 import { computeNetPnl } from "../../shared/quant/pnl";
+import { ensureUtcMs } from "./pairLabMath";
 
 export interface CloseFill {
   time: string;
