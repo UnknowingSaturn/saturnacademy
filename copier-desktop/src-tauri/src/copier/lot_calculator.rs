@@ -168,8 +168,14 @@ pub fn calculate_lots(
                 let risk_amount = r_account.balance * (risk_value / 100.0);
                 calculate_lots_from_risk(risk_amount, price, stop_loss, &info)
             } else {
-                tracing::warn!("risk_percent mode: missing SL or account info, using master lots");
-                round_lots(master_lots)
+                // U-6: Do NOT silently copy master_lots — that can size 10–100x the
+                // receiver's intended risk. Refuse to size and let safety layer block.
+                tracing::error!(
+                    has_sl = sl.is_some(),
+                    has_account = receiver_account.is_some(),
+                    "risk_percent mode: refusing to fall back to master_lots; returning 0.0 to block trade"
+                );
+                0.0
             }
         }
         
@@ -178,8 +184,8 @@ pub fn calculate_lots(
             if let Some(stop_loss) = sl {
                 calculate_lots_from_risk(risk_value, price, stop_loss, &info)
             } else {
-                tracing::warn!("risk_dollar mode: missing SL, using master lots");
-                round_lots(master_lots)
+                tracing::error!("risk_dollar mode: missing SL; returning 0.0 to block trade");
+                0.0
             }
         }
         
@@ -190,8 +196,8 @@ pub fn calculate_lots(
             if let (Some(stop_loss), Some(_r_account)) = (sl, receiver_account) {
                 calculate_lots_from_risk(risk_value, price, stop_loss, &info)
             } else {
-                tracing::warn!("intent mode: missing SL or account info, using master lots");
-                round_lots(master_lots)
+                tracing::error!("intent mode: missing SL or account info; returning 0.0 to block trade");
+                0.0
             }
         }
         
