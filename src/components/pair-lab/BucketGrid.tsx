@@ -219,6 +219,27 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
       >
         {b!.loggedMaeCount}/{b!.n} MAE
       </div>
+      {/* S3.8: surface data-quality chips so users can immediately gauge how
+          much of the cell's edge rests on inferred R or trades without an
+          initial SL — matching QuantNotePanel's drill-down badges. */}
+      <div className="flex flex-wrap gap-1 pt-0.5">
+        {b!.eventsRFallbackCount > 0 && (
+          <span
+            className="text-[9px] px-1 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono-numbers"
+            title={`${b!.eventsRFallbackCount} of ${b!.n} trades had no R-multiple recorded — outcome inferred as ±1 from net P&L sign. Biases expectancy toward round numbers.`}
+          >
+            {b!.eventsRFallbackCount}/{b!.n} R inferred
+          </span>
+        )}
+        {b!.slMissingCount > 0 && (
+          <span
+            className="text-[9px] px-1 rounded bg-destructive/10 text-destructive font-mono-numbers"
+            title={`${b!.slMissingCount} of ${b!.n} trades have no initial SL recorded — excluded from MAE-derived risk math (SL sweep, ideal-SL stats).`}
+          >
+            {b!.slMissingCount}/{b!.n} SL missing
+          </span>
+        )}
+      </div>
     </div>
   );
 }
