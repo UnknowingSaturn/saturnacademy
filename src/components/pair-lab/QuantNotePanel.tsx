@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import type { BucketReport, PropFirmContext } from "@/lib/pairLabMath";
 import { Link } from "react-router-dom";
 import { CumulativeExpectancyChart } from "@/components/pair-lab/CumulativeExpectancyChart";
-import { useDistanceUnit, formatDistance, nativeUnitForSymbol } from "@/hooks/useDistanceUnit";
+import { useDistanceUnit, formatDistance, formatDistanceFromTicks, nativeUnitForSymbol } from "@/hooks/useDistanceUnit";
 
 
 interface QuantNote {
