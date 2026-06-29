@@ -24,17 +24,22 @@ import { pipSizeForSymbol, classifySymbol } from "./quant/symbolMapping.ts";
 export function getPipValue(
   symbol: string,
   lots: number,
-  ctx?: { exitPrice?: number | null },
+  ctx?: { exitPrice?: number | null; accountCurrency?: string | null },
 ): number | null {
   const n = (symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   const cls = classifySymbol(symbol);
+  const acct = (ctx?.accountCurrency || "").toUpperCase();
 
   if (cls === "fx3" || n.includes("JPY")) {
-    // USD/JPY: pip value (USD) per lot = (0.01 / quote) * 100,000 = 1000 / quote.
-    // For other JPY crosses we don't have USDJPY here; skip.
-    const looksLikeUsdJpy = n.startsWith("USDJPY");
+    // S3.11: previously only USDJPY received an honest pip-value via the
+    // 1000 / quote formula; every JPY cross (GBPJPY, EURJPY, …) silently
+    // returned null and dropped the trade from bucket math. Apply the same
+    // form to any JPY-quoted pair when we have a live quote, since the
+    // pip-value-in-quote-currency is identical (0.01 × 100,000 / quote).
+    // We still skip when account currency clearly differs from the implied
+    // base-USD value chain (downstream rFallback flag handles that case).
     const quote = ctx?.exitPrice;
-    if (looksLikeUsdJpy && typeof quote === "number" && quote > 0) {
+    if (typeof quote === "number" && quote > 0 && n.endsWith("JPY")) {
       return (lots * 1000) / quote;
     }
     return null;
@@ -52,7 +57,16 @@ export function getPipValue(
     if (n.includes("SP500") || n.includes("SPX") || n.includes("US500")) return lots * 50;
     if (n.includes("NAS") || n.includes("USTEC") || n.includes("US100") || n.includes("NDX")) return lots * 20;
     if (n.includes("US30") || n.includes("DJ30") || n.includes("DJI") || n.includes("DOW")) return lots * 5;
-    if (n.includes("DAX") || n.includes("DE40") || n.includes("GER40") || n.includes("DE30") || n.includes("GER30")) return lots * 25;
+    if (n.includes("DAX") || n.includes("DE40") || n.includes("GER40") || n.includes("DE30") || n.includes("GER30")) {
+      // S3.11: DAX is denominated in EUR (€25/point). A USD-account user
+      // paying for a 1-point DAX move receives ~$27 (varies with EURUSD),
+      // not €25. Without a live EURUSD rate we can't convert honestly, so
+      // only return €25/lot when the account is EUR — otherwise return
+      // null and let the trade fall through to the rFallback flag so the
+      // bucket stats stop ingesting a 10–15% biased R.
+      if (acct === "EUR" || acct === "") return lots * 25; // empty → legacy behaviour
+      return null;
+    }
     if (n.includes("FTSE") || n.includes("UK100")) return lots * 10;
     if (n.includes("JP225") || n.includes("JPN225") || n.includes("NIKKEI") || n.includes("N225")) return lots * 5;
     return lots * 10;
