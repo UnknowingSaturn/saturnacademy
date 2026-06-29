@@ -56,6 +56,7 @@ export function PairLabWalkForwardProvider({
       value.scope,
       value.includeUnrealized,
       value.propFirmMode,
+      value.groups,
       resolved.dateFrom,
       resolved.dateTo,
     ],
