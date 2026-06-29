@@ -238,6 +238,8 @@ export interface BucketRecommendation {
   riskBelowFloor: boolean;
   /** Bootstrap 95% CI on the quarter-Kelly fraction (raw, uncapped). */
   suggestedRiskPctCi: [number, number] | null;
+  /** S4.4: true when n>=10 but R-coverage (winR.length + lossR.length) < 50% of n. */
+  rCoverageWarning: boolean;
   suggestedRiskPctPropFirm: number | null; // % of account, prop-firm-capped
   bindingConstraint: "kelly" | "prop_firm_dd" | "hard_cap" | null;
   edgeVsBaseline: {
@@ -1171,6 +1173,7 @@ function buildRecommendation(
     suggestedRiskPct,
     riskBelowFloor,
     suggestedRiskPctCi,
+    rCoverageWarning,
     suggestedRiskPctPropFirm,
     bindingConstraint,
     edgeVsBaseline,
