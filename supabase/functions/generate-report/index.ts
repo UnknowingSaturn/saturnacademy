@@ -1491,17 +1491,30 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "missing fields" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Fetch trades in window
-    let tradesQuery = admin
-      .from('trades')
-      .select('id, trade_number, symbol, direction, entry_time, exit_time, net_pnl, r_multiple_actual, risk_percent, session, playbook_id, is_open, trade_type, total_lots, account_id, profile, actual_playbook_id, actual_profile, actual_regime')
-      .eq('user_id', targetUserId)
-      .gte('entry_time', period_start)
-      .lt('entry_time', period_end)
-      .order('entry_time', { ascending: true });
-    if (account_id) tradesQuery = tradesQuery.eq('account_id', account_id);
-    const { data: trades, error: tradesErr } = await tradesQuery;
-    if (tradesErr) throw tradesErr;
+    // Fetch trades in window — T-5: paginated to avoid 1k row cap.
+    const PAGE_B = 1000;
+    const MAX_B = 25_000;
+    const trades: any[] = [];
+    let offsetB = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let tradesQuery = admin
+        .from('trades')
+        .select('id, trade_number, symbol, direction, entry_time, exit_time, net_pnl, r_multiple_actual, risk_percent, session, playbook_id, is_open, trade_type, total_lots, account_id, profile, actual_playbook_id, actual_profile, actual_regime')
+        .eq('user_id', targetUserId)
+        .gte('entry_time', period_start)
+        .lt('entry_time', period_end)
+        .order('entry_time', { ascending: true })
+        .range(offsetB, offsetB + PAGE_B - 1);
+      if (account_id) tradesQuery = tradesQuery.eq('account_id', account_id);
+      const { data, error: tradesErr } = await tradesQuery;
+      if (tradesErr) throw tradesErr;
+      const rows = data ?? [];
+      trades.push(...rows);
+      if (rows.length < PAGE_B) break;
+      offsetB += PAGE_B;
+      if (trades.length >= MAX_B) { console.warn(`[generate-report] hit MAX_ROWS=${MAX_B}`); break; }
+    }
 
     if (!trades || trades.length === 0) {
       // Insert empty report so user sees "nothing this week" instead of error
