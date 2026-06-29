@@ -151,12 +151,57 @@ pub fn is_event_processed(idempotency_key: &str) -> bool {
 /// Mark an event as processed
 pub fn mark_event_processed(idempotency_key: &str) {
     let mut cache = PROCESSED_KEYS.lock();
-    
     cache.insert(idempotency_key.to_string());
-    
-    // Persist to disk (best effort)
-    if let Err(e) = save_processed_keys(&cache) {
-        tracing::warn!("Failed to persist idempotency keys: {}", e);
+    persist_append(idempotency_key, &cache);
+}
+
+/// Atomic check-and-mark. Returns `true` only for the first caller to claim the
+/// key; subsequent callers (including races between the file watcher's check
+/// and mark steps) see `false`. This is the only safe primitive when multiple
+/// watcher threads may inspect the same event file concurrently.
+pub fn claim_event(idempotency_key: &str) -> bool {
+    let mut cache = PROCESSED_KEYS.lock();
+    if cache.contains(idempotency_key) {
+        return false;
+    }
+    cache.insert(idempotency_key.to_string());
+    persist_append(idempotency_key, &cache);
+    true
+}
+
+/// Append-only persistence: write one line for the new key, rewriting the full
+/// file only when pruning is required. Eliminates the O(N) write per event the
+/// previous implementation incurred (up to 10k lines per event under load).
+fn persist_append(new_key: &str, cache: &IdempotencyCache) {
+    let Some(path) = get_idempotency_file_path() else { return };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    // If cache hit capacity, the oldest key was just evicted in-memory; rewrite
+    // the file to stay in sync. Otherwise append a single line.
+    let cache_len = cache.len();
+    if cache_len >= MAX_KEYS_IN_MEMORY {
+        let content = cache.to_vec().join("\n");
+        let temp_path = path.with_extension("tmp");
+        if let Err(e) = fs::write(&temp_path, &content) {
+            tracing::warn!("Failed to write idempotency snapshot: {}", e);
+            return;
+        }
+        if let Err(e) = fs::rename(&temp_path, &path) {
+            tracing::warn!("Failed to finalize idempotency snapshot: {}", e);
+        }
+        return;
+    }
+
+    use std::io::Write;
+    match fs::OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(mut f) => {
+            if let Err(e) = writeln!(f, "{}", new_key) {
+                tracing::warn!("Failed to append idempotency key: {}", e);
+            }
+        }
+        Err(e) => tracing::warn!("Failed to open idempotency file: {}", e),
     }
 }
 
