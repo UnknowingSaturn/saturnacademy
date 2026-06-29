@@ -17,6 +17,7 @@ export interface OpenTradeWithCompliance extends Trade {
 
 export function useOpenTrades() {
   const { data: playbooks = [] } = usePlaybooks();
+  const { data: sessionDefs = [] } = useSessionDefinitions();
   const queryClient = useQueryClient();
 
   // Subscribe to realtime updates for open trades
