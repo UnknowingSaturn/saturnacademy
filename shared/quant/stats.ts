@@ -305,8 +305,21 @@ const SESSION_LABELS: Record<string, string> = {
 export function normalizeSession(raw: string | null | undefined): string {
   if (!raw) return "Unknown";
   const key = String(raw).trim().toLowerCase().replace(/\s+/g, "_");
-  return SESSION_LABELS[key] ?? raw;
+  const mapped = SESSION_LABELS[key];
+  if (mapped) return mapped;
+  // S2.5: previously passed unknown strings through unchanged. EA variants
+  // like "pre_market" / "Pre-Market" then created phantom buckets that halved
+  // the per-session N and inflated the BH-FDR denominator. Fold unknowns into
+  // "Other" with a one-time console warn so the offending tag is still
+  // discoverable in the devtools (helps users update their EA / CSV).
+  if (typeof console !== "undefined" && !WARNED_SESSIONS.has(key)) {
+    WARNED_SESSIONS.add(key);
+    console.warn(`[normalizeSession] unknown session "${raw}" → folded into "Other"`);
+  }
+  return "Other";
 }
+
+const WARNED_SESSIONS = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // custom_fields JSONB accessors
