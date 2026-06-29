@@ -57,6 +57,8 @@ serve(async (req) => {
     
     // Get API key from header or query param
     const apiKey = req.headers.get('x-api-key') || new URL(req.url).searchParams.get('api_key');
+    // U-7: install_id is forwarded by the desktop agent for scoping/auditing.
+    const installId = req.headers.get('x-install-id') || null;
     
     if (!apiKey) {
       return new Response(
@@ -70,15 +72,24 @@ serve(async (req) => {
     // Find account by API key to get user_id
     const { data: account, error: accountError } = await supabase
       .from('accounts')
-      .select('id, user_id, name, broker, terminal_id, copier_role, master_account_id')
+      .select('id, user_id, name, broker, terminal_id, copier_role, copier_enabled, master_account_id')
       .eq('api_key', apiKey)
       .single();
 
     if (accountError || !account) {
-      console.error('Account lookup error:', accountError);
+      console.error('Account lookup error:', accountError, { installId });
       return new Response(
         JSON.stringify({ error: 'Invalid API key or account not found.' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // U-8: Reject disabled accounts so a revoked terminal cannot pull config.
+    if (account.copier_enabled === false) {
+      console.warn('Disabled account attempted config fetch', { accountId: account.id, installId });
+      return new Response(
+        JSON.stringify({ error: 'Copier is disabled for this account.' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
