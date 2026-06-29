@@ -211,8 +211,10 @@ export function bucketTrades({
   symbolResolver,
   timezone,
 }: BucketTradesInput): BucketedResult {
-  const dateFromMs = filters.dateFrom ? Date.parse(filters.dateFrom) : null;
-  const dateToMs = filters.dateTo ? Date.parse(filters.dateTo) : null;
+  // S4.2: ensureUtcMs is locale-stable; Date.parse on naive strings drifts
+  // by the user's UTC offset (Chrome=local, Safari/Node=UTC).
+  const dateFromMs = filters.dateFrom ? ensureUtcMs(filters.dateFrom) : null;
+  const dateToMs = filters.dateTo ? ensureUtcMs(filters.dateTo) : null;
   const hourSet = new Set(filters.hours);
 
   const empty = (hour: number, half: Half): BucketStats => ({
@@ -243,10 +245,10 @@ export function bucketTrades({
     if (symbolResolver(t.symbol) !== filters.pair) continue;
     if (filters.direction && t.direction !== filters.direction) continue;
     if (filters.regime && resolveRegime(t) !== filters.regime) continue;
-    const tsMs = Date.parse(t.entry_time);
-    if (Number.isNaN(tsMs)) continue;
-    if (dateFromMs != null && tsMs < dateFromMs) continue;
-    if (dateToMs != null && tsMs > dateToMs) continue;
+    const tsMs = ensureUtcMs(t.entry_time);
+    if (!Number.isFinite(tsMs)) continue;
+    if (dateFromMs != null && Number.isFinite(dateFromMs) && tsMs < dateFromMs) continue;
+    if (dateToMs != null && Number.isFinite(dateToMs) && tsMs > dateToMs) continue;
 
     const value = readIdealWindow(t);
     if (!value || value === "none") continue;
@@ -363,8 +365,9 @@ export function subGridFifteenMin({
   ];
   const rs: number[][] = [[], []];
 
-  const dateFromMs = filters.dateFrom ? Date.parse(filters.dateFrom) : null;
-  const dateToMs = filters.dateTo ? Date.parse(filters.dateTo) : null;
+  // S4.2: ensureUtcMs everywhere — locale-stable on naive timestamps.
+  const dateFromMs = filters.dateFrom ? ensureUtcMs(filters.dateFrom) : null;
+  const dateToMs = filters.dateTo ? ensureUtcMs(filters.dateTo) : null;
 
   for (const t of trades) {
     if (t.is_archived || !t.symbol) continue;
@@ -372,13 +375,13 @@ export function subGridFifteenMin({
     if (symbolResolver(t.symbol) !== filters.pair) continue;
     if (filters.direction && t.direction !== filters.direction) continue;
     if (filters.regime && resolveRegime(t) !== filters.regime) continue;
-    if (dateFromMs != null) {
-      const ts = Date.parse(t.entry_time);
-      if (Number.isNaN(ts) || ts < dateFromMs) continue;
+    if (dateFromMs != null && Number.isFinite(dateFromMs)) {
+      const ts = ensureUtcMs(t.entry_time);
+      if (!Number.isFinite(ts) || ts < dateFromMs) continue;
     }
-    if (dateToMs != null) {
-      const ts = Date.parse(t.entry_time);
-      if (Number.isNaN(ts) || ts > dateToMs) continue;
+    if (dateToMs != null && Number.isFinite(dateToMs)) {
+      const ts = ensureUtcMs(t.entry_time);
+      if (!Number.isFinite(ts) || ts > dateToMs) continue;
     }
 
     const value = readIdealWindow(t);
