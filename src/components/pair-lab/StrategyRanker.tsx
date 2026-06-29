@@ -224,6 +224,23 @@ export function StrategyRanker({
       ? winner.totalDollars - baselineCurrent.totalDollars
       : null;
 
+  // S3.8: scope-level data-quality chips — surface how many trades feeding
+  // the ranker have inferred R-multiples or no recorded initial stop. These
+  // mirror the per-bucket badges in QuantNotePanel so users notice when a
+  // ranking sits on top of thin/inferred data before trusting it.
+  const dataQualityCounts = useMemo(() => {
+    let rFallback = 0;
+    let slMissing = 0;
+    let closedN = 0;
+    for (const t of trades) {
+      if (t.is_open || t.is_archived) continue;
+      closedN += 1;
+      if (t.r_multiple_actual == null || !Number.isFinite(t.r_multiple_actual)) rFallback += 1;
+      if (t.sl_initial == null || t.entry_price == null) slMissing += 1;
+    }
+    return { rFallback, slMissing, closedN };
+  }, [trades]);
+
   const trailLabel = trailCapture
     ? `trail capture ${(effectiveTrailCapture! * 100).toFixed(0)}% (N=${trailCapture.n})`
     : `trail capture 80% (default — log MFE + r_actual on ≥10 trades to estimate yours)`;
