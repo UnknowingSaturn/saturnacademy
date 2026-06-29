@@ -266,6 +266,26 @@ export function StrategyRanker({
               Click a row to see its stop & TP details.
             </p>
             <p className="text-[10px] text-muted-foreground mt-0.5 font-mono-numbers">{trailLabel}</p>
+            {(dataQualityCounts.rFallback > 0 || dataQualityCounts.slMissing > 0) && (
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {dataQualityCounts.rFallback > 0 && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono-numbers"
+                    title={`${dataQualityCounts.rFallback} of ${dataQualityCounts.closedN} closed trades have no r_multiple_actual — outcome inferred as ±1 from net P&L sign. Biases expectancy toward round numbers.`}
+                  >
+                    {dataQualityCounts.rFallback}/{dataQualityCounts.closedN} R inferred
+                  </span>
+                )}
+                {dataQualityCounts.slMissing > 0 && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive font-mono-numbers"
+                    title={`${dataQualityCounts.slMissing} of ${dataQualityCounts.closedN} closed trades have no initial SL or entry price — excluded from MAE-derived risk math.`}
+                  >
+                    {dataQualityCounts.slMissing}/{dataQualityCounts.closedN} SL missing
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <Tooltip>
