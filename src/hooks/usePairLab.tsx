@@ -20,7 +20,7 @@ import {
   type TrailCaptureEstimate,
 } from "@/lib/pairLabMath";
 import { TRAIL_CAPTURE_FRAC } from "@/lib/pairLabSimulator";
-import { isUnrealized, countNaiveEntryTimes } from "../../shared/quant/stats";
+import { isUnrealized, countNaiveEntryTimes, ensureUtcMs } from "../../shared/quant/stats";
 
 export interface PairLabFilters {
   /** Matches trades whose planned OR actual profile equals this value. */
