@@ -500,7 +500,7 @@ export function StrategyRanker({
                     {isOpen && (
                       <tr className="bg-muted/20 border-b border-border/30">
                         <td colSpan={9} className="py-3 px-3">
-                          <StrategyDetailPanel result={r} />
+                          <StrategyDetailPanel result={r} riskPctOverride={riskPct} />
                         </td>
                       </tr>
                     )}
