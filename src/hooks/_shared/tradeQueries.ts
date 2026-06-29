@@ -20,7 +20,8 @@ export const TRADE_SELECT = `
   account:accounts (*),
   trade_partial_fills (*),
   trade_repair_events (*),
-  trade_modifications (id, field, old_value, new_value, occurred_at)
+  trade_modifications (id, field, old_value, new_value, occurred_at),
+  trade_features (*)
 `;
 
 // useOpenTrades historically used `accounts(*)` (unaliased) instead of

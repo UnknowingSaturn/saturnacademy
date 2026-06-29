@@ -85,9 +85,15 @@ const EMPTY: DecodedIdealWindow = {
 
 /** Decode the 9-state value into independent boolean flags for math/UI. */
 export function decode(value: IdealWindowValue | string | null | undefined): DecodedIdealWindow {
-  // Legacy "mixed" is a DB-only string (not in IdealWindowValue). Handle it
-  // before the switch so the switch deals only with the canonical 9 states.
-  if (value === "mixed") return { ...EMPTY, firstWorked: true, secondFailed: true };
+  // S3.4: legacy "mixed" rows used to decode arbitrarily to
+  // `{firstWorked, secondFailed}` — that biased first-half "worked" stats for
+  // every legacy row regardless of what actually happened. Decode to EMPTY
+  // (all flags false) and emit a one-time warn so legacy rows show as "no
+  // signal" until the user re-tags them.
+  if (value === "mixed") {
+    try { console.warn('[hourSetup] legacy "mixed" decoded as empty — re-tag this trade with the 9-state vocabulary.'); } catch { /* ignore */ }
+    return { ...EMPTY };
+  }
   switch (value) {
     case "first_worked":               return { ...EMPTY, firstWorked: true };
     case "second_worked":              return { ...EMPTY, secondWorked: true };

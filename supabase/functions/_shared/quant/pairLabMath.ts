@@ -176,6 +176,8 @@ export interface BucketReport {
   worstLosingStreak: number;
   loggedMfeCount: number;
   loggedMaeCount: number;
+  /** S3.8: closed trades with no recorded initial SL (entry_price + sl_initial). */
+  slMissingCount: number;
   /** Count of trades with logged ideal-SL. */
   loggedIdealSlCount: number;
   /** Walk-forward drift fields — parity with client. */
@@ -530,8 +532,9 @@ export function computeBucket(
   const mfes = rows
     .map((t: any) => numericCf(t, keys.mfe))
     .filter((v): v is number => v != null);
-  const trailCapture = estimateTrailCaptureRows(rows, keys);
-  const pick = pickBestTp(mfeRPairs, trailCapture);
+  // S3.3: edge `pickBestTp` only takes `pairs`; the legacy `trailCapture`
+  // arg was dead weight and the helper call computing it was unused.
+  const pick = pickBestTp(mfeRPairs);
   let suggestedTpR: number | null = null;
   let expectancyAtSuggested: number | null = null;
   let expectancyAtSuggestedCi: [number, number] | null = null;
@@ -681,6 +684,7 @@ export function computeBucket(
       const v = numericCf(t, keys.mae);
       return v != null && t.sl_initial != null && t.entry_price != null;
     }).length,
+    slMissingCount: closed.filter((t) => t.sl_initial == null || t.entry_price == null).length,
     loggedIdealSlCount: idealSls.length,
     recentN,
     recentWinRate,

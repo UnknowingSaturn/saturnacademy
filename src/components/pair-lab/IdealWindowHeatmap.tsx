@@ -29,7 +29,7 @@ import {
 } from "@/lib/idealWindowMath";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
-import { useSymbolGroups } from "@/hooks/useSymbolGroups";
+// S3.5: groups now flow via PairLabWalkForwardContext (no extra subscription).
 import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
 
 interface Props {
@@ -102,29 +102,42 @@ function cellTone(b: BucketStats | undefined, minN: number): { bg: string; ring:
 export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props) {
   const { data: settings } = useUserSettings();
   const tz = settings?.display_timezone || "America/New_York";
-  const { groups } = useSymbolGroups();
 
   // Regime options (rotational/transitional + user customs).
   const { data: regimeOptions = [] } = usePropertyOptions("regime", true);
 
-  // Scope: "sym:<SYMBOL>" or "grp:<groupId>". Single state to avoid two-source-of-truth.
+  // S3.5: read groups + window from PairLabWalkForwardContext instead of
+  // re-subscribing to `useSymbolGroups()` (extra query) and re-resolving the
+  // walk-forward window (parity drift risk).
+  const { wf, dateFrom, dateTo, groups } = usePairLabWalkForward();
+
+  // S3.5: persist heatmap pair scope in the URL so the view survives reloads
+  // and is shareable. `heatmapPair` accepts "sym:<SYMBOL>" or "grp:<id>".
   const defaultScope = useMemo(() => {
     if (allSymbols.length === 0) return null;
     return `sym:${allSymbols[0]}`;
   }, [allSymbols]);
 
-  const [scope, setScope] = useState<string | null>(defaultScope);
+  const [scope, setScopeRaw] = useState<string | null>(() => {
+    if (typeof window === "undefined") return defaultScope;
+    const p = new URLSearchParams(window.location.search).get("heatmapPair");
+    return p || defaultScope;
+  });
+  const setScope = (next: string | null) => {
+    setScopeRaw(next);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (next) url.searchParams.set("heatmapPair", next);
+      else url.searchParams.delete("heatmapPair");
+      window.history.replaceState({}, "", url.toString());
+    }
+  };
   const [regime, setRegime] = useState<string>("any");
   const [direction, setDirection] = useState<string>("any");
   const [minN, setMinN] = useState<number>(() => loadStoredMinN());
   const [sortBy, setSortBy] = useState<"lift" | "expectancy" | "rate">("lift");
   const [selectedCell, setSelectedCell] = useState<{ hour: number; half: Half } | null>(null);
 
-  // Walk-forward state — sourced exclusively from PairLabWalkForwardContext.
-  // OverviewTab owns the single lens slider; this component reads it. M2 fix:
-  // read the already-resolved dateFrom/dateTo from context instead of
-  // re-running `resolveWindow(wf)` here. Single source of truth.
-  const { wf, dateFrom, dateTo } = usePairLabWalkForward();
   // Close any drilled-in cell when the lens shifts.
   useEffect(() => {
     setSelectedCell(null);
@@ -473,6 +486,12 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
                             type="button"
                             onClick={() => b && b.n > 0 && setSelectedCell({ hour: h, half })}
                             disabled={!b || b.n === 0}
+                            aria-pressed={isSelected}
+                            aria-label={
+                              !b || b.n === 0
+                                ? `Hour ${h} ${half === "first" ? "00-29" : "30-59"} — no data`
+                                : `Hour ${h} ${half === "first" ? "00-29" : "30-59"} — N=${b.n}, worked ${fmtPct(b.rate)}, expR ${fmtR(b.expectancy)}${b.significant ? ", FDR significant" : ""}`
+                            }
                             className={cn(
                               "w-full text-left rounded-md border p-2 transition-all",
                               tone.ring,

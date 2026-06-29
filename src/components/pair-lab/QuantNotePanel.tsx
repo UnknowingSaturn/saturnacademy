@@ -125,7 +125,10 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
     }
   };
 
-  const tooFewSamples = bucket.confidence === "low";
+  // S3.2: previously called `tooFewSamples`, which suggested a count gate.
+  // The underlying `bucket.confidence === "low"` is driven by the bootstrap
+  // CI / variance gate, not just N — rename + retooltip accordingly.
+  const lowConfidence = bucket.confidence === "low";
 
   const b = bucket;
   const fmtR = (v: number | null | undefined) =>
@@ -153,8 +156,8 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
         <Button
           size="sm"
           onClick={generate}
-          disabled={loading || bucket.n === 0 || tooFewSamples}
-          title={tooFewSamples ? "Need ≥15 trades for an honest LLM read — generating earlier produces narrative on noise." : undefined}
+          disabled={loading || bucket.n === 0 || lowConfidence}
+          title={lowConfidence ? "Bootstrap 95% CI on expectancy is too wide / overlaps zero — the sample lacks the statistical separation needed for an honest LLM read." : undefined}
         >
           {loading ? (
             <>
@@ -410,10 +413,11 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
         <p className="text-sm text-muted-foreground">No trades in this bucket — nothing to analyze.</p>
       )}
 
-      {tooFewSamples && bucket.n > 0 && (
+      {lowConfidence && bucket.n > 0 && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          Bucket has {bucket.n} trades — below the 15-trade threshold. Add more closed trades before generating
-          an AI note, or the model will narrate noise as signal.
+          Bucket has {bucket.n} trades but the bootstrap CI on expectancy is too wide / overlaps zero.
+          Add more closed trades (or tighten the lens window) before generating an AI note, or the model
+          will narrate noise as signal.
         </p>
       )}
 
@@ -424,7 +428,7 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
         </div>
       )}
 
-      {!loading && !note && !error && bucket.n > 0 && !tooFewSamples && (
+      {!loading && !note && !error && bucket.n > 0 && !lowConfidence && (
         <p className="text-xs text-muted-foreground">
           Generate an AI note grounded in this bucket's numbers.
         </p>

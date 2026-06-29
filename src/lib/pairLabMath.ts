@@ -155,7 +155,8 @@ export interface BucketStats {
   loggedMfeCount: number;
   /** Number of (closed) trades in this bucket that have an explicit MAE custom-field value AND convertible SL. */
   loggedMaeCount: number;
-  /** Number of (closed) trades in this bucket that have an explicit Ideal SL custom-field value. */
+  /** S3.8: closed trades missing the initial-SL fields needed to convert ticks → R. */
+  slMissingCount: number;
   loggedIdealSlCount: number;
   /** Hypothetical SL sweep over the bucket's MAE distribution. null when N<10 or insufficient MAE data. */
   slSweep: SlSweepRow[] | null;
@@ -171,6 +172,16 @@ export interface BucketStats {
   drift: number | null;
   /** Count of trades whose `events[].r` was inferred from net_pnl sign (no r_multiple_actual). Surface as a "R inferred" badge. */
   eventsRFallbackCount: number;
+  /**
+   * S3.9: EA-populated execution-quality features from `trade_features`.
+   * All null when no trades in the bucket have a `trade_features` row.
+   * Read-only for now — wired into UI in a follow-up.
+   */
+  entryEfficiencyMedian: number | null;
+  entryEfficiencyP75: number | null;
+  stopLocationQualityMedian: number | null;
+  /** N of trades in the bucket that have any trade_features row. */
+  featuresCount: number;
 }
 
 
@@ -773,6 +784,7 @@ function computeBucket(
       const v = numericCf(t as any, keys.mae);
       return v != null && t.sl_initial != null && t.entry_price != null;
     }).length,
+    slMissingCount: closed.filter((t) => t.sl_initial == null || t.entry_price == null).length,
     loggedIdealSlCount: idealSls.length,
     slSweep,
     events,
@@ -781,6 +793,26 @@ function computeBucket(
     recentExpectedR,
     drift,
     eventsRFallbackCount,
+    // S3.9: surface execution-quality features from the EA-populated
+    // `trade_features` table. No-op for users without features rows.
+    ...(() => {
+      const feats = closed
+        .map((t) => (t as any).trade_features)
+        .map((f) => (Array.isArray(f) ? f[0] : f))
+        .filter((f) => f && typeof f === "object");
+      const entryEffs = feats
+        .map((f) => Number(f.entry_efficiency))
+        .filter((v) => Number.isFinite(v));
+      const slQuals = feats
+        .map((f) => Number(f.stop_location_quality))
+        .filter((v) => Number.isFinite(v));
+      return {
+        entryEfficiencyMedian: entryEffs.length ? median(entryEffs) : null,
+        entryEfficiencyP75: entryEffs.length ? quantile(entryEffs, 0.75) : null,
+        stopLocationQualityMedian: slQuals.length ? median(slQuals) : null,
+        featuresCount: feats.length,
+      };
+    })(),
   };
 
 

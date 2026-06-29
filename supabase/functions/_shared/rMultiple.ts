@@ -24,17 +24,22 @@ import { pipSizeForSymbol, classifySymbol } from "./quant/symbolMapping.ts";
 export function getPipValue(
   symbol: string,
   lots: number,
-  ctx?: { exitPrice?: number | null },
+  ctx?: { exitPrice?: number | null; accountCurrency?: string | null },
 ): number | null {
   const n = (symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   const cls = classifySymbol(symbol);
+  const acct = (ctx?.accountCurrency || "").toUpperCase();
 
   if (cls === "fx3" || n.includes("JPY")) {
-    // USD/JPY: pip value (USD) per lot = (0.01 / quote) * 100,000 = 1000 / quote.
-    // For other JPY crosses we don't have USDJPY here; skip.
-    const looksLikeUsdJpy = n.startsWith("USDJPY");
+    // S3.11: previously only USDJPY received an honest pip-value via the
+    // 1000 / quote formula; every JPY cross (GBPJPY, EURJPY, …) silently
+    // returned null and dropped the trade from bucket math. Apply the same
+    // form to any JPY-quoted pair when we have a live quote, since the
+    // pip-value-in-quote-currency is identical (0.01 × 100,000 / quote).
+    // We still skip when account currency clearly differs from the implied
+    // base-USD value chain (downstream rFallback flag handles that case).
     const quote = ctx?.exitPrice;
-    if (looksLikeUsdJpy && typeof quote === "number" && quote > 0) {
+    if (typeof quote === "number" && quote > 0 && n.endsWith("JPY")) {
       return (lots * 1000) / quote;
     }
     return null;
@@ -52,7 +57,16 @@ export function getPipValue(
     if (n.includes("SP500") || n.includes("SPX") || n.includes("US500")) return lots * 50;
     if (n.includes("NAS") || n.includes("USTEC") || n.includes("US100") || n.includes("NDX")) return lots * 20;
     if (n.includes("US30") || n.includes("DJ30") || n.includes("DJI") || n.includes("DOW")) return lots * 5;
-    if (n.includes("DAX") || n.includes("DE40") || n.includes("GER40") || n.includes("DE30") || n.includes("GER30")) return lots * 25;
+    if (n.includes("DAX") || n.includes("DE40") || n.includes("GER40") || n.includes("DE30") || n.includes("GER30")) {
+      // S3.11: DAX is denominated in EUR (€25/point). A USD-account user
+      // paying for a 1-point DAX move receives ~$27 (varies with EURUSD),
+      // not €25. Without a live EURUSD rate we can't convert honestly, so
+      // only return €25/lot when the account is EUR — otherwise return
+      // null and let the trade fall through to the rFallback flag so the
+      // bucket stats stop ingesting a 10–15% biased R.
+      if (acct === "EUR" || acct === "") return lots * 25; // empty → legacy behaviour
+      return null;
+    }
     if (n.includes("FTSE") || n.includes("UK100")) return lots * 10;
     if (n.includes("JP225") || n.includes("JPN225") || n.includes("NIKKEI") || n.includes("N225")) return lots * 5;
     return lots * 10;
@@ -73,6 +87,10 @@ export interface ComputeROpts {
   equityAtEntry: number | null;
   direction: string | null;
   fills?: Array<{ price?: number; lots?: number } | null> | null;
+  /** S3.11: account currency (e.g. "USD"/"EUR") used to disambiguate
+   *  non-USD-denominated instruments (DAX €25/pt) on the pip-table fallback.
+   *  Optional — when omitted, legacy behaviour is preserved. */
+  accountCurrency?: string | null;
 }
 
 // Derive R-multiple. Prefers deriving $/point from the trade's own realized PnL across
@@ -84,7 +102,7 @@ export interface ComputeROpts {
 // percent-return on account, not an R-multiple — storing it in the R field
 // poisoned every downstream bucket statistic.
 export function computeRMultiple(opts: ComputeROpts): number | null {
-  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, direction, fills } = opts;
+  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, direction, fills, accountCurrency } = opts;
   if (netPnl === null || netPnl === undefined) return null;
 
   if (slPrice && entryPrice && slPrice !== entryPrice && lots && lots > 0) {
@@ -126,7 +144,7 @@ export function computeRMultiple(opts: ComputeROpts): number | null {
 
     // Fallback: canonical pip size × symbol-class pip value.
     const pipSize = pipSizeForSymbol(symbol);
-    const pipValue = getPipValue(symbol, lots, { exitPrice });
+    const pipValue = getPipValue(symbol, lots, { exitPrice, accountCurrency });
     if (pipValue == null || !(pipSize > 0)) return null;
     const risk = (stopDistance / pipSize) * pipValue;
     if (risk > 0) {

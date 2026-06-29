@@ -219,6 +219,27 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
       >
         {b!.loggedMaeCount}/{b!.n} MAE
       </div>
+      {/* S3.8: surface data-quality chips so users can immediately gauge how
+          much of the cell's edge rests on inferred R or trades without an
+          initial SL — matching QuantNotePanel's drill-down badges. */}
+      <div className="flex flex-wrap gap-1 pt-0.5">
+        {b!.eventsRFallbackCount > 0 && (
+          <span
+            className="text-[9px] px-1 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono-numbers"
+            title={`${b!.eventsRFallbackCount} of ${b!.n} trades had no R-multiple recorded — outcome inferred as ±1 from net P&L sign. Biases expectancy toward round numbers.`}
+          >
+            {b!.eventsRFallbackCount}/{b!.n} R inferred
+          </span>
+        )}
+        {b!.slMissingCount > 0 && (
+          <span
+            className="text-[9px] px-1 rounded bg-destructive/10 text-destructive font-mono-numbers"
+            title={`${b!.slMissingCount} of ${b!.n} trades have no initial SL recorded — excluded from MAE-derived risk math (SL sweep, ideal-SL stats).`}
+          >
+            {b!.slMissingCount}/{b!.n} SL missing
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -315,6 +336,12 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
                       type="button"
                       onClick={() => onSelect(isSelected ? null : { symbol, session })}
                       disabled={!b || b.n === 0}
+                      aria-pressed={isSelected}
+                      aria-label={
+                        b && b.n > 0
+                          ? `${symbol} ${session} — N=${b.n}, expR=${Number.isFinite(b.expectedR) ? (b.expectedR >= 0 ? "+" : "") + b.expectedR.toFixed(2) + "R" : "n/a"}`
+                          : `${symbol} ${session} — no data`
+                      }
                       className={cn(
                         "w-full text-left rounded-md px-2 py-1.5 transition-colors",
                         isSelected
@@ -330,21 +357,30 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
                 );
               })}
               <td className="px-1 py-1 border-l border-border">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const isSel = selected?.symbol === symbol && selected?.session === "All sessions";
-                    onSelect(isSel ? null : { symbol, session: "All sessions" });
-                  }}
-                  className={cn(
-                    "w-full text-left rounded-md px-2 py-1.5 transition-colors",
-                    selected?.symbol === symbol && selected?.session === "All sessions"
-                      ? "bg-primary/20 ring-1 ring-primary"
-                      : "hover:bg-muted/40",
-                  )}
-                >
-                  <CellInner b={rowLookup.get(symbol) ?? null} fdr={fdrFor(rowLookup.get(symbol) ?? null)} />
-                </button>
+                {(() => {
+                  const rowB = rowLookup.get(symbol) ?? null;
+                  const isSel = selected?.symbol === symbol && selected?.session === "All sessions";
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onSelect(isSel ? null : { symbol, session: "All sessions" })}
+                      aria-pressed={isSel}
+                      aria-label={
+                        rowB && rowB.n > 0
+                          ? `${symbol} All sessions — N=${rowB.n}, expR=${Number.isFinite(rowB.expectedR) ? (rowB.expectedR >= 0 ? "+" : "") + rowB.expectedR.toFixed(2) + "R" : "n/a"}`
+                          : `${symbol} All sessions — no data`
+                      }
+                      className={cn(
+                        "w-full text-left rounded-md px-2 py-1.5 transition-colors",
+                        isSel
+                          ? "bg-primary/20 ring-1 ring-primary"
+                          : "hover:bg-muted/40",
+                      )}
+                    >
+                      <CellInner b={rowB} fdr={fdrFor(rowB)} />
+                    </button>
+                  );
+                })()}
               </td>
             </tr>
             );

@@ -75,8 +75,15 @@ function topReasons(reasons: Record<string, number>, k = 3): Array<[string, numb
   return Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, k);
 }
 
-function StrategyDetailPanel({ result }: { result: ReplayResult }) {
+function StrategyDetailPanel({ result, riskPctOverride }: { result: ReplayResult; riskPctOverride?: number }) {
   const s = result.strategy;
+  // S3.7: the ranked rows are built from presets with `riskPct` already
+  // overridden by the slider (see `presets.map((p) => ({ ...p, riskPct }))`).
+  // The replay result clones the strategy *before* override in some code
+  // paths, so prefer the explicit slider value when provided.
+  const effectiveRiskPct = typeof riskPctOverride === "number" && Number.isFinite(riskPctOverride)
+    ? riskPctOverride
+    : s.riskPct;
   const sl = result.appliedSlPipsMedian;
   const slRange = result.appliedSlPipsRange;
   const isActual = !!s.useActualOutcome;
@@ -156,7 +163,7 @@ function StrategyDetailPanel({ result }: { result: ReplayResult }) {
             )}
           </div>
           <div className="text-xs font-mono-numbers text-muted-foreground">
-            Risk per trade: <span className="text-foreground font-semibold">{s.riskPct.toFixed(2)}%</span>
+            Risk per trade: <span className="text-foreground font-semibold">{effectiveRiskPct.toFixed(2)}%</span>
           </div>
         </div>
       </div>
@@ -217,6 +224,23 @@ export function StrategyRanker({
       ? winner.totalDollars - baselineCurrent.totalDollars
       : null;
 
+  // S3.8: scope-level data-quality chips — surface how many trades feeding
+  // the ranker have inferred R-multiples or no recorded initial stop. These
+  // mirror the per-bucket badges in QuantNotePanel so users notice when a
+  // ranking sits on top of thin/inferred data before trusting it.
+  const dataQualityCounts = useMemo(() => {
+    let rFallback = 0;
+    let slMissing = 0;
+    let closedN = 0;
+    for (const t of trades) {
+      if (t.is_open || t.is_archived) continue;
+      closedN += 1;
+      if (t.r_multiple_actual == null || !Number.isFinite(t.r_multiple_actual)) rFallback += 1;
+      if (t.sl_initial == null || t.entry_price == null) slMissing += 1;
+    }
+    return { rFallback, slMissing, closedN };
+  }, [trades]);
+
   const trailLabel = trailCapture
     ? `trail capture ${(effectiveTrailCapture! * 100).toFixed(0)}% (N=${trailCapture.n})`
     : `trail capture 80% (default — log MFE + r_actual on ≥10 trades to estimate yours)`;
@@ -242,6 +266,26 @@ export function StrategyRanker({
               Click a row to see its stop & TP details.
             </p>
             <p className="text-[10px] text-muted-foreground mt-0.5 font-mono-numbers">{trailLabel}</p>
+            {(dataQualityCounts.rFallback > 0 || dataQualityCounts.slMissing > 0) && (
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {dataQualityCounts.rFallback > 0 && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono-numbers"
+                    title={`${dataQualityCounts.rFallback} of ${dataQualityCounts.closedN} closed trades have no r_multiple_actual — outcome inferred as ±1 from net P&L sign. Biases expectancy toward round numbers.`}
+                  >
+                    {dataQualityCounts.rFallback}/{dataQualityCounts.closedN} R inferred
+                  </span>
+                )}
+                {dataQualityCounts.slMissing > 0 && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive font-mono-numbers"
+                    title={`${dataQualityCounts.slMissing} of ${dataQualityCounts.closedN} closed trades have no initial SL or entry price — excluded from MAE-derived risk math.`}
+                  >
+                    {dataQualityCounts.slMissing}/{dataQualityCounts.closedN} SL missing
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <Tooltip>
@@ -493,7 +537,7 @@ export function StrategyRanker({
                     {isOpen && (
                       <tr className="bg-muted/20 border-b border-border/30">
                         <td colSpan={9} className="py-3 px-3">
-                          <StrategyDetailPanel result={r} />
+                          <StrategyDetailPanel result={r} riskPctOverride={riskPct} />
                         </td>
                       </tr>
                     )}

@@ -25,7 +25,8 @@ import type {
 } from "@/lib/pairLabMath";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useOosSplit } from "@/hooks/useOosSplit";
-import { usePairLabTradeBounds } from "@/hooks/usePairLabTradeBounds";
+// S3.5: minMs/maxMs now read from PairLabWalkForwardContext (single source).
+import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
 
 interface Props {
   trades: Trade[];
@@ -64,7 +65,7 @@ export function OutOfSamplePanel({
   // cached trade list — no per-memo sort here). The 70/30 split is computed
   // as a linear calendar fraction of [min,max]; it used to be index-based
   // (sort + percentile) which was O(n log n) on every slider drag.
-  const { minMs, maxMs } = usePairLabTradeBounds();
+  const { minMs, maxMs } = usePairLabWalkForward();
   const defaultSplit = useMemo(
     () => Math.round(minMs + 0.7 * (maxMs - minMs)),
     [minMs, maxMs],
