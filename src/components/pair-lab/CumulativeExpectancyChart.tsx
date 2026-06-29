@@ -23,7 +23,7 @@ interface Props {
 // React + the browser layout engine both pay for on every parent re-render.
 const CANVAS_SCATTER_THRESHOLD = 100;
 
-export function CumulativeExpectancyChart({ events, rollingN = 10, height = 140 }: Props) {
+function CumulativeExpectancyChartImpl({ events, rollingN = 10, height = 140 }: Props) {
   if (events.length < 5) {
     return (
       <div className="text-xs text-muted-foreground py-3">
