@@ -398,8 +398,11 @@ export function extractRSample(
     )
     .slice()
     .sort((a, b) => {
-      const at = a.entry_time ? +new Date(a.entry_time as string | Date) : 0;
-      const bt = b.entry_time ? +new Date(b.entry_time as string | Date) : 0;
+      // S4.2: `+new Date(naiveString)` is locale-dependent — the block
+      // bootstrap relies on stable temporal ordering, otherwise the block
+      // length is meaningless and pass/RoR probs diverge by host TZ.
+      const at = a.entry_time ? ensureUtcMs(a.entry_time as string | Date) : 0;
+      const bt = b.entry_time ? ensureUtcMs(b.entry_time as string | Date) : 0;
       return at - bt;
     })
     .map((t) => t.r_multiple_actual as number);
