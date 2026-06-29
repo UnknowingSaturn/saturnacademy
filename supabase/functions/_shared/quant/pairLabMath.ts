@@ -308,11 +308,16 @@ function estimateTrailCaptureRows(rows: any[], keys: PairLabFieldKeys, minSample
 
 function pickBestTp(
   pairs: MfePair[],
-  _trail: number,
 ): { tpR: number; expectancy: number; ladder: number[]; ci: [number, number] | null } | null {
   if (pairs.length < 10) return null;
+  // S1.5 parity: dynamic ceiling. Hard-cap 4R hid genuine outsize-MFE edges
+  // (news, crypto runners). Extend the grid to the 95th-percentile MFE
+  // (clamped to [4R, 10R]) so we can surface 5R+ TPs when justified.
+  const sortedMfe = pairs.map((p) => p.mfeR).sort((a, b) => a - b);
+  const p95 = sortedMfe[Math.min(sortedMfe.length - 1, Math.floor(sortedMfe.length * 0.95))] ?? 4;
+  const ceiling = Math.min(10, Math.max(4, Math.ceil(p95 * 4) / 4));
   const grid: number[] = [];
-  for (let r = 0.5; r <= 4.0001; r += 0.25) grid.push(Math.round(r * 4) / 4);
+  for (let r = 0.5; r <= ceiling + 1e-6; r += 0.25) grid.push(Math.round(r * 4) / 4);
   const scored = grid.map((tp) => ({ tp, e: scoreTp(tp, pairs) }));
   let best: { tp: number; e: number } | null = null;
   for (const c of scored) if (!best || c.e > best.e) best = c;
@@ -354,13 +359,10 @@ function runWalkForward(rows: any[], keys: PairLabFieldKeys):
   const isPairs = collectMfeRPairs(isRows, keys);
   const oosPairs = collectMfeRPairs(oosRows, keys);
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
-  // `_trail` argument is vestigial — scoreTp no longer consumes it. Keep
-  // signature stable for now; pass 0.
-  const pick = pickBestTp(isPairs, 0);
+  const pick = pickBestTp(isPairs);
   if (!pick) return null;
   const outOfSampleE = scoreTp(pick.tpR, oosPairs);
   const degradationPct = pick.expectancy > 0 ? (1 - outOfSampleE / pick.expectancy) * 100 : 0;
-  // Report OOS pair count (true DoF for scoreTp), not raw row count.
   return { inSampleE: pick.expectancy, outOfSampleE, degradationPct, oosN: oosPairs.length };
 }
 
