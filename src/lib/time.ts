@@ -93,12 +93,11 @@ export function formatFullDateTimeET(utcTimestamp: string | Date): string {
 
 /**
  * Detect trading session from a UTC timestamp using session times in ET.
- * Live EA trades arrive in UTC; CSV imports are normalized to UTC at import time
- * via src/lib/brokerDst.ts, so consumers should always pass UTC timestamps here.
  *
- * K3 fix: previously formatted against `currentDisplayTimezone`. For users
- * with display set to London/Tokyo, session buckets were silently shifted.
- * Session definitions are ET-anchored regardless of display preference.
+ * NOTE: this is the ET-anchored fallback used when the caller does NOT have
+ * the user's `session_definitions` rows in hand. Live UI surfaces should
+ * prefer `classifySessionWithDefs()` below so user-configured session
+ * windows (e.g. London-anchored sessions) are honored. T-6.
  */
 export function detectSessionFromUtc(utcTimestamp: string | Date): SessionType {
   const date = new Date(utcTimestamp);
@@ -112,5 +111,50 @@ export function detectSessionFromUtc(utcTimestamp: string | Date): SessionType {
   if (hourET >= 12 && hourET < 17) return 'new_york_pm';
   if (hourET >= 3 && hourET < 8) return 'london';
   if (hourET >= 19 || hourET < 4) return 'tokyo';
+  return 'off_hours';
+}
+
+export interface SessionWindow {
+  key: string;
+  start_hour: number;
+  start_minute: number;
+  end_hour: number;
+  end_minute: number;
+  timezone: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+/**
+ * Client-side mirror of supabase/functions/_shared/session.ts classifySession().
+ * Honors each session's own `timezone` field. Falls back to 'off_hours' when
+ * no session window matches.
+ */
+export function classifySessionWithDefs(
+  utcTimestamp: string | Date,
+  sessions: SessionWindow[],
+): string {
+  const date = new Date(utcTimestamp);
+  const ordered = [...sessions]
+    .filter((s) => s.is_active)
+    .sort((a, b) => a.sort_order - b.sort_order);
+  for (const session of ordered) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: session.timezone || 'America/New_York',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false,
+    }).formatToParts(date);
+    const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+    const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+    const minutes = hour * 60 + minute;
+    const startMin = session.start_hour * 60 + session.start_minute;
+    const endMin = session.end_hour * 60 + session.end_minute;
+    if (startMin > endMin) {
+      if (minutes >= startMin || minutes < endMin) return session.key;
+    } else {
+      if (minutes >= startMin && minutes < endMin) return session.key;
+    }
+  }
   return 'off_hours';
 }
