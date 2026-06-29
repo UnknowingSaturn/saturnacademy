@@ -176,16 +176,24 @@ pub fn find_discrepancies(
                 });
             }
             Some(recv) => {
-                // Check for volume mismatch (allow 10% tolerance)
-                let volume_diff = (master_pos.volume - recv.volume).abs();
-                if volume_diff > master_pos.volume * 0.1 {
+                // U-10: VolumeMismatch removed for non-mirror risk modes.
+                // Receiver volume is derived from its own risk_mode/SL via
+                // `lot_calculator`; comparing it to master_volume produced
+                // false positives on every non-mirror receiver. We still flag
+                // pathological cases (>100x divergence or zero/negative volume)
+                // because those indicate a real sizing failure.
+                let zero_recv = recv.volume <= 0.0;
+                let huge_divergence = master_pos.volume > 0.0
+                    && (recv.volume / master_pos.volume > 100.0
+                        || master_pos.volume / recv.volume.max(1e-9) > 100.0);
+                if zero_recv || huge_divergence {
                     discrepancies.push(PositionDiscrepancy {
                         discrepancy_type: DiscrepancyType::VolumeMismatch,
                         master_position: Some(master_pos.clone()),
                         receiver_id: receiver_id.to_string(),
                         receiver_position: Some(recv.clone()),
                         suggested_action: format!(
-                            "Adjust receiver volume from {} to {}",
+                            "Receiver volume {} looks invalid for master {} — review sizing config",
                             recv.volume, master_pos.volume
                         ),
                     });
