@@ -606,11 +606,14 @@ export function computeBucket(
     ? (sumWin / winR.length) / (sumLoss / lossR.length)
     : null;
 
+  let eventsRFallbackCount = 0;
   const eventR: number[] = [...closed]
     .filter((t) => t.entry_time)
-    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)))
+    // S2.7: epoch-ms sort via ensureUtcMs (TZ-safe, handles naive + ISO mixes).
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time))
     .map((t) => {
       const hasR = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual);
+      if (!hasR) eventsRFallbackCount += 1;
       return hasR
         ? (t.r_multiple_actual as number)
         : ((t.net_pnl ?? 0) > 0 ? 1 : (t.net_pnl ?? 0) < 0 ? -1 : 0);
