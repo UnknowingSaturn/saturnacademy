@@ -810,7 +810,7 @@ function computeBucket(
   // minSample=10 mirrors the server (`estimateTrailCaptureRows`) so thin buckets
   // fall back to the same 0.7 default on both sides.
   const tcEst = estimateTrailCapture(rows, keys, 10);
-  const trailCapture = tcEst?.ratio ?? 0.7;
+  const trailCapture = tcEst?.ratio ?? TRAIL_CAPTURE_FALLBACK;
 
   const baseRec = buildRecommendation(
     stats, winR, lossR, mfes, baseline, propFirm,
