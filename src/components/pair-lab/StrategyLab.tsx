@@ -97,15 +97,15 @@ export function StrategyLab({
   maxDrawdownDollars,
   hasPropFirmProfile,
 }: Props) {
-  // Trades arrive already date-filtered by the shared walk-forward context;
-  // no extra sample window here.
-  const filteredTrades = trades;
+  // S3.6: removed dead `filteredTrades = trades` alias — read `trades`
+  // directly. Trades arrive already date-filtered by the shared walk-forward
+  // context; no extra sample window here.
 
   const windowMeta = useMemo(() => {
     let n = 0;
     let first: number | null = null;
     let last: number | null = null;
-    for (const t of filteredTrades) {
+    for (const t of trades) {
       if (t.is_open || t.is_archived) continue;
       if (t.r_multiple_actual == null) continue;
       if (!t.entry_time) continue;
