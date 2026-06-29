@@ -38,8 +38,11 @@ interface BucketInput {
   mfeP75: number | null;
   maeP50: number | null;
   maeP75: number | null;
-  idealSlMedian: number | null;
-  slInitialMedian: number | null;
+  // S4.5 / S2.2 rename: client sends *Pips-suffixed names; previously the
+  // handler read the deprecated `idealSlMedian` / `slInitialMedian` and got
+  // `undefined`, so the AI quant note silently dropped SL drift commentary.
+  idealSlMedianPips: number | null;
+  slInitialMedianPips: number | null;
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   confidence: "high" | "medium" | "low";
   expectedRCi: [number, number] | null;
@@ -159,8 +162,8 @@ serve(async (req) => {
         mae_p75: b.maeP75,
       },
       stops: {
-        ideal_sl_median_pips: b.idealSlMedian,
-        actual_sl_median_pips: b.slInitialMedian,
+        ideal_sl_median_pips: b.idealSlMedianPips,
+        actual_sl_median_pips: b.slInitialMedianPips,
         drift: b.slDrift,
       },
       recommended_parameters: {

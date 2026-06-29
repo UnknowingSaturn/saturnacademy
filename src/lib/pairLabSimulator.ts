@@ -381,7 +381,11 @@ function replayOneTrade(
       if (strategy.exitRule.runner === "be_after_first_tp") {
         booked += 0;
       } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
-        booked += lastFilledAtR * remainingFrac;
+        // S4.6: when a partial filled and the price then stopped under the
+        // NEW SL, the runner exited at the stop — not at the previous TP.
+        // Booking `lastFilledAtR * remainingFrac` overstated expectancy by
+        // `(lastFilledAtR + slScale) × remainingFrac` on every such trade.
+        booked += -slScale * remainingFrac;
       } else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
         const mfeNewR = proof.loggedMfe / slScale;

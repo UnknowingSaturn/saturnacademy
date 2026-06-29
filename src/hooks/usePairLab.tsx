@@ -86,7 +86,7 @@ export interface PairLabData {
   defaultSimRiskPct: number;
   /** Empirically-derived trail-capture ratio (or null when sample too small). */
   trailCapture: TrailCaptureEstimate | null;
-  /** Effective trail capture used by replay (estimate when present, else default 0.8). */
+  /** Effective trail capture used by replay (estimate when present, else `TRAIL_CAPTURE_FALLBACK` from shared/quant/config — currently 0.7). */
   effectiveTrailCapture: number;
   /** Heuristic warning when the same trade may appear in multiple rows. */
   partialFillFlag: PartialFillFlag | null;
