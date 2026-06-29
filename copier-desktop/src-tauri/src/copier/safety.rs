@@ -342,123 +342,165 @@ pub fn record_trade_result(receiver_id: &str, pnl: f64, is_winner: bool) {
     persist_state(&states);
 }
 
-/// Check if a trade should be allowed based on safety rules
+/// Check if a trade should be allowed based on safety rules.
+///
+/// U-4: Daily-reset evaluation, state read, limit comparison, and pause-write
+/// all happen under a SINGLE lock acquisition. The previous implementation
+/// called `check_daily_reset` then `get_receiver_state` then `pause_receiver`,
+/// each re-acquiring the mutex. Between calls, a concurrent
+/// `record_trade_result` could mutate `daily_pnl`, letting two near-simultaneous
+/// trades both pass a limit that should have blocked the second one.
 pub fn check_trade_safety(
     receiver_id: &str,
     config: &SafetyConfig,
     starting_balance: f64,
 ) -> SafetyCheckResult {
-    // First check for daily reset
-    check_daily_reset(receiver_id);
-    
-    let state = get_receiver_state(receiver_id);
-    
-    // Use provided starting balance or the persisted one
+    let reset_hour = get_daily_reset_hour();
+    let today = get_trading_day(Utc::now(), reset_hour);
+
+    let mut states = SAFETY_STATE.lock();
+    let mut dirty = false;
+
+    // Ensure an entry exists so we can hold a single &mut for the whole check.
+    let state = states.entry(receiver_id.to_string()).or_default();
+
+    // -- Inline daily reset --
+    let needs_reset = match state.get_last_reset_date() {
+        Some(last_date) => last_date != today,
+        None => true,
+    };
+    if needs_reset {
+        tracing::info!(
+            "Resetting daily counters for receiver {} (reset hour: {} UTC)",
+            receiver_id, reset_hour
+        );
+        state.daily_pnl = 0.0;
+        state.trades_today = 0;
+        state.wins_today = 0;
+        state.losses_today = 0;
+        state.consecutive_losses = 0;
+        state.is_safety_paused = false;
+        state.pause_reason = None;
+        state.set_last_reset_date(today);
+        state.last_updated = Some(Utc::now().to_rfc3339());
+        dirty = true;
+    }
+
+    // Effective starting balance.
     let effective_balance = if starting_balance > 0.0 {
         starting_balance
     } else if state.starting_balance > 0.0 {
         state.starting_balance
     } else {
-        10000.0 // Fallback default
+        10000.0
     };
-    
-    // Check if already safety paused
-    if state.is_safety_paused {
-        return SafetyCheckResult::Blocked(
-            state.pause_reason.clone().unwrap_or_else(|| "Safety limit reached".to_string())
-        );
-    }
-    
-    // Check daily loss limit (percentage)
-    if let Some(max_loss_percent) = config.max_daily_loss_percent {
-        let loss_limit = effective_balance * (max_loss_percent / 100.0);
-        if state.daily_pnl <= -loss_limit {
-            let reason = format!(
-                "Daily loss limit reached: ${:.2} ({}% of ${:.0})",
-                state.daily_pnl.abs(), max_loss_percent, effective_balance
+
+    // Helper closure to atomically pause within the same lock guard.
+    let mut pause = |s: &mut ReceiverSafetyState, reason: &str| {
+        tracing::warn!("Safety pause for {}: {}", receiver_id, reason);
+        s.is_safety_paused = true;
+        s.pause_reason = Some(reason.to_string());
+        s.last_updated = Some(Utc::now().to_rfc3339());
+    };
+
+    let result: SafetyCheckResult = (|| {
+        if state.is_safety_paused {
+            return SafetyCheckResult::Blocked(
+                state.pause_reason.clone().unwrap_or_else(|| "Safety limit reached".to_string())
             );
-            pause_receiver(receiver_id, &reason);
-            return SafetyCheckResult::Blocked(reason);
         }
-        
-        // Warning at 80% of limit
-        if state.daily_pnl <= -(loss_limit * 0.8) {
-            return SafetyCheckResult::Warning(format!(
-                "Approaching daily loss limit: ${:.2} of ${:.2}",
-                state.daily_pnl.abs(), loss_limit
-            ));
-        }
-    }
-    
-    // Check daily loss limit (absolute)
-    if let Some(max_loss_amount) = config.max_daily_loss_amount {
-        if state.daily_pnl <= -max_loss_amount {
-            let reason = format!("Daily loss limit reached: ${:.2}", state.daily_pnl.abs());
-            pause_receiver(receiver_id, &reason);
-            return SafetyCheckResult::Blocked(reason);
-        }
-    }
-    
-    // Check drawdown
-    if let Some(max_dd_percent) = config.max_drawdown_percent {
-        if state.high_water_mark > 0.0 && state.current_equity > 0.0 {
-            let drawdown_percent = ((state.high_water_mark - state.current_equity) / state.high_water_mark) * 100.0;
-            
-            if drawdown_percent >= max_dd_percent {
+
+        if let Some(max_loss_percent) = config.max_daily_loss_percent {
+            let loss_limit = effective_balance * (max_loss_percent / 100.0);
+            if state.daily_pnl <= -loss_limit {
                 let reason = format!(
-                    "Maximum drawdown reached: {:.1}% (limit: {}%)",
-                    drawdown_percent, max_dd_percent
+                    "Daily loss limit reached: ${:.2} ({}% of ${:.0})",
+                    state.daily_pnl.abs(), max_loss_percent, effective_balance
                 );
-                pause_receiver(receiver_id, &reason);
+                pause(state, &reason);
+                dirty = true;
                 return SafetyCheckResult::Blocked(reason);
             }
-            
-            // Warning at 80% of limit
-            if drawdown_percent >= max_dd_percent * 0.8 {
+            if state.daily_pnl <= -(loss_limit * 0.8) {
                 return SafetyCheckResult::Warning(format!(
-                    "Approaching drawdown limit: {:.1}% of {}%",
-                    drawdown_percent, max_dd_percent
+                    "Approaching daily loss limit: ${:.2} of ${:.2}",
+                    state.daily_pnl.abs(), loss_limit
                 ));
             }
         }
-    }
-    
-    // Check minimum equity
-    if let Some(min_equity) = config.min_equity {
-        if state.current_equity > 0.0 && state.current_equity < min_equity {
-            let reason = format!(
-                "Below minimum equity: ${:.2} (minimum: ${:.2})",
-                state.current_equity, min_equity
-            );
-            pause_receiver(receiver_id, &reason);
-            return SafetyCheckResult::Blocked(reason);
+
+        if let Some(max_loss_amount) = config.max_daily_loss_amount {
+            if state.daily_pnl <= -max_loss_amount {
+                let reason = format!("Daily loss limit reached: ${:.2}", state.daily_pnl.abs());
+                pause(state, &reason);
+                dirty = true;
+                return SafetyCheckResult::Blocked(reason);
+            }
         }
-    }
-    
-    // Check max trades per day
-    if let Some(max_trades) = config.max_trades_per_day {
-        if state.trades_today >= max_trades {
-            let reason = format!(
-                "Maximum daily trades reached: {} (limit: {})",
-                state.trades_today, max_trades
-            );
-            return SafetyCheckResult::Blocked(reason);
+
+        if let Some(max_dd_percent) = config.max_drawdown_percent {
+            if state.high_water_mark > 0.0 && state.current_equity > 0.0 {
+                let drawdown_percent =
+                    ((state.high_water_mark - state.current_equity) / state.high_water_mark) * 100.0;
+                if drawdown_percent >= max_dd_percent {
+                    let reason = format!(
+                        "Maximum drawdown reached: {:.1}% (limit: {}%)",
+                        drawdown_percent, max_dd_percent
+                    );
+                    pause(state, &reason);
+                    dirty = true;
+                    return SafetyCheckResult::Blocked(reason);
+                }
+                if drawdown_percent >= max_dd_percent * 0.8 {
+                    return SafetyCheckResult::Warning(format!(
+                        "Approaching drawdown limit: {:.1}% of {}%",
+                        drawdown_percent, max_dd_percent
+                    ));
+                }
+            }
         }
-    }
-    
-    // Check consecutive losses (prop firm safe mode)
-    if config.prop_firm_safe_mode {
-        let max_consecutive = config.max_consecutive_losses.unwrap_or(3);
-        if state.consecutive_losses >= max_consecutive {
-            return SafetyCheckResult::Warning(format!(
-                "{} consecutive losses - consider pausing",
-                state.consecutive_losses
-            ));
+
+        if let Some(min_equity) = config.min_equity {
+            if state.current_equity > 0.0 && state.current_equity < min_equity {
+                let reason = format!(
+                    "Below minimum equity: ${:.2} (minimum: ${:.2})",
+                    state.current_equity, min_equity
+                );
+                pause(state, &reason);
+                dirty = true;
+                return SafetyCheckResult::Blocked(reason);
+            }
         }
+
+        if let Some(max_trades) = config.max_trades_per_day {
+            if state.trades_today >= max_trades {
+                return SafetyCheckResult::Blocked(format!(
+                    "Maximum daily trades reached: {} (limit: {})",
+                    state.trades_today, max_trades
+                ));
+            }
+        }
+
+        if config.prop_firm_safe_mode {
+            let max_consecutive = config.max_consecutive_losses.unwrap_or(3);
+            if state.consecutive_losses >= max_consecutive {
+                return SafetyCheckResult::Warning(format!(
+                    "{} consecutive losses - consider pausing",
+                    state.consecutive_losses
+                ));
+            }
+        }
+
+        SafetyCheckResult::Allowed
+    })();
+
+    if dirty {
+        persist_state(&states);
     }
-    
-    SafetyCheckResult::Allowed
+    result
 }
+
+
 
 /// Pause a receiver due to safety breach
 fn pause_receiver(receiver_id: &str, reason: &str) {
