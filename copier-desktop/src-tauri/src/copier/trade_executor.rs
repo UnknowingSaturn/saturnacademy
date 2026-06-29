@@ -186,6 +186,65 @@ fn execute_single_attempt_sync(
     wait_for_response_sync(&command_folder, command.timestamp)
 }
 
+/// Poll the receiver's command folder for `resp_<timestamp>.json`.
+///
+/// The receiver EA writes a single response file per command via an atomic
+/// `.tmp` -> rename, so we only need to wait for the final `.json` to appear,
+/// read it, then remove it so the folder does not accumulate stale responses.
+///
+/// Timeout is fixed at ~30s with a 50ms poll cadence — far below MT5's
+/// typical broker round-trip and matches the EA's `OnTimer(1s)` cycle.
+fn wait_for_response_sync(
+    command_folder: &str,
+    timestamp: i64,
+) -> Result<TradeResponse, TradeError> {
+    let response_path = format!("{}\\resp_{}.json", command_folder, timestamp);
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let poll = Duration::from_millis(50);
+
+    loop {
+        if Path::new(&response_path).exists() {
+            // Brief settle in case rename is observed before contents flush.
+            std::thread::sleep(Duration::from_millis(10));
+
+            let content = match fs::read_to_string(&response_path) {
+                Ok(c) if !c.trim().is_empty() => c,
+                Ok(_) => {
+                    // Empty/partial file — let the next poll re-read.
+                    if std::time::Instant::now() >= deadline {
+                        return Err(TradeError::Timeout);
+                    }
+                    std::thread::sleep(poll);
+                    continue;
+                }
+                Err(e) => {
+                    debug!("Transient response read error ({}), retrying", e);
+                    if std::time::Instant::now() >= deadline {
+                        return Err(TradeError::FileReadError(e.to_string()));
+                    }
+                    std::thread::sleep(poll);
+                    continue;
+                }
+            };
+
+            // Best-effort cleanup; ignore errors so a locked file does not abort the trade.
+            let _ = fs::remove_file(&response_path);
+
+            let parsed: TradeResponse = serde_json::from_str(&content)
+                .map_err(|e| TradeError::SerializationError(format!(
+                    "Failed to parse response at {}: {}", response_path, e
+                )))?;
+            return Ok(parsed);
+        }
+
+        if std::time::Instant::now() >= deadline {
+            warn!("Timed out waiting for response at {}", response_path);
+            return Err(TradeError::Timeout);
+        }
+        std::thread::sleep(poll);
+    }
+}
+
 /// Calculate exponential backoff delay
 fn calculate_backoff_delay(attempt: u32, config: &RetryConfig) -> u64 {
     let delay = config.base_delay_ms as f64 * config.exponential_base.powi(attempt as i32);
