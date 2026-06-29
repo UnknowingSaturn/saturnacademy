@@ -747,6 +747,10 @@ function computeBucket(
     mfeMax: mfes.length > 0 ? mfes.reduce((a, b) => (a > b ? a : b)) : null,
     maeMinTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a < b ? a : b)) : null,
     maeMaxTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a > b ? a : b)) : null,
+    idealSlMedianPips: idealMed,
+    slInitialMedianPips: slInitMed,
+    // Deprecated aliases — kept populated so any consumer still reading the
+    // old names sees the same number until they upgrade. Will be removed.
     idealSlMedian: idealMed,
     slInitialMedian: slInitMed,
     slDrift,
