@@ -76,12 +76,17 @@ export function OverviewTab({
   const { wf, setWf, minMs, maxMs } = usePairLabWalkForward();
   const { unit: distanceUnit, setUnit: setDistanceUnit } = useDistanceUnit();
 
-  const closed = data.trades.filter(
-    (t) => !t.is_open && !t.is_archived && t.net_pnl != null,
+  // S2.13: memoize the closed-trade slice so slider drags don't re-filter
+  // the entire `data.trades` array (and re-classifySymbol every row) on
+  // every render. `tickSizeOffenders` already memoizes on `closed`.
+  const closed = useMemo(
+    () => data.trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null),
+    [data.trades],
   );
-  const withSl = closed.filter(
-    (t) => t.sl_initial != null && t.entry_price != null,
-  ).length;
+  const withSl = useMemo(
+    () => closed.filter((t) => t.sl_initial != null && t.entry_price != null).length,
+    [closed],
+  );
   const slCoverage = closed.length > 0 ? withSl / closed.length : 1;
   const slWarn = closed.length >= 10 && slCoverage < 0.7;
 
