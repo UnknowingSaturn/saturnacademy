@@ -247,22 +247,20 @@ fn calculate_lots_from_risk(
             sl_ticks * symbol_info.tick_value
         }
         SymbolType::Forex => {
-            // Standard forex calculation with proper JPY handling
-            let sl_points = sl_distance / symbol_info.point;
-            
-            // Determine points per pip based on digits:
-            // - 5 digits = standard forex pairs (e.g., EURUSD 1.12345) -> 10 points = 1 pip
-            // - 4 digits = older format or indices -> 1 point = 1 pip  
-            // - 3 digits = JPY pairs (e.g., USDJPY 150.123) -> 10 points = 1 pip
-            // - 2 digits = JPY pairs older format (e.g., USDJPY 150.12) -> 1 point = 1 pip
-            let points_per_pip = match symbol_info.digits {
-                5 => 10.0,  // Standard forex: 10 points = 1 pip
-                4 => 1.0,   // Older forex or some CFDs
-                3 => 10.0,  // JPY pairs: 10 points = 1 pip (150.123)
-                2 => 1.0,   // JPY pairs older format: 1 point = 1 pip (150.12)
-                _ => 1.0,   // Fallback
-            };
-            (sl_points / points_per_pip) * symbol_info.tick_value
+            // U-5 FIX: MT5 SYMBOL_TRADE_TICK_VALUE is the account-currency value of
+            // ONE tick movement (typically equal to one point). The previous logic
+            // divided sl_points by `points_per_pip` and then multiplied by tick_value,
+            // which understated risk by ~10x on 5-digit and 3-digit JPY pairs and
+            // caused the calculator to return ~10x oversized lots.
+            //
+            // Correct formula: value_per_lot = sl_ticks * tick_value
+            // where sl_ticks = sl_distance / tick_size.
+            if symbol_info.tick_size <= 0.0 {
+                tracing::warn!("Invalid tick_size ({}), returning minimum lot", symbol_info.tick_size);
+                return 0.01;
+            }
+            let sl_ticks = sl_distance / symbol_info.tick_size;
+            sl_ticks * symbol_info.tick_value
         }
     };
     
