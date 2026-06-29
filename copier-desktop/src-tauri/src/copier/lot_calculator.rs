@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(round_lots(0.123), 0.12);
         assert_eq!(round_lots(0.125), 0.13);
         assert_eq!(round_lots(1.999), 2.0);
-        assert_eq!(round_lots(0.001), 0.0);
+        assert_eq!(round_lots(0.001), 0.01); // min_lot floor (R9 behaviour)
     }
     
     #[test]
