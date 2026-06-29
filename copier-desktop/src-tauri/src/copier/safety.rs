@@ -395,17 +395,12 @@ pub fn check_trade_safety(
         10000.0
     };
 
-    // Helper closure to atomically pause within the same lock guard.
-    let mut pause = |s: &mut ReceiverSafetyState, reason: &str| {
-        tracing::warn!("Safety pause for {}: {}", receiver_id, reason);
-        s.is_safety_paused = true;
-        s.pause_reason = Some(reason.to_string());
-        s.last_updated = Some(Utc::now().to_rfc3339());
-    };
-
-    let result: SafetyCheckResult = (|| {
+    // Evaluate checks in priority order. Use a labelled block so we can
+    // return early from any branch without an IIFE (which would conflict
+    // with the outstanding `&mut state` borrow from `states.entry(...)`).
+    let result: SafetyCheckResult = 'check: {
         if state.is_safety_paused {
-            return SafetyCheckResult::Blocked(
+            break 'check SafetyCheckResult::Blocked(
                 state.pause_reason.clone().unwrap_or_else(|| "Safety limit reached".to_string())
             );
         }
@@ -417,12 +412,15 @@ pub fn check_trade_safety(
                     "Daily loss limit reached: ${:.2} ({}% of ${:.0})",
                     state.daily_pnl.abs(), max_loss_percent, effective_balance
                 );
-                pause(state, &reason);
+                tracing::warn!("Safety pause for {}: {}", receiver_id, reason);
+                state.is_safety_paused = true;
+                state.pause_reason = Some(reason.clone());
+                state.last_updated = Some(Utc::now().to_rfc3339());
                 dirty = true;
-                return SafetyCheckResult::Blocked(reason);
+                break 'check SafetyCheckResult::Blocked(reason);
             }
             if state.daily_pnl <= -(loss_limit * 0.8) {
-                return SafetyCheckResult::Warning(format!(
+                break 'check SafetyCheckResult::Warning(format!(
                     "Approaching daily loss limit: ${:.2} of ${:.2}",
                     state.daily_pnl.abs(), loss_limit
                 ));
@@ -432,9 +430,12 @@ pub fn check_trade_safety(
         if let Some(max_loss_amount) = config.max_daily_loss_amount {
             if state.daily_pnl <= -max_loss_amount {
                 let reason = format!("Daily loss limit reached: ${:.2}", state.daily_pnl.abs());
-                pause(state, &reason);
+                tracing::warn!("Safety pause for {}: {}", receiver_id, reason);
+                state.is_safety_paused = true;
+                state.pause_reason = Some(reason.clone());
+                state.last_updated = Some(Utc::now().to_rfc3339());
                 dirty = true;
-                return SafetyCheckResult::Blocked(reason);
+                break 'check SafetyCheckResult::Blocked(reason);
             }
         }
 
@@ -447,12 +448,15 @@ pub fn check_trade_safety(
                         "Maximum drawdown reached: {:.1}% (limit: {}%)",
                         drawdown_percent, max_dd_percent
                     );
-                    pause(state, &reason);
+                    tracing::warn!("Safety pause for {}: {}", receiver_id, reason);
+                    state.is_safety_paused = true;
+                    state.pause_reason = Some(reason.clone());
+                    state.last_updated = Some(Utc::now().to_rfc3339());
                     dirty = true;
-                    return SafetyCheckResult::Blocked(reason);
+                    break 'check SafetyCheckResult::Blocked(reason);
                 }
                 if drawdown_percent >= max_dd_percent * 0.8 {
-                    return SafetyCheckResult::Warning(format!(
+                    break 'check SafetyCheckResult::Warning(format!(
                         "Approaching drawdown limit: {:.1}% of {}%",
                         drawdown_percent, max_dd_percent
                     ));
@@ -466,15 +470,18 @@ pub fn check_trade_safety(
                     "Below minimum equity: ${:.2} (minimum: ${:.2})",
                     state.current_equity, min_equity
                 );
-                pause(state, &reason);
+                tracing::warn!("Safety pause for {}: {}", receiver_id, reason);
+                state.is_safety_paused = true;
+                state.pause_reason = Some(reason.clone());
+                state.last_updated = Some(Utc::now().to_rfc3339());
                 dirty = true;
-                return SafetyCheckResult::Blocked(reason);
+                break 'check SafetyCheckResult::Blocked(reason);
             }
         }
 
         if let Some(max_trades) = config.max_trades_per_day {
             if state.trades_today >= max_trades {
-                return SafetyCheckResult::Blocked(format!(
+                break 'check SafetyCheckResult::Blocked(format!(
                     "Maximum daily trades reached: {} (limit: {})",
                     state.trades_today, max_trades
                 ));
@@ -484,7 +491,7 @@ pub fn check_trade_safety(
         if config.prop_firm_safe_mode {
             let max_consecutive = config.max_consecutive_losses.unwrap_or(3);
             if state.consecutive_losses >= max_consecutive {
-                return SafetyCheckResult::Warning(format!(
+                break 'check SafetyCheckResult::Warning(format!(
                     "{} consecutive losses - consider pausing",
                     state.consecutive_losses
                 ));
@@ -492,13 +499,15 @@ pub fn check_trade_safety(
         }
 
         SafetyCheckResult::Allowed
-    })();
+    };
 
+    // `state` mutable borrow ends here; safe to re-borrow `states` for persistence.
     if dirty {
         persist_state(&states);
     }
     result
 }
+
 
 
 
