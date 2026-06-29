@@ -428,7 +428,7 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
         </div>
       )}
 
-      {!loading && !note && !error && bucket.n > 0 && !tooFewSamples && (
+      {!loading && !note && !error && bucket.n > 0 && !lowConfidence && (
         <p className="text-xs text-muted-foreground">
           Generate an AI note grounded in this bucket's numbers.
         </p>
