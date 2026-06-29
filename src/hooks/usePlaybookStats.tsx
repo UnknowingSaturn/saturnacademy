@@ -169,14 +169,31 @@ export function usePlaybookStats() {
     queryFn: async (): Promise<Record<string, PlaybookStats>> => {
       if (!playbooks || playbooks.length === 0) return {};
       
-      // Get all closed, non-archived trades with both planned and actual playbook ids
-      const { data: trades, error: tradesError } = await supabase
-        .from('trades')
-        .select('id, net_pnl, r_multiple_actual, entry_time, playbook_id, actual_playbook_id')
-        .eq('is_open', false)
-        .eq('is_archived', false);
-
-      if (tradesError) throw tradesError;
+      // T-3: PostgREST caps unbounded selects at 1,000 rows. Paginate so
+      // playbook stats reflect every closed trade, not just the most recent k.
+      const PAGE = 1000;
+      const MAX_ROWS = 25_000;
+      const trades: any[] = [];
+      let offset = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error: tradesError } = await supabase
+          .from('trades')
+          .select('id, net_pnl, r_multiple_actual, entry_time, playbook_id, actual_playbook_id')
+          .eq('is_open', false)
+          .eq('is_archived', false)
+          .range(offset, offset + PAGE - 1);
+        if (tradesError) throw tradesError;
+        const rows = data ?? [];
+        trades.push(...rows);
+        if (rows.length < PAGE) break;
+        offset += PAGE;
+        if (trades.length >= MAX_ROWS) {
+          // eslint-disable-next-line no-console
+          console.warn(`[usePlaybookStats] hit MAX_ROWS=${MAX_ROWS}; older trades omitted`);
+          break;
+        }
+      }
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
