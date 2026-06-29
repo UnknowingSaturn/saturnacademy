@@ -208,9 +208,13 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
           <div>
             <div className="text-muted-foreground">SL drift</div>
             <div className="font-mono-numbers font-semibold text-sm">
-              {b.slInitialMedian != null && b.idealSlMedian != null
-                ? `${formatDistance(b.key.symbol, b.slInitialMedian, b.slUnit ?? nativeUnitForSymbol(b.key.symbol), distanceUnit)} → ${formatDistance(b.key.symbol, b.idealSlMedian, b.slUnit ?? nativeUnitForSymbol(b.key.symbol), distanceUnit)}`
-                : "—"}
+              {(() => {
+                const sli = (b as any).slInitialMedianPips ?? b.slInitialMedian;
+                const idl = (b as any).idealSlMedianPips ?? b.idealSlMedian;
+                if (sli == null || idl == null) return "—";
+                const unit = b.slUnit ?? nativeUnitForSymbol(b.key.symbol);
+                return `${formatDistance(b.key.symbol, sli, unit, distanceUnit)} → ${formatDistance(b.key.symbol, idl, unit, distanceUnit)}`;
+              })()}
             </div>
             <div className="text-[10px] text-muted-foreground">
               planned → ideal ({distanceUnit === "ticks" ? "ticks" : (b.slUnit ?? nativeUnitForSymbol(b.key.symbol))})
