@@ -34,9 +34,14 @@ export function median(values: number[]): number | null {
   return quantile(values, 0.5);
 }
 
-export function mean(values: number[]): number {
+/**
+ * S2.4: returns null on empty / all-NaN input (was 0, which was indistinguishable
+ * from a true zero-edge bucket). Callers that need a numeric should use
+ * `mean(xs) ?? NaN` so downstream guards (Number.isFinite) keep behaving.
+ */
+export function mean(values: number[]): number | null {
   const xs = values.filter((v) => Number.isFinite(v));
-  if (xs.length === 0) return 0;
+  if (xs.length === 0) return null;
   return xs.reduce((s, v) => s + v, 0) / xs.length;
 }
 
