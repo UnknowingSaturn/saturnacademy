@@ -1008,9 +1008,9 @@ function buildRecommendation(
       suggestedSlPips = s.maeP75Pips * MAE_P75_WIDEN_BUFFER;
       slSource = "winners_mae_fallback";
       slSourceN = s.loggedMaeCount;
-    } else if (s.idealSlMedian != null && s.idealSlMedian > 0) {
+    } else if (idealMed != null && idealMed > 0) {
       // Ideal SL present but below min-N → use it but mark as fallback grade.
-      suggestedSlPips = s.idealSlMedian;
+      suggestedSlPips = idealMed;
       slSource = "ideal_sl";
       slSourceN = s.loggedIdealSlCount;
     }
