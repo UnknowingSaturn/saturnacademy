@@ -127,12 +127,42 @@ export default function PairLab() {
 
   // Single source of truth for the as-of slider bounds (no double fetch).
   const { minMs, maxMs } = usePairLabTradeBounds();
-  const [wf, setWf] = useState<WalkForwardState>({
-    lens: "all",
-    asOfMs: Date.now(),
+
+  // S2.15: persist lens + asOf in the URL so a refresh or a shared link
+  // restores the same walk-forward viewport. `lens=all` (default) and an
+  // empty / absent `asOf` are both elided to keep the URL tidy.
+  const lensParam = searchParams.get("lens");
+  const asOfParam = searchParams.get("asOf");
+  const initialLens: WalkForwardState["lens"] =
+    lensParam === "90d" || lensParam === "30d" ? lensParam : "all";
+  const initialAsOfMs = (() => {
+    if (!asOfParam) return Date.now();
+    const parsed = Date.parse(asOfParam);
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  })();
+  const [wf, setWfRaw] = useState<WalkForwardState>({
+    lens: initialLens,
+    asOfMs: initialAsOfMs,
   });
+  // Wrap setter so every change writes back to URL. Only persist asOf when
+  // the user has actually pinned it (not equal to maxMs / "now"), to avoid
+  // an ever-shifting URL on every render.
+  const setWf = useCallback(
+    (next: WalkForwardState) => {
+      setWfRaw(next);
+      patchParams((p) => {
+        if (next.lens === "all") p.delete("lens");
+        else p.set("lens", next.lens);
+        // Persist asOf only when the user has moved it off the right edge.
+        const atLatest = Math.abs(next.asOfMs - maxMs) < 24 * 3600_000;
+        if (atLatest) p.delete("asOf");
+        else p.set("asOf", new Date(next.asOfMs).toISOString().slice(0, 10));
+      });
+    },
+    [patchParams, maxMs],
+  );
   useEffect(() => {
-    setWf((s) => ({
+    setWfRaw((s) => ({
       ...s,
       asOfMs: Math.max(minMs, Math.min(maxMs, s.asOfMs)),
     }));
