@@ -55,7 +55,8 @@ export function useOpenTrades() {
         .select(TRADE_SELECT)
         .eq("is_open", true)
         .eq("is_archived", false)
-        .order("entry_time", { ascending: false });
+        .order("entry_time", { ascending: false })
+        .range(0, 999); // T-12: explicit cap; warn on saturation below
 
       if (error) throw error;
 
