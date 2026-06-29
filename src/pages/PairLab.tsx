@@ -231,6 +231,7 @@ export default function PairLab() {
           scope,
           includeUnrealized,
           propFirmMode,
+          groups,
         }}
       >
         <Tabs value={tab} onValueChange={setTab}>
