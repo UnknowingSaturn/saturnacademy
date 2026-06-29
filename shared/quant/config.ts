@@ -124,6 +124,18 @@ export const BH_FDR_ALPHA = 0.05;
  */
 export const MIN_STREAK_FLOOR = 3;
 
+// ---------- Trail-capture fallback ----------
+
+/**
+ * Fallback fraction of MFE captured by a trailing stop when the empirical
+ * estimator (`estimateTrailCapture` / `estimateTrailCaptureRows`) has fewer
+ * than 10 qualifying winners. S2.11 unifies this constant across the client
+ * simulator (`TRAIL_CAPTURE_FRAC`), the edge simulator
+ * (`DEFAULT_TRAIL_CAPTURE_FRAC`) and the bucket-local fallback in
+ * `pairLabMath.ts`. Edit here, not at the call site.
+ */
+export const TRAIL_CAPTURE_FALLBACK = 0.7;
+
 // ---------- SL sweep grid ----------
 
 /**
