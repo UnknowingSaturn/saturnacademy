@@ -15,10 +15,13 @@ pub async fn upload_executions(
 
     tracing::info!("Uploading {} executions to cloud...", executions.len());
 
+    let install_id = crate::sync::config::load_or_create_install_id()
+        .unwrap_or_else(|_| "unknown".to_string());
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{}/copier-executions", API_BASE_URL))
         .header("x-api-key", api_key)
+        .header("x-install-id", &install_id)
         .header("Content-Type", "application/json")
         .json(executions)
         .send()
