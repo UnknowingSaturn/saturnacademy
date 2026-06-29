@@ -59,7 +59,10 @@ export function useOpenTrades() {
         .range(0, 999); // T-12: explicit cap; warn on saturation below
 
       if (error) throw error;
-
+      if ((data?.length ?? 0) >= 1000) {
+        // eslint-disable-next-line no-console
+        console.warn('[useOpenTrades] hit 1,000-row cap; some open positions hidden');
+      }
 
       const trades = (data || []).map(transformTrade);
       
