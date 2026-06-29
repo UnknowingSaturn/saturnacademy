@@ -41,42 +41,44 @@ function CumulativeExpectancyChartImpl({ events, rollingN = 10, height = 140 }: 
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
 
-  // Cumulative mean.
-  const cumMean: number[] = [];
-  let sum = 0;
-  for (let i = 0; i < events.length; i++) {
-    sum += events[i].r;
-    cumMean.push(sum / (i + 1));
-  }
-  // Rolling mean.
-  const roll: Array<number | null> = events.map((_, i) => {
-    if (i + 1 < rollingN) return null;
-    let s = 0;
-    for (let j = i - rollingN + 1; j <= i; j++) s += events[j].r;
-    return s / rollingN;
-  });
-
-  const ys = [
-    ...cumMean,
-    ...roll.filter((v): v is number => v != null),
-    ...events.map((e) => e.r),
-    0,
-  ];
-  const yMin = Math.min(...ys);
-  const yMax = Math.max(...ys);
-  const yPad = (yMax - yMin) * 0.1 || 0.5;
-  const lo = yMin - yPad;
-  const hi = yMax + yPad;
-
-  const x = (i: number) =>
-    padL + (events.length <= 1 ? innerW / 2 : (i / (events.length - 1)) * innerW);
-  const y = (v: number) => padT + innerH - ((v - lo) / (hi - lo)) * innerH;
-
-  const cumPath = cumMean.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  const rollPts = roll
-    .map((v, i) => (v == null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
-    .filter(Boolean) as string[];
-  const rollPath = rollPts.length > 0 ? "M" + rollPts.join(" L") : "";
+  // S2.14: cumulative / rolling / path math depends only on (events, rollingN)
+  // — wrap in useMemo so a parent re-render (e.g. lens toggle that doesn't
+  // change events) doesn't rebuild ~3·N arrays + 2 SVG path strings.
+  const calc = useMemo(() => {
+    const cumMean: number[] = [];
+    let sum = 0;
+    for (let i = 0; i < events.length; i++) {
+      sum += events[i].r;
+      cumMean.push(sum / (i + 1));
+    }
+    const roll: Array<number | null> = events.map((_, i) => {
+      if (i + 1 < rollingN) return null;
+      let s = 0;
+      for (let j = i - rollingN + 1; j <= i; j++) s += events[j].r;
+      return s / rollingN;
+    });
+    const ys = [
+      ...cumMean,
+      ...roll.filter((v): v is number => v != null),
+      ...events.map((e) => e.r),
+      0,
+    ];
+    const yMin = Math.min(...ys);
+    const yMax = Math.max(...ys);
+    const yPad = (yMax - yMin) * 0.1 || 0.5;
+    const lo = yMin - yPad;
+    const hi = yMax + yPad;
+    const x = (i: number) =>
+      padL + (events.length <= 1 ? innerW / 2 : (i / (events.length - 1)) * innerW);
+    const y = (v: number) => padT + innerH - ((v - lo) / (hi - lo)) * innerH;
+    const cumPath = cumMean.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const rollPts = roll
+      .map((v, i) => (v == null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
+      .filter(Boolean) as string[];
+    const rollPath = rollPts.length > 0 ? "M" + rollPts.join(" L") : "";
+    return { cumMean, roll, lo, hi, x, y, cumPath, rollPath };
+  }, [events, rollingN, innerW, innerH]);
+  const { lo, hi, x, y, cumPath, rollPath } = calc;
 
   const zeroY = y(0);
   const useCanvasScatter = events.length > CANVAS_SCATTER_THRESHOLD;
