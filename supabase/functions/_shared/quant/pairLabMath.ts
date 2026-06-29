@@ -176,6 +176,8 @@ export interface BucketReport {
   worstLosingStreak: number;
   loggedMfeCount: number;
   loggedMaeCount: number;
+  /** S3.8: closed trades with no recorded initial SL (entry_price + sl_initial). */
+  slMissingCount: number;
   /** Count of trades with logged ideal-SL. */
   loggedIdealSlCount: number;
   /** Walk-forward drift fields — parity with client. */
