@@ -242,7 +242,7 @@ serve(async (req) => {
       config_hash: await generateConfigHash(configWithoutHash),
     };
 
-    console.log(`Generated config for user ${userId}, version ${version}, ${receivers.length} receivers`);
+    console.log(`Generated config for user ${userId}, version ${version}, ${receivers.length} receivers, install=${installId ?? 'unknown'}`);
 
     return new Response(
       JSON.stringify(config),
