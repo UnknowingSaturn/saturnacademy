@@ -20,7 +20,7 @@ import {
   type TrailCaptureEstimate,
 } from "@/lib/pairLabMath";
 import { TRAIL_CAPTURE_FRAC } from "@/lib/pairLabSimulator";
-import { isUnrealized, countNaiveEntryTimes } from "../../shared/quant/stats";
+import { isUnrealized, countNaiveEntryTimes, ensureUtcMs } from "../../shared/quant/stats";
 
 export interface PairLabFilters {
   /** Matches trades whose planned OR actual profile equals this value. */
@@ -86,7 +86,7 @@ export interface PairLabData {
   defaultSimRiskPct: number;
   /** Empirically-derived trail-capture ratio (or null when sample too small). */
   trailCapture: TrailCaptureEstimate | null;
-  /** Effective trail capture used by replay (estimate when present, else default 0.8). */
+  /** Effective trail capture used by replay (estimate when present, else `TRAIL_CAPTURE_FALLBACK` from shared/quant/config — currently 0.7). */
   effectiveTrailCapture: number;
   /** Heuristic warning when the same trade may appear in multiple rows. */
   partialFillFlag: PartialFillFlag | null;
@@ -267,10 +267,21 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       if (t.is_open) return false;
       if (filters.profile && t.profile !== filters.profile && t.actual_profile !== filters.profile) return false;
       if (dateFrom || dateTo) {
-        const ts = t.entry_time ? String(t.entry_time) : null;
-        if (!ts) return false;
-        if (dateFrom && ts < dateFrom) return false;
-        if (dateTo && ts > dateTo) return false;
+        // S4.3: previously string-compared naive entry_time against ISO
+        // dateFrom/dateTo. Space (0x20) < 'T' (0x54), so naive rows fell
+        // outside the window and StrategyLab / drilldowns diverged from
+        // BucketGrid (which uses ensureUtcMs via buildBuckets).
+        if (!t.entry_time) return false;
+        const tsMs = ensureUtcMs(t.entry_time);
+        if (!Number.isFinite(tsMs)) return false;
+        if (dateFrom) {
+          const fromMs = ensureUtcMs(dateFrom);
+          if (Number.isFinite(fromMs) && tsMs < fromMs) return false;
+        }
+        if (dateTo) {
+          const toMs = ensureUtcMs(dateTo);
+          if (Number.isFinite(toMs) && tsMs > toMs) return false;
+        }
       }
       if (!includeUnrealized && isUnrealized(t)) return false;
       return true;

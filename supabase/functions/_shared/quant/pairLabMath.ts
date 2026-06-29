@@ -166,6 +166,8 @@ export interface BucketReport {
   suggestedRiskPct: number | null;
   riskBelowFloor: boolean;
   suggestedRiskPctCi: [number, number] | null;
+  /** S4.4 parity: true when n>=10 but R-coverage < 50% of n. */
+  rCoverageWarning: boolean;
   suggestedRiskPctPropFirm: number | null;
   /** mean(winR) / mean(|lossR|). null when no losses or no wins. */
   payoffRatio: number | null;
@@ -351,7 +353,9 @@ function pickBestTp(
   // (news, crypto runners). Extend the grid to the 95th-percentile MFE
   // (clamped to [4R, 10R]) so we can surface 5R+ TPs when justified.
   const sortedMfe = pairs.map((p) => p.mfeR).sort((a, b) => a - b);
-  const p95 = sortedMfe[Math.min(sortedMfe.length - 1, Math.floor(sortedMfe.length * 0.95))] ?? 4;
+  // S4.7 parity: interpolated quantile() — floor-indexed p95 returned the
+  // array max for n<=20 and overfit the TP grid ceiling to single outliers.
+  const p95 = quantile(sortedMfe, 0.95) ?? 4;
   const ceiling = Math.min(10, Math.max(4, Math.ceil(p95 * 4) / 4));
   const grid: number[] = [];
   for (let r = 0.5; r <= ceiling + 1e-6; r += 0.25) grid.push(Math.round(r * 4) / 4);
@@ -564,15 +568,19 @@ export function computeBucket(
 
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
   const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
-  // Mirror client: raw quarter-Kelly clipped only at 1.5% ceiling, with a
-  // `riskBelowFloor` signal when raw < 0.25%. The previous server clamp at 0.25%
-  // silently inflated tiny edges to a 0.25% recommendation.
-  const rawKelly = n >= 10 ? rawQuarterKellyPct(winRate, avgWinR, avgLossR) : null;
+  // S4.4 parity: Kelly must use a consistent population — recompute the win
+  // rate over the same R subsample that produced avgWinR / avgLossR. Mixing
+  // full-population winRate with R-subsample payoff biases Kelly whenever
+  // R-coverage is partial.
+  const rSubsampleN = winR.length + lossR.length;
+  const rWinRate = rSubsampleN > 0 ? winR.length / rSubsampleN : 0;
+  const rawKelly = n >= 10 && rSubsampleN >= 10
+    ? rawQuarterKellyPct(rWinRate, avgWinR, avgLossR)
+    : null;
   const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
   const riskBelowFloor = rawKelly != null && rawKelly < KELLY_FLOOR_PCT;
-  // Bootstrap CI on the raw Kelly fraction — surfaces when the recommended
-  // risk-% is statistically meaningful vs noise.
   const suggestedRiskPctCi = n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
+  const rCoverageWarning = n >= 10 && rSubsampleN / n < 0.5;
   const tp1Star = computeTp1Star(tp1StarPairs, avgLossR || 1);
 
   // Profit factor — null + flag so callers can distinguish "no losses" from
@@ -673,6 +681,7 @@ export function computeBucket(
     suggestedRiskPct,
     riskBelowFloor,
     suggestedRiskPctCi,
+    rCoverageWarning,
     suggestedRiskPctPropFirm,
     payoffRatio,
     eventsRFallbackCount,

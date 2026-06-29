@@ -20,6 +20,7 @@ import {
   bootstrapMeanCi,
   wilsonCi,
   normalizeSession,
+  isUnrealized,
 } from "../shared/quant/stats";
 import { buildSymbolResolver, normalizeSymbol } from "../shared/quant/symbolAliasing";
 import { ticksToPips, pipLabelForSymbol } from "../shared/quant/symbolMapping";
@@ -89,16 +90,17 @@ console.log(`buildBuckets → ${bucketed.perCell.length} cells, baseline n=${buc
 // -------- independent recomputation per cell --------
 type Row = { symbol: string; session: string; netPnl: number; r: number | null;
              cf: Record<string, any>; rawSymbol: string };
-// L2 fix: independent recompute MUST exclude open trades, otherwise rows
-// with net_pnl=null leak through and `wins/losses` diverge from buildBuckets
-// (which has `closedOnly: true`). Mirror the same filter here.
+// S4.8: previously filtered `t.net_pnl != null`, but buildBuckets excludes
+// trades flagged by isUnrealized (ideas/paper/missed/manual-dismiss/zero-PnL
+// untouched-SL-TP). The mismatched predicate produced spurious n divergences
+// (and could mask real ones via offsetting errors). Mirror the predicate.
 const rows: Row[] = trades
-  .filter((t: any) => !t.is_open && !t.is_archived && t.net_pnl != null)
+  .filter((t: any) => !t.is_open && !t.is_archived && !isUnrealized(t))
   .map((t: any) => ({
     rawSymbol: t.symbol,
     symbol: resolveSym(t.symbol),
     session: t.session || "Unknown",
-    netPnl: Number(t.net_pnl),
+    netPnl: Number(t.net_pnl ?? 0),
     r: t.r_multiple_actual != null ? Number(t.r_multiple_actual) : null,
     cf: t.custom_fields ?? {},
   }));

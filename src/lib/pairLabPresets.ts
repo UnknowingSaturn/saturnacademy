@@ -9,7 +9,10 @@ export const STRATEGY_PRESETS: Strategy[] = [
       "Replay using each trade's recorded R-outcome at this simulator risk % — normalized P&L baseline, not actual dollars booked.",
     riskPct: 1,
     slRule: "original",
-    exitRule: { partials: [{ atR: 1, fraction: 1 }], runner: "be_after_first_tp" },
+    // S4.10: `useActualOutcome: true` short-circuits the entire exitRule logic
+    // in replayOneTrade — keep partials empty so tooltips / docs that read
+    // this preset don't misreport the actual replay behaviour.
+    exitRule: { partials: [], runner: "be_after_first_tp" },
     useActualOutcome: true,
   },
   {

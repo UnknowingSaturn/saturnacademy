@@ -25,35 +25,57 @@ export function useTrades(filters?: {
   return useQuery({
     queryKey: tradeKeys.list(filters),
     queryFn: async () => {
-      let query = supabase
-        .from('trades')
-        .select(TRADE_SELECT)
-        .order('entry_time', { ascending: false });
+      // S4.1: PostgREST caps unbounded selects at 1,000 rows. Ordered DESC by
+      // entry_time, that silently dropped the *oldest* trades once a user
+      // crossed 1k closed positions — every Pair Lab statistic (buckets,
+      // Kelly, OOS, walk-forward) then operated on a truncated history.
+      // Page through with .range() until a short page is returned, with a
+      // 25,000-row safety ceiling to bound memory on extreme accounts.
+      const PAGE = 1000;
+      const MAX_ROWS = 25_000;
+      const all: any[] = [];
+      let offset = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        let query = supabase
+          .from('trades')
+          .select(TRADE_SELECT)
+          .order('entry_time', { ascending: false })
+          .range(offset, offset + PAGE - 1);
 
-      // Default to showing non-archived trades unless explicitly requested
-      if (filters?.isArchived !== undefined) {
-        query = query.eq('is_archived', filters.isArchived);
-      } else {
-        query = query.eq('is_archived', false);
-      }
-
-      if (filters?.accountId) {
-        const includeUnassigned = filters.includeUnassigned ?? true;
-        if (includeUnassigned) {
-          query = query.or(`account_id.eq.${filters.accountId},account_id.is.null`);
+        if (filters?.isArchived !== undefined) {
+          query = query.eq('is_archived', filters.isArchived);
         } else {
-          query = query.eq('account_id', filters.accountId);
+          query = query.eq('is_archived', false);
+        }
+
+        if (filters?.accountId) {
+          const includeUnassigned = filters.includeUnassigned ?? true;
+          if (includeUnassigned) {
+            query = query.or(`account_id.eq.${filters.accountId},account_id.is.null`);
+          } else {
+            query = query.eq('account_id', filters.accountId);
+          }
+        }
+        if (filters?.symbol) query = query.eq('symbol', filters.symbol);
+        if (filters?.session) query = query.eq('session', filters.session);
+        if (filters?.dateFrom) query = query.gte('entry_time', filters.dateFrom);
+        if (filters?.dateTo) query = query.lte('entry_time', filters.dateTo);
+        if (filters?.isOpen !== undefined) query = query.eq('is_open', filters.isOpen);
+
+        const { data, error } = await query;
+        if (error) throw error;
+        const rows = data ?? [];
+        all.push(...rows);
+        if (rows.length < PAGE) break;
+        offset += PAGE;
+        if (all.length >= MAX_ROWS) {
+          // eslint-disable-next-line no-console
+          console.warn(`[useTrades] hit MAX_ROWS=${MAX_ROWS}; older trades omitted`);
+          break;
         }
       }
-      if (filters?.symbol) query = query.eq('symbol', filters.symbol);
-      if (filters?.session) query = query.eq('session', filters.session);
-      if (filters?.dateFrom) query = query.gte('entry_time', filters.dateFrom);
-      if (filters?.dateTo) query = query.lte('entry_time', filters.dateTo);
-      if (filters?.isOpen !== undefined) query = query.eq('is_open', filters.isOpen);
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return (data || []).map(transformTrade);
+      return all.map(transformTrade);
     },
   });
 }
