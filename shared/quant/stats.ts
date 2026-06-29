@@ -442,6 +442,39 @@ export function isNaiveTimestamp(s: unknown): boolean {
   return NAIVE_TS_DETECTOR.test(trimmed);
 }
 
+// ---------------------------------------------------------------------------
+// ensureUtcMs — S2.7. Single helper for parsing entry_time strings to epoch
+// ms in a TZ-safe, host-independent way.
+//
+//  - Strings ending in Z or ±HH:MM are absolute — return Date.parse().
+//  - Naive strings (no offset) are decomposed by a strict regex and combined
+//    via Date.UTC(). Avoids `new Date(naiveString)`, which Chrome interprets
+//    as local time and Safari as UTC, producing different OOS splits per
+//    browser.
+//  - Unparseable inputs return NaN so the caller can drop the trade.
+// ---------------------------------------------------------------------------
+const ENSURE_UTC_NAIVE =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/;
+const ENSURE_UTC_TZ = /(Z|[+-]\d{2}:?\d{2})$/;
+
+export function ensureUtcMs(s: unknown): number {
+  if (s == null) return NaN;
+  const str = String(s).trim();
+  if (!str) return NaN;
+  if (ENSURE_UTC_TZ.test(str)) {
+    const ms = Date.parse(str);
+    return Number.isFinite(ms) ? ms : NaN;
+  }
+  const m = ENSURE_UTC_NAIVE.exec(str);
+  if (!m) {
+    const ms = Date.parse(str);
+    return Number.isFinite(ms) ? ms : NaN;
+  }
+  const [, y, mo, d, hh, mm, ss = "0", frac = "0"] = m;
+  const msFrac = Number((frac + "000").slice(0, 3));
+  return Date.UTC(+y, +mo - 1, +d, +hh, +mm, +ss, msFrac);
+}
+
 /** Counts trades whose `entry_time` is a naive (TZ-less) string. */
 export function countNaiveEntryTimes(
   trades: Array<{ entry_time?: unknown }>,
