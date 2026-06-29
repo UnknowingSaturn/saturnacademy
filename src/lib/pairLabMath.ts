@@ -37,6 +37,7 @@ import {
   BH_FDR_ALPHA,
   MIN_STREAK_FLOOR,
   SL_SWEEP_QUANTILES,
+  TRAIL_CAPTURE_FALLBACK,
 } from "../../shared/quant/config";
 // Statistical primitives are unified across client + edge in shared/quant/stats.
 // Re-exported here so existing callers (`import { quantile, ... } from "@/lib/pairLabMath"`)
