@@ -102,7 +102,7 @@ export interface ComputeROpts {
 // percent-return on account, not an R-multiple — storing it in the R field
 // poisoned every downstream bucket statistic.
 export function computeRMultiple(opts: ComputeROpts): number | null {
-  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, direction, fills } = opts;
+  const { entryPrice, exitPrice, slPrice, lots, grossPnl, netPnl, symbol, direction, fills, accountCurrency } = opts;
   if (netPnl === null || netPnl === undefined) return null;
 
   if (slPrice && entryPrice && slPrice !== entryPrice && lots && lots > 0) {
