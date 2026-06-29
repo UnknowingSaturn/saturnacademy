@@ -156,8 +156,8 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
         <Button
           size="sm"
           onClick={generate}
-          disabled={loading || bucket.n === 0 || tooFewSamples}
-          title={tooFewSamples ? "Need ≥15 trades for an honest LLM read — generating earlier produces narrative on noise." : undefined}
+          disabled={loading || bucket.n === 0 || lowConfidence}
+          title={lowConfidence ? "Bootstrap 95% CI on expectancy is too wide / overlaps zero — the sample lacks the statistical separation needed for an honest LLM read." : undefined}
         >
           {loading ? (
             <>
