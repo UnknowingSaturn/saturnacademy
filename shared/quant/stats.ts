@@ -180,7 +180,12 @@ export function bootstrapKellyCi(
   const n = nW + nL;
   if (n < 10 || nW === 0 || nL === 0) return null;
 
-  const seedBase = (n * 1000003) ^ Math.floor((wins[0] ?? 0) * 1000);
+  // S1.6 fix: hash the FULL wins+losses arrays so two buckets sharing (n,
+  // wins[0]) don't collapse to identical CI widths. Mirrors bootstrapMeanCi.
+  let seedBase = n * 1000003;
+  for (let i = 0; i < nW; i++) seedBase = (seedBase * 31 + Math.floor(wins[i] * 1000)) | 0;
+  for (let i = 0; i < nL; i++) seedBase = (seedBase * 31 + Math.floor(losses[i] * 1000)) | 0;
+  if (seedBase === 0) seedBase = 0x9e3779b9;
   // K1 fix: three independent streams so payoff, loss, and binomial draws
   // genuinely decorrelate within one iteration. Previously wins+losses both
   // consumed `randPayoff`, so the loss draw's state depended on the win

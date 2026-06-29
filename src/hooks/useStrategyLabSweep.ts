@@ -35,8 +35,16 @@ export function useStrategyLabSweep(
         new URL("@/workers/strategyLabMC.worker.ts", import.meta.url),
         { type: "module" },
       );
-      workerRef.current.onmessage = (e: MessageEvent<{ id: number; cells: StrategyLabSweepCell[] }>) => {
+      workerRef.current.onmessage = (e: MessageEvent<{ id: number; cells: StrategyLabSweepCell[]; error?: string }>) => {
         if (e.data.id !== lastId.current) return;
+        // S1.2 fix: worker now posts {cells:[], error} on crash; previously
+        // setError(null) swallowed it and the heatmap silently went empty.
+        if (e.data.error) {
+          setError(e.data.error);
+          setCells([]);
+          setIsComputing(false);
+          return;
+        }
         setCells(e.data.cells);
         setError(null);
         setIsComputing(false);
