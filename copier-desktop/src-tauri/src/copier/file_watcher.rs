@@ -335,9 +335,10 @@ fn process_event_file(path: &Path, state: Arc<Mutex<CopierState>>) {
         idempotency::build_canonical_key(&term, deal, &event.event_type)
     });
     
-    if idempotency::is_event_processed(&idempotency_key) {
+    // U-9: Atomic claim closes the TOCTOU race where two watcher threads
+    // could both pass the check before either marked the key as processed.
+    if !idempotency::claim_event(&idempotency_key) {
         info!("Skipping duplicate event: {}", idempotency_key);
-        // Delete the duplicate file
         if let Err(e) = std::fs::remove_file(path) {
             error!("Failed to delete duplicate file: {}", e);
         }
@@ -362,10 +363,6 @@ fn process_event_file(path: &Path, state: Arc<Mutex<CopierState>>) {
             return;
         }
     };
-
-    // CRITICAL: Mark as processed BEFORE deleting file to prevent race conditions
-    // If app crashes between delete and mark, the event could be reprocessed on restart
-    idempotency::mark_event_processed(&idempotency_key);
 
     // Process the event for each receiver
     event_processor::process_event(&event, &config, state.clone());
