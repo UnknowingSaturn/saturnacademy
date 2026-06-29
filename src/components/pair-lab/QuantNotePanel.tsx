@@ -125,7 +125,10 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
     }
   };
 
-  const tooFewSamples = bucket.confidence === "low";
+  // S3.2: previously called `tooFewSamples`, which suggested a count gate.
+  // The underlying `bucket.confidence === "low"` is driven by the bootstrap
+  // CI / variance gate, not just N — rename + retooltip accordingly.
+  const lowConfidence = bucket.confidence === "low";
 
   const b = bucket;
   const fmtR = (v: number | null | undefined) =>
