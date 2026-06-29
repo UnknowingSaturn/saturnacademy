@@ -202,7 +202,7 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
           <div>
             <div className="text-muted-foreground">MAE p50/p75</div>
             <div className="font-mono-numbers font-semibold text-sm">
-              {b.maeP50Ticks != null ? b.maeP50Ticks.toFixed(0) : "—"} / {b.maeP75Ticks != null ? b.maeP75Ticks.toFixed(0) : "—"}t
+              {formatDistanceFromTicks(b.key.symbol, b.maeP50Ticks, distanceUnit)} / {formatDistanceFromTicks(b.key.symbol, b.maeP75Ticks, distanceUnit)}
             </div>
           </div>
           <div>
