@@ -9,7 +9,7 @@
 // All math is local to keep this component pure / dependency-free.
 // ============================================================================
 
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import type { BucketEvent } from "@/lib/pairLabMath";
 
 interface Props {
