@@ -174,6 +174,7 @@ serve(async (req) => {
     }
 
     const insertedCount = inserted?.length ?? 0;
+    console.log(`copier-executions: user=${userId} install=${installId ?? 'unknown'} inserted=${insertedCount}/${rows.length}`);
     return new Response(
       JSON.stringify({
         inserted: insertedCount,
