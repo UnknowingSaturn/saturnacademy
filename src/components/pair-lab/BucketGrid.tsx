@@ -357,21 +357,30 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
                 );
               })}
               <td className="px-1 py-1 border-l border-border">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const isSel = selected?.symbol === symbol && selected?.session === "All sessions";
-                    onSelect(isSel ? null : { symbol, session: "All sessions" });
-                  }}
-                  className={cn(
-                    "w-full text-left rounded-md px-2 py-1.5 transition-colors",
-                    selected?.symbol === symbol && selected?.session === "All sessions"
-                      ? "bg-primary/20 ring-1 ring-primary"
-                      : "hover:bg-muted/40",
-                  )}
-                >
-                  <CellInner b={rowLookup.get(symbol) ?? null} fdr={fdrFor(rowLookup.get(symbol) ?? null)} />
-                </button>
+                {(() => {
+                  const rowB = rowLookup.get(symbol) ?? null;
+                  const isSel = selected?.symbol === symbol && selected?.session === "All sessions";
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onSelect(isSel ? null : { symbol, session: "All sessions" })}
+                      aria-pressed={isSel}
+                      aria-label={
+                        rowB && rowB.n > 0
+                          ? `${symbol} All sessions — N=${rowB.n}, expR=${Number.isFinite(rowB.expectedR) ? (rowB.expectedR >= 0 ? "+" : "") + rowB.expectedR.toFixed(2) + "R" : "n/a"}`
+                          : `${symbol} All sessions — no data`
+                      }
+                      className={cn(
+                        "w-full text-left rounded-md px-2 py-1.5 transition-colors",
+                        isSel
+                          ? "bg-primary/20 ring-1 ring-primary"
+                          : "hover:bg-muted/40",
+                      )}
+                    >
+                      <CellInner b={rowB} fdr={fdrFor(rowB)} />
+                    </button>
+                  );
+                })()}
               </td>
             </tr>
             );
