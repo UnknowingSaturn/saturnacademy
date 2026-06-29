@@ -96,16 +96,20 @@ export function tickSizeForSymbol(raw: string): number {
   return defaultTickSize(raw);
 }
 
-/** Pip size (10× tick on most instruments, equal to tick on indices). */
+/** Pip size (10× tick on FX/metals/oil; equal to tick on indices + crypto). */
 export function pipSizeForSymbol(raw: string): number {
   const cls = classifySymbol(raw);
   const tick = tickSizeForSymbol(raw);
-  return cls === "index" ? tick : tick * 10;
+  // S2.12: crypto pip was 10× tick, which made a BTC 100-point SL render as
+  // "10 pips" while the broker showed 100 points. R math still cancels but
+  // the displayed number misled. Treat crypto like indices: 1 point = 1 tick.
+  return cls === "index" || cls === "crypto" ? tick : tick * 10;
 }
 
 /** Human-readable unit for a symbol's SL/MAE distance. */
 export function pipLabelForSymbol(raw: string): "pips" | "points" {
-  return classifySymbol(raw) === "index" ? "points" : "pips";
+  const cls = classifySymbol(raw);
+  return cls === "index" || cls === "crypto" ? "points" : "pips";
 }
 
 /**
