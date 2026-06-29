@@ -181,11 +181,25 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const defs = (defsQuery.data ?? []).map((d) => ({ key: d.key, label: d.label }));
     const aliases = aliasesQuery.data ?? [];
     const fieldKeys = resolvePairLabFieldKeys(defs);
+    const missingAliases: string[] = [];
+    if (!fieldKeys.mfe) missingAliases.push("MFE");
+    if (!fieldKeys.mae) missingAliases.push("MAE");
+    if (!fieldKeys.idealStopLoss) missingAliases.push("Ideal Stop-Loss");
+    const anyMissing = missingAliases.length > 0;
+    // S3.10: when neither label nor prefix matches, expose the user's current
+    // custom-field labels so they can see *exactly* what to rename one of
+    // them to in order to get a hit.
+    const currentLabels = defs
+      .map((d) => d.label)
+      .filter((l) => typeof l === "string" && l.length > 0);
     const missingFields = {
       mfe: !fieldKeys.mfe,
       mae: !fieldKeys.mae,
       idealStopLoss: !fieldKeys.idealStopLoss,
-      any: !fieldKeys.mfe || !fieldKeys.mae || !fieldKeys.idealStopLoss,
+      any: anyMissing,
+      message: anyMissing && currentLabels.length > 0
+        ? `Couldn't resolve ${missingAliases.join(", ")}. Your current custom-field labels: ${currentLabels.join(", ")}. Rename one of them to a recognised alias (e.g. "MFE", "MAE", "Ideal Stop-Loss") to enable the missing metric(s).`
+        : null,
     };
     const ambiguousSet = detectAmbiguousFieldKeys(defs);
     const ambiguousFields = {
