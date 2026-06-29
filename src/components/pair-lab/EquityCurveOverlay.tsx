@@ -132,3 +132,5 @@ function EquityCurveOverlayImpl({ results, colors = DEFAULT_COLORS }: Props) {
     </div>
   );
 }
+
+export const EquityCurveOverlay = memo(EquityCurveOverlayImpl);
