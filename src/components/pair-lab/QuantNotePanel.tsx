@@ -256,9 +256,22 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
         const conf = r.recommendationConfidence;
         const confBadge =
           conf === "validated" ? (
-            <Badge variant="outline" className="text-profit border-profit/40 bg-profit/10 text-[10px]">
-              validated · OOS-tested
-            </Badge>
+            // S2.16: "OOS-tested" was always shown alongside "validated" even
+            // when r.walkForward was null (no train/test split available),
+            // implying an out-of-sample check that never ran. Render the OOS
+            // chip only when an actual walk-forward result is attached.
+            <span className="inline-flex gap-1 flex-wrap">
+              <Badge variant="outline" className="text-profit border-profit/40 bg-profit/10 text-[10px]"
+                title="Bootstrap 95% CI on expectancy excludes zero — edge is statistically separated.">
+                validated
+              </Badge>
+              {r.walkForward != null && (
+                <Badge variant="outline" className="text-profit border-profit/40 bg-profit/10 text-[10px]"
+                  title={`70/30 walk-forward held up: train E ${r.walkForward.inSampleE.toFixed(2)}R → test E ${r.walkForward.outOfSampleE.toFixed(2)}R (n=${r.walkForward.oosN}).`}>
+                  OOS-tested
+                </Badge>
+              )}
+            </span>
           ) : conf === "low" ? (
             <Badge
               variant="outline"
