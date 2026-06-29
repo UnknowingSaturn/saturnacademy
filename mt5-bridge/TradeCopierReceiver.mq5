@@ -288,13 +288,12 @@ void OnTimer()
       return;
    }
    
-   // Check session filter
-   if(!CheckSessionFilter())
-   {
-      if(InpVerboseMode)
-         Print("Outside allowed session - skipping");
-      return;
-   }
+   // NOTE: Session filter is intentionally NOT applied here.
+   // It must be evaluated per-event inside ProcessEventFile so that exit /
+   // partial_close / modify events queued during an allowed session are
+   // still executed once the session window closes — otherwise positions
+   // can be stranded open indefinitely. Only `entry` events are gated.
+
    
    // Update high water mark
    double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
