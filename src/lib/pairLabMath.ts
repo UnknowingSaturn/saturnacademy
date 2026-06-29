@@ -793,6 +793,26 @@ function computeBucket(
     recentExpectedR,
     drift,
     eventsRFallbackCount,
+    // S3.9: surface execution-quality features from the EA-populated
+    // `trade_features` table. No-op for users without features rows.
+    ...(() => {
+      const feats = closed
+        .map((t) => (t as any).trade_features)
+        .map((f) => (Array.isArray(f) ? f[0] : f))
+        .filter((f) => f && typeof f === "object");
+      const entryEffs = feats
+        .map((f) => Number(f.entry_efficiency))
+        .filter((v) => Number.isFinite(v));
+      const slQuals = feats
+        .map((f) => Number(f.stop_location_quality))
+        .filter((v) => Number.isFinite(v));
+      return {
+        entryEfficiencyMedian: entryEffs.length ? median(entryEffs) : null,
+        entryEfficiencyP75: entryEffs.length ? quantile(entryEffs, 0.75) : null,
+        stopLocationQualityMedian: slQuals.length ? median(slQuals) : null,
+        featuresCount: feats.length,
+      };
+    })(),
   };
 
 
