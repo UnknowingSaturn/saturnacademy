@@ -87,6 +87,10 @@ export interface ComputeROpts {
   equityAtEntry: number | null;
   direction: string | null;
   fills?: Array<{ price?: number; lots?: number } | null> | null;
+  /** S3.11: account currency (e.g. "USD"/"EUR") used to disambiguate
+   *  non-USD-denominated instruments (DAX €25/pt) on the pip-table fallback.
+   *  Optional — when omitted, legacy behaviour is preserved. */
+  accountCurrency?: string | null;
 }
 
 // Derive R-multiple. Prefers deriving $/point from the trade's own realized PnL across
