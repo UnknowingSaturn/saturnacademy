@@ -335,9 +335,9 @@ function estimateTrailCaptureRows(rows: any[], keys: PairLabFieldKeys, minSample
     const ratio = r / mfe;
     if (ratio > 0 && ratio < 1.05) ratios.push(ratio);
   }
-  if (ratios.length < minSample) return 0.7;
+  if (ratios.length < minSample) return TRAIL_CAPTURE_FALLBACK;
   const m = median(ratios);
-  if (m == null || !(m > 0)) return 0.7;
+  if (m == null || !(m > 0)) return TRAIL_CAPTURE_FALLBACK;
   return Math.max(0.1, Math.min(0.95, m));
 }
 
