@@ -26,12 +26,12 @@ import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
 import { pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
-import { MAE_P75_WIDEN_BUFFER } from "../../shared/quant/config";
+import { MAE_P75_WIDEN_BUFFER, TRAIL_CAPTURE_FALLBACK } from "../../shared/quant/config";
 
 /** Default fraction of MFE captured by a trailing stop when no empirical estimate is available.
- *  Unified with `supabase/functions/_shared/quant/pairLabSimulator.ts:DEFAULT_TRAIL_CAPTURE_FRAC`.
- *  Lower (more conservative) than the historical 0.8 so client and server replays agree. */
-export const TRAIL_CAPTURE_FRAC = 0.7;
+ *  S2.11: single source of truth lives in `shared/quant/config.ts:TRAIL_CAPTURE_FALLBACK`.
+ *  Re-exported under the historical name for back-compat with existing imports. */
+export const TRAIL_CAPTURE_FRAC = TRAIL_CAPTURE_FALLBACK;
 
 // ----------------------------------------------------------------------------
 // Strategy types (unchanged shape for picker/preset back-compat)
