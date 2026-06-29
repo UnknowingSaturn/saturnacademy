@@ -385,7 +385,7 @@ function runWalkForward(rows: any[], keys: PairLabFieldKeys):
   );
   if (closed.length < 30) return null;
   // R1.6 parity: numeric epoch sort.
-  const sorted = [...closed].sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)));
+  const sorted = [...closed].sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
   const cutoff = Math.floor(sorted.length * 0.7);
   const isRows = sorted.slice(0, cutoff);
   const oosRows = sorted.slice(cutoff);
