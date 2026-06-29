@@ -475,7 +475,7 @@ function longestLossStreak(rows: Trade[]): number {
   // MT5 floating P&L on live positions bleed into streak math.
   const sorted = [...rows]
     .filter((t) => !t.is_open && t.entry_time)
-    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)));
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
   let run = 0;
   let worst = 0;
   for (const t of sorted) {
