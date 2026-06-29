@@ -369,19 +369,28 @@ mod tests {
     }
     
     #[test]
-    fn test_risk_percent_no_sl() {
-        // Without SL, should fall back to master lots
+    fn test_risk_percent_no_sl_blocks() {
+        // U-6: Without SL, must NOT silently copy master_lots; return 0.0 to block.
         let receiver = make_account(10000.0);
         let result = calculate_lots(
-            "risk_percent",
-            1.0,
-            0.5,
-            1.10000,
-            None, // No SL
-            None,
-            Some(&receiver),
-            None
+            "risk_percent", 1.0, 0.5, 1.10000, None, None, Some(&receiver), None,
         );
-        assert_eq!(result, 0.5); // Falls back to master lots
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_forex_risk_pip_math_5digit() {
+        // U-5: EURUSD 5-digit, tick_value=$1/point/lot, 100 pip SL = 1000 points.
+        // Risking $100 should yield 0.10 lots (100 / (1000 * 1)).
+        let receiver = make_account(10000.0);
+        let info = SymbolInfo {
+            tick_value: 1.0, tick_size: 0.00001, contract_size: 100_000.0,
+            digits: 5, point: 0.00001, symbol_type: SymbolType::Forex,
+        };
+        let lots = calculate_lots(
+            "risk_dollar", 100.0, 0.5, 1.10000, Some(1.09000),
+            None, Some(&receiver), Some(&info),
+        );
+        assert!((lots - 0.10).abs() < 0.005, "expected ~0.10, got {}", lots);
     }
 }
