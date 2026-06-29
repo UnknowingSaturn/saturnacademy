@@ -672,6 +672,7 @@ export function computeBucket(
     suggestedRiskPctCi,
     suggestedRiskPctPropFirm,
     payoffRatio,
+    eventsRFallbackCount,
     profitFactor,
     profitFactorAllWins,
     worstLosingStreak: worstStreak,
