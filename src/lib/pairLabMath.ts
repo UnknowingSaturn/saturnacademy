@@ -913,7 +913,10 @@ function pickBestTp(
   // Extend grid to the 95th-percentile MFE (clamped to [4R, 10R]) so we can
   // surface 5R+ TPs on pairs that consistently print large excursions.
   const sortedMfe = pairs.map((p) => p.mfeR).sort((a, b) => a - b);
-  const p95 = sortedMfe[Math.min(sortedMfe.length - 1, Math.floor(sortedMfe.length * 0.95))] ?? 4;
+  // S4.7: replace floor-indexed p95 with NIST type-7 interpolated quantile.
+  // For n<=20 the floor index returned the array max, inflating the TP grid
+  // ceiling to a single outlier MFE and overfitting the recommended TP.
+  const p95 = quantile(sortedMfe, 0.95) ?? 4;
   const ceiling = Math.min(10, Math.max(4, Math.ceil(p95 * 4) / 4));
   const grid: number[] = [];
   for (let r = 0.5; r <= ceiling + 1e-6; r += 0.25) grid.push(Math.round(r * 4) / 4);
@@ -1099,10 +1102,23 @@ function buildRecommendation(
 
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
   const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
-  const rawKelly = s.n >= 10 ? rawQuarterKellyPct(s.winRate, avgWinR, avgLossR) : null;
+  // S4.4: Kelly must use a *consistent* population for win-rate AND payoff.
+  // Previously `s.winRate` was computed across ALL closed trades while
+  // avgWinR/avgLossR drew only from trades with explicit `r_multiple_actual`
+  // — biased Kelly whenever R-coverage was partial, and in all-win/no-loss
+  // R subsamples the avgLossR=1 default produced a non-NaN Kelly from the
+  // win rate alone. Recompute the win rate over the same R subsample.
+  const rSubsampleN = winR.length + lossR.length;
+  const rWinRate = rSubsampleN > 0 ? winR.length / rSubsampleN : 0;
+  const rawKelly = s.n >= 10 && rSubsampleN >= 10
+    ? rawQuarterKellyPct(rWinRate, avgWinR, avgLossR)
+    : null;
   const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
   const riskBelowFloor = rawKelly != null && rawKelly < KELLY_FLOOR_PCT;
   const suggestedRiskPctCi = s.n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
+  // S4.4: surface when the R-subsample is too thin (< 50% of n) so the UI
+  // can hint that the Kelly number is based on an under-sampled population.
+  const rCoverageWarning = s.n >= 10 && rSubsampleN / s.n < 0.5;
 
   const tp1Star = computeTp1Star(ctx.tp1StarPairs, avgLossR || 1);
 
