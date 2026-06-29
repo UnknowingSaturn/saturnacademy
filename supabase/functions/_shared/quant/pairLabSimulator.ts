@@ -7,11 +7,12 @@
 
 import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
 import { pipSizeForSymbol, ticksToPips } from "./symbolMapping.ts";
-import { MAE_P75_WIDEN_BUFFER } from "../../../../shared/quant/config.ts";
+import { MAE_P75_WIDEN_BUFFER, TRAIL_CAPTURE_FALLBACK } from "../../../../shared/quant/config.ts";
 
 
-/** Fallback when too few trades to estimate empirical trail capture. */
-export const DEFAULT_TRAIL_CAPTURE_FRAC = 0.7;
+/** Fallback when too few trades to estimate empirical trail capture.
+ *  S2.11: shared with the client simulator via `TRAIL_CAPTURE_FALLBACK`. */
+export const DEFAULT_TRAIL_CAPTURE_FRAC = TRAIL_CAPTURE_FALLBACK;
 export const MIN_ELIGIBLE_SAMPLE = 10;
 
 export type SlRule = "original" | "tighten_to_ideal" | "widen_to_mae_p75_x_1_15";
