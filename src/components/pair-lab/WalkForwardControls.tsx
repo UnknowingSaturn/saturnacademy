@@ -58,21 +58,27 @@ export function WalkForwardControls({ state, onChange, minMs, maxMs }: Props) {
           <Label className="text-xs">Lens</Label>
         </div>
         <div className="inline-flex rounded-md border border-border/60 overflow-hidden">
-          {(["all", "90d", "30d"] as const).map((l) => (
-            <button
-              key={l}
-              type="button"
-              onClick={() => onChange({ ...state, lens: l })}
-              className={
-                "px-2.5 py-1 text-[11px] font-medium transition-colors " +
-                (state.lens === l
-                  ? "bg-primary/15 text-foreground"
-                  : "text-muted-foreground hover:text-foreground")
-              }
-            >
-              {l === "all" ? "All-time" : l}
-            </button>
-          ))}
+          {(["all", "90d", "30d"] as const).map((l) => {
+            const active = state.lens === l;
+            const label = l === "all" ? "All-time" : l;
+            return (
+              <button
+                key={l}
+                type="button"
+                onClick={() => onChange({ ...state, lens: l })}
+                aria-pressed={active}
+                aria-label={`Lens: ${label}${active ? " (selected)" : ""}`}
+                className={
+                  "px-2.5 py-1 text-[11px] font-medium transition-colors " +
+                  (active
+                    ? "bg-primary/15 text-foreground"
+                    : "text-muted-foreground hover:text-foreground")
+                }
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
         <div className="flex items-center gap-1.5 ml-auto">
           <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
