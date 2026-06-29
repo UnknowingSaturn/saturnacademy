@@ -336,6 +336,12 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
                       type="button"
                       onClick={() => onSelect(isSelected ? null : { symbol, session })}
                       disabled={!b || b.n === 0}
+                      aria-pressed={isSelected}
+                      aria-label={
+                        b && b.n > 0
+                          ? `${symbol} ${session} — N=${b.n}, expR=${Number.isFinite(b.expectedR) ? (b.expectedR >= 0 ? "+" : "") + b.expectedR.toFixed(2) + "R" : "n/a"}`
+                          : `${symbol} ${session} — no data`
+                      }
                       className={cn(
                         "w-full text-left rounded-md px-2 py-1.5 transition-colors",
                         isSelected
