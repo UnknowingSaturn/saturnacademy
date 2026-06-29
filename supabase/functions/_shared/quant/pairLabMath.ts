@@ -740,13 +740,23 @@ export function buildBuckets(
   for (const t of trades) {
     // R1.1 parity: closed-only via `!is_open` (drop MT5 floating-P&L on live trades).
     if (t.is_open || t.is_archived) continue;
-    if (t.net_pnl == null) continue;
+    // S2.1: removed `if (t.net_pnl == null) continue;` — client never gated on
+    // net_pnl null and `tradeSide()` already falls back to R sign, so this
+    // silently shrank edge buckets for accounts whose P&L is async-computed.
     if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) continue;
     if (dateFrom || dateTo) {
-      const ts = t.entry_time ? String(t.entry_time) : null;
-      if (!ts) continue;
-      if (dateFrom && ts < dateFrom) continue;
-      if (dateTo && ts > dateTo) continue;
+      // S2.7: epoch-ms via ensureUtcMs — string compare on mixed naive + ISO
+      // timestamps mis-orders CSV-imported rows ('  ' < 'T' < 'Z').
+      const tsMs = ensureUtcMs(t.entry_time);
+      if (!Number.isFinite(tsMs)) continue;
+      if (dateFrom) {
+        const fromMs = ensureUtcMs(dateFrom);
+        if (Number.isFinite(fromMs) && tsMs < fromMs) continue;
+      }
+      if (dateTo) {
+        const toMs = ensureUtcMs(dateTo);
+        if (Number.isFinite(toMs) && tsMs > toMs) continue;
+      }
     }
     if (!includeUnrealized && isUnrealized(t)) { unrealizedExcluded += 1; continue; }
     closed.push(t);
