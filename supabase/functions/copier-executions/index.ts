@@ -44,6 +44,8 @@ serve(async (req) => {
     const apiKey =
       req.headers.get("x-api-key") ||
       new URL(req.url).searchParams.get("api_key");
+    // U-7: install_id is forwarded by the desktop agent for scoping/auditing.
+    const installId = req.headers.get("x-install-id") || null;
 
     if (!apiKey) {
       return new Response(
@@ -64,7 +66,7 @@ serve(async (req) => {
     // Resolve user from API key (any account belonging to user works)
     const { data: callerAccount, error: callerErr } = await supabase
       .from("accounts")
-      .select("id, user_id")
+      .select("id, user_id, copier_enabled")
       .eq("api_key", apiKey)
       .maybeSingle();
 
@@ -72,6 +74,15 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Invalid API key" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // U-8: Reject disabled accounts.
+    if (callerAccount.copier_enabled === false) {
+      console.warn("Disabled account attempted execution write", { accountId: callerAccount.id, installId });
+      return new Response(
+        JSON.stringify({ error: "Copier is disabled for this account." }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -163,6 +174,7 @@ serve(async (req) => {
     }
 
     const insertedCount = inserted?.length ?? 0;
+    console.log(`copier-executions: user=${userId} install=${installId ?? 'unknown'} inserted=${insertedCount}/${rows.length}`);
     return new Response(
       JSON.stringify({
         inserted: insertedCount,

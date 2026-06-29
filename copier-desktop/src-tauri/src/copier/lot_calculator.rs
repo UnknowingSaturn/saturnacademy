@@ -168,8 +168,14 @@ pub fn calculate_lots(
                 let risk_amount = r_account.balance * (risk_value / 100.0);
                 calculate_lots_from_risk(risk_amount, price, stop_loss, &info)
             } else {
-                tracing::warn!("risk_percent mode: missing SL or account info, using master lots");
-                round_lots(master_lots)
+                // U-6: Do NOT silently copy master_lots — that can size 10–100x the
+                // receiver's intended risk. Refuse to size and let safety layer block.
+                tracing::error!(
+                    has_sl = sl.is_some(),
+                    has_account = receiver_account.is_some(),
+                    "risk_percent mode: refusing to fall back to master_lots; returning 0.0 to block trade"
+                );
+                0.0
             }
         }
         
@@ -178,8 +184,8 @@ pub fn calculate_lots(
             if let Some(stop_loss) = sl {
                 calculate_lots_from_risk(risk_value, price, stop_loss, &info)
             } else {
-                tracing::warn!("risk_dollar mode: missing SL, using master lots");
-                round_lots(master_lots)
+                tracing::error!("risk_dollar mode: missing SL; returning 0.0 to block trade");
+                0.0
             }
         }
         
@@ -190,8 +196,8 @@ pub fn calculate_lots(
             if let (Some(stop_loss), Some(_r_account)) = (sl, receiver_account) {
                 calculate_lots_from_risk(risk_value, price, stop_loss, &info)
             } else {
-                tracing::warn!("intent mode: missing SL or account info, using master lots");
-                round_lots(master_lots)
+                tracing::error!("intent mode: missing SL or account info; returning 0.0 to block trade");
+                0.0
             }
         }
         
@@ -241,22 +247,20 @@ fn calculate_lots_from_risk(
             sl_ticks * symbol_info.tick_value
         }
         SymbolType::Forex => {
-            // Standard forex calculation with proper JPY handling
-            let sl_points = sl_distance / symbol_info.point;
-            
-            // Determine points per pip based on digits:
-            // - 5 digits = standard forex pairs (e.g., EURUSD 1.12345) -> 10 points = 1 pip
-            // - 4 digits = older format or indices -> 1 point = 1 pip  
-            // - 3 digits = JPY pairs (e.g., USDJPY 150.123) -> 10 points = 1 pip
-            // - 2 digits = JPY pairs older format (e.g., USDJPY 150.12) -> 1 point = 1 pip
-            let points_per_pip = match symbol_info.digits {
-                5 => 10.0,  // Standard forex: 10 points = 1 pip
-                4 => 1.0,   // Older forex or some CFDs
-                3 => 10.0,  // JPY pairs: 10 points = 1 pip (150.123)
-                2 => 1.0,   // JPY pairs older format: 1 point = 1 pip (150.12)
-                _ => 1.0,   // Fallback
-            };
-            (sl_points / points_per_pip) * symbol_info.tick_value
+            // U-5 FIX: MT5 SYMBOL_TRADE_TICK_VALUE is the account-currency value of
+            // ONE tick movement (typically equal to one point). The previous logic
+            // divided sl_points by `points_per_pip` and then multiplied by tick_value,
+            // which understated risk by ~10x on 5-digit and 3-digit JPY pairs and
+            // caused the calculator to return ~10x oversized lots.
+            //
+            // Correct formula: value_per_lot = sl_ticks * tick_value
+            // where sl_ticks = sl_distance / tick_size.
+            if symbol_info.tick_size <= 0.0 {
+                tracing::warn!("Invalid tick_size ({}), returning minimum lot", symbol_info.tick_size);
+                return 0.01;
+            }
+            let sl_ticks = sl_distance / symbol_info.tick_size;
+            sl_ticks * symbol_info.tick_value
         }
     };
     
@@ -361,23 +365,32 @@ mod tests {
         assert_eq!(round_lots(0.123), 0.12);
         assert_eq!(round_lots(0.125), 0.13);
         assert_eq!(round_lots(1.999), 2.0);
-        assert_eq!(round_lots(0.001), 0.0);
+        assert_eq!(round_lots(0.001), 0.01); // min_lot floor (R9 behaviour)
     }
     
     #[test]
-    fn test_risk_percent_no_sl() {
-        // Without SL, should fall back to master lots
+    fn test_risk_percent_no_sl_blocks() {
+        // U-6: Without SL, must NOT silently copy master_lots; return 0.0 to block.
         let receiver = make_account(10000.0);
         let result = calculate_lots(
-            "risk_percent",
-            1.0,
-            0.5,
-            1.10000,
-            None, // No SL
-            None,
-            Some(&receiver),
-            None
+            "risk_percent", 1.0, 0.5, 1.10000, None, None, Some(&receiver), None,
         );
-        assert_eq!(result, 0.5); // Falls back to master lots
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_forex_risk_pip_math_5digit() {
+        // U-5: EURUSD 5-digit, tick_value=$1/point/lot, 100 pip SL = 1000 points.
+        // Risking $100 should yield 0.10 lots (100 / (1000 * 1)).
+        let receiver = make_account(10000.0);
+        let info = SymbolInfo {
+            tick_value: 1.0, tick_size: 0.00001, contract_size: 100_000.0,
+            digits: 5, point: 0.00001, symbol_type: SymbolType::Forex,
+        };
+        let lots = calculate_lots(
+            "risk_dollar", 100.0, 0.5, 1.10000, Some(1.09000),
+            None, Some(&receiver), Some(&info),
+        );
+        assert!((lots - 0.10).abs() < 0.005, "expected ~0.10, got {}", lots);
     }
 }
