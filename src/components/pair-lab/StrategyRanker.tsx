@@ -163,7 +163,7 @@ function StrategyDetailPanel({ result, riskPctOverride }: { result: ReplayResult
             )}
           </div>
           <div className="text-xs font-mono-numbers text-muted-foreground">
-            Risk per trade: <span className="text-foreground font-semibold">{s.riskPct.toFixed(2)}%</span>
+            Risk per trade: <span className="text-foreground font-semibold">{effectiveRiskPct.toFixed(2)}%</span>
           </div>
         </div>
       </div>
