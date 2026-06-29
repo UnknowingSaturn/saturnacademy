@@ -28,6 +28,7 @@ import {
   BOOTSTRAP_ITERATIONS,
   BH_FDR_ALPHA,
   MIN_STREAK_FLOOR,
+  TRAIL_CAPTURE_FALLBACK,
 } from "../../../../shared/quant/config.ts";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
