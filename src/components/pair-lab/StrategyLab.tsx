@@ -116,10 +116,10 @@ export function StrategyLab({
       if (last == null || ts > last) last = ts;
     }
     return { n, first, last };
-  }, [filteredTrades]);
+  }, [trades]);
 
-  const rSample = useMemo(() => extractRSample(filteredTrades), [filteredTrades]);
-  const detectedTpd = useMemo(() => autoTradesPerDay(filteredTrades), [filteredTrades]);
+  const rSample = useMemo(() => extractRSample(trades), [trades]);
+  const detectedTpd = useMemo(() => autoTradesPerDay(trades), [trades]);
   // Bootstrap 95% CI on mean R (block bootstrap, same block-size as engine).
   // Drives the edge-direction gate: when the CI lower bound is ≤ 0 the sample
   // doesn't statistically demonstrate a positive edge, and no sizing recommendation
