@@ -26,10 +26,26 @@ export function useOosSplit(params: OosSplitRequest | null): OosSplitState {
 
   const key = useMemo(() => {
     if (!params) return null;
+    // S2.9: previous key was only {first,last,n} → swapping a middle trade
+    // while length + endpoints stayed identical (account-scope change with
+    // overlapping book-ends) served a stale OOS split. Roll a fingerprint
+    // over every trade id + entry_time so any in-list mutation invalidates.
+    let hash = 2166136261 >>> 0; // FNV-1a 32-bit seed
+    for (const t of params.trades) {
+      const idStr = String((t as any).id ?? "");
+      const tsStr = String((t as any).entry_time ?? "");
+      for (let i = 0; i < idStr.length; i++) {
+        hash = (hash ^ idStr.charCodeAt(i)) >>> 0;
+        hash = Math.imul(hash, 16777619) >>> 0;
+      }
+      for (let i = 0; i < tsStr.length; i++) {
+        hash = (hash ^ tsStr.charCodeAt(i)) >>> 0;
+        hash = Math.imul(hash, 16777619) >>> 0;
+      }
+    }
     return JSON.stringify({
       n: params.trades.length,
-      first: params.trades[0]?.id ?? null,
-      last: params.trades[params.trades.length - 1]?.id ?? null,
+      hash: hash.toString(16),
       dateFrom: params.dateFrom,
       dateTo: params.dateTo,
       splitIso: params.splitIso,
