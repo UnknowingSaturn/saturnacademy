@@ -74,8 +74,12 @@ export function useOpenTrades() {
         const matchedPlaybook = trade.playbook 
           || (trade.playbook_id ? playbooks.find(p => p.id === trade.playbook_id) : undefined);
 
-        // Detect session from the trade's UTC entry time
-        const detectedSession = detectSessionFromUtc(trade.entry_time);
+        // T-6: prefer user-defined session windows (timezone-aware) so
+        // compliance checks against playbook.session_filter don't false-flag
+        // non-ET configurations. Fall back to the ET-anchored default.
+        const detectedSession = sessionDefs.length > 0
+          ? classifySessionWithDefs(trade.entry_time, sessionDefs as any)
+          : detectSessionFromUtc(trade.entry_time);
 
         // Determine compliance status
         let complianceStatus: 'pending' | 'compliant' | 'violations' = 'pending';
