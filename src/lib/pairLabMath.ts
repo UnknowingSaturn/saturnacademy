@@ -632,7 +632,7 @@ function computeBucket(
   // expectedR is NaN (not 0) when there is zero R coverage so the UI can
   // distinguish "no data" from a true zero-edge bucket. `expectedRSamples`
   // surfaces the underlying denominator for coverage chips.
-  const expectedR = rActuals.length > 0 ? mean(rActuals) : NaN;
+  const expectedR = mean(rActuals) ?? NaN;
   const expectedRMedian = median(rActuals) ?? NaN;
 
   const sumWin = winR.reduce((s, v) => s + v, 0);
