@@ -530,8 +530,9 @@ export function computeBucket(
   const mfes = rows
     .map((t: any) => numericCf(t, keys.mfe))
     .filter((v): v is number => v != null);
-  const trailCapture = estimateTrailCaptureRows(rows, keys);
-  const pick = pickBestTp(mfeRPairs, trailCapture);
+  // S3.3: edge `pickBestTp` only takes `pairs`; the legacy `trailCapture`
+  // arg was dead weight and the helper call computing it was unused.
+  const pick = pickBestTp(mfeRPairs);
   let suggestedTpR: number | null = null;
   let expectancyAtSuggested: number | null = null;
   let expectancyAtSuggestedCi: [number, number] | null = null;
