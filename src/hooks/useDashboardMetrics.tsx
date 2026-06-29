@@ -49,12 +49,13 @@ export function useDashboardMetrics(trades: Trade[]): DashboardMetrics {
     const pnls = closedTrades.map(t => t.net_pnl || 0);
     const rMultiples = closedTrades.filter(t => t.r_multiple_actual !== null).map(t => t.r_multiple_actual!);
 
-    // Current streak (most-recent trades backwards).
+    // Current streak — walk from the NEWEST trade backwards. (T-1: prior loop
+    // ran oldest→newest and reported the streak that opened account history.)
     let currentStreak = { type: 'win' as 'win' | 'loss', count: 0 };
-    for (let i = 0; i < sorted.length; i++) {
+    for (let i = sorted.length - 1; i >= 0; i--) {
       const pnl = sorted[i].net_pnl || 0;
       const isWin = pnl > 0;
-      if (i === 0) currentStreak = { type: isWin ? 'win' : 'loss', count: 1 };
+      if (i === sorted.length - 1) currentStreak = { type: isWin ? 'win' : 'loss', count: 1 };
       else if ((isWin && currentStreak.type === 'win') || (!isWin && currentStreak.type === 'loss')) currentStreak.count++;
       else break;
     }

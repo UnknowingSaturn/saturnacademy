@@ -56,8 +56,13 @@ export function useReports(trades: Trade[], period: ReportPeriod) {
     const sortedByPnl = [...filteredTrades].sort((a, b) => (b.net_pnl || 0) - (a.net_pnl || 0));
     const bestTrade = sortedByPnl[0] || null;
     const worstTrade = sortedByPnl[sortedByPnl.length - 1] || null;
+    // T-2: filteredTrades inherits the newest-first order from useTrades. Walk
+    // in chronological order so streak runs aren't reversed across gaps.
+    const chronological = [...filteredTrades].sort(
+      (a, b) => new Date(a.entry_time).getTime() - new Date(b.entry_time).getTime()
+    );
     let maxConsecutiveWins = 0, maxConsecutiveLosses = 0, currentWins = 0, currentLosses = 0;
-    filteredTrades.forEach(t => {
+    chronological.forEach(t => {
       if ((t.net_pnl || 0) > 0) { currentWins++; currentLosses = 0; maxConsecutiveWins = Math.max(maxConsecutiveWins, currentWins); }
       else { currentLosses++; currentWins = 0; maxConsecutiveLosses = Math.max(maxConsecutiveLosses, currentLosses); }
     });

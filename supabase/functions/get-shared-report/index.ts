@@ -68,11 +68,16 @@ serve(async (req) => {
     const tradeIds = (links || []).map(l => l.trade_id);
     let trades: any[] = [];
     if (tradeIds.length) {
-      const { data: tradesData } = await admin
-        .from("trades")
-        .select("id,symbol,direction,entry_time,session,playbook_id,actual_playbook_id")
-        .in("id", tradeIds);
-      trades = tradesData || [];
+      // T-9: chunk .in() to stay under PostgREST 1k row cap (and URL length).
+      const CHUNK = 500;
+      for (let i = 0; i < tradeIds.length; i += CHUNK) {
+        const slice = tradeIds.slice(i, i + CHUNK);
+        const { data: tradesData } = await admin
+          .from("trades")
+          .select("id,symbol,direction,entry_time,session,playbook_id,actual_playbook_id")
+          .in("id", slice);
+        if (tradesData) trades.push(...tradesData);
+      }
     }
 
     // Fetch latest review per trade for screenshots

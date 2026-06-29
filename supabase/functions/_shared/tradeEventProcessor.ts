@@ -424,9 +424,12 @@ export async function processEvent(
         (a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime(),
       );
 
+      // T-10: aggregate from fills only. Seeding with existingTrade.commission/swap
+      // double-counted on snapshot repair because each fill (including the
+      // current close event) already contributes its commission/swap below.
       let totalGrossPnl = 0;
-      let totalCommission = existingTrade.commission || 0;
-      let totalSwap = existingTrade.swap || 0;
+      let totalCommission = 0;
+      let totalSwap = 0;
       for (const f of allFills) {
         totalGrossPnl += f.profit;
         totalCommission += f.commission;

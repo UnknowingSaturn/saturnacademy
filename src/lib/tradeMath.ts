@@ -1,5 +1,6 @@
 import type { Trade, PartialClose } from "@/types/trading";
 import { computeNetPnl } from "../../shared/quant/pnl";
+import { ensureUtcMs } from "./pairLabMath";
 
 export interface CloseFill {
   time: string;
@@ -124,10 +125,12 @@ export function resolveSlAtMae(trade: Trade): number | null {
   let effectiveSl: number | null = null;
   const mods = trade.trade_modifications;
   if (Array.isArray(mods) && mods.length > 0 && trade.exit_time) {
-    const exitMs = Date.parse(trade.exit_time);
+    // T-11: naive timestamps (Date.parse) silently drift. Route through
+    // ensureUtcMs which normalizes naive vs ISO to a single epoch axis.
+    const exitMs = ensureUtcMs(trade.exit_time);
     const slMods = mods
-      .filter((m) => m && m.field === "sl" && m.new_value != null && Date.parse(m.occurred_at) <= exitMs)
-      .sort((a, b) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at));
+      .filter((m) => m && m.field === "sl" && m.new_value != null && ensureUtcMs(m.occurred_at) <= exitMs)
+      .sort((a, b) => ensureUtcMs(b.occurred_at) - ensureUtcMs(a.occurred_at));
     if (slMods.length > 0 && slMods[0].new_value != null) {
       effectiveSl = Number(slMods[0].new_value);
     }

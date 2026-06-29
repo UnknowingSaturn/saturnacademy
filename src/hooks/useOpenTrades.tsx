@@ -3,7 +3,8 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Trade, Playbook } from "@/types/trading";
 import { usePlaybooks } from "./usePlaybooks";
-import { detectSessionFromUtc } from "@/lib/time";
+import { useSessionDefinitions } from "./useUserSettings";
+import { detectSessionFromUtc, classifySessionWithDefs } from "@/lib/time";
 import { transformTrade } from "@/lib/tradeTransform";
 import { TRADE_SELECT, tradeKeys } from "./_shared/tradeQueries";
 
@@ -16,6 +17,7 @@ export interface OpenTradeWithCompliance extends Trade {
 
 export function useOpenTrades() {
   const { data: playbooks = [] } = usePlaybooks();
+  const { data: sessionDefs = [] } = useSessionDefinitions();
   const queryClient = useQueryClient();
 
   // Subscribe to realtime updates for open trades
@@ -55,10 +57,14 @@ export function useOpenTrades() {
         .select(TRADE_SELECT)
         .eq("is_open", true)
         .eq("is_archived", false)
-        .order("entry_time", { ascending: false });
+        .order("entry_time", { ascending: false })
+        .range(0, 999); // T-12: explicit cap; warn on saturation below
 
       if (error) throw error;
-
+      if ((data?.length ?? 0) >= 1000) {
+        // eslint-disable-next-line no-console
+        console.warn('[useOpenTrades] hit 1,000-row cap; some open positions hidden');
+      }
 
       const trades = (data || []).map(transformTrade);
       
@@ -68,8 +74,12 @@ export function useOpenTrades() {
         const matchedPlaybook = trade.playbook 
           || (trade.playbook_id ? playbooks.find(p => p.id === trade.playbook_id) : undefined);
 
-        // Detect session from the trade's UTC entry time
-        const detectedSession = detectSessionFromUtc(trade.entry_time);
+        // T-6: prefer user-defined session windows (timezone-aware) so
+        // compliance checks against playbook.session_filter don't false-flag
+        // non-ET configurations. Fall back to the ET-anchored default.
+        const detectedSession = sessionDefs.length > 0
+          ? classifySessionWithDefs(trade.entry_time, sessionDefs as any)
+          : detectSessionFromUtc(trade.entry_time);
 
         // Determine compliance status
         let complianceStatus: 'pending' | 'compliant' | 'violations' = 'pending';
