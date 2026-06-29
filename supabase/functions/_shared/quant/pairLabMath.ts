@@ -166,6 +166,8 @@ export interface BucketReport {
   suggestedRiskPct: number | null;
   riskBelowFloor: boolean;
   suggestedRiskPctCi: [number, number] | null;
+  /** S4.4 parity: true when n>=10 but R-coverage < 50% of n. */
+  rCoverageWarning: boolean;
   suggestedRiskPctPropFirm: number | null;
   /** mean(winR) / mean(|lossR|). null when no losses or no wins. */
   payoffRatio: number | null;
@@ -566,15 +568,19 @@ export function computeBucket(
 
   const avgWinR = winR.length > 0 ? winR.reduce((a, v) => a + v, 0) / winR.length : 0;
   const avgLossR = lossR.length > 0 ? lossR.reduce((a, v) => a + v, 0) / lossR.length : 1;
-  // Mirror client: raw quarter-Kelly clipped only at 1.5% ceiling, with a
-  // `riskBelowFloor` signal when raw < 0.25%. The previous server clamp at 0.25%
-  // silently inflated tiny edges to a 0.25% recommendation.
-  const rawKelly = n >= 10 ? rawQuarterKellyPct(winRate, avgWinR, avgLossR) : null;
+  // S4.4 parity: Kelly must use a consistent population — recompute the win
+  // rate over the same R subsample that produced avgWinR / avgLossR. Mixing
+  // full-population winRate with R-subsample payoff biases Kelly whenever
+  // R-coverage is partial.
+  const rSubsampleN = winR.length + lossR.length;
+  const rWinRate = rSubsampleN > 0 ? winR.length / rSubsampleN : 0;
+  const rawKelly = n >= 10 && rSubsampleN >= 10
+    ? rawQuarterKellyPct(rWinRate, avgWinR, avgLossR)
+    : null;
   const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
   const riskBelowFloor = rawKelly != null && rawKelly < KELLY_FLOOR_PCT;
-  // Bootstrap CI on the raw Kelly fraction — surfaces when the recommended
-  // risk-% is statistically meaningful vs noise.
   const suggestedRiskPctCi = n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
+  const rCoverageWarning = n >= 10 && rSubsampleN / n < 0.5;
   const tp1Star = computeTp1Star(tp1StarPairs, avgLossR || 1);
 
   // Profit factor — null + flag so callers can distinguish "no losses" from
@@ -675,6 +681,7 @@ export function computeBucket(
     suggestedRiskPct,
     riskBelowFloor,
     suggestedRiskPctCi,
+    rCoverageWarning,
     suggestedRiskPctPropFirm,
     payoffRatio,
     eventsRFallbackCount,
