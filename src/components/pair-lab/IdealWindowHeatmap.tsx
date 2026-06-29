@@ -473,6 +473,12 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
                             type="button"
                             onClick={() => b && b.n > 0 && setSelectedCell({ hour: h, half })}
                             disabled={!b || b.n === 0}
+                            aria-pressed={isSelected}
+                            aria-label={
+                              !b || b.n === 0
+                                ? `Hour ${h} ${half === "first" ? "00-29" : "30-59"} — no data`
+                                : `Hour ${h} ${half === "first" ? "00-29" : "30-59"} — N=${b.n}, worked ${fmtPct(b.rate)}, expR ${fmtR(b.expectancy)}${b.significant ? ", FDR significant" : ""}`
+                            }
                             className={cn(
                               "w-full text-left rounded-md border p-2 transition-all",
                               tone.ring,
