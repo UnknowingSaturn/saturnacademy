@@ -684,6 +684,7 @@ export function computeBucket(
       const v = numericCf(t, keys.mae);
       return v != null && t.sl_initial != null && t.entry_price != null;
     }).length,
+    slMissingCount: closed.filter((t) => t.sl_initial == null || t.entry_price == null).length,
     loggedIdealSlCount: idealSls.length,
     recentN,
     recentWinRate,
