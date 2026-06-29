@@ -144,7 +144,7 @@ export function computeRMultiple(opts: ComputeROpts): number | null {
 
     // Fallback: canonical pip size × symbol-class pip value.
     const pipSize = pipSizeForSymbol(symbol);
-    const pipValue = getPipValue(symbol, lots, { exitPrice });
+    const pipValue = getPipValue(symbol, lots, { exitPrice, accountCurrency });
     if (pipValue == null || !(pipSize > 0)) return null;
     const risk = (stopDistance / pipSize) * pipValue;
     if (risk > 0) {
