@@ -23,6 +23,7 @@ import {
 } from "@/lib/pairLabSimulator";
 import { STRATEGY_PRESETS } from "@/lib/pairLabPresets";
 import { EquityCurveOverlay } from "./EquityCurveOverlay";
+import { useDistanceUnit, formatDistance, nativeUnitForSymbol } from "@/hooks/useDistanceUnit";
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext, TrailCaptureEstimate } from "@/lib/pairLabMath";
 import { classifyDataTier, DATA_TIER_VALIDATED_N } from "../../../shared/quant/config";
@@ -79,6 +80,13 @@ function StrategyDetailPanel({ result }: { result: ReplayResult }) {
   const sl = result.appliedSlPipsMedian;
   const slRange = result.appliedSlPipsRange;
   const isActual = !!s.useActualOutcome;
+  const { unit: distanceUnit } = useDistanceUnit();
+  // S2.10: preset replay is always cross-symbol, so there's no single tick
+  // size to convert against. Pass symbol=null → formatDistance falls back to
+  // pure native rendering, but the label still respects whether the user has
+  // toggled "ticks" mode (in which case we honour the request by appending
+  // a parenthetical reminder rather than producing a nonsense ticks number).
+  const ticksHint = distanceUnit === "ticks" ? " (multi-symbol; ticks vary)" : "";
   return (
     <div className="space-y-3">
       {s.description && (
@@ -101,9 +109,9 @@ function StrategyDetailPanel({ result }: { result: ReplayResult }) {
                 Median applied:{" "}
                 <span
                   className="text-foreground font-semibold"
-                  title="Aggregated across every eligible symbol in this preset's sample. Displayed in pips (FX/metals/crypto/oil) — index-only strategies should read this as points, since 1 point = 1 tick on NAS100/US30/DAX."
+                  title="Aggregated across every eligible symbol in this preset's sample. Displayed in the native unit (pips on FX/metals/crypto/oil, points on indices)."
                 >
-                  {sl.toFixed(1)} pips/pts
+                  {formatDistance(null, sl, "pips", "native", 1)}/pts{ticksHint}
                 </span>
                 {slRange && (
                   <span> · IQR {slRange[0].toFixed(1)}–{slRange[1].toFixed(1)}</span>

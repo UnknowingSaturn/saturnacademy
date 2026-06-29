@@ -27,7 +27,22 @@ export function useStrategyLabSweep(
   const workerRef = useRef<Worker | null>(null);
   const lastId = useRef(0);
 
-  const key = useMemo(() => (params ? JSON.stringify(params) : null), [params]);
+  // S2.8: ~5KB JSON.stringify on every render created 10–30 ms slider jank.
+  // Hash only structural fingerprints of `rSample`; pair with scalar params so
+  // genuine sweep-config changes still bust the cache.
+  const key = useMemo(() => {
+    if (!params) return null;
+    const { rSample, ...rest } = (params as any) ?? {};
+    let sampleKey: string | null = null;
+    if (Array.isArray(rSample) && rSample.length > 0) {
+      let sum = 0;
+      for (let i = 0; i < rSample.length; i++) sum += rSample[i];
+      sampleKey = `${rSample.length}|${rSample[0]}|${rSample[rSample.length - 1]}|${sum.toFixed(6)}`;
+    } else if (Array.isArray(rSample)) {
+      sampleKey = "0";
+    }
+    return `${sampleKey ?? "ns"}::${JSON.stringify(rest)}`;
+  }, [params]);
 
   useEffect(() => {
     if (!workerRef.current) {

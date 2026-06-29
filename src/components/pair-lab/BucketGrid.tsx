@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { bhSignificant, type BucketReport } from "@/lib/pairLabMath";
-import { useDistanceUnit, formatDistance, nativeUnitForSymbol } from "@/hooks/useDistanceUnit";
+import { useDistanceUnit, formatDistance, formatDistanceFromTicks, nativeUnitForSymbol } from "@/hooks/useDistanceUnit";
 import {
   classifyDataTier,
   DATA_TIER_INSUFFICIENT_N,
@@ -158,7 +158,7 @@ function CellInner({ b, fdr }: { b: BucketReport | null; fdr?: "sig" | "ns" | nu
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="text-[10px] text-muted-foreground font-mono-numbers cursor-help">
-            MFE {b!.mfeP75 != null ? `${b!.mfeP75.toFixed(2)}R` : "–"} · MAE {b!.maeP75Ticks != null ? `${b!.maeP75Ticks.toFixed(0)}t` : "–"}
+            MFE {b!.mfeP75 != null ? `${b!.mfeP75.toFixed(2)}R` : "–"} · MAE {formatDistanceFromTicks(b!.key.symbol, b!.maeP75Ticks, distanceUnit)}
           </div>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs font-mono-numbers max-w-xs">

@@ -28,6 +28,7 @@ import {
   BOOTSTRAP_ITERATIONS,
   BH_FDR_ALPHA,
   MIN_STREAK_FLOOR,
+  TRAIL_CAPTURE_FALLBACK,
 } from "../../../../shared/quant/config.ts";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
@@ -93,6 +94,7 @@ import {
   multiSelectCf,
   isUnrealized,
   wilsonCi,
+  ensureUtcMs,
 } from "../../../../shared/quant/stats.ts";
 export {
   quantile,
@@ -167,6 +169,8 @@ export interface BucketReport {
   suggestedRiskPctPropFirm: number | null;
   /** mean(winR) / mean(|lossR|). null when no losses or no wins. */
   payoffRatio: number | null;
+  /** S2.3: trade count that inferred R from net_pnl sign (parity with client). */
+  eventsRFallbackCount: number;
   profitFactor: number | null;
   profitFactorAllWins: boolean;
   worstLosingStreak: number;
@@ -209,7 +213,7 @@ function longestLossStreak(rows: any[]): number {
   // R1.6 parity: numeric epoch sort instead of localeCompare on ISO strings.
   const sorted = [...rows]
     .filter((t) => !t.is_open && t.entry_time)
-    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)));
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
   let run = 0, worst = 0;
   for (const t of sorted) {
     if (tradeSide(t) === -1) { run += 1; if (run > worst) worst = run; }
@@ -331,9 +335,9 @@ function estimateTrailCaptureRows(rows: any[], keys: PairLabFieldKeys, minSample
     const ratio = r / mfe;
     if (ratio > 0 && ratio < 1.05) ratios.push(ratio);
   }
-  if (ratios.length < minSample) return 0.7;
+  if (ratios.length < minSample) return TRAIL_CAPTURE_FALLBACK;
   const m = median(ratios);
-  if (m == null || !(m > 0)) return 0.7;
+  if (m == null || !(m > 0)) return TRAIL_CAPTURE_FALLBACK;
   return Math.max(0.1, Math.min(0.95, m));
 }
 
@@ -381,7 +385,7 @@ function runWalkForward(rows: any[], keys: PairLabFieldKeys):
   );
   if (closed.length < 30) return null;
   // R1.6 parity: numeric epoch sort.
-  const sorted = [...closed].sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)));
+  const sorted = [...closed].sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
   const cutoff = Math.floor(sorted.length * 0.7);
   const isRows = sorted.slice(0, cutoff);
   const oosRows = sorted.slice(cutoff);
@@ -471,7 +475,7 @@ export function computeBucket(
 
   const n = closed.length;
   const winRate = n > 0 ? wins.length / n : 0;
-  const expectedR = rActuals.length > 0 ? mean(rActuals) : NaN;
+  const expectedR = mean(rActuals) ?? NaN;
   const idealMed = median(idealSls);
   const slInitMed = median(slInitials);
   let slDrift: BucketReport["slDrift"] = null;
@@ -602,11 +606,14 @@ export function computeBucket(
     ? (sumWin / winR.length) / (sumLoss / lossR.length)
     : null;
 
+  let eventsRFallbackCount = 0;
   const eventR: number[] = [...closed]
     .filter((t) => t.entry_time)
-    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)))
+    // S2.7: epoch-ms sort via ensureUtcMs (TZ-safe, handles naive + ISO mixes).
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time))
     .map((t) => {
       const hasR = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual);
+      if (!hasR) eventsRFallbackCount += 1;
       return hasR
         ? (t.r_multiple_actual as number)
         : ((t.net_pnl ?? 0) > 0 ? 1 : (t.net_pnl ?? 0) < 0 ? -1 : 0);
@@ -665,6 +672,7 @@ export function computeBucket(
     suggestedRiskPctCi,
     suggestedRiskPctPropFirm,
     payoffRatio,
+    eventsRFallbackCount,
     profitFactor,
     profitFactorAllWins,
     worstLosingStreak: worstStreak,
@@ -732,13 +740,23 @@ export function buildBuckets(
   for (const t of trades) {
     // R1.1 parity: closed-only via `!is_open` (drop MT5 floating-P&L on live trades).
     if (t.is_open || t.is_archived) continue;
-    if (t.net_pnl == null) continue;
+    // S2.1: removed `if (t.net_pnl == null) continue;` — client never gated on
+    // net_pnl null and `tradeSide()` already falls back to R sign, so this
+    // silently shrank edge buckets for accounts whose P&L is async-computed.
     if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) continue;
     if (dateFrom || dateTo) {
-      const ts = t.entry_time ? String(t.entry_time) : null;
-      if (!ts) continue;
-      if (dateFrom && ts < dateFrom) continue;
-      if (dateTo && ts > dateTo) continue;
+      // S2.7: epoch-ms via ensureUtcMs — string compare on mixed naive + ISO
+      // timestamps mis-orders CSV-imported rows ('  ' < 'T' < 'Z').
+      const tsMs = ensureUtcMs(t.entry_time);
+      if (!Number.isFinite(tsMs)) continue;
+      if (dateFrom) {
+        const fromMs = ensureUtcMs(dateFrom);
+        if (Number.isFinite(fromMs) && tsMs < fromMs) continue;
+      }
+      if (dateTo) {
+        const toMs = ensureUtcMs(dateTo);
+        if (Number.isFinite(toMs) && tsMs > toMs) continue;
+      }
     }
     if (!includeUnrealized && isUnrealized(t)) { unrealizedExcluded += 1; continue; }
     closed.push(t);

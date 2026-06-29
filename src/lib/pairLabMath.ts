@@ -37,6 +37,7 @@ import {
   BH_FDR_ALPHA,
   MIN_STREAK_FLOOR,
   SL_SWEEP_QUANTILES,
+  TRAIL_CAPTURE_FALLBACK,
 } from "../../shared/quant/config";
 // Statistical primitives are unified across client + edge in shared/quant/stats.
 // Re-exported here so existing callers (`import { quantile, ... } from "@/lib/pairLabMath"`)
@@ -61,6 +62,7 @@ import {
   numericCf,
   multiSelectCf,
   isUnrealized,
+  ensureUtcMs,
 } from "../../shared/quant/stats";
 export {
   quantile,
@@ -77,6 +79,7 @@ export {
   quarterKellyPct,
   normalizeSession,
   isUnrealized,
+  ensureUtcMs,
 };
 
 export type ConfidenceLevel = "high" | "medium" | "low";
@@ -133,8 +136,13 @@ export interface BucketStats {
   /** Min/max of logged MAE values (ticks). Null when no MAE samples. */
   maeMinTicks: number | null;
   maeMaxTicks: number | null;
-  idealSlMedian: number | null;   // pips
-  slInitialMedian: number | null; // pips
+  idealSlMedianPips: number | null;   // pips (S2.2: was `idealSlMedian`; unified with edge)
+  slInitialMedianPips: number | null; // pips (S2.2: was `slInitialMedian`)
+  /** @deprecated S2.2 — use `idealSlMedianPips`. Kept as a read-only alias for callers
+   *  still on the old name; populated by `computeBucket`. */
+  idealSlMedian?: number | null;
+  /** @deprecated S2.2 — use `slInitialMedianPips`. */
+  slInitialMedian?: number | null;
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   confidence: ConfidenceLevel;
   // Two-sided bootstrap CI on expectedR — null when n < 5.
@@ -374,10 +382,20 @@ export function buildBuckets(
     if (t.is_archived) return false;
     if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) return false;
     if (dateFrom || dateTo) {
-      const ts = t.entry_time ? String(t.entry_time) : null;
-      if (!ts) return false;
-      if (dateFrom && ts < dateFrom) return false;
-      if (dateTo && ts > dateTo) return false;
+      // S2.7: epoch-ms comparison via ensureUtcMs. ASCII string compare on
+      // "2024-03-15 09:30:00" vs "2024-03-15T07:00:00.000Z" treats the naive
+      // ' ' (0x20) as < 'T' (0x54), pulling every CSV-imported row earlier
+      // than UTC strings and wrongly splitting the OOS window.
+      const tsMs = ensureUtcMs(t.entry_time);
+      if (!Number.isFinite(tsMs)) return false;
+      if (dateFrom) {
+        const fromMs = ensureUtcMs(dateFrom);
+        if (Number.isFinite(fromMs) && tsMs < fromMs) return false;
+      }
+      if (dateTo) {
+        const toMs = ensureUtcMs(dateTo);
+        if (Number.isFinite(toMs) && tsMs > toMs) return false;
+      }
     }
     if (!includeUnrealized && isUnrealized(t)) {
       unrealizedExcluded += 1;
@@ -457,7 +475,7 @@ function longestLossStreak(rows: Trade[]): number {
   // MT5 floating P&L on live positions bleed into streak math.
   const sorted = [...rows]
     .filter((t) => !t.is_open && t.entry_time)
-    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)));
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
   let run = 0;
   let worst = 0;
   for (const t of sorted) {
@@ -614,7 +632,7 @@ function computeBucket(
   // expectedR is NaN (not 0) when there is zero R coverage so the UI can
   // distinguish "no data" from a true zero-edge bucket. `expectedRSamples`
   // surfaces the underlying denominator for coverage chips.
-  const expectedR = rActuals.length > 0 ? mean(rActuals) : NaN;
+  const expectedR = mean(rActuals) ?? NaN;
   const expectedRMedian = median(rActuals) ?? NaN;
 
   const sumWin = winR.reduce((s, v) => s + v, 0);
@@ -693,7 +711,7 @@ function computeBucket(
     .filter((t) => t.entry_time)
     // R1.6: numeric epoch sort. localeCompare on ISO strings drifts at the
     // OOS 70/30 boundary when entries mix `Z` and `+00:00` suffixes.
-    .sort((a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)))
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time))
     .map((t) => {
       const hasR = t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual);
       if (!hasR) eventsRFallbackCount += 1;
@@ -739,6 +757,10 @@ function computeBucket(
     mfeMax: mfes.length > 0 ? mfes.reduce((a, b) => (a > b ? a : b)) : null,
     maeMinTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a < b ? a : b)) : null,
     maeMaxTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a > b ? a : b)) : null,
+    idealSlMedianPips: idealMed,
+    slInitialMedianPips: slInitMed,
+    // Deprecated aliases — kept populated so any consumer still reading the
+    // old names sees the same number until they upgrade. Will be removed.
     idealSlMedian: idealMed,
     slInitialMedian: slInitMed,
     slDrift,
@@ -788,7 +810,7 @@ function computeBucket(
   // minSample=10 mirrors the server (`estimateTrailCaptureRows`) so thin buckets
   // fall back to the same 0.7 default on both sides.
   const tcEst = estimateTrailCapture(rows, keys, 10);
-  const trailCapture = tcEst?.ratio ?? 0.7;
+  const trailCapture = tcEst?.ratio ?? TRAIL_CAPTURE_FALLBACK;
 
   const baseRec = buildRecommendation(
     stats, winR, lossR, mfes, baseline, propFirm,
@@ -965,12 +987,13 @@ function buildRecommendation(
   let slSourceN: number | null = null;
 
   const IDEAL_SL_MIN_N = 5;
+  const idealMed = s.idealSlMedianPips ?? s.idealSlMedian ?? null;
   if (
-    s.idealSlMedian != null &&
-    s.idealSlMedian > 0 &&
+    idealMed != null &&
+    idealMed > 0 &&
     s.loggedIdealSlCount >= IDEAL_SL_MIN_N
   ) {
-    suggestedSlPips = s.idealSlMedian;
+    suggestedSlPips = idealMed;
     slSource = "ideal_sl";
     slSourceN = s.loggedIdealSlCount;
   } else {
@@ -985,9 +1008,9 @@ function buildRecommendation(
       suggestedSlPips = s.maeP75Pips * MAE_P75_WIDEN_BUFFER;
       slSource = "winners_mae_fallback";
       slSourceN = s.loggedMaeCount;
-    } else if (s.idealSlMedian != null && s.idealSlMedian > 0) {
+    } else if (idealMed != null && idealMed > 0) {
       // Ideal SL present but below min-N → use it but mark as fallback grade.
-      suggestedSlPips = s.idealSlMedian;
+      suggestedSlPips = idealMed;
       slSource = "ideal_sl";
       slSourceN = s.loggedIdealSlCount;
     }

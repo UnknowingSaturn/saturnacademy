@@ -34,9 +34,14 @@ export function median(values: number[]): number | null {
   return quantile(values, 0.5);
 }
 
-export function mean(values: number[]): number {
+/**
+ * S2.4: returns null on empty / all-NaN input (was 0, which was indistinguishable
+ * from a true zero-edge bucket). Callers that need a numeric should use
+ * `mean(xs) ?? NaN` so downstream guards (Number.isFinite) keep behaving.
+ */
+export function mean(values: number[]): number | null {
   const xs = values.filter((v) => Number.isFinite(v));
-  if (xs.length === 0) return 0;
+  if (xs.length === 0) return null;
   return xs.reduce((s, v) => s + v, 0) / xs.length;
 }
 
@@ -300,8 +305,21 @@ const SESSION_LABELS: Record<string, string> = {
 export function normalizeSession(raw: string | null | undefined): string {
   if (!raw) return "Unknown";
   const key = String(raw).trim().toLowerCase().replace(/\s+/g, "_");
-  return SESSION_LABELS[key] ?? raw;
+  const mapped = SESSION_LABELS[key];
+  if (mapped) return mapped;
+  // S2.5: previously passed unknown strings through unchanged. EA variants
+  // like "pre_market" / "Pre-Market" then created phantom buckets that halved
+  // the per-session N and inflated the BH-FDR denominator. Fold unknowns into
+  // "Other" with a one-time console warn so the offending tag is still
+  // discoverable in the devtools (helps users update their EA / CSV).
+  if (typeof console !== "undefined" && !WARNED_SESSIONS.has(key)) {
+    WARNED_SESSIONS.add(key);
+    console.warn(`[normalizeSession] unknown session "${raw}" → folded into "Other"`);
+  }
+  return "Other";
 }
+
+const WARNED_SESSIONS = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // custom_fields JSONB accessors
@@ -422,6 +440,39 @@ export function isNaiveTimestamp(s: unknown): boolean {
   if (!trimmed) return false;
   if (TZ_TS_DETECTOR.test(trimmed)) return false;
   return NAIVE_TS_DETECTOR.test(trimmed);
+}
+
+// ---------------------------------------------------------------------------
+// ensureUtcMs — S2.7. Single helper for parsing entry_time strings to epoch
+// ms in a TZ-safe, host-independent way.
+//
+//  - Strings ending in Z or ±HH:MM are absolute — return Date.parse().
+//  - Naive strings (no offset) are decomposed by a strict regex and combined
+//    via Date.UTC(). Avoids `new Date(naiveString)`, which Chrome interprets
+//    as local time and Safari as UTC, producing different OOS splits per
+//    browser.
+//  - Unparseable inputs return NaN so the caller can drop the trade.
+// ---------------------------------------------------------------------------
+const ENSURE_UTC_NAIVE =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/;
+const ENSURE_UTC_TZ = /(Z|[+-]\d{2}:?\d{2})$/;
+
+export function ensureUtcMs(s: unknown): number {
+  if (s == null) return NaN;
+  const str = String(s).trim();
+  if (!str) return NaN;
+  if (ENSURE_UTC_TZ.test(str)) {
+    const ms = Date.parse(str);
+    return Number.isFinite(ms) ? ms : NaN;
+  }
+  const m = ENSURE_UTC_NAIVE.exec(str);
+  if (!m) {
+    const ms = Date.parse(str);
+    return Number.isFinite(ms) ? ms : NaN;
+  }
+  const [, y, mo, d, hh, mm, ss = "0", frac = "0"] = m;
+  const msFrac = Number((frac + "000").slice(0, 3));
+  return Date.UTC(+y, +mo - 1, +d, +hh, +mm, +ss, msFrac);
 }
 
 /** Counts trades whose `entry_time` is a naive (TZ-less) string. */

@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import type { BucketReport, PropFirmContext } from "@/lib/pairLabMath";
 import { Link } from "react-router-dom";
 import { CumulativeExpectancyChart } from "@/components/pair-lab/CumulativeExpectancyChart";
-import { useDistanceUnit, formatDistance, nativeUnitForSymbol } from "@/hooks/useDistanceUnit";
+import { useDistanceUnit, formatDistance, formatDistanceFromTicks, nativeUnitForSymbol } from "@/hooks/useDistanceUnit";
 
 
 interface QuantNote {
@@ -202,15 +202,19 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
           <div>
             <div className="text-muted-foreground">MAE p50/p75</div>
             <div className="font-mono-numbers font-semibold text-sm">
-              {b.maeP50Ticks != null ? b.maeP50Ticks.toFixed(0) : "—"} / {b.maeP75Ticks != null ? b.maeP75Ticks.toFixed(0) : "—"}t
+              {formatDistanceFromTicks(b.key.symbol, b.maeP50Ticks, distanceUnit)} / {formatDistanceFromTicks(b.key.symbol, b.maeP75Ticks, distanceUnit)}
             </div>
           </div>
           <div>
             <div className="text-muted-foreground">SL drift</div>
             <div className="font-mono-numbers font-semibold text-sm">
-              {b.slInitialMedian != null && b.idealSlMedian != null
-                ? `${formatDistance(b.key.symbol, b.slInitialMedian, b.slUnit ?? nativeUnitForSymbol(b.key.symbol), distanceUnit)} → ${formatDistance(b.key.symbol, b.idealSlMedian, b.slUnit ?? nativeUnitForSymbol(b.key.symbol), distanceUnit)}`
-                : "—"}
+              {(() => {
+                const sli = (b as any).slInitialMedianPips ?? b.slInitialMedian;
+                const idl = (b as any).idealSlMedianPips ?? b.idealSlMedian;
+                if (sli == null || idl == null) return "—";
+                const unit = b.slUnit ?? nativeUnitForSymbol(b.key.symbol);
+                return `${formatDistance(b.key.symbol, sli, unit, distanceUnit)} → ${formatDistance(b.key.symbol, idl, unit, distanceUnit)}`;
+              })()}
             </div>
             <div className="text-[10px] text-muted-foreground">
               planned → ideal ({distanceUnit === "ticks" ? "ticks" : (b.slUnit ?? nativeUnitForSymbol(b.key.symbol))})
@@ -252,9 +256,22 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
         const conf = r.recommendationConfidence;
         const confBadge =
           conf === "validated" ? (
-            <Badge variant="outline" className="text-profit border-profit/40 bg-profit/10 text-[10px]">
-              validated · OOS-tested
-            </Badge>
+            // S2.16: "OOS-tested" was always shown alongside "validated" even
+            // when r.walkForward was null (no train/test split available),
+            // implying an out-of-sample check that never ran. Render the OOS
+            // chip only when an actual walk-forward result is attached.
+            <span className="inline-flex gap-1 flex-wrap">
+              <Badge variant="outline" className="text-profit border-profit/40 bg-profit/10 text-[10px]"
+                title="Bootstrap 95% CI on expectancy excludes zero — edge is statistically separated.">
+                validated
+              </Badge>
+              {r.walkForward != null && (
+                <Badge variant="outline" className="text-profit border-profit/40 bg-profit/10 text-[10px]"
+                  title={`70/30 walk-forward held up: train E ${r.walkForward.inSampleE.toFixed(2)}R → test E ${r.walkForward.outOfSampleE.toFixed(2)}R (n=${r.walkForward.oosN}).`}>
+                  OOS-tested
+                </Badge>
+              )}
+            </span>
           ) : conf === "low" ? (
             <Badge
               variant="outline"

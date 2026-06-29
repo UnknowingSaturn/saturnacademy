@@ -98,3 +98,31 @@ export function nativeUnitForSymbol(symbol: string | null | undefined): "pips" |
   if (!symbol || symbol === "All") return "pips";
   return pipLabelForSymbol(symbol);
 }
+
+/**
+ * S2.10: format a distance stored in broker TICKS. Internal storage for MAE,
+ * SL distance, and ideal-SL is canonical ticks (see UNIT CONTRACT in
+ * src/lib/pairLabMath.ts); display sites should route through this helper
+ * instead of hard-coding "pips" / "t" so the user-level toggle is honoured
+ * everywhere.
+ *
+ * @param symbol  raw broker symbol; pass null for aggregate buckets (we fall
+ *   back to the `nativeUnit` argument and skip tick→pip conversion).
+ * @param valueTicks  number in ticks; pass null to render an em-dash.
+ */
+export function formatDistanceFromTicks(
+  symbol: string | null | undefined,
+  valueTicks: number | null | undefined,
+  mode: DistanceUnit,
+  digits = 0,
+): string {
+  if (valueTicks == null || !Number.isFinite(valueTicks)) return "—";
+  if (mode === "ticks" || !symbol || symbol === "All") {
+    return `${valueTicks.toFixed(digits)} t`;
+  }
+  const tick = tickSizeForSymbol(symbol);
+  const pip = pipSizeForSymbol(symbol);
+  if (!(tick > 0) || !(pip > 0)) return `${valueTicks.toFixed(digits)} t`;
+  const native = (valueTicks * tick) / pip;
+  return `${native.toFixed(digits)} ${pipLabelForSymbol(symbol)}`;
+}
