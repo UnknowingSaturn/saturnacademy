@@ -382,10 +382,20 @@ export function buildBuckets(
     if (t.is_archived) return false;
     if (opts.profile && t.profile !== opts.profile && t.actual_profile !== opts.profile) return false;
     if (dateFrom || dateTo) {
-      const ts = t.entry_time ? String(t.entry_time) : null;
-      if (!ts) return false;
-      if (dateFrom && ts < dateFrom) return false;
-      if (dateTo && ts > dateTo) return false;
+      // S2.7: epoch-ms comparison via ensureUtcMs. ASCII string compare on
+      // "2024-03-15 09:30:00" vs "2024-03-15T07:00:00.000Z" treats the naive
+      // ' ' (0x20) as < 'T' (0x54), pulling every CSV-imported row earlier
+      // than UTC strings and wrongly splitting the OOS window.
+      const tsMs = ensureUtcMs(t.entry_time);
+      if (!Number.isFinite(tsMs)) return false;
+      if (dateFrom) {
+        const fromMs = ensureUtcMs(dateFrom);
+        if (Number.isFinite(fromMs) && tsMs < fromMs) return false;
+      }
+      if (dateTo) {
+        const toMs = ensureUtcMs(dateTo);
+        if (Number.isFinite(toMs) && tsMs > toMs) return false;
+      }
     }
     if (!includeUnrealized && isUnrealized(t)) {
       unrealizedExcluded += 1;
