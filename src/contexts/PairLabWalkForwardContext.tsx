@@ -10,6 +10,7 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { resolveWindow, type WalkForwardState } from "@/components/pair-lab/WalkForwardControls";
+import type { SymbolGroup } from "@/hooks/useSymbolGroups";
 
 export interface PairLabWalkForwardValue {
   wf: WalkForwardState;
@@ -26,6 +27,8 @@ export interface PairLabWalkForwardValue {
   scope: string;
   includeUnrealized: boolean;
   propFirmMode: boolean;
+  /** S3.5: threaded through context so child panels don't re-subscribe. */
+  groups: SymbolGroup[];
 }
 
 const Ctx = createContext<PairLabWalkForwardValue | null>(null);
