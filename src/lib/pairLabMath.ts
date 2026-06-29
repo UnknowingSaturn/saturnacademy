@@ -172,6 +172,16 @@ export interface BucketStats {
   drift: number | null;
   /** Count of trades whose `events[].r` was inferred from net_pnl sign (no r_multiple_actual). Surface as a "R inferred" badge. */
   eventsRFallbackCount: number;
+  /**
+   * S3.9: EA-populated execution-quality features from `trade_features`.
+   * All null when no trades in the bucket have a `trade_features` row.
+   * Read-only for now — wired into UI in a follow-up.
+   */
+  entryEfficiencyMedian: number | null;
+  entryEfficiencyP75: number | null;
+  stopLocationQualityMedian: number | null;
+  /** N of trades in the bucket that have any trade_features row. */
+  featuresCount: number;
 }
 
 
