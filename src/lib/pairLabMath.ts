@@ -965,8 +965,9 @@ export function runWalkForward(
   );
   if (closed.length < 30) return null;
   const sorted = [...closed].sort(
-    // R1.6: numeric epoch sort.
-    (a, b) => Date.parse(String(a.entry_time)) - Date.parse(String(b.entry_time)),
+    // S4.2: ensureUtcMs replaces Date.parse — locale-stable on naive strings,
+    // matches edge function parity (was leaking OOS trades into IS slice).
+    (a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time),
   );
   const cutoff = Math.floor(sorted.length * 0.7);
   const isRows = sorted.slice(0, cutoff);

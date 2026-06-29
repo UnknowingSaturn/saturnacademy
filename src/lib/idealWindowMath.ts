@@ -117,8 +117,12 @@ export function hourMinuteInTz(
   utcTimestamp: string,
   timezone: string,
 ): { hour: number; minute: number } | null {
-  const d = new Date(utcTimestamp);
-  if (Number.isNaN(d.getTime())) return null;
+  // S4.2: `new Date(naiveString)` is locale-dependent (Chrome=local,
+  // Safari/Node=UTC) — assigned trades to the wrong half-hour bucket for
+  // CSV-imported naive timestamps. ensureUtcMs normalises consistently.
+  const ms = ensureUtcMs(utcTimestamp);
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     hour: "2-digit",

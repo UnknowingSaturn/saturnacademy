@@ -7,6 +7,7 @@
 import { useMemo } from "react";
 import { useTrades } from "@/hooks/useTrades";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
+import { ensureUtcMs } from "../../shared/quant/stats";
 
 export interface TradeBounds {
   minMs: number;
@@ -26,7 +27,10 @@ export function usePairLabTradeBounds(): TradeBounds {
     for (const t of trades) {
       if (t.is_open || t.is_archived) continue;
       if (!t.entry_time) continue;
-      const ms = new Date(String(t.entry_time)).getTime();
+      // S4.2: `new Date(naiveString).getTime()` is host-locale-dependent
+      // (Chrome=local, Safari/Node=UTC); shifted slider bounds by the user's
+      // UTC offset for CSV-imported trades. ensureUtcMs is locale-stable.
+      const ms = ensureUtcMs(t.entry_time);
       if (!Number.isFinite(ms)) continue;
       if (ms < min) min = ms;
       if (ms > max) max = ms;
