@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import { Area, AreaChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, ReferenceLine } from "recharts";
 import type { ReplayResult } from "@/lib/pairLabSimulator";
 
