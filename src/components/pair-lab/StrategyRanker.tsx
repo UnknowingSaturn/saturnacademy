@@ -75,8 +75,15 @@ function topReasons(reasons: Record<string, number>, k = 3): Array<[string, numb
   return Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, k);
 }
 
-function StrategyDetailPanel({ result }: { result: ReplayResult }) {
+function StrategyDetailPanel({ result, riskPctOverride }: { result: ReplayResult; riskPctOverride?: number }) {
   const s = result.strategy;
+  // S3.7: the ranked rows are built from presets with `riskPct` already
+  // overridden by the slider (see `presets.map((p) => ({ ...p, riskPct }))`).
+  // The replay result clones the strategy *before* override in some code
+  // paths, so prefer the explicit slider value when provided.
+  const effectiveRiskPct = typeof riskPctOverride === "number" && Number.isFinite(riskPctOverride)
+    ? riskPctOverride
+    : s.riskPct;
   const sl = result.appliedSlPipsMedian;
   const slRange = result.appliedSlPipsRange;
   const isActual = !!s.useActualOutcome;
