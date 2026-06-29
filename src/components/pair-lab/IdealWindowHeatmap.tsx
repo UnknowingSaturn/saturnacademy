@@ -29,7 +29,7 @@ import {
 } from "@/lib/idealWindowMath";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { usePropertyOptions } from "@/hooks/useUserSettings";
-import { useSymbolGroups } from "@/hooks/useSymbolGroups";
+// S3.5: groups now flow via PairLabWalkForwardContext (no extra subscription).
 import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
 
 interface Props {
