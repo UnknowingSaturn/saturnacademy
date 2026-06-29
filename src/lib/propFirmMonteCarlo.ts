@@ -326,7 +326,7 @@ export function runMonteCarlo(params: MCParams): MCResult {
 
   const passProb = passes / paths;
   const failProb = fails / paths;
-  const passProbCI = wilsonCI95(passes, paths);
+  const passProbCI = wilsonCi(passes, paths) ?? [0, 0];
 
   // CVaR-5%: mean of worst 5% final equity outcomes (per-account, all paths).
   let cvar5Pct = 0;
@@ -358,17 +358,11 @@ export function runMonteCarlo(params: MCParams): MCResult {
   };
 }
 
-// Wilson score 95% CI for a binomial proportion. Tight at extremes, well-behaved
-// when k ∈ {0, n}. Used to expose Monte-Carlo sampling noise on passProb.
-function wilsonCI95(successes: number, trials: number): [number, number] {
-  if (trials <= 0) return [0, 0];
-  const z = 1.96;
-  const p = successes / trials;
-  const denom = 1 + (z * z) / trials;
-  const centre = (p + (z * z) / (2 * trials)) / denom;
-  const halfWidth = (z * Math.sqrt((p * (1 - p)) / trials + (z * z) / (4 * trials * trials))) / denom;
-  return [Math.max(0, centre - halfWidth), Math.min(1, centre + halfWidth)];
-}
+// S4.9: previously a duplicate local Wilson CI lived here. The shared helper
+// in `shared/quant/stats.ts` (`wilsonCi`) uses an identical z=1.96 formula
+// and is the single source of truth — eliminates drift risk if the CI level
+// is ever made configurable. Returns null when trials<=0; callers default
+// to [0,0] at the call site.
 
 // ----------------------------------------------------------------------------
 // Helpers used by UI surfaces
