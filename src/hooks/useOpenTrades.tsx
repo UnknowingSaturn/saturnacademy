@@ -3,7 +3,8 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Trade, Playbook } from "@/types/trading";
 import { usePlaybooks } from "./usePlaybooks";
-import { detectSessionFromUtc } from "@/lib/time";
+import { useSessionDefinitions } from "./useUserSettings";
+import { detectSessionFromUtc, classifySessionWithDefs } from "@/lib/time";
 import { transformTrade } from "@/lib/tradeTransform";
 import { TRADE_SELECT, tradeKeys } from "./_shared/tradeQueries";
 
