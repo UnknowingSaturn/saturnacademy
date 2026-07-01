@@ -110,7 +110,11 @@ function App() {
             <TooltipProvider>
               <Sonner />
               <BrowserRouter>
-                <AppRoutes />
+                <CoachProvider>
+                  <AppRoutes />
+                  <CoachFab />
+                  <CoachPanel />
+                </CoachProvider>
               </BrowserRouter>
             </TooltipProvider>
           </AccountFilterProvider>
