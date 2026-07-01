@@ -106,13 +106,30 @@ export interface SendCoachMessageInput {
   thread_id: string;
   text: string;
   attachments?: { storage_path: string }[];
+  /** Optional attached context (e.g. a trade). Prepended as a bracketed prefix so the model sees it. */
+  context?: { trade_id?: string; label?: string; route?: string } | null;
+}
+
+function buildContextPrefix(ctx: SendCoachMessageInput["context"]): string {
+  if (!ctx) return "";
+  if (ctx.trade_id) {
+    return `[Context: trade ${ctx.trade_id}${ctx.label ? ` — ${ctx.label}` : ""}]\n\n`;
+  }
+  if (ctx.route) return `[Context: ${ctx.route}${ctx.label ? ` — ${ctx.label}` : ""}]\n\n`;
+  return "";
 }
 
 export function useSendCoachMessage() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: SendCoachMessageInput) => {
-      const { data, error } = await supabase.functions.invoke("coach-chat", { body: input });
+      const prefix = buildContextPrefix(input.context);
+      const body = {
+        thread_id: input.thread_id,
+        text: prefix ? `${prefix}${input.text}` : input.text,
+        attachments: input.attachments,
+      };
+      const { data, error } = await supabase.functions.invoke("coach-chat", { body });
       if (error) {
         // Extract server-side error body if present
         const msg = (error as any).message ?? "Request failed";

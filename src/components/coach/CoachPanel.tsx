@@ -48,12 +48,12 @@ export function CoachPanel() {
       tid = t.id;
       setActiveThreadId(tid);
     }
-    // Compose message text with attached context prefix so the model sees it.
-    let composed = text;
-    if (attached?.trade_id) {
-      composed = `[Context: trade ${attached.trade_id}${attached.label ? ` — ${attached.label}` : ""}]\n\n${composed}`;
-    }
-    await send.mutateAsync({ thread_id: tid, text: composed, attachments: atts });
+    await send.mutateAsync({
+      thread_id: tid,
+      text,
+      attachments: atts,
+      context: attached ? { trade_id: attached.trade_id, label: attached.label, route: attached.route } : null,
+    });
   };
 
   return (
