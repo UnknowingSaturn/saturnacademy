@@ -37,7 +37,20 @@ export function useCoachMessages(threadId: string | null) {
         .eq("thread_id", threadId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as unknown as CoachMessage[];
+      const rows = (data ?? []) as unknown as CoachMessage[];
+      // Sign attachment URLs (private bucket).
+      const paths = rows.flatMap((r) => (r.attachments ?? []).map((a) => a.storage_path)).filter(Boolean);
+      if (paths.length === 0) return rows;
+      const uniquePaths = Array.from(new Set(paths));
+      const { data: signed } = await supabase.storage
+        .from("coach-uploads")
+        .createSignedUrls(uniquePaths, 60 * 10);
+      const map = new Map<string, string>();
+      (signed ?? []).forEach((s) => { if (s.signedUrl && s.path) map.set(s.path, s.signedUrl); });
+      return rows.map((r) => ({
+        ...r,
+        attachments: (r.attachments ?? []).map((a) => ({ ...a, signed_url: map.get(a.storage_path) })),
+      }));
     },
     staleTime: 5_000,
   });
