@@ -348,6 +348,143 @@ export type Database = {
           },
         ]
       }
+      coach_embed_queue: {
+        Row: {
+          attempts: number
+          enqueued_at: string
+          id: number
+          last_error: string | null
+          trade_id: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          enqueued_at?: string
+          id?: number
+          last_error?: string | null
+          trade_id: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          enqueued_at?: string
+          id?: number
+          last_error?: string | null
+          trade_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coach_embed_queue_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coach_embed_queue_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coach_messages: {
+        Row: {
+          attachments: Json | null
+          created_at: string
+          id: string
+          parts: Json
+          role: string
+          thread_id: string
+          token_usage: Json | null
+          tool_calls: Json | null
+          user_id: string
+        }
+        Insert: {
+          attachments?: Json | null
+          created_at?: string
+          id?: string
+          parts: Json
+          role: string
+          thread_id: string
+          token_usage?: Json | null
+          tool_calls?: Json | null
+          user_id: string
+        }
+        Update: {
+          attachments?: Json | null
+          created_at?: string
+          id?: string
+          parts?: Json
+          role?: string
+          thread_id?: string
+          token_usage?: Json | null
+          tool_calls?: Json | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coach_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "coach_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coach_threads: {
+        Row: {
+          context_route: string | null
+          context_trade_id: string | null
+          created_at: string
+          id: string
+          last_message_at: string | null
+          message_count: number
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          context_route?: string | null
+          context_trade_id?: string | null
+          created_at?: string
+          id?: string
+          last_message_at?: string | null
+          message_count?: number
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          context_route?: string | null
+          context_trade_id?: string | null
+          created_at?: string
+          id?: string
+          last_message_at?: string | null
+          message_count?: number
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coach_threads_context_trade_id_fkey"
+            columns: ["context_trade_id"]
+            isOneToOne: false
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coach_threads_context_trade_id_fkey"
+            columns: ["context_trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       copier_executions: {
         Row: {
           direction: string
@@ -1575,6 +1712,51 @@ export type Database = {
           },
         ]
       }
+      trade_embeddings: {
+        Row: {
+          content_hash: string
+          content_preview: string | null
+          embedding: string
+          model_version: string
+          trade_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content_hash: string
+          content_preview?: string | null
+          embedding: string
+          model_version?: string
+          trade_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content_hash?: string
+          content_preview?: string | null
+          embedding?: string
+          model_version?: string
+          trade_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_embeddings_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: true
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trade_embeddings_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: true
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trade_features: {
         Row: {
           computed_at: string | null
@@ -2373,12 +2555,24 @@ export type Database = {
         Args: { _account_id: string; _delta: number }
         Returns: undefined
       }
+      enqueue_trade_embed: {
+        Args: { _trade_id: string; _user_id: string }
+        Returns: undefined
+      }
       has_trade_access: { Args: { _trade_id: string }; Returns: boolean }
       increment_shared_report_view: {
         Args: { p_report_id: string }
         Returns: undefined
       }
       mark_dormant_accounts: { Args: never; Returns: undefined }
+      match_user_trades: {
+        Args: { match_count?: number; query_embedding: string }
+        Returns: {
+          content_preview: string
+          similarity: number
+          trade_id: string
+        }[]
+      }
       prune_monitoring_snapshots: { Args: never; Returns: undefined }
     }
     Enums: {
