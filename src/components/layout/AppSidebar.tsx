@@ -17,7 +17,8 @@ import {
   
   Share2,
   Brain,
-  FlaskConical
+  FlaskConical,
+  Sparkles
 } from "lucide-react";
 
 import { AccountSettingsDialog } from "./AccountSettingsDialog";
