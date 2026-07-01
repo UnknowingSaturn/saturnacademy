@@ -26,6 +26,10 @@ import SharedReportEditor from "./pages/SharedReportEditor";
 import PublicReport from "./pages/PublicReport";
 import Knowledge from "./pages/Knowledge";
 import PairLab from "./pages/PairLab";
+import Coach from "./pages/Coach";
+import { CoachProvider } from "@/contexts/CoachContext";
+import { CoachFab } from "@/components/coach/CoachFab";
+import { CoachPanel } from "@/components/coach/CoachPanel";
 
 const queryClient = new QueryClient({
   defaultOptions: {
