@@ -26,6 +26,10 @@ import SharedReportEditor from "./pages/SharedReportEditor";
 import PublicReport from "./pages/PublicReport";
 import Knowledge from "./pages/Knowledge";
 import PairLab from "./pages/PairLab";
+import Coach from "./pages/Coach";
+import { CoachProvider } from "@/contexts/CoachContext";
+import { CoachFab } from "@/components/coach/CoachFab";
+import { CoachPanel } from "@/components/coach/CoachPanel";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -91,6 +95,7 @@ function AppRoutes() {
       <Route path="/r/:slug" element={<PublicReport />} />
       <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
       <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
+      <Route path="/coach" element={<ProtectedRoute><Coach /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
@@ -105,7 +110,11 @@ function App() {
             <TooltipProvider>
               <Sonner />
               <BrowserRouter>
-                <AppRoutes />
+                <CoachProvider>
+                  <AppRoutes />
+                  <CoachFab />
+                  <CoachPanel />
+                </CoachProvider>
               </BrowserRouter>
             </TooltipProvider>
           </AccountFilterProvider>

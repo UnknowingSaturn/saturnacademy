@@ -17,7 +17,8 @@ import {
   
   Share2,
   Brain,
-  FlaskConical
+  FlaskConical,
+  Sparkles
 } from "lucide-react";
 
 import { AccountSettingsDialog } from "./AccountSettingsDialog";
@@ -59,6 +60,7 @@ const mainItems = [
   { title: "Pair Lab", url: "/pair-lab", icon: FlaskConical },
   { title: "Shared Reports", url: "/shared-reports", icon: Share2 },
   { title: "Knowledge", url: "/knowledge", icon: Brain },
+  { title: "Coach", url: "/coach", icon: Sparkles },
 ];
 
 const toolItems = [
