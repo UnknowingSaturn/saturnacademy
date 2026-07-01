@@ -78,26 +78,9 @@ string         g_processedDealsFile  = "";        // File for persisting process
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // U-3: Build a collision-resistant terminal id.
-   // Old form ("MT5_<login>_<first 10 chars of server>") collided when two
-   // masters ran on the same broker server. We now include the full server
-   // string plus an 8-hex CRC32 of the terminal data path so multi-install
-   // setups produce distinct ids while remaining stable across restarts.
-   string _srvFull   = AccountInfoString(ACCOUNT_SERVER);
-   string _dataPath  = TerminalInfoString(TERMINAL_DATA_PATH);
-   uint   _pathHash  = 0;
-   for(int _i = 0; _i < StringLen(_dataPath); _i++)
-      _pathHash = (_pathHash * 16777619) ^ (uint)StringGetCharacter(_dataPath, _i); // FNV-1a-ish
-   string _srvSafe = "";
-   for(int _j = 0; _j < StringLen(_srvFull); _j++)
-   {
-      ushort _c = StringGetCharacter(_srvFull, _j);
-      if((_c >= '0' && _c <= '9') || (_c >= 'A' && _c <= 'Z') || (_c >= 'a' && _c <= 'z'))
-         _srvSafe += ShortToString(_c);
-   }
-   g_terminalId = "MT5_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "_" +
-                  _srvSafe + "_" + StringFormat("%08X", _pathHash);
-
+   // Generate terminal ID
+   g_terminalId = "MT5_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "_" + 
+                  StringSubstr(AccountInfoString(ACCOUNT_SERVER), 0, 10);
    
    g_syncFlagFile = "TradeJournalSynced_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".flag";
    

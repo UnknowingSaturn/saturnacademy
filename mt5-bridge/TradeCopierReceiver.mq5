@@ -288,12 +288,13 @@ void OnTimer()
       return;
    }
    
-   // NOTE: Session filter is intentionally NOT applied here.
-   // It must be evaluated per-event inside ProcessEventFile so that exit /
-   // partial_close / modify events queued during an allowed session are
-   // still executed once the session window closes — otherwise positions
-   // can be stranded open indefinitely. Only `entry` events are gated.
-
+   // Check session filter
+   if(!CheckSessionFilter())
+   {
+      if(InpVerboseMode)
+         Print("Outside allowed session - skipping");
+      return;
+   }
    
    // Update high water mark
    double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
@@ -1032,19 +1033,6 @@ void ProcessEventFile(string fullPath, string filename)
    }
    
    string eventType = ExtractJsonString(content, "event_type");
-   
-   // U-2: Session filter ONLY blocks NEW entries. Exits/modifies/partial
-   // closes must always be honored to avoid stranding positions outside session.
-   if(eventType == "entry" && !CheckSessionFilter())
-   {
-      if(InpVerboseMode)
-         Print("Outside allowed session - skipping entry ", idempotencyKey);
-      LogMessage("Skipped entry outside session: " + idempotencyKey);
-      MarkEventExecuted(idempotencyKey, 0, 0);
-      MoveToExecuted(fullPath, filename);
-      return;
-   }
-   
    long masterPositionId = (long)ExtractJsonNumber(content, "position_id");
    string masterSymbol = ExtractJsonString(content, "symbol");
    string direction = ExtractJsonString(content, "direction");
