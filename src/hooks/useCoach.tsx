@@ -123,7 +123,13 @@ export function useSendCoachMessage() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: SendCoachMessageInput) => {
-      const { data, error } = await supabase.functions.invoke("coach-chat", { body: input });
+      const prefix = buildContextPrefix(input.context);
+      const body = {
+        thread_id: input.thread_id,
+        text: prefix ? `${prefix}${input.text}` : input.text,
+        attachments: input.attachments,
+      };
+      const { data, error } = await supabase.functions.invoke("coach-chat", { body });
       if (error) {
         // Extract server-side error body if present
         const msg = (error as any).message ?? "Request failed";
