@@ -95,6 +95,7 @@ function AppRoutes() {
       <Route path="/r/:slug" element={<PublicReport />} />
       <Route path="/import" element={<ProtectedRoute><Import /></ProtectedRoute>} />
       <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
+      <Route path="/coach" element={<ProtectedRoute><Coach /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
