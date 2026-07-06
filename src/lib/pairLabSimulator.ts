@@ -412,12 +412,17 @@ function replayOneTrade(
   // Resolve each partial's effective atR (bucket-adaptive presets may override).
   const resolved: Array<{ atR: number; fraction: number }> = [];
   for (const p of strategy.exitRule.partials) {
+    const src = p.atRSource ?? "fixed";
     const atR = resolvePartialAtR(p, ctx.bucket);
     if (atR == null) {
-      return { ineligible: `bucket has no MFE samples for adaptive TP (${p.atRSource})` };
+      if (src !== "fixed" && ctx.bucket.nMfe < MIN_BUCKET_N_ADAPTIVE) {
+        return { ineligible: `bucket too thin for adaptive TP (n=${ctx.bucket.nMfe}, need ${MIN_BUCKET_N_ADAPTIVE})` };
+      }
+      return { ineligible: `bucket has no MFE samples for adaptive TP (${src})` };
     }
     resolved.push({ atR, fraction: p.fraction });
   }
+
   resolved.sort((a, b) => a.atR - b.atR);
 
   let booked = 0;
