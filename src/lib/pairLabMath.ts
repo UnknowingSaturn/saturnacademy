@@ -530,6 +530,18 @@ function computeTp1Star(
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
   const fallbackMiss = -Math.abs(avgLossR);
+  // PR-2 (2B): global-median fallback for the miss branch. Under the previous
+  // code, a candidate with fewer than 5 non-hit R samples fell back to
+  // `-avgLossR` — treating every miss as a full stop-out. That biases the
+  // argmax high (recommends conservative TPs) because non-hitting trades
+  // include early-exit winners, BE moves and partial fills, not just stops.
+  // Use the global median of all-trade rActuals as the neutral prior.
+  const allRs = pairs
+    .map((p) => p.rActual)
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  const globalMedian = allRs.length >= 5
+    ? median(allRs)
+    : null;
   for (const r of candidates) {
     let hits = 0;
     const missRs: number[] = [];
@@ -541,7 +553,7 @@ function computeTp1Star(
     if (hitRate < TP1_STAR_MIN_HIT_RATE) continue;
     const missMean = missRs.length >= 5
       ? missRs.reduce((s, v) => s + v, 0) / missRs.length
-      : fallbackMiss;
+      : (globalMedian ?? fallbackMiss);
     const expectancyR = hitRate * r + (1 - hitRate) * missMean;
     if (!best || expectancyR > best.expectancyR) {
       best = { r, hitRate, hitRateCi: wilsonCi(hits, pairs.length), expectancyR };
