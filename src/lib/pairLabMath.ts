@@ -1124,9 +1124,15 @@ function buildRecommendation(
     : null;
   const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
   const riskBelowFloor = rawKelly != null && rawKelly < KELLY_FLOOR_PCT;
-  const suggestedRiskPctCi = s.n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
-  // S4.4: surface when the R-subsample is too thin (< 50% of n) so the UI
-  // can hint that the Kelly number is based on an under-sampled population.
+  // PR-2 (2E): flag when the Kelly ceiling clipped the raw fraction so the UI
+  // can surface the un-clipped value alongside. Otherwise a user with a very
+  // strong edge (raw 4.0%) sees the same "1.5%" as a user with a marginal edge
+  // (raw 1.6%) and has no signal to distinguish them.
+  const rawKellyClipped = rawKelly != null && rawKelly > KELLY_CEILING_PCT;
+  // PR-2 (2F): use BCa CI at small n (< 30) where percentile bootstrap under-
+  // covers by 5–10%. Falls back to percentile CI automatically on jackknife
+  // degeneracy inside `bootstrapKellyCiBCa`.
+  const suggestedRiskPctCi = s.n >= 10 ? bootstrapKellyCiBCa(winR, lossR) : null;
   const rCoverageWarning = s.n >= 10 && rSubsampleN / s.n < 0.5;
 
   const tp1Star = computeTp1Star(ctx.tp1StarPairs, avgLossR || 1);
