@@ -52,9 +52,14 @@ function mk(
     is_archived: false,
     net_pnl: (args.rActual ?? 0) * 100,
     r_multiple_actual: args.rActual,
-    cf_mfe_r: args.mfeR,
-    cf_mae_r: maeTicks,
-    cf_ideal_stop_loss_ticks: null,
+    trade_type: "executed",
+    // Custom fields live on `custom_fields`, not as top-level columns.
+    // `numericCf(trade, key)` reads `trade.custom_fields[key]`.
+    custom_fields: {
+      cf_mfe_r: args.mfeR,
+      cf_mae_r: maeTicks,
+      cf_ideal_stop_loss_ticks: null,
+    },
   };
 }
 
