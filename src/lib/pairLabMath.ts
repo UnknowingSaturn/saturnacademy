@@ -637,7 +637,16 @@ function computeBucket(
       if (slDistPips > 0) {
         maesR.push(maePips / slDistPips);
         if (t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual)) {
-          sweepRows.push({ maePips, slPips: slDistPips, rActual: t.r_multiple_actual });
+          // PR-2 (2C): exclude trades that took partial fills or moved SL to BE
+          // from the SL sweep. The sweep rescales r_actual by a proportional
+          // (newSL / origSL) factor, which is only valid when the full position
+          // was exposed to the SL for the whole hold. Partial-fill / BE trades
+          // over-deflate at wider candidate SLs and mislead the reader.
+          const hasPartials = Array.isArray((t as any).partial_fills)
+            && ((t as any).partial_fills.length ?? 0) > 0;
+          if (!hasPartials) {
+            sweepRows.push({ maePips, slPips: slDistPips, rActual: t.r_multiple_actual });
+          }
         }
       }
     }
