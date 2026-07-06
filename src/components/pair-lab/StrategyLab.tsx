@@ -560,8 +560,12 @@ export function StrategyLab({
           <div className="text-[11px] text-muted-foreground font-mono-numbers mt-3 pt-3 border-t border-border/40 leading-relaxed">
             score = pass {active.parts.passProb.toFixed(2)}
             {" × "}survival {active.parts.survival.toFixed(2)}
-            {" − "}DD penalty {active.parts.ddPenalty.toFixed(3)}
-            {" − "}incon penalty {active.parts.inconclusivePenalty.toFixed(3)}
+            {" − "}λ·CVaR penalty {active.parts.cvarPenalty.toFixed(3)}
+            {active.parts.tailLossPct > 0 && (
+              <span className="text-muted-foreground/70">
+                {" "}(λ={lambda.toFixed(2)}, tail loss {active.parts.tailLossPct.toFixed(1)}%)
+              </span>
+            )}
             {" = "}<span className="text-foreground font-semibold">{active.parts.score.toFixed(3)}</span>
           </div>
         </div>
