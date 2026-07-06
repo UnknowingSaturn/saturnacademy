@@ -428,6 +428,7 @@ export function buildBuckets(
     return true;
   });
 
+  const disableWalkForward = opts.disableWalkForward === true;
   const baseline = computeBucket(
     { symbol: "All", session: "All sessions" },
     filtered,
@@ -435,6 +436,7 @@ export function buildBuckets(
     null,
     opts.propFirm ?? null,
     recentN,
+    disableWalkForward,
   );
 
   const cellMap = new Map<string, Trade[]>();
