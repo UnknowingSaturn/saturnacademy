@@ -25,7 +25,7 @@
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
-import { bootstrapMeanCiBCa, pathProbTpFirst, resolveTpFirstProb, type ReplayMode } from "../../shared/quant/stats";
+import { bootstrapMeanCiBCa, pathProbTpFirst, resolveTpFirstProb, ensureUtcMs, type ReplayMode } from "../../shared/quant/stats";
 export type { ReplayMode } from "../../shared/quant/stats";
 import { pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
 import {
@@ -659,7 +659,7 @@ function buildResult(
 function preparedTrades(trades: Trade[]): Trade[] {
   return trades
     .filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null)
-    .sort((a, b) => String(a.entry_time ?? "").localeCompare(String(b.entry_time ?? "")));
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
 }
 
 function ctxFor(opts: ReplayOpts, bucket: BucketConstants): ReplayContext {
@@ -750,7 +750,7 @@ export function isRankerEligible(t: Trade, keys: PairLabFieldKeys): boolean {
 export function rankerEligibleTrades(trades: Trade[], keys: PairLabFieldKeys): Trade[] {
   return trades
     .filter((t) => isRankerEligible(t, keys))
-    .sort((a, b) => String(a.entry_time ?? "").localeCompare(String(b.entry_time ?? "")));
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
 }
 
 /** Non-mutating audit of why trades didn't make the ranker pool. Powers the

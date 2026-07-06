@@ -277,7 +277,11 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
   }, [perCell, perRow]);
 
   const fdrFor = (b: BucketReport | null): "sig" | "ns" | null => {
-    if (!b || b.n < 10 || !(b.expectedR > 0) || b.expectancyPValue == null) return null;
+    // P2-A: negative-E cells participated in the BH family (they must, for the
+    // correction denominator to be honest), so they should show `ns` — not be
+    // hidden. Hiding them made the effective α threshold invisible: users saw
+    // only winners and could not tell how many tests the correction ran over.
+    if (!b || b.n < 10 || b.expectancyPValue == null) return null;
     return fdrByKey.get(`${b.key.symbol}__${b.key.session}`) ?? null;
   };
 

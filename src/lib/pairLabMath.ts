@@ -375,6 +375,10 @@ export interface BuildBucketsOpts {
   recentN?: number;
   /** When false (default) excludes ideas/paper/missed/dismissed/zero-PnL setup rows from every stat. */
   includeUnrealized?: boolean;
+  /** P1-B: skip the embedded walk-forward inside `computeBucket`. The OOS panel
+   *  sets this on the test slice so its "Test E[R]" is the true naive held-out
+   *  expectancy, not a 70/30 split within the test half. */
+  disableWalkForward?: boolean;
 }
 
 export interface BuildBucketsResult {
@@ -424,6 +428,7 @@ export function buildBuckets(
     return true;
   });
 
+  const disableWalkForward = opts.disableWalkForward === true;
   const baseline = computeBucket(
     { symbol: "All", session: "All sessions" },
     filtered,
@@ -431,6 +436,7 @@ export function buildBuckets(
     null,
     opts.propFirm ?? null,
     recentN,
+    disableWalkForward,
   );
 
   const cellMap = new Map<string, Trade[]>();
@@ -453,7 +459,7 @@ export function buildBuckets(
   const perCell: BucketReport[] = [];
   cellMap.forEach((rows, cellKey) => {
     const [symbol, session] = cellKey.split("__");
-    const report = computeBucket({ symbol, session }, rows, keys, baseline, opts.propFirm ?? null, recentN);
+    const report = computeBucket({ symbol, session }, rows, keys, baseline, opts.propFirm ?? null, recentN, disableWalkForward);
     report.rawSymbols = Array.from(cellRawSymbols.get(cellKey) ?? []).sort();
     perCell.push(report);
   });
@@ -466,6 +472,7 @@ export function buildBuckets(
       baseline,
       opts.propFirm ?? null,
       recentN,
+      disableWalkForward,
     );
     report.rawSymbols = Array.from(rowRawSymbols.get(symbol) ?? []).sort();
     perRow.push(report);
@@ -569,6 +576,7 @@ function computeBucket(
   baseline: BucketReport | null,
   propFirm: PropFirmContext | null,
   recentN: number = 10,
+  disableWalkForward: boolean = false,
 ): BucketReport {
   // R1.1: closed-only gate via `!is_open`. The previous `net_pnl != null`
   // filter let floating-P&L on live positions enter win/loss/Kelly math.
@@ -880,7 +888,7 @@ function computeBucket(
   );
   const recommendation: BucketRecommendation = {
     ...baseRec,
-    walkForward: runWalkForward(rows, keys),
+    walkForward: disableWalkForward ? null : runWalkForward(rows, keys),
   };
 
   const sorted = [...closed].sort(

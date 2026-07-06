@@ -8,6 +8,7 @@
 import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
 import { pipSizeForSymbol, ticksToPips } from "./symbolMapping.ts";
 import { MAE_P75_WIDEN_BUFFER, TRAIL_CAPTURE_FALLBACK } from "../../../../shared/quant/config.ts";
+import { pathProbTpFirst, resolveTpFirstProb, type ReplayMode } from "../../../../shared/quant/stats.ts";
 
 
 /** Fallback when too few trades to estimate empirical trail capture.
@@ -180,7 +181,13 @@ function resolvePartialAtR(p: { atR: number; atRSource?: AtRSource }, bucket: Bu
   }
 }
 
-function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucket: BucketConstants): ReplayOutcome {
+function replayOneTrade(
+  strategy: Strategy,
+  trade: any,
+  proof: TradeProof,
+  bucket: BucketConstants,
+  replayMode: ReplayMode = "expected",
+): ReplayOutcome {
   if (strategy.useActualOutcome) {
     return proof.hasActualR ? { r: proof.rActual } : { ineligible: "no recorded r_actual" };
   }
@@ -196,7 +203,6 @@ function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucke
   } else {
     if (bucket.maeP75 == null) return { ineligible: "no MAE samples for widen rule" };
     slScale = Math.max(1, bucket.maeP75 * MAE_P75_WIDEN_BUFFER);
-
   }
   let stoppedUnderNewSl: boolean | null;
   if (proof.loggedMae != null) stoppedUnderNewSl = proof.loggedMae >= slScale;
@@ -222,6 +228,9 @@ function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucke
   let remainingFrac = 1;
   let anyFilled = false;
   let lastFilledAtR = 0;
+  /** First partial whose TP was breached by MFE. Drives the bridge probability
+   *  when the stop was ALSO breached — that's the ambiguous ordering case. */
+  let firstBreachedTpR: number | null = null;
   for (const p of resolved) {
     const needOrigR = p.atR * slScale;
     if (proof.reachedR >= needOrigR) {
@@ -230,35 +239,71 @@ function replayOneTrade(strategy: Strategy, trade: any, proof: TradeProof, bucke
       remainingFrac -= take;
       anyFilled = true;
       lastFilledAtR = p.atR;
-    } else if (stoppedUnderNewSl) {
-      // no fill
-    } else {
-      return { ineligible: `unproven ${p.atR.toFixed(2)}R target` };
+      if (firstBreachedTpR == null) firstBreachedTpR = p.atR;
     }
+    // P0-A parity: do NOT drop the trade here. Fall into the runner block
+    // below so the honest outcome is booked from proven-reached R. Previously
+    // an early `ineligible: "unproven target"` return caused survivorship
+    // bias on multi-TP presets — only trades that hit every rung survived,
+    // inflating WR and expectancy in the server-generated AI quant note.
   }
+
+  const maxTargetAtR = resolved.length ? resolved[resolved.length - 1].atR : 0;
+
   if (remainingFrac > 0) {
-    if (stoppedUnderNewSl && !anyFilled) booked += -1 * remainingFrac;
-    else if (stoppedUnderNewSl && anyFilled) {
-      if (strategy.exitRule.runner === "be_after_first_tp") booked += 0;
-      // S4.6 parity (mirrors src/lib/pairLabSimulator.ts): when the runner stopped under
-      // the new SL after a partial fill, the runner exited at the stop — not at the last TP.
-      else if (strategy.exitRule.runner === "all_out_at_last_partial") booked += -slScale * remainingFrac;
-      else {
-        if (proof.loggedMfe == null) return { ineligible: "no MFE for trail" };
+    if (stoppedUnderNewSl && !anyFilled) {
+      booked += -1 * remainingFrac;
+    } else if (stoppedUnderNewSl && anyFilled) {
+      if (strategy.exitRule.runner === "be_after_first_tp") {
+        booked += 0;
+      } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
+        // S4.6 parity: when a partial filled and price then stopped under the
+        // new SL, the runner exited at the stop — not at the previous TP.
+        booked += -slScale * remainingFrac;
+      } else {
+        if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
         const mfeNewR = proof.loggedMfe / slScale;
         booked += Math.max(-1, bucket.trailCapture * mfeNewR) * remainingFrac;
       }
     } else {
-      if (strategy.exitRule.runner === "be_after_first_tp") booked += 0;
-      else if (strategy.exitRule.runner === "all_out_at_last_partial") booked += lastFilledAtR * remainingFrac;
-      else {
-        if (proof.loggedMfe == null) return { ineligible: "no MFE for trail" };
-        booked += bucket.trailCapture * (proof.loggedMfe / slScale) * remainingFrac;
+      // Not stopped under the new SL.
+      const reachedNewR = proof.reachedR / slScale;
+      if (strategy.exitRule.runner === "be_after_first_tp") {
+        booked += 0;
+      } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
+        if (anyFilled) {
+          booked += lastFilledAtR * remainingFrac;
+        } else {
+          booked += Math.min(reachedNewR, maxTargetAtR) * remainingFrac;
+        }
+      } else {
+        if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
+        const mfeNewR = proof.loggedMfe / slScale;
+        booked += bucket.trailCapture * mfeNewR * remainingFrac;
       }
     }
   }
+
+  // P0-B — PR-1 Brownian-bridge / gambler's-ruin ordering mixture.
+  // Ambiguity only exists when at least one partial's TP was breached AND the
+  // trade also breached the new SL. Deterministic branches pass through
+  // unchanged (pStopFirst = 0). Mirrors client `src/lib/pairLabSimulator.ts`.
+  if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
+    const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
+    const mfeInNewR = mfeForBridge / slScale;
+    const maeInNewR = proof.loggedMae / slScale;
+    const pTpFirstRaw = pathProbTpFirst(firstBreachedTpR, 1, mfeInNewR, maeInNewR);
+    const pTpFirst = resolveTpFirstProb(pTpFirstRaw, replayMode);
+    const pStopFirst = 1 - pTpFirst;
+    if (pStopFirst > 0) {
+      const bookedSlFirst = -slScale;
+      booked = pTpFirst * booked + pStopFirst * bookedSlFirst;
+    }
+  }
+
   return { r: booked };
 }
+
 
 export interface PresetReplayResult {
   presetId: string;
@@ -281,9 +326,14 @@ export interface PresetReplayResult {
   biasWarning: boolean;
 }
 
-export function replayAllPresets(trades: any[], keys: PairLabFieldKeys): PresetReplayResult[] {
+export function replayAllPresets(
+  trades: any[],
+  keys: PairLabFieldKeys,
+  opts: { replayMode?: ReplayMode } = {},
+): PresetReplayResult[] {
   const all = trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
   const bucket = buildBucketConstants(all, keys);
+  const replayMode: ReplayMode = opts.replayMode ?? "expected";
 
   // First pass: replay each preset, store per-trade outcomes keyed by trade id.
   const perPreset = STRATEGY_PRESETS.map((strategy) => {
@@ -292,7 +342,7 @@ export function replayAllPresets(trades: any[], keys: PairLabFieldKeys): PresetR
     let reachedSum = 0, reachedCount = 0;
     for (const t of all) {
       const proof = extractProof(t, keys);
-      const out = replayOneTrade(strategy, t, proof, bucket);
+      const out = replayOneTrade(strategy, t, proof, bucket, replayMode);
       if ("r" in out) {
         outcomes.set(t.id, out.r);
         if (Number.isFinite(proof.reachedR)) {
