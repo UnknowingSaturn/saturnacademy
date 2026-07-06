@@ -595,18 +595,62 @@ export function StrategyRanker({
                     >
                       <td className="py-2 pr-2 font-mono-numbers text-xs text-muted-foreground">{i + 1}</td>
                       <td className="py-2 pr-2">
-                        <button
-                          type="button"
-                          onClick={toggle}
-                          aria-expanded={isOpen}
-                          className={`inline-flex items-center gap-1.5 text-left font-medium hover:underline focus:outline-none focus:ring-1 focus:ring-ring rounded ${isWinner ? "text-primary" : ""}`}
-                        >
-                          <ChevronRight
-                            className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
-                          />
-                          {r.strategy.label}
-                        </button>
+                        <div className="flex items-start gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={toggle}
+                            aria-expanded={isOpen}
+                            className={`inline-flex items-center gap-1.5 text-left font-medium hover:underline focus:outline-none focus:ring-1 focus:ring-ring rounded ${isWinner ? "text-primary" : ""}`}
+                          >
+                            <ChevronRight
+                              className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
+                            />
+                            {r.strategy.label}
+                          </button>
+                          {/* PR-4 · Fix 6 — hindsight-annotated chip on tighten-SL presets.
+                              `ideal_stop_loss` is filled post-hoc; label the caveat honestly. */}
+                          {r.strategy.slRule === "tighten_to_ideal" && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] px-1.5 py-0 h-4 border-amber-500/40 text-amber-600 dark:text-amber-400 cursor-help font-normal"
+                                >
+                                  hindsight
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                                <span className="font-medium">Hindsight-annotated sample.</span>{" "}
+                                The <code>ideal_stop_loss</code> field is filled in after the trade
+                                closes, so the eligible sample is not a random subset of the strict
+                                pool — traders log it more often on trades with obvious "should have
+                                tightened" moments. Treat the expectancy as an upper bound on the
+                                real discipline gain.
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          {/* PR-4 · Fix 2 — MAE-proxy count. When present, some rows were tightened
+                              using MAE × 1.05 as a fallback (no ideal-SL logged). */}
+                          {r.slProxyCount > 0 && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] px-1.5 py-0 h-4 border-border text-muted-foreground cursor-help font-normal font-mono-numbers"
+                                >
+                                  {r.slProxyCount} proxy-tightened
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                                {r.slProxyCount} trade{r.slProxyCount === 1 ? "" : "s"} had no{" "}
+                                <code>ideal_stop_loss</code> logged. The tightest survivable stop was
+                                inferred from MAE × 1.05 so the trade could still be scored.
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
                       </td>
+
                       <td className="py-2 px-2">
                         <Tooltip>
                           <TooltipTrigger asChild>
