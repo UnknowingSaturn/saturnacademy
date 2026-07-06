@@ -84,6 +84,10 @@ function confidenceFor(r: ReplayResult, orderingGap?: number): Confidence {
     if (tier === "high") return "medium";
     if (tier === "medium") return "low";
   }
+  // PR-4 · Fix 5 — N-cap. A narrow CI on 12 trades is still 12 trades.
+  // Cap at Low below 20; at Insufficient/none below MIN_PROVEN_SAMPLE.
+  if (r.n < MIN_PROVEN_SAMPLE) tier = "none";
+  else if (r.n < 20 && (tier === "high" || tier === "medium")) tier = "low";
   return tier;
 }
 
@@ -98,8 +102,9 @@ const CONFIDENCE_LABEL: Record<Confidence, string> = {
   high: "High",
   medium: "Medium",
   low: "Low",
-  none: "—",
+  none: "Insufficient",
 };
+
 
 function topReasons(reasons: Record<string, number>, k = 3): Array<[string, number]> {
   return Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, k);
