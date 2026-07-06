@@ -320,7 +320,7 @@ function replayOneTrade(
 ): ReplayOutcome {
   if (strategy.useActualOutcome) {
     if (!proof.hasActualR) return { ineligible: "no recorded r_actual" };
-    return { r: proof.rActual, slPips: slDistancePips(trade) };
+    return { r: proof.rActual, slPips: slDistancePips(trade), slScale: 1 };
   }
 
   // BE-after-TP runner needs at least one partial to have a TP to move stops
