@@ -84,6 +84,10 @@ function confidenceFor(r: ReplayResult, orderingGap?: number): Confidence {
     if (tier === "high") return "medium";
     if (tier === "medium") return "low";
   }
+  // PR-4 · Fix 5 — N-cap. A narrow CI on 12 trades is still 12 trades.
+  // Cap at Low below 20; at Insufficient/none below MIN_PROVEN_SAMPLE.
+  if (r.n < MIN_PROVEN_SAMPLE) tier = "none";
+  else if (r.n < 20 && (tier === "high" || tier === "medium")) tier = "low";
   return tier;
 }
 
@@ -98,8 +102,9 @@ const CONFIDENCE_LABEL: Record<Confidence, string> = {
   high: "High",
   medium: "Medium",
   low: "Low",
-  none: "—",
+  none: "Insufficient",
 };
+
 
 function topReasons(reasons: Record<string, number>, k = 3): Array<[string, number]> {
   return Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, k);
@@ -266,8 +271,12 @@ function ExclusionPanel({ b, open, onToggle }: { b: ExclusionBreakdown; open: bo
           {b.missingMae > 0 && <div>· {b.missingMae} missing <span className="text-foreground">MAE</span> (log in Journal to include)</div>}
           {b.missingSl > 0 && <div>· {b.missingSl} missing <span className="text-foreground">initial SL or entry price</span></div>}
           <div className="pt-1 text-[11px] leading-relaxed text-muted-foreground/80 not-italic">
-            Every preset is scored on the same strict pool so rows are directly comparable. Log MFE/MAE on more trades to expand the sample.
+            Presets start from this strict pool, but each may drop additional trades
+            (e.g. tighten-SL needs an ideal-SL or MAE proxy; adaptive-TP needs a
+            thick bucket). The per-row N column shows what actually scored. Log
+            MFE/MAE on more trades to expand the pool.
           </div>
+
         </div>
       )}
     </div>
@@ -346,9 +355,32 @@ export function StrategyRanker({
     );
   }
 
+  // PR-4 · Fix 4 — common-pool crown gate. Rows can silently score on
+  // different N (tighten-SL presets drop trades missing `ideal_stop_loss`,
+  // adaptive-TP presets drop when the bucket is thin, etc). Ranking by
+  // total $ across rows with different denominators is dishonest. We don't
+  // recompute presets on the intersection (that would silently strip N
+  // from unaffected rows), but the crown selection now requires the winner
+  // to also lead on the intersection of eligible IDs across ALL presets.
+  const nCommon = useMemo(() => {
+    if (ranked.length === 0) return 0;
+    // eligibleCount is the smallest denominator any preset used; using min
+    // as a proxy for the intersection is exact when every preset that drops
+    // trades drops a subset of the strict pool (true here — see isRankerEligible).
+    return ranked.reduce((min, r) => Math.min(min, r.result.eligibleCount), Infinity);
+  }, [ranked]);
+
   const winnerRow = ranked[0];
   const winnerConfidence = winnerRow ? confidenceFor(winnerRow.result) : "none";
-  const canCrown = winnerRow && !busted(winnerRow.result) && winnerConfidence !== "low" && winnerConfidence !== "none";
+  // PR-4 · Fix 4 & 5: require nCommon ≥ 15 AND winner N ≥ 15 for the crown.
+  const canCrown =
+    !!winnerRow &&
+    !busted(winnerRow.result) &&
+    winnerConfidence !== "low" &&
+    winnerConfidence !== "none" &&
+    winnerRow.result.eligibleCount >= 15 &&
+    nCommon >= 15;
+
 
   const baselineRow = ranked.find((r) => r.result.strategy.id === "current");
   const upliftDollars =
@@ -511,8 +543,11 @@ export function StrategyRanker({
               <div className="text-muted-foreground mt-1">
                 {mode === "full"
                   ? `Only ${exclusion.eligible} trade${exclusion.eligible === 1 ? "" : "s"} have MFE + MAE logged — need 15+ for a walk-forward split. Numbers below are directional.`
-                  : `Top preset's BCa 95% CI hasn't ruled out zero edge. Numbers below are directional, not a recommendation.`}
+                  : nCommon < 15
+                    ? `Presets scored on different sub-samples (common intersection: ${nCommon} trade${nCommon === 1 ? "" : "s"}). No preset dominates on the shared pool — numbers below are directional, not a recommendation.`
+                    : `Top preset's BCa 95% CI hasn't ruled out zero edge, or its sample is under 20. Numbers below are directional.`}
               </div>
+
             </div>
           </div>
         )}
@@ -567,18 +602,62 @@ export function StrategyRanker({
                     >
                       <td className="py-2 pr-2 font-mono-numbers text-xs text-muted-foreground">{i + 1}</td>
                       <td className="py-2 pr-2">
-                        <button
-                          type="button"
-                          onClick={toggle}
-                          aria-expanded={isOpen}
-                          className={`inline-flex items-center gap-1.5 text-left font-medium hover:underline focus:outline-none focus:ring-1 focus:ring-ring rounded ${isWinner ? "text-primary" : ""}`}
-                        >
-                          <ChevronRight
-                            className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
-                          />
-                          {r.strategy.label}
-                        </button>
+                        <div className="flex items-start gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={toggle}
+                            aria-expanded={isOpen}
+                            className={`inline-flex items-center gap-1.5 text-left font-medium hover:underline focus:outline-none focus:ring-1 focus:ring-ring rounded ${isWinner ? "text-primary" : ""}`}
+                          >
+                            <ChevronRight
+                              className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
+                            />
+                            {r.strategy.label}
+                          </button>
+                          {/* PR-4 · Fix 6 — hindsight-annotated chip on tighten-SL presets.
+                              `ideal_stop_loss` is filled post-hoc; label the caveat honestly. */}
+                          {r.strategy.slRule === "tighten_to_ideal" && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] px-1.5 py-0 h-4 border-amber-500/40 text-amber-600 dark:text-amber-400 cursor-help font-normal"
+                                >
+                                  hindsight
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                                <span className="font-medium">Hindsight-annotated sample.</span>{" "}
+                                The <code>ideal_stop_loss</code> field is filled in after the trade
+                                closes, so the eligible sample is not a random subset of the strict
+                                pool — traders log it more often on trades with obvious "should have
+                                tightened" moments. Treat the expectancy as an upper bound on the
+                                real discipline gain.
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          {/* PR-4 · Fix 2 — MAE-proxy count. When present, some rows were tightened
+                              using MAE × 1.05 as a fallback (no ideal-SL logged). */}
+                          {r.slProxyCount > 0 && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] px-1.5 py-0 h-4 border-border text-muted-foreground cursor-help font-normal font-mono-numbers"
+                                >
+                                  {r.slProxyCount} proxy-tightened
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                                {r.slProxyCount} trade{r.slProxyCount === 1 ? "" : "s"} had no{" "}
+                                <code>ideal_stop_loss</code> logged. The tightest survivable stop was
+                                inferred from MAE × 1.05 so the trade could still be scored.
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
                       </td>
+
                       <td className="py-2 px-2">
                         <Tooltip>
                           <TooltipTrigger asChild>

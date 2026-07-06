@@ -160,7 +160,12 @@ export interface ReplayResult {
   expectancyRCiBCa: [number, number] | null;
   /** Composite score used by the ranker to sort (higher = better). */
   compositeScore: number | null;
+  /** PR-4 · Fix 2 — count of trades where `tighten_to_ideal` used the MAE proxy
+   *  (no `ideal_stop_loss` logged, so the tightest survivable stop was derived
+   *  from MAE × 1.05). 0 on presets that don't use tighten_to_ideal. */
+  slProxyCount: number;
 }
+
 
 
 export const SL_RULE_LABELS: Record<SlRule, string> = {
@@ -279,14 +284,24 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
 // Single-trade proof-based replay
 // ----------------------------------------------------------------------------
 
-type ReplayOutcome = { r: number; slPips: number | null; slScale: number } | { ineligible: string };
+type ReplayOutcome =
+  | { r: number; slPips: number | null; slScale: number; slProxy: boolean }
+  | { ineligible: string };
 
 interface BucketConstants {
   maeP75: number | null;
   mfeP50: number | null;
   mfeP60: number | null;
   mfeP75: number | null;
+  /** PR-4 · Fix 7 — MFE sample count. Adaptive-TP presets refuse to fit
+   *  a bucket percentile when this is below MIN_BUCKET_N. */
+  nMfe: number;
 }
+
+/** PR-4 · Fix 7 — minimum bucket sample count for adaptive-TP presets.
+ *  Fitting a p60 on ~7 samples is noise, not adaptation. */
+const MIN_BUCKET_N_ADAPTIVE = 20;
+
 
 interface ReplayContext {
   bucket: BucketConstants;
@@ -311,19 +326,24 @@ function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketCo
     mfeP50: quantile(mfes, 0.5),
     mfeP60: quantile(mfes, 0.6),
     mfeP75: quantile(mfes, 0.75),
+    nMfe: mfes.length,
   };
 }
 
 /** Resolve a partial's atR, honoring bucket-adaptive sources. Returns null when
- *  the bucket lacks the required stat (caller marks the trade ineligible). */
+ *  the bucket lacks the required stat OR — PR-4 · Fix 7 — when a bucket-adaptive
+ *  source is asked to fit fewer than `MIN_BUCKET_N_ADAPTIVE` MFE samples. */
 function resolvePartialAtR(p: { atR: number; atRSource?: AtRSource }, bucket: BucketConstants): number | null {
-  switch (p.atRSource ?? "fixed") {
+  const src = p.atRSource ?? "fixed";
+  if (src !== "fixed" && bucket.nMfe < MIN_BUCKET_N_ADAPTIVE) return null;
+  switch (src) {
     case "bucket_mfe_p50": return bucket.mfeP50 != null && bucket.mfeP50 > 0 ? bucket.mfeP50 : null;
     case "bucket_mfe_p60": return bucket.mfeP60 != null && bucket.mfeP60 > 0 ? bucket.mfeP60 : null;
     case "bucket_mfe_p75": return bucket.mfeP75 != null && bucket.mfeP75 > 0 ? bucket.mfeP75 : null;
     default: return p.atR;
   }
 }
+
 
 
 function replayOneTrade(
@@ -334,7 +354,7 @@ function replayOneTrade(
 ): ReplayOutcome {
   if (strategy.useActualOutcome) {
     if (!proof.hasActualR) return { ineligible: "no recorded r_actual" };
-    return { r: proof.rActual, slPips: slDistancePips(trade), slScale: 1 };
+    return { r: proof.rActual, slPips: slDistancePips(trade), slScale: 1, slProxy: false };
   }
 
   // BE-after-TP runner needs at least one partial to have a TP to move stops
@@ -350,15 +370,30 @@ function replayOneTrade(
   }
 
   let slScale: number;
+  let slProxy = false;
   if (strategy.slRule === "original") {
     slScale = 1;
   } else if (strategy.slRule === "tighten_to_ideal") {
-    if (proof.idealSlScale == null) return { ineligible: "missing SL/entry or ideal-SL — can't convert ticks to R" };
-    slScale = proof.idealSlScale;
+    if (proof.idealSlScale != null) {
+      slScale = proof.idealSlScale;
+    } else if (proof.loggedMae != null) {
+      // PR-4 · Fix 2 — MAE proxy fallback. `ideal_stop_loss` is a hindsight
+      // annotation; when it's missing but MAE is present we can still bound
+      // the tightest survivable stop at `loggedMae × 1.05` (5% cushion so
+      // wick-perfect losers still count as stopped). Capped at 1 so the
+      // "tightened" stop is never wider than the original. Flag the trade
+      // so the UI can show a `k proxy-tightened` chip and users see how
+      // much of the row is real ideal-SL vs inferred.
+      slScale = Math.min(1, Math.max(0.1, proof.loggedMae * 1.05));
+      slProxy = true;
+    } else {
+      return { ineligible: "missing SL/entry or ideal-SL — can't convert ticks to R" };
+    }
   } else {
     if (ctx.bucket.maeP75 == null) return { ineligible: "no MAE samples in bucket for widen rule" };
     slScale = Math.max(1, ctx.bucket.maeP75 * MAE_P75_WIDEN_BUFFER);
   }
+
 
   let stoppedUnderNewSl: boolean | null;
   if (proof.loggedMae != null) {
@@ -377,12 +412,17 @@ function replayOneTrade(
   // Resolve each partial's effective atR (bucket-adaptive presets may override).
   const resolved: Array<{ atR: number; fraction: number }> = [];
   for (const p of strategy.exitRule.partials) {
+    const src = p.atRSource ?? "fixed";
     const atR = resolvePartialAtR(p, ctx.bucket);
     if (atR == null) {
-      return { ineligible: `bucket has no MFE samples for adaptive TP (${p.atRSource})` };
+      if (src !== "fixed" && ctx.bucket.nMfe < MIN_BUCKET_N_ADAPTIVE) {
+        return { ineligible: `bucket too thin for adaptive TP (n=${ctx.bucket.nMfe}, need ${MIN_BUCKET_N_ADAPTIVE})` };
+      }
+      return { ineligible: `bucket has no MFE samples for adaptive TP (${src})` };
     }
     resolved.push({ atR, fraction: p.fraction });
   }
+
   resolved.sort((a, b) => a.atR - b.atR);
 
   let booked = 0;
@@ -432,11 +472,15 @@ function replayOneTrade(
       // Not stopped under the new SL.
       const reachedNewR = proof.reachedR / slScale;
       if (strategy.exitRule.runner === "be_after_first_tp") {
-        // Runner sat at BE (if a TP filled) or at the original SL (if no TP
-        // filled — BE was never armed). Either way, on a non-stopped trade
-        // that didn't fully complete the ladder, 0 is the conservative
-        // book — we don't know where the trader would have manually exited.
-        booked += 0;
+        // PR-4 · Fix 3 — cap-MFE Bayesian floor. Previously booked exactly 0
+        // for any non-stopped, non-filled trade. That "conservative zero"
+        // silently discarded real proven excursion (a 1.5R MFE trade under a
+        // 2R BE preset was booked as 0). Half-credit the proven-reached R up
+        // to the ladder cap: matches how trail runners already handle the
+        // same situation, and matches what a disciplined manual exit near
+        // the ladder would have produced on average.
+        booked += 0.5 * Math.min(reachedNewR, maxTargetAtR) * remainingFrac;
+
       } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
         if (anyFilled) {
           booked += lastFilledAtR * remainingFrac;
@@ -482,7 +526,7 @@ function replayOneTrade(
 
   const baseSlPips = slDistancePips(trade);
   const slPipsApplied = baseSlPips != null ? baseSlPips * slScale : null;
-  return { r: booked, slPips: slPipsApplied, slScale };
+  return { r: booked, slPips: slPipsApplied, slScale, slProxy };
 }
 
 // ----------------------------------------------------------------------------
@@ -504,7 +548,8 @@ export const MIN_ELIGIBLE_SAMPLE = 10;
 
 function buildResult(
   strategy: Strategy,
-  replayed: Array<{ trade: Trade; r: number; reachedR?: number; slPips?: number | null; slScale?: number }>,
+  replayed: Array<{ trade: Trade; r: number; reachedR?: number; slPips?: number | null; slScale?: number; slProxy?: boolean }>,
+
   ineligibleReasons: Record<string, number>,
   totalTradeCount: number,
   opts: ReplayOpts,
@@ -651,8 +696,10 @@ function buildResult(
     slRuleLabel: SL_RULE_LABELS[strategy.slRule],
     runnerLabel: RUNNER_LABELS[strategy.exitRule.runner],
     compositeScore,
+    slProxyCount: replayed.reduce((s, x) => s + (x.slProxy ? 1 : 0), 0),
   };
 }
+
 
 
 
@@ -696,13 +743,13 @@ export function replayBucket(
   const all = preparedTrades(trades);
   const bucket = buildBucketConstants(all, keys);
   const ctx = ctxFor(opts, bucket);
-  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number; slProxy: boolean }> = [];
   const reasons: Record<string, number> = {};
 
   for (const t of all) {
     const proof = extractProof(t, keys);
     const out = replayOneTrade(strategy, t, proof, ctx);
-    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale, slProxy: out.slProxy });
     else reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
   }
 
@@ -872,7 +919,7 @@ export function walkForwardKFold(
   const foldEnd = (i: number) => Math.ceil((all.length * (i + 1)) / k);
   if (foldEnd(0) < 2) return null;
 
-  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number; slProxy: boolean }> = [];
   const reasons: Record<string, number> = {};
   // Track the last fold's bucket for the displayed TP ladder (represents the
   // most recent train-slice inference — what the user's next trade would use).
@@ -895,7 +942,7 @@ export function walkForwardKFold(
       const proof = extractProof(t, keys);
       const out = replayOneTrade(strategy, t, proof, ctx);
       if ("r" in out) {
-        replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+        replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale, slProxy: out.slProxy });
       } else {
         reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
       }
@@ -951,12 +998,12 @@ export function rankStrategies(
         const bucket = buildBucketConstants(isSlice, keys);
         const trailCapture = estimateTrailCaptureLocal(isSlice, keys);
         const ctx: ReplayContext = { bucket, trailCapture, replayMode: opts.replayMode ?? "expected" };
-        const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+        const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number; slProxy: boolean }> = [];
         const reasons: Record<string, number> = {};
         for (const t of oosSlice) {
           const proof = extractProof(t, keys);
           const out = replayOneTrade(s, t, proof, ctx);
-          if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+          if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale, slProxy: out.slProxy });
           else reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
         }
         const ladder = buildAppliedTpLadder(s, bucket);
@@ -1061,12 +1108,12 @@ export function walkForwardEvaluate(
   const isBucket = buildBucketConstants(isTrades, keys);
   const isTrailCapture = estimateTrailCaptureLocal(isTrades, keys);
   const oosCtx: ReplayContext = { bucket: isBucket, trailCapture: isTrailCapture, replayMode: opts.replayMode ?? "expected" };
-  const oosReplayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+  const oosReplayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number; slProxy: boolean }> = [];
   const oosReasons: Record<string, number> = {};
   for (const t of oosTrades) {
     const proof = extractProof(t, keys);
     const out = replayOneTrade(winner.strategy, t, proof, oosCtx);
-    if ("r" in out) oosReplayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+    if ("r" in out) oosReplayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale, slProxy: out.slProxy });
     else oosReasons[out.ineligible] = (oosReasons[out.ineligible] ?? 0) + 1;
   }
   const oosLadder = buildAppliedTpLadder(winner.strategy, isBucket);
