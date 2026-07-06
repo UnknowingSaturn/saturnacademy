@@ -878,7 +878,7 @@ export function walkForwardKFold(
     const bucket = buildBucketConstants(trainSlice, keys);
     lastBucket = bucket;
     const trailCapture = estimateTrailCaptureLocal(trainSlice, keys);
-    const ctx: ReplayContext = { bucket, trailCapture };
+    const ctx: ReplayContext = { bucket, trailCapture, replayMode: opts.replayMode ?? "expected" };
 
     for (const t of testSlice) {
       const proof = extractProof(t, keys);
