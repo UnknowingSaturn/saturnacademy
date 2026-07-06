@@ -291,6 +291,9 @@ interface BucketConstants {
 interface ReplayContext {
   bucket: BucketConstants;
   trailCapture: number;
+  /** Path-ordering assumption when a trade breaches both counterfactual TP and SL.
+   *  See `pathProbTpFirst` in shared/quant/stats.ts. Defaults to "expected". */
+  replayMode: ReplayMode;
 }
 
 function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketConstants {
