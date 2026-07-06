@@ -28,6 +28,7 @@ import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLab
 import { bootstrapMeanCiBCa, pathProbTpFirst, resolveTpFirstProb, type ReplayMode } from "../../shared/quant/stats";
 export type { ReplayMode } from "../../shared/quant/stats";
 import { pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
+import { ensureUtcMs } from "@/lib/time";
 import {
   MAE_P75_WIDEN_BUFFER,
   TRAIL_CAPTURE_FALLBACK,
