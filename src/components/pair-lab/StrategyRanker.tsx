@@ -618,14 +618,38 @@ export function StrategyRanker({
                         {insufficient ? (
                           <span className="text-muted-foreground text-xs">need ≥{MIN_PROVEN_SAMPLE}</span>
                         ) : (
-                          <span>
-                            {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
-                            {ci && (
-                              <span className="text-muted-foreground text-xs">
-                                {" "}({ci[0].toFixed(2)}→{ci[1].toFixed(2)})
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span>
+                              {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
+                              {ci && (
+                                <span className="text-muted-foreground text-xs">
+                                  {" "}({ci[0].toFixed(2)}→{ci[1].toFixed(2)})
+                                </span>
+                              )}
+                            </span>
+                            {sens && orderingGap != null && orderingGap >= 0.05 && (
+                              <span
+                                className={
+                                  "text-[10px] font-mono-numbers " +
+                                  (orderingSensitive
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : "text-muted-foreground")
+                                }
+                                title={
+                                  `Ambiguous-trade ordering range. Pessimistic assumes SL-first on trades where MFE ≥ TP AND MAE ≥ SL; ` +
+                                  `Optimistic assumes TP-first. Gap ${orderingGap.toFixed(2)}R` +
+                                  (orderingSensitive
+                                    ? ` exceeds half the BCa CI width (${ciHalfWidth?.toFixed(2)}R) — ranking is more sensitive to intraday path than to sampling noise. Tier downgraded.`
+                                    : ` is smaller than half the BCa CI width — sampling noise dominates.`)
+                                }
+                              >
+                                range {sens.pessimistic >= 0 ? "+" : ""}{sens.pessimistic.toFixed(2)}
+                                {" → "}
+                                {sens.optimistic >= 0 ? "+" : ""}{sens.optimistic.toFixed(2)}R
+                                {orderingSensitive && " · ordering sensitive"}
                               </span>
                             )}
-                          </span>
+                          </div>
                         )}
                       </td>
                       <td className="py-2 px-2 text-right font-mono-numbers">
