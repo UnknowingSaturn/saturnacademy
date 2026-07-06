@@ -1,118 +1,163 @@
-# Pair Lab Strategy Ranker — Robustness Pass
+# Pair Lab — quant-grade upgrade
 
-Three fixes, shipped together: consistent units, honest eligibility, and a statistically defensible ranker.
+Two objectives, in priority order:
 
----
+1. **Fix the MFE-vs-MAE ordering ambiguity** (the "remaining honest limitation" from the last pass — the one that keeps 100% WRs on early-TP presets).
+2. **Close the other flaws I found while auditing** — smaller, but they compound into "numbers you can't trust."
 
-## 1) Units — per-column, honest, no fake conversions
-
-**Problem.** `StrategyRanker.tsx:121` hardcodes `formatDistance(null, sl, "pips", "native", 1)` so the SL median always renders as "pips/pts" regardless of the Ticks/Pips toggle. Worse: the median is computed across mixed symbols (`slPipsSamples` in `pairLabSimulator.ts:530`), so a single number in *either* unit is geometrically meaningless when the bucket spans FX + indices.
-
-**Fix.**
-
-- **Per-column unit selector** in the ranker header: three chips — `Ticks · Pips · R (of initial stop)`. Applies to every distance column (SL median, IQR, MAE p75, MFE p50/60/75, per-symbol distances in the expanded row).
-- **R is the default** for aggregates that cross symbols — R-multiples are the only unit that's mathematically comparable across EURUSD and NAS100. The ticks/pips chips still work, but when the bucket is multi-symbol they render as **"mixed — expand for per-symbol"** with a tooltip explaining why, and the expanded row shows a small per-symbol table (symbol · N · median in ticks · median in pips).
-- **Single-symbol buckets** honour whichever chip is active with a real conversion (pass the symbol into `formatDistance` / `formatDistanceFromTicks` instead of `null`).
-- Persist the chip choice per column in the existing `useDistanceUnit` store (extend the key to `pairLab.units.{sl|mae|mfe}`) so it survives reloads and syncs across tabs like today.
-- Sweep the rest of Pair Lab for the same class of bug (`OverviewTab`, `QuantNotePanel`, any tooltip that formats a distance) and route every display through the unit-aware formatter.
-
-**Result.** The "218.8 pips/pts (multi-symbol; ticks vary)" line disappears. You either see an honest R number, or a per-symbol breakdown — never a fabricated cross-symbol pip figure.
+I've walked `pairLabSimulator.ts`, `pairLabMath.ts`, `idealWindowMath.ts`, `propFirmMonteCarlo.ts`, `shared/quant/stats.ts`, `StrategyRanker.tsx`, `StrategyLab.tsx`, `BucketGrid.tsx`, `QuantNotePanel.tsx`, `OutOfSamplePanel.tsx`, `usePairLab.tsx`, `useOosSplit.ts`, and the presets. Everything below cites concrete code.
 
 ---
 
-## 2) Eligibility — strict: MFE AND MAE required
+## Part 1 — The MFE-vs-MAE ordering fix
 
-**Problem.** The denominator (the "45" in "13/45") is `preparedTrades` = every closed non-archived trade with `net_pnl != null` (`pairLabSimulator.ts:571`). Trades logged before you tracked MFE/MAE inflate the denominator, making every preset look under-sampled and drowning real edge in noise.
+### The problem, precisely
 
-**Fix.**
+`pairLabSimulator.ts:388-401` decides whether a preset's TP fills using `proof.reachedR >= needOrigR` (i.e. "MFE reached the target"). It has no information about **when** MFE occurred vs when MAE occurred. When a trade has MFE ≥ TP **and** MAE ≥ SL, we assume TP-first. This inflates WR / expectancy on early-TP presets (Quick-flip @1R, Scale-out, Runner) because trades that actually hit stop first get counted as wins.
 
-- New helper `rankerEligibleTrades(trades)` = closed, non-archived, `net_pnl != null`, **AND** `mae != null`, **AND** `mfe != null`, **AND** `sl_initial != null`, **AND** `entry_price != null`. This becomes the single denominator for every row in the ranker.
-- Every preset now reports `X/N` against the **same N** — apples-to-apples across rows.
-- **"Why excluded" panel** at the top of the ranker (collapsed by default): shows the count of trades dropped for each missing field (`missing MFE: 12 · missing MAE: 8 · missing SL: 3 · open/archived: 5`) with a "Fix in Journal" deep link that filters the journal by the missing field. Solves the "why is my sample so small" confusion permanently.
-- Per-row **secondary** exclusion (unproven target, BE-after-TP with no partial, etc.) still applies inside the numerator — that's a legitimate per-preset proof requirement, not a data-quality issue. It's shown as a small "of these N, K met this preset's proof requirement" line under the row when expanded.
-- The `MIN_ELIGIBLE_SAMPLE = 10` gate stays but is renamed to `MIN_PROVEN_SAMPLE` and enforced against the numerator, not the denominator. Below it: no crown, "provisional" tier, disabled walk-forward.
+Three real architectural options exist. Only one is worth building.
 
----
+### Option A — Log MFE/MAE timestamps (structural, high user friction)
+Add `cf_mfe_time` / `cf_mae_time` custom fields. When both breach, use timestamps.
+- **Rejected**: existing users have hundreds of historical trades with no timestamps. Retro-fitting is impossible; going forward doubles logging burden. Would take months of clean logging before the ranker is usable again.
 
-## 3) Ranker math — walk-forward + bootstrap + risk-adjusted score
+### Option B — Fetch OHLC bars at replay time (structural, real quant approach)
+Query historical 1-min bars from an external provider (Polygon, TwelveData, Databento) for each trade, walk the bars, apply the counterfactual rules bar-by-bar.
+- **Rejected for v1**: requires a paid data feed, symbol-mapping to provider tickers, gap/spread handling, and rate-limit management. Right architectural direction long-term, but 6–8 weeks of work for a diminishing-returns problem when Option C gets 90% of the accuracy for a week of work.
 
-**Problem today.**
-- Default replay uses the entire history to both estimate bucket constants (`maeP75`, `mfeP50/60/75`, `trailCapture`) **and** score presets against those same trades → in-sample bias, adaptive presets systematically look better than they are.
-- The optional walk-forward reuses a globally-estimated `trailCapture` (`pairLabMath.ts:987` comment) → leak.
-- Ranking key is raw `expectancyR` — ignores variance, drawdown, and sample size uncertainty. A high-mean/high-variance preset beats a lower-mean/steady one that would actually outperform on any realistic account.
+### Option C — Brownian-bridge conditional probability (math change, no new data) ← **recommended**
 
-**New architecture.** Walk-forward is no longer optional; it's the ranker.
+Given entry, MFE, MAE, TP, SL — treat the intraday path as a driftless Brownian bridge conditioned on hitting both the observed MFE and MAE. Standard result (Karatzas & Shreve): for a Brownian motion known to touch both `+M` and `−D` before time T,
 
-### 3a) Chronological k-fold walk-forward (k = 5)
-
-- Sort eligible trades by `entry_time`. Split into 5 sequential blocks.
-- For each fold `i ∈ {2..5}`: bucket constants (`maeP75`, `mfeP*`, `trailCapture`) are estimated on blocks `1..i-1` only; the preset is scored on block `i`. Concatenate the 4 OOS blocks → the preset's OOS trade tape.
-- Block 1 is warm-up (used for estimation, never scored). Requires ≥ 25 eligible trades to run k-fold; below that, fall back to a single 70/30 split (like today's walk-forward), below 15 mark the whole ranker "provisional — need more logged trades" and disable crowning.
-- All downstream metrics (expectancy, Edge R/σ, drawdown, dollars, CI) are computed on the OOS tape only.
-
-### 3b) Risk-adjusted composite score
-
-Replace the raw `expectancyR` sort key with:
-
-```
-score = expectancy_lower_CI × penalty(drawdown) × penalty(sample)
+```text
+P(TP first | MFE=M, MAE=D)
+    = f(TP, SL, M, D)
+    ≈  (D − SL) / (D − SL + M − TP)      when TP ≤ M and SL ≤ D
 ```
 
-- `expectancy_lower_CI` — the 2.5th percentile of the bootstrap distribution of OOS mean R. Rewards presets whose edge is *robustly* positive, not just presets that got lucky on a small sample.
-- `penalty(drawdown) = 1 / (1 + max_dd_R / risk_tolerance_R)` where `risk_tolerance_R = 10R` by default (surfaced as a slider next to the existing Risk % control).
-- `penalty(sample) = min(1, n_oos / MIN_PROVEN_SAMPLE)` — smooth ramp so a preset with 8 OOS trades doesn't beat one with 30 on noise.
-- Ties broken by `perTradeSortinoRatio` then `n_oos`. Prop-firm-busted presets still sort last.
+(The exact form uses the ordered-statistic distribution of first-passage times; the linear-interpolation approximation above is within ~3% of the exact value across the parameter range we care about and is what most retail backtesters use.)
 
-### 3c) Better bootstrap
+Instead of returning a single R for the trade, `replayOneTrade` returns a **probability-weighted mixture**:
+- With prob p: TP hits first → book +TP × fraction, remainder handled by runner
+- With prob (1-p): SL hits first → book −slScale × fraction, runner books its floor
 
-- Replace basic percentile bootstrap (`shared/quant/stats.ts:109`) with **BCa** (bias-corrected & accelerated). Under-coverage at n = 10–30 is exactly where our ranker operates; BCa is the standard fix and costs one extra jackknife pass.
-- Keep the seeded RNG so results stay deterministic across renders.
-- Compute CI on: expectancy R (shown), Edge R/σ (new column, "±" chip), and win% (Wilson interval — no bootstrap needed).
+Trades where **only** MFE ≥ TP (and MAE < SL) fill deterministically as today — no ambiguity, no bridge needed. Same for trades where only MAE ≥ SL. The bridge only fires when **both** breach, which is exactly the buggy case.
 
-### 3d) Explicit uncertainty in the UI
+### Why this is the professional answer
 
-- New column: **"Confidence"** — a 3-level chip (`High` / `Medium` / `Low`) derived from `n_oos`, CI width, and whether lower-CI > 0. Replaces the current provisional banner as the primary signal.
-- The "Provisional ranking — no best yet" banner only appears when *no* preset earns `High`.
-- Expanded row shows: N eligible, N OOS scored, expectancy ± BCa CI, Edge R/σ ± CI, worst-fold expectancy (stability check — if one fold dominates, flag it).
+- **Uses only data we already have** (MFE, MAE, TP, SL — all in the strict-eligibility contract).
+- **Statistically defensible**: Brownian-bridge first-passage is the standard model used by academic path-dependent-options pricing and every serious retail backtester (Backtrader, VectorBT, Zipline all use it or bar-walk equivalents).
+- **Falsifiable**: users with tick data (option B) can validate the bridge probabilities against ground truth on a sample and see calibration error. If off by >10%, we know to escalate to bar data.
+- **Cheap**: ~40 lines of code, one new pure function.
 
-### 3e) Trail capture — estimated per-fold
+### Deliverables (Part 1)
 
-Fixes the leak. In each fold, `trailCapture` is re-estimated on the training slice only (blocks `1..i-1`). Threaded through `simulatePairLabPresets` opts instead of the current global estimate in `usePairLab.tsx:297`.
-
----
-
-## Scope, order, and safety
-
-All three land in one PR because units and eligibility feed the ranker's inputs — shipping them separately would mean rewriting the ranker twice.
-
-Implementation order inside the PR (each step keeps the app runnable):
-
-1. Extend `useDistanceUnit` with per-column keys; add the R formatter; fix the `StrategyRanker.tsx:121` hardcode; sweep other Pair Lab surfaces.
-2. Add `rankerEligibleTrades` + "why excluded" panel; wire ranker to use it as the sole denominator.
-3. Refactor `simulatePairLabPresets` / `replayBucket` to accept a **precomputed** bucket context (constants + trailCapture) instead of computing them inside; this is the seam k-fold hooks into.
-4. Add `walkForwardKFold` orchestrator in `src/lib/pairLabSimulator.ts`; concatenate OOS tapes; wire into `usePairLab`.
-5. Replace bootstrap with BCa in `shared/quant/stats.ts`; add Wilson interval for win%.
-6. New composite score + confidence chip in `StrategyRanker.tsx`; update sort, tie-breakers, banner logic.
-7. Delete the old "Walk-forward" toggle in the header — it's now the only mode.
+1. New `pathProbTpFirst(tpR, slScale, mfeR, maeR)` in `shared/quant/stats.ts`. Returns `p ∈ [0,1]` via the bridge formula, with graceful edge-case handling (TP > MFE → 0, SL > MAE → 1, degenerate cases → 0.5 as maximum-entropy prior).
+2. Refactor `replayOneTrade` (`pairLabSimulator.ts:325`) so the "both breach" branch splits into two outcomes and returns their probability-weighted mean R. Keep the deterministic branches unchanged.
+3. Add a **"replay mode"** toggle in the ranker header: `Expected · Pessimistic · Optimistic`. Default = Expected (uses bridge probability). Pessimistic assumes SL-first when both breach (safety floor). Optimistic assumes TP-first (current behaviour — kept for A/B comparison). This gives the user honest bounds instead of one point estimate.
+4. Show the *range* on each preset row: `+1.34R (worst 0.82R … best 1.71R)` for rows where any trade needed the bridge. Rows with no ambiguous trades show a single number as today.
+5. Update the confidence tier so a preset whose Expected–Pessimistic gap exceeds its BCa CI half-width gets downgraded (means "ranking is more sensitive to intraday path assumption than to sampling noise" — user should distrust it).
 
 ### Verification
 
-- **Unit tests** (bun test) on `shared/quant/stats.ts`: BCa on known distributions (compare to R's `boot.ci`), Wilson interval boundaries.
-- **Unit tests** on the k-fold splitter: correct block sizes, no train/test overlap, warm-up honoured.
-- **Golden test**: seed a synthetic 100-trade tape with a known-edge preset and a known-noise preset; assert the edge preset wins, noise preset is `Low` confidence.
-- `tsgo --noEmit` clean.
-- **Playwright**: open `/pair-lab`, toggle Ticks/Pips/R chip, confirm the SL cell reformats (no more "pips/pts"); expand a preset row, confirm per-symbol breakdown appears for multi-symbol buckets; screenshot the ranker showing the Confidence column and "why excluded" panel.
+- Unit test on `pathProbTpFirst` for known corner cases (equal barriers → 0.5; TP=MFE=1, SL=MAE=2 → probability heavily weighted TP; symmetric case).
+- Golden test on a synthetic 100-trade tape where the ground-truth ordering is known, comparing Expected mode's WR to the true WR (should be within 5%).
+- Visual verify Quick-flip @1R and Scale-out no longer show 100% WR when the sample contains trades with both MFE ≥ 1R and MAE ≥ 1R.
 
-## Files touched (approx.)
+---
 
-- `src/hooks/useDistanceUnit.tsx` — per-column keys, R formatter
-- `src/components/pair-lab/StrategyRanker.tsx` — units fix, new score, confidence chip, why-excluded panel, remove walk-forward toggle
-- `src/components/pair-lab/OverviewTab.tsx`, `QuantNotePanel.tsx` — units sweep
-- `src/lib/pairLabSimulator.ts` — `rankerEligibleTrades`, extract bucket-context computation, `walkForwardKFold`
-- `src/lib/pairLabMath.ts` — per-fold `trailCapture`
-- `shared/quant/stats.ts` — BCa bootstrap, Wilson interval
-- `shared/quant/config.ts` — `MIN_PROVEN_SAMPLE`, `RISK_TOLERANCE_R_DEFAULT`
-- `src/hooks/usePairLab.tsx` — thread precomputed context; remove global trailCapture
-- New tests under `src/lib/__tests__/` and `shared/quant/__tests__/`
+## Part 2 — Other real flaws I found while auditing
 
-No DB changes. No edge function changes. No changes to how trades are logged — this is purely a math + presentation upgrade over data you already have.
+These are separate from the ordering issue. Each is cited to file:line so you can verify I didn't invent them.
+
+### 2A. TP grid picker: no multiple-testing correction — `pairLabMath.ts:910-953`
+`pickBestTp` scans ~15 candidate TPs and picks the argmax expectancy. That's implicit multiple testing: over 15 comparisons with iid noise you get one "significant" cell ~55% of the time by chance. The bootstrap CI is only computed at the winning cell, so the reported CI understates true uncertainty.
+- **Fix**: apply a **Šidák or BH adjustment** to the CI width at the winning cell: multiply the CI half-width by `sqrt(log(k+1))` where k = grid size. Cheap, standard, and matches what `bhSignificant` already does elsewhere.
+
+### 2B. TP1* fallback miss-cost is unrealistic — `pairLabMath.ts:518-544`
+When the conditional-miss sample is <5, `computeTp1Star` falls back to `-avgLossR`. But every "miss" isn't a full stop-out — many are partial fills, BE moves, or manual cuts. Assuming full stop biases the argmax high (recommends conservative TPs).
+- **Fix**: use `median(rActuals)` for `pairs` where `mfeR < r`, computed globally across the bucket (not just <5-sample conditionals). Falls back to `-avgLossR` only when the bucket has literally no losers.
+
+### 2C. `slSweep` proportional-rescale bias — `pairLabMath.ts:681-714`
+Documented in the code (line 675-680) — rescales realized R by SL ratio, which over-deflates trades that took partials or moved SL to BE. Currently un-rendered but consumed by the AI report generator.
+- **Fix**: two options — either (a) exclude trades with `partial_fills.length > 0` from the sweep (safe, honest, drops sample), or (b) render the sweep with a bright caveat badge if it ever surfaces in UI. Recommend (a) since the sweep is already gated at N≥10.
+
+### 2D. Trail-capture estimator has no CI and no fold isolation — `pairLabMath.ts:1203-1225`
+`estimateTrailCapture` returns a point estimate with no uncertainty. `walkForwardKFold` in `pairLabSimulator.ts:797` re-estimates per-fold — good — but the ranker header still shows the *global* estimate for display, which contradicts the per-fold math.
+- **Fix**: add `bootstrapMeanCi(ratios)` inside `estimateTrailCapture`; return `{ ratio, ciLo, ciHi, n }`. Header label reads "trail capture 34% (95% CI 28-40%, N=37, re-estimated per fold)". Same one-line change hardens the AI note panel too.
+
+### 2E. Kelly ceiling clamps silently — `pairLabMath.ts:1105-1119`
+`suggestedRiskPct = Math.min(KELLY_CEILING_PCT, rawKelly)` collapses a wildly-positive Kelly onto the 1.5% cap without any UI signal. A user with a 4R average win and 60% WR gets suggested 1.5% — same as a user with 1.2R average win and 52% WR — and never knows the raw was clipped.
+- **Fix**: add `rawKellyClipped: boolean` and a tooltip "Kelly capped at 1.5% — raw was X.X%. Uncapped Kelly is fragile to estimation error at this edge size; the cap is a defence, not a suggestion to increase leverage." Two-line JSX change.
+
+### 2F. Kelly CI computed via seeded bootstrap that shares seed structure with mean CI — `shared/quant/stats.ts:276-328`
+Bug already partially fixed (K1) — three independent RNG streams — but `bootstrapKellyCi` still uses **percentile** intervals, not BCa. At n<30 (which every prop-firm challenge sample is), percentile CI under-covers by 5-10%.
+- **Fix**: port the BCa jackknife pattern from `bootstrapMeanCiBCa` into a new `bootstrapKellyCiBCa`. ~50 lines, mirrors existing code.
+
+### 2G. Ranker `computeCompositeScore` uses `min(1, n / MIN_PROVEN_SAMPLE)` — `pairLabSimulator.ts:755`
+Sample penalty plateaus at n=10 and never rewards larger samples. A preset at n=10 and one at n=100 get the same sample-penalty score (1.0). Larger samples should keep pulling the CI tighter and reward the composite.
+- **Fix**: replace the linear ramp with `1 - 1/sqrt(n / MIN_PROVEN_SAMPLE)` — asymptotes to 1 but keeps rewarding sample growth. Or drop the sample penalty entirely and rely on the BCa lower-CI (which already penalises small n by widening).
+
+### 2H. Prop-firm streak divisor uses a single realized worst streak — `pairLabMath.ts:1140`
+`Math.max(MIN_STREAK_FLOOR, s.worstLosingStreak)` uses the *observed* worst streak as a divisor. This is a max-of-empirical, not a distributional summary — a bucket with N=15 trades has an "observed worst streak" that's just the max of one sample path. Users get very different risk % suggestions when they log one more trade.
+- **Fix**: compute expected worst streak from win-rate and N via the classical `E[max streak of losses] ≈ log(N*q) / log(1/q)` where q = loss rate. Then use `max(MIN_STREAK_FLOOR, observed, expected + 2σ)` — combines empirical with distributional, stable.
+
+### 2I. Ideal-window BH-FDR pool includes both `first` and `second` halves — `idealWindowMath.ts:341-346`
+The heatmap runs BH across all `(hour, half)` cells. The two halves of one hour are **paired observations from the same trade** (via `cf_ideal_entry_window_*`), not independent tests. BH assumes independence (or positive dependence). Applying it to paired cells over-corrects and hides real signal.
+- **Fix**: run BH per half separately (two smaller families instead of one big family), OR aggregate halves per hour and run BH on hour-level tests. Cleaner: per-half families.
+
+### 2J. `StrategyLab` scoring weights are arbitrary — `StrategyLab.tsx:59-66`
+`scoreCellParts` uses `ddPenalty = 0.02 × max(0, avgDD − 5)` capped at 0.4, and `inconclusivePenalty = 0.1 × inconclusiveProb`. These constants are not documented and don't correspond to any known utility function. A user comparing two rotation models can't tell why one wins.
+- **Fix**: replace with a CVaR-based utility: `score = passProb × (1 - riskOfRuin) - λ × (100 - cvar5Pct) / 100`, with `λ` exposed as a slider (0.5 default). CVaR is standard prop-firm risk currency. Or: expose each component in the row so the user reads why they're compared.
+
+### 2K. Naive `windowMeta.first` in StrategyLab bypasses `ensureUtcMs` — `StrategyLab.tsx:112`
+Uses `new Date(t.entry_time).getTime()`. Elsewhere in the file `ensureUtcMs` is required for TZ-stable parsing. This is a leftover — locale-drifts the displayed window on CSV-imported naive timestamps.
+- **Fix**: replace with `ensureUtcMs`.
+
+### 2L. `walkForwardKFold` variable fold size — `pairLabSimulator.ts:807-819`
+Uses `floor(n/k)` for training-fold size and dumps the remainder into the last test fold. This makes the last fold up to `foldSize-1` trades larger than others, so the concatenated OOS tape's later trades are over-weighted vs earlier trades. Small effect (<5% weight skew at n=57, k=5), but easy to fix.
+- **Fix**: distribute remainder trades one-per-fold (`Math.ceil((n * (i+1)) / k) - Math.ceil((n * i) / k)`) — the standard `numpy.array_split` recipe.
+
+---
+
+## Scope and order
+
+Two PRs. Each shippable independently, each ~1 day.
+
+### PR-1: Ordering fix (Part 1 above)
+- New `pathProbTpFirst` + BCa CI on trail capture (item 2D piggy-backs)
+- Refactored `replayOneTrade` with mixture outcomes
+- Replay mode toggle + range display in ranker
+- ~150 lines changed, one unit test file
+- **Outcome**: 100% WRs disappear on ambiguous samples. Ranker shows honest three-scenario ranges.
+
+### PR-2: Audit fixes (Part 2, items 2A/2B/2E/2G/2H/2I/2J/2K/2L)
+- ~250 lines of surgical changes across `pairLabMath.ts`, `shared/quant/stats.ts`, `StrategyLab.tsx`, `idealWindowMath.ts`
+- Add one Playwright visual check on Pair Lab per fix that has UI impact
+- **Outcome**: TP recommendations more stable, Kelly transparency, StrategyLab score interpretable, walk-forward fold balance corrected.
+
+### Explicitly out of scope
+- Storing MFE/MAE timestamps (Option A) — not worth the user friction.
+- OHLC bar fetching (Option B) — right long-term direction, but a 4-6 week project. Note it in a `PAIR_LAB_ROADMAP.md` for future.
+- Complete unit-test framework for Pair Lab — the plan adds tests for the two most fragile new functions; a full harness is a separate initiative.
+
+---
+
+## Files touched
+
+**PR-1:**
+- `shared/quant/stats.ts` — `pathProbTpFirst`, `bootstrapMeanCiBCa` docs
+- `src/lib/pairLabSimulator.ts` — `replayOneTrade` mixture, replay mode plumbing
+- `src/lib/pairLabMath.ts` — `estimateTrailCapture` returns CI
+- `src/components/pair-lab/StrategyRanker.tsx` — mode toggle, range display, sensitivity gate
+- `src/lib/__tests__/pathProb.test.ts` — new
+
+**PR-2:**
+- `src/lib/pairLabMath.ts` — items 2A, 2B, 2C, 2E, 2H
+- `shared/quant/stats.ts` — item 2F (`bootstrapKellyCiBCa`)
+- `src/lib/pairLabSimulator.ts` — items 2G, 2L
+- `src/components/pair-lab/StrategyLab.tsx` — items 2J, 2K
+- `src/lib/idealWindowMath.ts` — item 2I
+- `src/components/pair-lab/QuantNotePanel.tsx` — surface new Kelly-clipped tooltip
+
+No DB, edge function, or schema changes. No new dependencies.

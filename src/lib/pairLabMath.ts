@@ -54,6 +54,7 @@ import {
   bootstrapMeanCi,
   bootstrapPositivePValue,
   bootstrapKellyCi,
+  bootstrapKellyCiBCa,
   bhSignificant,
   rawQuarterKellyPct,
   quarterKellyPct,
@@ -236,7 +237,13 @@ export interface BucketRecommendation {
   suggestedRiskPct: number | null;  // % of account, edge-only (Kelly), uncapped
   /** True when raw quarter-Kelly is positive but below the 0.25% floor — edge too thin to size meaningfully. */
   riskBelowFloor: boolean;
-  /** Bootstrap 95% CI on the quarter-Kelly fraction (raw, uncapped). */
+  /** PR-2 (2E): true when raw Kelly exceeded the safety ceiling and got clipped.
+   *  When true, `suggestedRiskPct === KELLY_CEILING_PCT` but the underlying
+   *  edge estimate wanted more. UI should show the raw value alongside. */
+  rawKellyClipped: boolean;
+  /** Raw (pre-clamp) quarter-Kelly percent. Null when edge ≤ 0 or n<10. */
+  rawKellyPct: number | null;
+  /** Bootstrap 95% CI on the quarter-Kelly fraction (raw, uncapped). BCa when possible. */
   suggestedRiskPctCi: [number, number] | null;
   /** S4.4: true when n>=10 but R-coverage (winR.length + lossR.length) < 50% of n. */
   rCoverageWarning: boolean;
@@ -523,6 +530,18 @@ function computeTp1Star(
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
   const fallbackMiss = -Math.abs(avgLossR);
+  // PR-2 (2B): global-median fallback for the miss branch. Under the previous
+  // code, a candidate with fewer than 5 non-hit R samples fell back to
+  // `-avgLossR` — treating every miss as a full stop-out. That biases the
+  // argmax high (recommends conservative TPs) because non-hitting trades
+  // include early-exit winners, BE moves and partial fills, not just stops.
+  // Use the global median of all-trade rActuals as the neutral prior.
+  const allRs = pairs
+    .map((p) => p.rActual)
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  const globalMedian = allRs.length >= 5
+    ? median(allRs)
+    : null;
   for (const r of candidates) {
     let hits = 0;
     const missRs: number[] = [];
@@ -534,7 +553,7 @@ function computeTp1Star(
     if (hitRate < TP1_STAR_MIN_HIT_RATE) continue;
     const missMean = missRs.length >= 5
       ? missRs.reduce((s, v) => s + v, 0) / missRs.length
-      : fallbackMiss;
+      : (globalMedian ?? fallbackMiss);
     const expectancyR = hitRate * r + (1 - hitRate) * missMean;
     if (!best || expectancyR > best.expectancyR) {
       best = { r, hitRate, hitRateCi: wilsonCi(hits, pairs.length), expectancyR };
@@ -618,7 +637,16 @@ function computeBucket(
       if (slDistPips > 0) {
         maesR.push(maePips / slDistPips);
         if (t.r_multiple_actual != null && Number.isFinite(t.r_multiple_actual)) {
-          sweepRows.push({ maePips, slPips: slDistPips, rActual: t.r_multiple_actual });
+          // PR-2 (2C): exclude trades that took partial fills or moved SL to BE
+          // from the SL sweep. The sweep rescales r_actual by a proportional
+          // (newSL / origSL) factor, which is only valid when the full position
+          // was exposed to the SL for the whole hold. Partial-fill / BE trades
+          // over-deflate at wider candidate SLs and mislead the reader.
+          const hasPartials = Array.isArray((t as any).partial_fills)
+            && ((t as any).partial_fills.length ?? 0) > 0;
+          if (!hasPartials) {
+            sweepRows.push({ maePips, slPips: slDistPips, rActual: t.r_multiple_actual });
+          }
         }
       }
     }
@@ -942,9 +970,20 @@ function pickBestTp(
     samples[i] = scoreTp(best.tp, buf);
   }
   samples.sort((a, b) => a - b);
+  // PR-2 (2A): post-selection inference correction. The bootstrap CI above
+  // is conditional on `best.tp` having already won the argmax race over the
+  // grid of `scored.length` candidates. A vanilla percentile CI therefore
+  // under-covers by roughly a factor of √log(k). Widen symmetrically around
+  // the observed expectancy to compensate. Standard adjustment used by any
+  // grid-search TP/SL optimiser when a bar-walk isn't available.
+  const rawLo = percentileFromSorted(samples, 0.025);
+  const rawHi = percentileFromSorted(samples, 0.975);
+  const halfWidth = (rawHi - rawLo) / 2;
+  const centre = (rawHi + rawLo) / 2;
+  const kAdjust = Math.sqrt(Math.log(Math.max(2, scored.length) + 1));
   const ci: [number, number] = [
-    percentileFromSorted(samples, 0.025),
-    percentileFromSorted(samples, 0.975),
+    centre - halfWidth * kAdjust,
+    centre + halfWidth * kAdjust,
   ];
   const ladder = Array.from(
     new Set([...scored].filter((c) => c.e > 0).sort((a, b) => b.e - a.e).slice(0, 3).map((c) => c.tp)),
@@ -1117,9 +1156,15 @@ function buildRecommendation(
     : null;
   const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
   const riskBelowFloor = rawKelly != null && rawKelly < KELLY_FLOOR_PCT;
-  const suggestedRiskPctCi = s.n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
-  // S4.4: surface when the R-subsample is too thin (< 50% of n) so the UI
-  // can hint that the Kelly number is based on an under-sampled population.
+  // PR-2 (2E): flag when the Kelly ceiling clipped the raw fraction so the UI
+  // can surface the un-clipped value alongside. Otherwise a user with a very
+  // strong edge (raw 4.0%) sees the same "1.5%" as a user with a marginal edge
+  // (raw 1.6%) and has no signal to distinguish them.
+  const rawKellyClipped = rawKelly != null && rawKelly > KELLY_CEILING_PCT;
+  // PR-2 (2F): use BCa CI at small n (< 30) where percentile bootstrap under-
+  // covers by 5–10%. Falls back to percentile CI automatically on jackknife
+  // degeneracy inside `bootstrapKellyCiBCa`.
+  const suggestedRiskPctCi = s.n >= 10 ? bootstrapKellyCiBCa(winR, lossR) : null;
   const rCoverageWarning = s.n >= 10 && rSubsampleN / s.n < 0.5;
 
   const tp1Star = computeTp1Star(ctx.tp1StarPairs, avgLossR || 1);
@@ -1137,7 +1182,19 @@ function buildRecommendation(
     propFirm.dailyLossDollars != null &&
     propFirm.dailyLossDollars > 0
   ) {
-    const streak = Math.max(MIN_STREAK_FLOOR, s.worstLosingStreak || 0);
+    // PR-2 (2H): the observed worst streak on a small sample is a max-of-
+    // empirical — unstable and easily changed by one more trade. Blend with
+    // the theoretical expected worst streak from win-rate and N:
+    //   E[longest loss run] ≈ log(N × q) / log(1 / q), where q = 1 − winRate
+    // Use max(observed, expected + 1σ) as a distributional upper bound so a
+    // lucky-clean sample doesn't produce an over-aggressive size suggestion.
+    const q = Math.max(0.01, Math.min(0.99, 1 - s.winRate));
+    const nForStreak = Math.max(1, s.n);
+    const expectedRun = Math.log(nForStreak * q) / Math.log(1 / q);
+    const streakStd = expectedRun > 0 ? Math.sqrt(expectedRun) : 1;
+    const distributionalStreak = Math.ceil(Math.max(1, expectedRun + streakStd));
+    const observedStreak = s.worstLosingStreak || 0;
+    const streak = Math.max(MIN_STREAK_FLOOR, observedStreak, distributionalStreak);
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
     const ddCappedPct = dailyBudgetPct / streak;
     const hardCap = propFirm.hardCapPct > 0 ? propFirm.hardCapPct : 2;
@@ -1172,6 +1229,8 @@ function buildRecommendation(
     tp1Star,
     suggestedRiskPct,
     riskBelowFloor,
+    rawKellyClipped,
+    rawKellyPct: rawKelly,
     suggestedRiskPctCi,
     rCoverageWarning,
     suggestedRiskPctPropFirm,

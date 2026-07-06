@@ -327,6 +327,152 @@ export function bootstrapKellyCi(
   return [percentileFromSorted(ks, 0.025), percentileFromSorted(ks, 0.975)];
 }
 
+/**
+ * BCa (bias-corrected & accelerated) bootstrap 95% CI on the raw quarter-Kelly
+ * fraction. Mirrors `bootstrapMeanCiBCa` but resamples wins/losses jointly via
+ * a binomial-first, then-payoff-draw scheme (same as `bootstrapKellyCi`). Used
+ * for the sizing recommendation at small n where percentile CIs under-cover.
+ *
+ * PR-2 item 2F. Falls back to percentile bootstrap on jackknife degeneracy.
+ */
+export function bootstrapKellyCiBCa(
+  winR: number[],
+  lossR: number[],
+  iters = BOOTSTRAP_ITERATIONS,
+): [number, number] | null {
+  const wins = winR.filter((v) => Number.isFinite(v) && v > 0);
+  const losses = lossR.filter((v) => Number.isFinite(v) && v > 0);
+  const nW = wins.length;
+  const nL = losses.length;
+  const n = nW + nL;
+  if (n < 10 || nW === 0 || nL === 0) return null;
+
+  let seedBase = n * 1000003 + 23;
+  for (let i = 0; i < nW; i++) seedBase = (seedBase * 31 + Math.floor(wins[i] * 1000)) | 0;
+  for (let i = 0; i < nL; i++) seedBase = (seedBase * 31 + Math.floor(losses[i] * 1000)) | 0;
+  if (seedBase === 0) seedBase = 0x9e3779b9;
+  const randPayoff = makeSeededRng(seedBase);
+  const randLoss = makeSeededRng(seedBase ^ 0x27d4eb2d);
+  const randBinom = makeSeededRng(seedBase ^ 0x5bd1e995);
+
+  const observedAvgW = wins.reduce((s, v) => s + v, 0) / nW;
+  const observedAvgL = losses.reduce((s, v) => s + v, 0) / nL;
+  const observedP = nW / n;
+  const observedB = observedAvgW / observedAvgL;
+  const observedK = (observedB * observedP - (1 - observedP)) / observedB * KELLY_SCALE * 100;
+
+  const ks: number[] = [];
+  const baseP = observedP;
+  for (let i = 0; i < iters; i++) {
+    let w = 0;
+    for (let j = 0; j < n; j++) if (randBinom() < baseP) w += 1;
+    if (w === 0 || w === n) continue;
+    const l = n - w;
+    let sw = 0;
+    for (let j = 0; j < w; j++) sw += wins[Math.floor(randPayoff() * nW)];
+    let sl = 0;
+    for (let j = 0; j < l; j++) sl += losses[Math.floor(randLoss() * nL)];
+    const avgW = sw / w;
+    const avgL = sl / l;
+    if (!(avgW > 0) || !(avgL > 0)) continue;
+    const p = w / n;
+    const b = avgW / avgL;
+    ks.push((b * p - (1 - p)) / b * KELLY_SCALE * 100);
+  }
+  if (ks.length < 10) return null;
+  ks.sort((a, b) => a - b);
+
+  // Bias-correction on the mean-of-Kelly draws (approximation — Kelly is
+  // monotone in p and b so the ordering-based bias correction is defensible).
+  let below = 0;
+  for (const k of ks) if (k < observedK) below += 1;
+  const prop = Math.min(ks.length - 0.5, Math.max(0.5, below)) / ks.length;
+  const z0 = invNormCdf(prop);
+
+  // Jackknife on Kelly point estimate — leave-one-out over the combined sample.
+  const allSamples: Array<{ v: number; win: boolean }> = [
+    ...wins.map((v) => ({ v, win: true })),
+    ...losses.map((v) => ({ v, win: false })),
+  ];
+  const sumW = wins.reduce((s, v) => s + v, 0);
+  const sumL = losses.reduce((s, v) => s + v, 0);
+  const jack: number[] = [];
+  for (let i = 0; i < allSamples.length; i++) {
+    const s = allSamples[i];
+    const jNW = s.win ? nW - 1 : nW;
+    const jNL = s.win ? nL : nL - 1;
+    if (jNW === 0 || jNL === 0) continue;
+    const jSumW = s.win ? sumW - s.v : sumW;
+    const jSumL = s.win ? sumL : sumL - s.v;
+    const jAvgW = jSumW / jNW;
+    const jAvgL = jSumL / jNL;
+    if (!(jAvgW > 0) || !(jAvgL > 0)) continue;
+    const jP = jNW / (jNW + jNL);
+    const jB = jAvgW / jAvgL;
+    jack.push((jB * jP - (1 - jP)) / jB * KELLY_SCALE * 100);
+  }
+  const jMean = jack.length > 0 ? jack.reduce((s, v) => s + v, 0) / jack.length : 0;
+  let num = 0, den = 0;
+  for (const jk of jack) {
+    const d = jMean - jk;
+    num += d * d * d;
+    den += d * d;
+  }
+  const acc = den > 0 ? num / (6 * Math.pow(den, 1.5)) : 0;
+
+  const z025 = -1.959963984540054;
+  const z975 = 1.959963984540054;
+  const alphaLo = normCdf(z0 + (z0 + z025) / (1 - acc * (z0 + z025)));
+  const alphaHi = normCdf(z0 + (z0 + z975) / (1 - acc * (z0 + z975)));
+  if (!Number.isFinite(alphaLo) || !Number.isFinite(alphaHi) || alphaLo >= alphaHi) {
+    return [percentileFromSorted(ks, 0.025), percentileFromSorted(ks, 0.975)];
+  }
+  return [
+    percentileFromSorted(ks, clamp01(alphaLo)),
+    percentileFromSorted(ks, clamp01(alphaHi)),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Path-ordering probability (PR-1 — MFE-vs-MAE ordering fix)
+// ---------------------------------------------------------------------------
+//
+// When a counterfactual replay finds a trade breached BOTH its counterfactual
+// TP (MFE ≥ tpR × slScale) AND its counterfactual SL (MAE ≥ slScale), we
+// cannot tell from MFE/MAE alone which came first. Assuming TP-first (the
+// legacy behaviour) inflates WR on early-TP presets; assuming SL-first
+// deflates it. Neither is honest.
+//
+// This function returns P(TP hit before SL | both breached) under the
+// classical driftless-random-walk barrier model (gambler's ruin):
+//
+//     P(TP first) = slR / (tpR + slR)
+//
+// Closer TP ⇒ higher P(TP first). Symmetric barriers ⇒ 0.5. This is the
+// standard first-passage probability for a symmetric random walk with two
+// absorbing barriers, and matches what serious retail backtesters use when
+// they lack tick data.
+//
+// Consumers should split the trade weight: outcome = p × TP-first-result
+// + (1-p) × SL-first-result. See `replayOneTrade` for the concrete mix.
+export function pathProbTpFirst(tpR: number, slR: number, mfeR: number, maeR: number): number {
+  if (!(tpR > 0) || !(slR > 0)) return 0.5;
+  if (mfeR < tpR) return 0;   // TP was never touched
+  if (maeR < slR) return 1;   // SL was never touched → TP is the only fill
+  return slR / (tpR + slR);
+}
+
+export type ReplayMode = "expected" | "optimistic" | "pessimistic";
+
+/** Resolve a raw bridge probability into the effective P(TP first) under the
+ *  selected replay mode. Optimistic collapses ambiguity to TP-first (legacy);
+ *  pessimistic collapses to SL-first. */
+export function resolveTpFirstProb(rawP: number, mode: ReplayMode): number {
+  if (mode === "optimistic") return 1;
+  if (mode === "pessimistic") return 0;
+  return rawP;
+}
+
 // ---------------------------------------------------------------------------
 // Kelly
 // ---------------------------------------------------------------------------

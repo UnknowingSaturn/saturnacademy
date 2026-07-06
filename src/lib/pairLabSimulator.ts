@@ -25,7 +25,8 @@
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
-import { bootstrapMeanCiBCa } from "../../shared/quant/stats";
+import { bootstrapMeanCiBCa, pathProbTpFirst, resolveTpFirstProb, type ReplayMode } from "../../shared/quant/stats";
+export type { ReplayMode } from "../../shared/quant/stats";
 import { pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
 import {
   MAE_P75_WIDEN_BUFFER,
@@ -290,6 +291,9 @@ interface BucketConstants {
 interface ReplayContext {
   bucket: BucketConstants;
   trailCapture: number;
+  /** Path-ordering assumption when a trade breaches both counterfactual TP and SL.
+   *  See `pathProbTpFirst` in shared/quant/stats.ts. Defaults to "expected". */
+  replayMode: ReplayMode;
 }
 
 function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketConstants {
@@ -385,6 +389,9 @@ function replayOneTrade(
   let remainingFrac = 1;
   let anyFilled = false;
   let lastFilledAtR = 0;
+  /** First partial whose TP was breached by MFE. Drives the bridge probability
+   *  when the stop was ALSO breached — that's the ambiguous ordering case. */
+  let firstBreachedTpR: number | null = null;
   for (const p of resolved) {
     const needOrigR = p.atR * slScale;
     if (proof.reachedR >= needOrigR) {
@@ -393,6 +400,7 @@ function replayOneTrade(
       remainingFrac -= take;
       anyFilled = true;
       lastFilledAtR = p.atR;
+      if (firstBreachedTpR == null) firstBreachedTpR = p.atR;
     }
     // Otherwise: partial did not fill. Do NOT drop the trade here — the
     // runner block below books the honest outcome using proven-reached R
@@ -447,6 +455,31 @@ function replayOneTrade(
 
   }
 
+  // PR-1 — MFE-vs-MAE ordering fix (Brownian-bridge / gambler's-ruin mixture).
+  //
+  // When a partial's TP AND the counterfactual SL BOTH breached, the code
+  // above assumed TP-first (the legacy behaviour). That inflated WR on early-
+  // TP presets. Blend `booked` (TP-first realisation) with a full-stop
+  // realisation (-slScale on the whole position) using the classical
+  // first-passage probability of a symmetric random walk between two barriers.
+  //
+  // Ambiguity only exists when at least one partial's TP was breached AND the
+  // trade also breached the new SL. Deterministic branches (only TP breached,
+  // only SL breached, neither) pass through unchanged (pStopFirst = 0).
+  if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
+    const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
+    const mfeInNewR = mfeForBridge / slScale;
+    const maeInNewR = proof.loggedMae / slScale;
+    const pTpFirstRaw = pathProbTpFirst(firstBreachedTpR, 1, mfeInNewR, maeInNewR);
+    const pTpFirst = resolveTpFirstProb(pTpFirstRaw, ctx.replayMode);
+    const pStopFirst = 1 - pTpFirst;
+    if (pStopFirst > 0) {
+      // SL-first alternative: whole position stops, no partial ever books.
+      const bookedSlFirst = -slScale;
+      booked = pTpFirst * booked + pStopFirst * bookedSlFirst;
+    }
+  }
+
   const baseSlPips = slDistancePips(trade);
   const slPipsApplied = baseSlPips != null ? baseSlPips * slScale : null;
   return { r: booked, slPips: slPipsApplied, slScale };
@@ -461,6 +494,10 @@ export interface ReplayOpts {
   propFirm: PropFirmContext | null;
   /** Empirically-derived trail capture ratio (overrides TRAIL_CAPTURE_FRAC). */
   trailCapture?: number;
+  /** PR-1 — path-ordering assumption when a trade breaches both counterfactual
+   *  TP and SL. "expected" uses the Brownian-bridge probability; "optimistic"
+   *  = TP-first (legacy behaviour); "pessimistic" = SL-first (safety floor). */
+  replayMode?: ReplayMode;
 }
 
 export const MIN_ELIGIBLE_SAMPLE = 10;
@@ -631,6 +668,7 @@ function ctxFor(opts: ReplayOpts, bucket: BucketConstants): ReplayContext {
     trailCapture: opts.trailCapture != null && opts.trailCapture > 0
       ? opts.trailCapture
       : TRAIL_CAPTURE_FRAC,
+    replayMode: opts.replayMode ?? "expected",
   };
 }
 
@@ -768,7 +806,14 @@ export function computeCompositeScore(
   const expLower = ci[0];
   const maxDdR = dollarRisk > 0 ? Math.abs(r.maxDrawdownDollars) / dollarRisk : 0;
   const ddPenalty = 1 / (1 + maxDdR / Math.max(1, riskToleranceR));
-  const samplePenalty = Math.min(1, r.n / MIN_PROVEN_SAMPLE);
+  // PR-2 (2G): switch from a linear ramp that plateaus at n=MIN_PROVEN_SAMPLE
+  // to a diminishing-returns curve that keeps rewarding sample growth. Under
+  // the old min(1, n/10) a 10-trade preset and a 100-trade preset got the
+  // same sample factor. New curve: 0.50 at n=10, 0.63 at n=30, 0.76 at n=100.
+  // Composite is still bounded (0..1) and non-negative.
+  const samplePenalty = r.n > 0
+    ? 1 - 1 / (1 + Math.sqrt(r.n / MIN_PROVEN_SAMPLE))
+    : 0;
   return expLower * ddPenalty * samplePenalty;
 }
 
@@ -820,8 +865,12 @@ export function walkForwardKFold(
   const all = rankerEligibleTrades(trades, keys);
   if (all.length < WALK_FORWARD_KFOLD_MIN_N) return null;
 
-  const foldSize = Math.floor(all.length / k);
-  if (foldSize < 2) return null;
+  // PR-2 (2L): distribute the remainder one-trade-per-fold instead of dumping
+  // it all into the last fold. Uses numpy.array_split's ceil-diff recipe so
+  // fold boundaries are balanced within one trade (max drift <5% at n=57,k=5,
+  // was ~15%).
+  const foldEnd = (i: number) => Math.ceil((all.length * (i + 1)) / k);
+  if (foldEnd(0) < 2) return null;
 
   const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
   const reasons: Record<string, number> = {};
@@ -830,9 +879,9 @@ export function walkForwardKFold(
   let lastBucket: BucketConstants | null = null;
 
   for (let i = 1; i < k; i++) {
-    const trainEnd = i * foldSize;
+    const trainEnd = foldEnd(i - 1);
     const testStart = trainEnd;
-    const testEnd = i === k - 1 ? all.length : trainEnd + foldSize;
+    const testEnd = foldEnd(i);
     const trainSlice = all.slice(0, trainEnd);
     const testSlice = all.slice(testStart, testEnd);
     if (trainSlice.length === 0 || testSlice.length === 0) continue;
@@ -840,7 +889,7 @@ export function walkForwardKFold(
     const bucket = buildBucketConstants(trainSlice, keys);
     lastBucket = bucket;
     const trailCapture = estimateTrailCaptureLocal(trainSlice, keys);
-    const ctx: ReplayContext = { bucket, trailCapture };
+    const ctx: ReplayContext = { bucket, trailCapture, replayMode: opts.replayMode ?? "expected" };
 
     for (const t of testSlice) {
       const proof = extractProof(t, keys);
@@ -901,7 +950,7 @@ export function rankStrategies(
       if (oosSlice.length >= 3) {
         const bucket = buildBucketConstants(isSlice, keys);
         const trailCapture = estimateTrailCaptureLocal(isSlice, keys);
-        const ctx: ReplayContext = { bucket, trailCapture };
+        const ctx: ReplayContext = { bucket, trailCapture, replayMode: opts.replayMode ?? "expected" };
         const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
         const reasons: Record<string, number> = {};
         for (const t of oosSlice) {
@@ -1003,7 +1052,25 @@ export function walkForwardEvaluate(
   });
   const winner = ranked[0];
   if (!winner) return null;
-  const oos = replayBucket(oosTrades, keys, winner.strategy, opts);
+  // Finding 3 (audit): must build bucket constants + trail capture from the IS
+  // slice, not the OOS slice. Previous `replayBucket(oosTrades, …)` re-derived
+  // adaptive-preset targets (MFE p60, MAE p75) from OOS data — a direct
+  // look-ahead leak on any preset with `atRSource: bucket_mfe_pX` or SL rule
+  // `widen_to_mae_p75_x_1_15`. Fixed presets were unaffected but any caller
+  // of walkForwardEvaluate on adaptive presets was silently overfit.
+  const isBucket = buildBucketConstants(isTrades, keys);
+  const isTrailCapture = estimateTrailCaptureLocal(isTrades, keys);
+  const oosCtx: ReplayContext = { bucket: isBucket, trailCapture: isTrailCapture, replayMode: opts.replayMode ?? "expected" };
+  const oosReplayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+  const oosReasons: Record<string, number> = {};
+  for (const t of oosTrades) {
+    const proof = extractProof(t, keys);
+    const out = replayOneTrade(winner.strategy, t, proof, oosCtx);
+    if ("r" in out) oosReplayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+    else oosReasons[out.ineligible] = (oosReasons[out.ineligible] ?? 0) + 1;
+  }
+  const oosLadder = buildAppliedTpLadder(winner.strategy, isBucket);
+  const oos = buildResult(winner.strategy, oosReplayed, oosReasons, oosTrades.length, opts, oosLadder);
   const overfit =
     winner.expectancyR > 0 &&
     oos.expectancyR < winner.expectancyR * 0.5;
