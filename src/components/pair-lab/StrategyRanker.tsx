@@ -381,6 +381,53 @@ export function StrategyRanker({
           </div>
         </div>
 
+        {/* PR-1 — replay-mode toggle. When a trade breaches both counterfactual
+            TP and SL, we can't tell from MFE/MAE alone which came first. */}
+        <div className="rounded-md border border-border/50 bg-muted/20 p-2.5 flex items-center gap-3 flex-wrap text-xs">
+          <span className="text-muted-foreground uppercase tracking-wider text-[10px]">Ambiguous trades</span>
+          <div className="inline-flex rounded-md border border-border overflow-hidden">
+            {(["pessimistic", "expected", "optimistic"] as const).map((m) => {
+              const active = replayMode === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setReplayMode(m)}
+                  className={
+                    "px-2.5 py-1 font-medium capitalize transition-colors " +
+                    (active
+                      ? "bg-primary/15 text-foreground"
+                      : "text-muted-foreground hover:text-foreground")
+                  }
+                >
+                  {m}
+                </button>
+              );
+            })}
+          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-muted-foreground italic cursor-help inline-flex items-center gap-1">
+                <Info className="w-3 h-3" />
+                what is this?
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-sm text-xs leading-relaxed">
+              When a trade's MFE ≥ counterfactual TP AND its MAE ≥ counterfactual SL,
+              both barriers were touched but ordering is unknown from MFE/MAE alone.{" "}
+              <span className="font-medium">Expected</span> weights the two outcomes by
+              the Brownian-bridge probability p = SL / (TP + SL) — the classical
+              first-passage result for a symmetric random walk.{" "}
+              <span className="font-medium">Pessimistic</span> assumes stop-first
+              (safety floor); <span className="font-medium">Optimistic</span> assumes
+              TP-first (legacy behaviour, kept for A/B). Toggle to see how sensitive
+              the ranking is to the assumption — the wider the swing, the less you
+              should trust the point estimate.
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
         {/* Why excluded */}
         <ExclusionPanel b={exclusion} open={exclusionOpen} onToggle={() => setExclusionOpen((v) => !v)} />
 
