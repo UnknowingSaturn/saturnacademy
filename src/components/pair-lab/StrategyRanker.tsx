@@ -66,15 +66,25 @@ function busted(r: ReplayResult) {
 /** Coverage confidence tier: how much can we trust this row's expectancy? */
 type Confidence = "high" | "medium" | "low" | "none";
 
-function confidenceFor(r: ReplayResult): Confidence {
+function confidenceFor(r: ReplayResult, orderingGap?: number): Confidence {
   if (r.n === 0) return "none";
   const ci = r.expectancyRCiBCa ?? r.expectancyRCi;
   if (!ci) return "low";
   const width = ci[1] - ci[0];
   const lowerPositive = ci[0] > 0;
-  if (r.n >= 30 && lowerPositive && width <= 1.0) return "high";
-  if (r.n >= MIN_PROVEN_SAMPLE && (lowerPositive || width <= 1.5)) return "medium";
-  return "low";
+  let tier: Confidence;
+  if (r.n >= 30 && lowerPositive && width <= 1.0) tier = "high";
+  else if (r.n >= MIN_PROVEN_SAMPLE && (lowerPositive || width <= 1.5)) tier = "medium";
+  else tier = "low";
+  // PR-2 G2: downgrade one step when the pessimistic ↔ optimistic swing under
+  // MFE/MAE ordering ambiguity exceeds the BCa half-width. When ranking is more
+  // sensitive to intraday path assumption than to sampling noise, the point
+  // estimate is not the honest driver of the ranking.
+  if (orderingGap != null && orderingGap > width / 2) {
+    if (tier === "high") return "medium";
+    if (tier === "medium") return "low";
+  }
+  return tier;
 }
 
 const CONFIDENCE_STYLES: Record<Confidence, string> = {
