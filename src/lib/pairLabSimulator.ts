@@ -25,7 +25,8 @@
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
-import { bootstrapMeanCiBCa } from "../../shared/quant/stats";
+import { bootstrapMeanCiBCa, pathProbTpFirst, resolveTpFirstProb, type ReplayMode } from "../../shared/quant/stats";
+export type { ReplayMode } from "../../shared/quant/stats";
 import { pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
 import {
   MAE_P75_WIDEN_BUFFER,
