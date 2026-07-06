@@ -370,6 +370,44 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
                 </div>
               </div>
             </div>
+            {/* PR-2 (2E): Kelly-clip transparency. When rawKelly > ceiling,
+                surface the raw value + CI so the user can tell whether the
+                1.5% suggestion is a strong-edge cap or a weak-edge floor. */}
+            {r.suggestedRiskPct != null && (
+              <div className="border-t border-border/40 pt-2 flex items-baseline gap-3 flex-wrap text-xs">
+                <span className="text-muted-foreground uppercase tracking-wider text-[10px]">
+                  Risk sizing
+                </span>
+                <span className="font-mono-numbers font-semibold text-sm text-foreground">
+                  {r.suggestedRiskPct.toFixed(2)}%
+                </span>
+                {r.rawKellyClipped && r.rawKellyPct != null && (
+                  <Badge
+                    variant="outline"
+                    className="text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10 text-[10px] cursor-help"
+                    title={
+                      `Quarter-Kelly capped at ${r.suggestedRiskPct.toFixed(2)}% — raw was ${r.rawKellyPct.toFixed(2)}%. ` +
+                      `The cap is a defence against estimation error at small n; it is not a suggestion to increase leverage.`
+                    }
+                  >
+                    Cap · raw {r.rawKellyPct.toFixed(2)}%
+                  </Badge>
+                )}
+                {r.suggestedRiskPctCi && (
+                  <span
+                    className="font-mono-numbers text-muted-foreground"
+                    title="BCa 95% bootstrap CI on the raw quarter-Kelly fraction (before the safety cap). Wide bands = size estimate is fragile at this n."
+                  >
+                    BCa 95% {r.suggestedRiskPctCi[0].toFixed(2)} → {r.suggestedRiskPctCi[1].toFixed(2)}%
+                  </span>
+                )}
+                {r.bindingConstraint && r.bindingConstraint !== "kelly" && (
+                  <Badge variant="outline" className="text-[10px]">
+                    {r.bindingConstraint === "hard_cap" ? "hard cap binds" : "prop-firm DD binds"}
+                  </Badge>
+                )}
+              </div>
+            )}
             {wf ? (() => {
               // Negative degradation = OOS outperformed IS (1 - OOS/IS < 0).
               // Render that case as a positive improvement instead of a

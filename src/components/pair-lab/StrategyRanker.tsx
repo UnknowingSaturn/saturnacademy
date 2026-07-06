@@ -66,15 +66,25 @@ function busted(r: ReplayResult) {
 /** Coverage confidence tier: how much can we trust this row's expectancy? */
 type Confidence = "high" | "medium" | "low" | "none";
 
-function confidenceFor(r: ReplayResult): Confidence {
+function confidenceFor(r: ReplayResult, orderingGap?: number): Confidence {
   if (r.n === 0) return "none";
   const ci = r.expectancyRCiBCa ?? r.expectancyRCi;
   if (!ci) return "low";
   const width = ci[1] - ci[0];
   const lowerPositive = ci[0] > 0;
-  if (r.n >= 30 && lowerPositive && width <= 1.0) return "high";
-  if (r.n >= MIN_PROVEN_SAMPLE && (lowerPositive || width <= 1.5)) return "medium";
-  return "low";
+  let tier: Confidence;
+  if (r.n >= 30 && lowerPositive && width <= 1.0) tier = "high";
+  else if (r.n >= MIN_PROVEN_SAMPLE && (lowerPositive || width <= 1.5)) tier = "medium";
+  else tier = "low";
+  // PR-2 G2: downgrade one step when the pessimistic ↔ optimistic swing under
+  // MFE/MAE ordering ambiguity exceeds the BCa half-width. When ranking is more
+  // sensitive to intraday path assumption than to sampling noise, the point
+  // estimate is not the honest driver of the ranking.
+  if (orderingGap != null && orderingGap > width / 2) {
+    if (tier === "high") return "medium";
+    if (tier === "medium") return "low";
+  }
+  return tier;
 }
 
 const CONFIDENCE_STYLES: Record<Confidence, string> = {
@@ -282,17 +292,35 @@ export function StrategyRanker({
   const [replayMode, setReplayMode] = useState<ReplayMode>("expected");
   useEffect(() => { setRiskPct(defaultRiskPct); }, [defaultRiskPct]);
 
-  const { rows, exclusion, mode } = useMemo(() => {
+  // PR-2 G2 — compute all three modes in one memo so we can render the active
+  // mode primarily while also showing the pessimistic ↔ optimistic range on
+  // rows whose ambiguous-trade count actually matters. Three passes is cheap
+  // (bootstrap dominates cost, not the replay itself) and lets us gate the
+  // confidence tier by ordering sensitivity, not just sampling noise.
+  const { rows, exclusion, mode, sensitivityById } = useMemo(() => {
     const presets = STRATEGY_PRESETS.map((p) => ({ ...p, riskPct }));
-    // Finding 4 (audit): thread empirical trail capture so the "full" fallback
-    // path uses the same value the header displays, instead of silently
-    // reverting to the 0.70 default.
-    return rankStrategies(trades, fieldKeys, presets, {
-      balance,
-      propFirm,
-      trailCapture: effectiveTrailCapture,
-      replayMode,
-    });
+    const runMode = (m: ReplayMode) =>
+      rankStrategies(trades, fieldKeys, presets, {
+        balance,
+        propFirm,
+        trailCapture: effectiveTrailCapture,
+        replayMode: m,
+      });
+    const active = runMode(replayMode);
+    const pess = replayMode === "pessimistic" ? active : runMode("pessimistic");
+    const opti = replayMode === "optimistic" ? active : runMode("optimistic");
+    const byId = new Map<string, { pessimistic: number; optimistic: number }>();
+    for (const r of active.rows) {
+      const pRow = pess.rows.find((x) => x.result.strategy.id === r.result.strategy.id);
+      const oRow = opti.rows.find((x) => x.result.strategy.id === r.result.strategy.id);
+      if (pRow && oRow) {
+        byId.set(r.result.strategy.id, {
+          pessimistic: pRow.result.expectancyR,
+          optimistic: oRow.result.expectancyR,
+        });
+      }
+    }
+    return { ...active, sensitivityById: byId };
   }, [trades, fieldKeys, riskPct, balance, propFirm, effectiveTrailCapture, replayMode]);
 
   const ranked: RankerRow[] = useMemo(() => {
@@ -514,11 +542,22 @@ export function StrategyRanker({
             <tbody>
               {ranked.map((row, i) => {
                 const r = row.result;
-                const conf = confidenceFor(r);
+                // PR-2 G2: pull the pessimistic ↔ optimistic swing for this
+                // preset. `gap` is the absolute expectancy range across
+                // ordering assumptions; when it exceeds half the BCa CI width
+                // the confidence tier gets downgraded (see confidenceFor).
+                const sens = sensitivityById.get(r.strategy.id);
+                const orderingGap = sens
+                  ? Math.abs(sens.optimistic - sens.pessimistic)
+                  : undefined;
+                const conf = confidenceFor(r, orderingGap);
                 const isWinner = i === 0 && canCrown;
                 const isBust = busted(r);
                 const insufficient = r.n < MIN_PROVEN_SAMPLE;
                 const ci = r.expectancyRCiBCa ?? r.expectancyRCi;
+                const ciHalfWidth = ci ? (ci[1] - ci[0]) / 2 : null;
+                const orderingSensitive =
+                  sens != null && ciHalfWidth != null && orderingGap != null && orderingGap > ciHalfWidth;
                 const isOpen = openId === r.strategy.id;
                 const toggle = () => setOpenId(isOpen ? null : r.strategy.id);
                 return (
@@ -579,14 +618,38 @@ export function StrategyRanker({
                         {insufficient ? (
                           <span className="text-muted-foreground text-xs">need ≥{MIN_PROVEN_SAMPLE}</span>
                         ) : (
-                          <span>
-                            {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
-                            {ci && (
-                              <span className="text-muted-foreground text-xs">
-                                {" "}({ci[0].toFixed(2)}→{ci[1].toFixed(2)})
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span>
+                              {r.expectancyR >= 0 ? "+" : ""}{r.expectancyR.toFixed(2)}R
+                              {ci && (
+                                <span className="text-muted-foreground text-xs">
+                                  {" "}({ci[0].toFixed(2)}→{ci[1].toFixed(2)})
+                                </span>
+                              )}
+                            </span>
+                            {sens && orderingGap != null && orderingGap >= 0.05 && (
+                              <span
+                                className={
+                                  "text-[10px] font-mono-numbers " +
+                                  (orderingSensitive
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : "text-muted-foreground")
+                                }
+                                title={
+                                  `Ambiguous-trade ordering range. Pessimistic assumes SL-first on trades where MFE ≥ TP AND MAE ≥ SL; ` +
+                                  `Optimistic assumes TP-first. Gap ${orderingGap.toFixed(2)}R` +
+                                  (orderingSensitive
+                                    ? ` exceeds half the BCa CI width (${ciHalfWidth?.toFixed(2)}R) — ranking is more sensitive to intraday path than to sampling noise. Tier downgraded.`
+                                    : ` is smaller than half the BCa CI width — sampling noise dominates.`)
+                                }
+                              >
+                                range {sens.pessimistic >= 0 ? "+" : ""}{sens.pessimistic.toFixed(2)}
+                                {" → "}
+                                {sens.optimistic >= 0 ? "+" : ""}{sens.optimistic.toFixed(2)}R
+                                {orderingSensitive && " · ordering sensitive"}
                               </span>
                             )}
-                          </span>
+                          </div>
                         )}
                       </td>
                       <td className="py-2 px-2 text-right font-mono-numbers">

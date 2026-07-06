@@ -50,20 +50,27 @@ const WINDOW_PRESETS = [30, 60, 90];
 
 // Score components (exposed for the breakdown line).
 //
-// All three terms live on the 0–1 probability scale so the additive form is
-// dimensionally consistent:
-//   passProb × survival  → 0–1 probability of finishing in the money
-//   ddPenalty            → 0.02 per 1pp of avgDD above 5%, capped at 0.4
-//                          (so a 25% avg DD costs 0.4, comparable to passProb)
-//   inconclusivePenalty  → fraction of paths that neither passed nor fully
-//                          failed within the window
-function scoreCellParts(r: MCResult, inconclusiveWeight = 0.1) {
+// PR-2 (2J): replaced arbitrary linear ddPenalty + inconclusive constants with
+// a CVaR-based utility. CVaR-5% is the mean of the worst 5% of final-equity
+// outcomes — the standard prop-firm risk currency. Utility is:
+//
+//   score = passProb × (1 − riskOfRuin)  −  λ × max(0, −cvar5Pct) / 100
+//
+// The subtracted term is a downside cost proportional to how deep the tail
+// losses go, on the same 0–1 probability scale as passProb × survival. λ
+// (downside aversion) is user-tunable via the panel header slider; default
+// 0.5 penalises a 20% CVaR loss by 0.10 (comparable to a 10-pp pass-prob
+// swing), which matches the intuition "I care about tail losses about half as
+// much as I care about pass probability".
+function scoreCellParts(r: MCResult, lambda = 0.5) {
   const survival = 1 - r.riskOfRuin;
-  const ddPenaltyRaw = 0.02 * Math.max(0, r.avgDrawdownPct - 5);
-  const ddPenalty = Math.min(0.4, ddPenaltyRaw);
-  const inconclusivePenalty = inconclusiveWeight * r.inconclusiveProb;
-  const score = r.passProb * survival - ddPenalty - inconclusivePenalty;
-  return { passProb: r.passProb, survival, ddPenalty, inconclusivePenalty, score };
+  const passSurvival = r.passProb * survival;
+  // Only the *loss* tail costs utility; a positive CVaR-5% (rare, but happens
+  // on very strong edges) doesn't reward the score.
+  const tailLossPct = Math.max(0, -r.cvar5Pct);
+  const cvarPenalty = lambda * (tailLossPct / 100);
+  const score = passSurvival - cvarPenalty;
+  return { passProb: r.passProb, survival, cvarPenalty, tailLossPct, score };
 }
 
 // (cellSeed now lives in the worker — keeps the per-cell PRNG seed local to
@@ -144,6 +151,11 @@ export function StrategyLab({
   // Custom limits used only when no prop-firm profile is selected.
   const [customDailyPct, setCustomDailyPct] = useState<number>(5);
   const [customMaxPct, setCustomMaxPct] = useState<number>(10);
+  // PR-2 (2J): downside-aversion coefficient λ for the CVaR-based utility.
+  // 0 = ignore tail losses (rank purely on pass × survival); 2 = double weight
+  // on the worst-5% tail. 0.5 default matches the pre-change ranking on most
+  // typical prop-firm sweeps.
+  const [lambda, setLambda] = useState<number>(0.5);
 
   // Selected detail cell — defaults to recommended after compute.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -190,10 +202,10 @@ export function StrategyLab({
 
   const cells = useMemo(() => {
     return rawCells.map((c) => {
-      const parts = scoreCellParts(c.result);
+      const parts = scoreCellParts(c.result, lambda);
       return { ...c, score: parts.score, parts };
     });
-  }, [rawCells]);
+  }, [rawCells, lambda]);
 
   const best = cells.length > 0
     ? cells.reduce((a, b) => (b.score > a.score ? b : a), cells[0])
@@ -414,6 +426,32 @@ export function StrategyLab({
             Trailing drawdown (FTMO / MyFF style — max-loss line follows peak equity)
           </Label>
         </div>
+
+        {/* PR-2 (2J): downside-aversion slider. Re-ranks cells without re-running
+            the Monte Carlo — score is a linear function of the already-computed
+            per-cell CVaR-5%. */}
+        <div className="col-span-2 md:col-span-4">
+          <Label className="text-xs flex items-center gap-2">
+            <span>
+              Downside aversion λ{" "}
+              <span className="font-mono-numbers font-semibold ml-1">{lambda.toFixed(2)}</span>
+            </span>
+            <span
+              className="text-muted-foreground text-[10px]"
+              title="Weight on the worst-5% tail loss in the ranking score. 0 = ignore tail (rank on pass × survival only). 0.5 = tail loss of 20% costs 0.10 of score (comparable to 10-pp pass-prob swing). 2 = heavy tail penalty."
+            >
+              (CVaR-5% penalty weight — hover for details)
+            </span>
+          </Label>
+          <Slider
+            min={0}
+            max={2}
+            step={0.05}
+            value={[lambda]}
+            onValueChange={(v) => setLambda(v[0])}
+            className="mt-2"
+          />
+        </div>
       </div>
 
       {/* Heatmap */}
@@ -548,8 +586,12 @@ export function StrategyLab({
           <div className="text-[11px] text-muted-foreground font-mono-numbers mt-3 pt-3 border-t border-border/40 leading-relaxed">
             score = pass {active.parts.passProb.toFixed(2)}
             {" × "}survival {active.parts.survival.toFixed(2)}
-            {" − "}DD penalty {active.parts.ddPenalty.toFixed(3)}
-            {" − "}incon penalty {active.parts.inconclusivePenalty.toFixed(3)}
+            {" − "}λ·CVaR penalty {active.parts.cvarPenalty.toFixed(3)}
+            {active.parts.tailLossPct > 0 && (
+              <span className="text-muted-foreground/70">
+                {" "}(λ={lambda.toFixed(2)}, tail loss {active.parts.tailLossPct.toFixed(1)}%)
+              </span>
+            )}
             {" = "}<span className="text-foreground font-semibold">{active.parts.score.toFixed(3)}</span>
           </div>
         </div>
@@ -560,8 +602,9 @@ export function StrategyLab({
         <span>
           Stationary block bootstrap (block size ≈ N<sup>1/3</sup>, Politis–Romano optimal) of your R-history preserves loss-streak clustering.
           Each cell uses an independent seed so similar-looking cells aren't artificially correlated.
-          Recommendation maximises <code>passProb × (1 − bust) − 0.02·max(0, DD% − 5) − 0.1·P(inconclusive)</code>,
-          so a slightly lower pass prob with much lower drawdown — or fewer time-outs — can win.
+          Recommendation maximises <code>passProb × (1 − bust) − λ · max(0, −CVaR₅%) / 100</code>,
+          so a slightly lower pass prob with a much shallower worst-5% tail can win. Move the λ
+          slider up to weight the tail more heavily, down to weight it less.
           "Any-account bust prob" is per-path (≥1 account busts); "per-acct" sub-stat shows the legacy account-level rate.
           Recommendations are suppressed unless the bootstrap 95% CI on your mean R is strictly &gt; 0 (positive edge).
           "Simultaneous" assumes the same R hits every live account on the same trade (mirror-trading); cross-account correlation &lt; 1 in real broker flow would soften joint-bust risk.
