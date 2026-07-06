@@ -160,7 +160,12 @@ export interface ReplayResult {
   expectancyRCiBCa: [number, number] | null;
   /** Composite score used by the ranker to sort (higher = better). */
   compositeScore: number | null;
+  /** PR-4 · Fix 2 — count of trades where `tighten_to_ideal` used the MAE proxy
+   *  (no `ideal_stop_loss` logged, so the tightest survivable stop was derived
+   *  from MAE × 1.05). 0 on presets that don't use tighten_to_ideal. */
+  slProxyCount: number;
 }
+
 
 
 export const SL_RULE_LABELS: Record<SlRule, string> = {
