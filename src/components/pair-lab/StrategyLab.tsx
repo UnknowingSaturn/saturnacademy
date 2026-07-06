@@ -25,6 +25,7 @@ import {
 } from "@/lib/propFirmMonteCarlo";
 import { NumericInput } from "./NumericInput";
 import { classifyDataTier, DATA_TIER_VALIDATED_N } from "../../../shared/quant/config";
+import { ensureUtcMs } from "../../../shared/quant/stats";
 import { useStrategyLabSweep } from "@/hooks/useStrategyLabSweep";
 
 
