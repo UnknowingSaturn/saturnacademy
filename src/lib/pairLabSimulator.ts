@@ -865,8 +865,12 @@ export function walkForwardKFold(
   const all = rankerEligibleTrades(trades, keys);
   if (all.length < WALK_FORWARD_KFOLD_MIN_N) return null;
 
-  const foldSize = Math.floor(all.length / k);
-  if (foldSize < 2) return null;
+  // PR-2 (2L): distribute the remainder one-trade-per-fold instead of dumping
+  // it all into the last fold. Uses numpy.array_split's ceil-diff recipe so
+  // fold boundaries are balanced within one trade (max drift <5% at n=57,k=5,
+  // was ~15%).
+  const foldEnd = (i: number) => Math.ceil((all.length * (i + 1)) / k);
+  if (foldEnd(0) < 2) return null;
 
   const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
   const reasons: Record<string, number> = {};
@@ -875,9 +879,9 @@ export function walkForwardKFold(
   let lastBucket: BucketConstants | null = null;
 
   for (let i = 1; i < k; i++) {
-    const trainEnd = i * foldSize;
+    const trainEnd = foldEnd(i - 1);
     const testStart = trainEnd;
-    const testEnd = i === k - 1 ? all.length : trainEnd + foldSize;
+    const testEnd = foldEnd(i);
     const trainSlice = all.slice(0, trainEnd);
     const testSlice = all.slice(testStart, testEnd);
     if (trainSlice.length === 0 || testSlice.length === 0) continue;
