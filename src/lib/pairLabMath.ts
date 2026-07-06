@@ -375,6 +375,10 @@ export interface BuildBucketsOpts {
   recentN?: number;
   /** When false (default) excludes ideas/paper/missed/dismissed/zero-PnL setup rows from every stat. */
   includeUnrealized?: boolean;
+  /** P1-B: skip the embedded walk-forward inside `computeBucket`. The OOS panel
+   *  sets this on the test slice so its "Test E[R]" is the true naive held-out
+   *  expectancy, not a 70/30 split within the test half. */
+  disableWalkForward?: boolean;
 }
 
 export interface BuildBucketsResult {
