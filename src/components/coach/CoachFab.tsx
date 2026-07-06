@@ -1,12 +1,11 @@
 import * as React from "react";
-import { Sparkles } from "lucide-react";
 import { useCoachPanel } from "@/contexts/CoachContext";
 import { cn } from "@/lib/utils";
 import { useLocation } from "react-router-dom";
+import { CoachMark } from "./CoachMark";
 
 /**
- * Floating Coach button. Hidden on auth pages, reset-password, and on /coach
- * (where the dedicated page already provides the surface).
+ * Floating Coach button. Hidden on auth pages, reset-password, and on /coach.
  */
 export function CoachFab() {
   const { openCoach, open } = useCoachPanel();
@@ -24,13 +23,13 @@ export function CoachFab() {
       aria-label="Ask Coach"
       onClick={() => openCoach()}
       className={cn(
-        "fixed bottom-5 right-5 z-40 h-12 pl-3 pr-4 rounded-full shadow-lg",
-        "bg-primary text-primary-foreground hover:bg-primary/90 transition",
-        "flex items-center gap-2 text-sm font-medium",
+        "fixed bottom-5 right-5 z-40 h-12 pl-2 pr-4 rounded-full",
+        "bg-card/80 backdrop-blur border border-border shadow-lg hover:shadow-xl",
+        "hover:bg-accent transition flex items-center gap-2 text-sm font-medium text-foreground",
         open && "opacity-0 pointer-events-none",
       )}
     >
-      <Sparkles className="w-4 h-4" />
+      <CoachMark size={32} />
       Ask Coach
     </button>
   );

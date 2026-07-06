@@ -1,27 +1,61 @@
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Sparkles, User, Wrench } from "lucide-react";
+import { ChevronDown, Wrench, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { CoachMessage } from "@/types/coach";
+import { CoachMark } from "./CoachMark";
+import { CoachEmptyState } from "./CoachEmptyState";
 
 interface Props {
   messages: CoachMessage[];
   streaming?: boolean;
+  onSuggestion?: (prompt: string) => void;
 }
 
-/** Extract plain text from the polymorphic `parts` column. */
 function toText(m: CoachMessage): string {
   const p: any = m.parts;
   if (typeof p === "string") return p;
-  if (Array.isArray(p)) {
-    return p.map((seg) => (typeof seg === "string" ? seg : seg?.text ?? "")).join("");
-  }
+  if (Array.isArray(p)) return p.map((seg) => (typeof seg === "string" ? seg : seg?.text ?? "")).join("");
   if (p && typeof p === "object" && typeof p.text === "string") return p.text;
   return "";
 }
 
-export function CoachConversation({ messages, streaming }: Props) {
+/** Strip the [Context: ...] prefix we add server-side so the UI stays clean. */
+function stripContextPrefix(text: string): { context: string | null; body: string } {
+  const m = text.match(/^\[Context:[^\]]+\]\n\n?/);
+  if (!m) return { context: null, body: text };
+  return { context: m[0].replace(/^\[Context:\s*/, "").replace(/\]\n\n?$/, ""), body: text.slice(m[0].length) };
+}
+
+function ToolCallStrip({ tools }: { tools: CoachMessage["tool_calls"] }) {
+  if (!tools || tools.length === 0) return null;
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition group">
+        <Wrench className="w-3 h-3" />
+        <span>{tools.length} tool call{tools.length > 1 ? "s" : ""}</span>
+        <ChevronDown className="w-3 h-3 transition group-data-[state=open]:rotate-180" />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-1.5 space-y-1 rounded-md border border-border/60 bg-muted/40 p-2 text-[11px] font-mono">
+          {tools.map((tc, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", tc.ok ? "bg-[hsl(var(--profit))]" : "bg-destructive")} />
+              <div className="min-w-0 flex-1">
+                <div className="text-foreground/90">{tc.name}</div>
+                {tc.error && <div className="text-destructive truncate">{tc.error}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+export function CoachConversation({ messages, streaming, onSuggestion }: Props) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     const el = scrollRef.current;
@@ -29,83 +63,76 @@ export function CoachConversation({ messages, streaming }: Props) {
   }, [messages.length, streaming]);
 
   if (messages.length === 0 && !streaming) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center text-center px-6 text-muted-foreground">
-        <Sparkles className="w-8 h-8 mb-2 text-primary" />
-        <h3 className="text-base font-semibold text-foreground">How can I help?</h3>
-        <p className="text-sm max-w-sm mt-1">
-          Ask about your trades, upload a chart screenshot for review, or say
-          "what went wrong on GBPUSD this week?"
-        </p>
-      </div>
-    );
+    return <CoachEmptyState onPick={(p) => onSuggestion?.(p)} />;
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-      {messages.map((m) => {
-        if (m.role === "tool" || m.role === "system") return null;
-        const isUser = m.role === "user";
-        const text = toText(m);
-        return (
-          <div key={m.id} className={cn("flex gap-2", isUser ? "justify-end" : "justify-start")}>
-            {!isUser && (
-              <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <Sparkles className="w-4 h-4 text-primary" />
-              </div>
-            )}
-            <div className={cn(
-              "max-w-[85%] rounded-lg px-3 py-2 text-sm",
-              isUser ? "bg-primary text-primary-foreground" : "bg-muted",
-            )}>
-              {m.attachments && m.attachments.length > 0 && (
-                <div className="mb-2 grid grid-cols-2 gap-1">
-                  {m.attachments.map((a, i) =>
-                    a.signed_url ? (
-                      <img
-                        key={i}
-                        src={a.signed_url}
-                        alt="Attachment"
-                        className="rounded border border-border max-h-40 object-cover"
-                      />
-                    ) : null,
+    <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {messages.map((m) => {
+          if (m.role === "tool" || m.role === "system") return null;
+          const isUser = m.role === "user";
+          const raw = toText(m);
+          const { context, body } = isUser ? stripContextPrefix(raw) : { context: null, body: raw };
+
+          if (isUser) {
+            return (
+              <div key={m.id} className="flex gap-3 justify-end">
+                <div className="max-w-[85%] flex flex-col items-end gap-1.5">
+                  {context && (
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground px-2 py-0.5 rounded bg-muted/60">
+                      {context}
+                    </span>
+                  )}
+                  {m.attachments && m.attachments.length > 0 && (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {m.attachments.map((a, i) =>
+                        a.signed_url ? (
+                          <a key={i} href={a.signed_url} target="_blank" rel="noreferrer">
+                            <img src={a.signed_url} alt="" className="rounded-lg border border-border max-h-48 object-cover" />
+                          </a>
+                        ) : null,
+                      )}
+                    </div>
+                  )}
+                  {body.trim() && (
+                    <div className="rounded-2xl rounded-tr-md bg-primary text-primary-foreground px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">
+                      {body}
+                    </div>
                   )}
                 </div>
-              )}
-              <div className={cn(
-                "prose prose-sm dark:prose-invert max-w-none",
-                isUser && "prose-invert",
-              )}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{text || " "}</ReactMarkdown>
-              </div>
-              {m.tool_calls && m.tool_calls.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-border/50 text-[10px] text-muted-foreground flex flex-wrap gap-1">
-                  {m.tool_calls.map((tc, i) => (
-                    <span key={i} className="inline-flex items-center gap-0.5">
-                      <Wrench className="w-2.5 h-2.5" /> {tc.name}{!tc.ok && " ✕"}
-                    </span>
-                  ))}
+                <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                  <User className="w-3.5 h-3.5 text-muted-foreground" />
                 </div>
-              )}
-            </div>
-            {isUser && (
-              <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0">
-                <User className="w-4 h-4" />
               </div>
-            )}
+            );
+          }
+
+          // Assistant — no bubble, text on surface.
+          return (
+            <div key={m.id} className="flex gap-3">
+              <CoachMark size={28} className="mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-pre:my-2 prose-headings:mt-3 prose-headings:mb-2">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{body || " "}</ReactMarkdown>
+                </div>
+                <ToolCallStrip tools={m.tool_calls} />
+              </div>
+            </div>
+          );
+        })}
+
+        {streaming && (
+          <div className="flex gap-3">
+            <CoachMark size={28} className="mt-0.5 animate-pulse" />
+            <div className="flex items-center gap-1.5 h-7">
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:-0.3s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:-0.15s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce" />
+            </div>
           </div>
-        );
-      })}
-      {streaming && (
-        <div className="flex gap-2 justify-start">
-          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-primary animate-pulse" />
-          </div>
-          <div className="bg-muted rounded-lg px-3 py-2 text-sm text-muted-foreground">
-            Thinking…
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

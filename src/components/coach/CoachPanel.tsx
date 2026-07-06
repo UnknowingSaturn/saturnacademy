@@ -1,32 +1,34 @@
 import * as React from "react";
-import { useEffect } from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useEffect, useRef } from "react";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { PanelLeftClose, PanelLeftOpen, ExternalLink, X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { History, ExternalLink, X, Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCoachPanel } from "@/contexts/CoachContext";
 import { useCoachMessages, useCoachThreads, useCreateCoachThread, useSendCoachMessage } from "@/hooks/useCoach";
 import { CoachConversation } from "./CoachConversation";
 import { CoachThreadList } from "./CoachThreadList";
-import { CoachComposer } from "./CoachComposer";
+import { CoachComposer, type CoachComposerHandle } from "./CoachComposer";
 import { Badge } from "@/components/ui/badge";
+import { CoachMark } from "./CoachMark";
 
 export function CoachPanel() {
   const { open, closeCoach, activeThreadId, setActiveThreadId, attached, clearAttached } = useCoachPanel();
-  const [showSidebar, setShowSidebar] = React.useState(true);
   const navigate = useNavigate();
+  const composerRef = useRef<CoachComposerHandle>(null);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
 
   const { data: threads = [] } = useCoachThreads();
   const { data: messages = [], isFetching } = useCoachMessages(activeThreadId);
   const createThread = useCreateCoachThread();
   const send = useSendCoachMessage();
 
-  // On first open with no active thread, pick most recent (or create empty later on send).
   useEffect(() => {
-    if (open && !activeThreadId && threads.length > 0) {
-      setActiveThreadId(threads[0].id);
-    }
+    if (open && !activeThreadId && threads.length > 0) setActiveThreadId(threads[0].id);
   }, [open, activeThreadId, threads, setActiveThreadId]);
+
+  const currentTitle = threads.find((t) => t.id === activeThreadId)?.title ?? "Trading Coach";
 
   const handleNewThread = async () => {
     const t = await createThread.mutateAsync({
@@ -35,6 +37,7 @@ export function CoachPanel() {
       context_route: attached?.route,
     });
     setActiveThreadId(t.id);
+    setHistoryOpen(false);
   };
 
   const handleSend = async (text: string, atts: { storage_path: string }[]) => {
@@ -58,23 +61,41 @@ export function CoachPanel() {
 
   return (
     <Sheet open={open} onOpenChange={(v) => (v ? null : closeCoach())}>
-      <SheetContent
-        side="right"
-        className="p-0 w-full sm:max-w-[720px] flex flex-col gap-0"
-      >
-        <SheetHeader className="px-3 py-2 border-b border-border flex-row items-center gap-2 space-y-0">
+      <SheetContent side="right" className="p-0 w-full sm:max-w-[640px] flex flex-col gap-0">
+        {/* Header */}
+        <div className="px-3 py-2.5 border-b border-border flex items-center gap-2">
+          <CoachMark size={24} />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold truncate">{currentTitle}</div>
+            <div className="text-[10px] text-muted-foreground -mt-0.5">Trading Coach</div>
+          </div>
+
+          <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Conversation history" title="History">
+                <History className="w-4 h-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" side="bottom" className="w-80 p-0 h-[70vh] max-h-[520px]">
+              <CoachThreadList
+                threads={threads}
+                activeId={activeThreadId}
+                onSelect={(id) => { setActiveThreadId(id); setHistoryOpen(false); }}
+                onNew={handleNewThread}
+              />
+            </PopoverContent>
+          </Popover>
+
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            onClick={() => setShowSidebar((s) => !s)}
-            aria-label={showSidebar ? "Hide history" : "Show history"}
+            onClick={handleNewThread}
+            aria-label="New conversation"
+            title="New conversation"
           >
-            {showSidebar ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+            <Plus className="w-4 h-4" />
           </Button>
-          <SheetTitle className="flex-1 text-sm truncate text-left">
-            {threads.find((t) => t.id === activeThreadId)?.title ?? "Trading Coach"}
-          </SheetTitle>
           <Button
             variant="ghost"
             size="icon"
@@ -85,38 +106,41 @@ export function CoachPanel() {
           >
             <ExternalLink className="w-4 h-4" />
           </Button>
-        </SheetHeader>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={closeCoach}
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
 
-        {attached && (
-          <div className="px-3 py-1.5 border-b border-border flex items-center gap-2 bg-muted/40">
-            <Badge variant="secondary" className="text-[10px]">Attached</Badge>
-            <span className="text-xs truncate flex-1">{attached.label ?? attached.trade_id ?? attached.route}</span>
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={clearAttached} aria-label="Clear context">
-              <X className="w-3 h-3" />
-            </Button>
-          </div>
-        )}
-
-        <div className="flex-1 flex min-h-0">
-          {showSidebar && (
-            <div className="w-56 border-r border-border shrink-0">
-              <CoachThreadList
-                threads={threads}
-                activeId={activeThreadId}
-                onSelect={(id) => setActiveThreadId(id)}
-                onNew={handleNewThread}
-                compact
-              />
-            </div>
-          )}
-          <div className="flex-1 flex flex-col min-w-0">
-            <CoachConversation messages={messages} streaming={send.isPending || (isFetching && messages.length === 0)} />
-            <CoachComposer
-              threadId={activeThreadId ?? "pending"}
-              disabled={send.isPending}
-              onSend={handleSend}
-            />
-          </div>
+        {/* Body */}
+        <div className="flex-1 flex flex-col min-h-0">
+          <CoachConversation
+            messages={messages}
+            streaming={send.isPending || (isFetching && messages.length === 0)}
+            onSuggestion={(p) => composerRef.current?.setText(p)}
+          />
+          <CoachComposer
+            ref={composerRef}
+            threadId={activeThreadId ?? "pending"}
+            disabled={send.isPending}
+            onSend={handleSend}
+            contextChip={
+              attached ? (
+                <span className="inline-flex items-center gap-1.5 pl-2 pr-1 py-0.5 rounded-md bg-primary/10 text-primary text-[11px]">
+                  <Badge variant="secondary" className="h-4 px-1 text-[9px] bg-primary/20 text-primary border-0">CONTEXT</Badge>
+                  <span className="truncate max-w-[220px]">{attached.label ?? attached.trade_id ?? attached.route}</span>
+                  <button onClick={clearAttached} className="hover:bg-primary/15 rounded p-0.5" aria-label="Clear context">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ) : null
+            }
+          />
         </div>
       </SheetContent>
     </Sheet>
