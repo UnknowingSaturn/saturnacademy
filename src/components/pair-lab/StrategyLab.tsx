@@ -50,20 +50,27 @@ const WINDOW_PRESETS = [30, 60, 90];
 
 // Score components (exposed for the breakdown line).
 //
-// All three terms live on the 0–1 probability scale so the additive form is
-// dimensionally consistent:
-//   passProb × survival  → 0–1 probability of finishing in the money
-//   ddPenalty            → 0.02 per 1pp of avgDD above 5%, capped at 0.4
-//                          (so a 25% avg DD costs 0.4, comparable to passProb)
-//   inconclusivePenalty  → fraction of paths that neither passed nor fully
-//                          failed within the window
-function scoreCellParts(r: MCResult, inconclusiveWeight = 0.1) {
+// PR-2 (2J): replaced arbitrary linear ddPenalty + inconclusive constants with
+// a CVaR-based utility. CVaR-5% is the mean of the worst 5% of final-equity
+// outcomes — the standard prop-firm risk currency. Utility is:
+//
+//   score = passProb × (1 − riskOfRuin)  −  λ × max(0, −cvar5Pct) / 100
+//
+// The subtracted term is a downside cost proportional to how deep the tail
+// losses go, on the same 0–1 probability scale as passProb × survival. λ
+// (downside aversion) is user-tunable via the panel header slider; default
+// 0.5 penalises a 20% CVaR loss by 0.10 (comparable to a 10-pp pass-prob
+// swing), which matches the intuition "I care about tail losses about half as
+// much as I care about pass probability".
+function scoreCellParts(r: MCResult, lambda = 0.5) {
   const survival = 1 - r.riskOfRuin;
-  const ddPenaltyRaw = 0.02 * Math.max(0, r.avgDrawdownPct - 5);
-  const ddPenalty = Math.min(0.4, ddPenaltyRaw);
-  const inconclusivePenalty = inconclusiveWeight * r.inconclusiveProb;
-  const score = r.passProb * survival - ddPenalty - inconclusivePenalty;
-  return { passProb: r.passProb, survival, ddPenalty, inconclusivePenalty, score };
+  const passSurvival = r.passProb * survival;
+  // Only the *loss* tail costs utility; a positive CVaR-5% (rare, but happens
+  // on very strong edges) doesn't reward the score.
+  const tailLossPct = Math.max(0, -r.cvar5Pct);
+  const cvarPenalty = lambda * (tailLossPct / 100);
+  const score = passSurvival - cvarPenalty;
+  return { passProb: r.passProb, survival, cvarPenalty, tailLossPct, score };
 }
 
 // (cellSeed now lives in the worker — keeps the per-cell PRNG seed local to
