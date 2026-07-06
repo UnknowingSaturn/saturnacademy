@@ -54,6 +54,7 @@ import {
   bootstrapMeanCi,
   bootstrapPositivePValue,
   bootstrapKellyCi,
+  bootstrapKellyCiBCa,
   bhSignificant,
   rawQuarterKellyPct,
   quarterKellyPct,
