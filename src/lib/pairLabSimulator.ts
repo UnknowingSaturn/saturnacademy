@@ -939,7 +939,7 @@ export function rankStrategies(
       if (oosSlice.length >= 3) {
         const bucket = buildBucketConstants(isSlice, keys);
         const trailCapture = estimateTrailCaptureLocal(isSlice, keys);
-        const ctx: ReplayContext = { bucket, trailCapture };
+        const ctx: ReplayContext = { bucket, trailCapture, replayMode: opts.replayMode ?? "expected" };
         const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
         const reasons: Record<string, number> = {};
         for (const t of oosSlice) {
