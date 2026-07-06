@@ -657,8 +657,10 @@ function buildResult(
     slRuleLabel: SL_RULE_LABELS[strategy.slRule],
     runnerLabel: RUNNER_LABELS[strategy.exitRule.runner],
     compositeScore,
+    slProxyCount: replayed.reduce((s, x) => s + (x.slProxy ? 1 : 0), 0),
   };
 }
+
 
 
 
