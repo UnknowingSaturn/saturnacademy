@@ -744,7 +744,7 @@ export function replayBucket(
   for (const t of all) {
     const proof = extractProof(t, keys);
     const out = replayOneTrade(strategy, t, proof, ctx);
-    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale, slProxy: out.slProxy });
     else reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
   }
 
@@ -937,7 +937,7 @@ export function walkForwardKFold(
       const proof = extractProof(t, keys);
       const out = replayOneTrade(strategy, t, proof, ctx);
       if ("r" in out) {
-        replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+        replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale, slProxy: out.slProxy });
       } else {
         reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
       }
@@ -998,7 +998,7 @@ export function rankStrategies(
         for (const t of oosSlice) {
           const proof = extractProof(t, keys);
           const out = replayOneTrade(s, t, proof, ctx);
-          if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+          if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale, slProxy: out.slProxy });
           else reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
         }
         const ladder = buildAppliedTpLadder(s, bucket);
@@ -1108,7 +1108,7 @@ export function walkForwardEvaluate(
   for (const t of oosTrades) {
     const proof = extractProof(t, keys);
     const out = replayOneTrade(winner.strategy, t, proof, oosCtx);
-    if ("r" in out) oosReplayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+    if ("r" in out) oosReplayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale, slProxy: out.slProxy });
     else oosReasons[out.ineligible] = (oosReasons[out.ineligible] ?? 0) + 1;
   }
   const oosLadder = buildAppliedTpLadder(winner.strategy, isBucket);
