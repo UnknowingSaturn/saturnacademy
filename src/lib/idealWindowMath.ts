@@ -338,12 +338,21 @@ export function bucketTrades({
     b.significant = false; // set below via BH-FDR
   }
 
-  // N2 fix: Benjamini-Hochberg FDR across all eligible cells. The previous
-  // naive p<0.05 across ~48 buckets produced ~2-3 spurious "significant"
-  // cells per heatmap. Cells flagged belowMinN are excluded from the test.
-  const eligible = [...byKey.values()].filter((b) => !b.belowMinN && b.pValue != null);
-  const sig = bhSignificant(eligible.map((b) => b.pValue));
-  for (let i = 0; i < eligible.length; i++) eligible[i].significant = sig[i];
+  // N2 fix + PR-2 (2I): Benjamini-Hochberg FDR across all eligible cells. The
+  // previous naive p<0.05 across ~48 buckets produced ~2-3 spurious
+  // "significant" cells per heatmap. Cells flagged belowMinN are excluded
+  // from the test.
+  //
+  // Split the pool by `half`: the two halves of a single hour are paired
+  // observations sharing the same underlying trades (via the
+  // `cf_ideal_entry_window_*` field). Applying BH across both halves in one
+  // family violates the FDR independence assumption and over-corrects.
+  const eligibleFirst = [...byKey.values()].filter((b) => !b.belowMinN && b.pValue != null && b.half === "first");
+  const eligibleSecond = [...byKey.values()].filter((b) => !b.belowMinN && b.pValue != null && b.half === "second");
+  const sigFirst = bhSignificant(eligibleFirst.map((b) => b.pValue));
+  const sigSecond = bhSignificant(eligibleSecond.map((b) => b.pValue));
+  for (let i = 0; i < eligibleFirst.length; i++) eligibleFirst[i].significant = sigFirst[i];
+  for (let i = 0; i < eligibleSecond.length; i++) eligibleSecond[i].significant = sigSecond[i];
 
   return { byKey, baseline, scopedTradeCount: scoped };
 }
