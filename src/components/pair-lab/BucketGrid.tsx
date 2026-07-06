@@ -259,11 +259,14 @@ export function BucketGrid({ symbols, sessions, perCell, perRow, selected, onSel
     // BH FDR across per-cell buckets ONLY. Row totals aggregate the same trades
     // contained in their constituent cells (non-independent tests); mixing them
     // into the BH pool inflates `m` and over-corrects, hiding real edges.
-    // Only buckets with n ≥ 10 and a positive expectancy enter the test —
-    // others can't be significant by construction and would just inflate `m`.
+    // Finding 1 (audit): drop the `expectedR > 0` pre-filter. BH controls FDR
+    // over ALL tested hypotheses. Restricting `m` to positive-E cells makes
+    // the per-rank threshold `k/m × α` too permissive and over-flags cells on
+    // the margin. Every cell with n ≥ 10 and a valid p-value belongs in the
+    // denominator regardless of expectancy sign.
     const fdrEligible = perCell
       .map((b, idx) => ({ b, idx }))
-      .filter(({ b }) => b.n >= 10 && b.expectedR > 0 && b.expectancyPValue != null);
+      .filter(({ b }) => b.n >= 10 && b.expectancyPValue != null);
     const sig = bhSignificant(fdrEligible.map(({ b }) => b.expectancyPValue), 0.05);
     const fdrByKey = new Map<string, "sig" | "ns">();
     fdrEligible.forEach(({ b }, i) => {
