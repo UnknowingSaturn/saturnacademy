@@ -542,11 +542,22 @@ export function StrategyRanker({
             <tbody>
               {ranked.map((row, i) => {
                 const r = row.result;
-                const conf = confidenceFor(r);
+                // PR-2 G2: pull the pessimistic ↔ optimistic swing for this
+                // preset. `gap` is the absolute expectancy range across
+                // ordering assumptions; when it exceeds half the BCa CI width
+                // the confidence tier gets downgraded (see confidenceFor).
+                const sens = sensitivityById.get(r.strategy.id);
+                const orderingGap = sens
+                  ? Math.abs(sens.optimistic - sens.pessimistic)
+                  : undefined;
+                const conf = confidenceFor(r, orderingGap);
                 const isWinner = i === 0 && canCrown;
                 const isBust = busted(r);
                 const insufficient = r.n < MIN_PROVEN_SAMPLE;
                 const ci = r.expectancyRCiBCa ?? r.expectancyRCi;
+                const ciHalfWidth = ci ? (ci[1] - ci[0]) / 2 : null;
+                const orderingSensitive =
+                  sens != null && ciHalfWidth != null && orderingGap != null && orderingGap > ciHalfWidth;
                 const isOpen = openId === r.strategy.id;
                 const toggle = () => setOpenId(isOpen ? null : r.strategy.id);
                 return (
