@@ -393,12 +393,15 @@ function replayOneTrade(
       remainingFrac -= take;
       anyFilled = true;
       lastFilledAtR = p.atR;
-    } else if (stoppedUnderNewSl) {
-      // partial does not fill — runner handling will book the loss
-    } else {
-      return { ineligible: `unproven ${p.atR.toFixed(2)}R target` };
     }
+    // Otherwise: partial did not fill. Do NOT drop the trade here — the
+    // runner block below books the honest outcome using proven-reached R
+    // (previously an early `ineligible: "unproven target"` return caused
+    // massive survivorship bias, since only trades that hit every target
+    // survived → fake 100% WRs on TP-heavy presets).
   }
+
+  const maxTargetAtR = resolved.length ? resolved[resolved.length - 1].atR : 0;
 
   if (remainingFrac > 0) {
     if (stoppedUnderNewSl && !anyFilled) {
@@ -418,10 +421,23 @@ function replayOneTrade(
         booked += Math.max(-1, ctx.trailCapture * mfeNewR) * remainingFrac;
       }
     } else {
+      // Not stopped under the new SL.
+      const reachedNewR = proof.reachedR / slScale;
       if (strategy.exitRule.runner === "be_after_first_tp") {
+        // Runner sat at BE (if a TP filled) or at the original SL (if no TP
+        // filled — BE was never armed). Either way, on a non-stopped trade
+        // that didn't fully complete the ladder, 0 is the conservative
+        // book — we don't know where the trader would have manually exited.
         booked += 0;
       } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
-        booked += lastFilledAtR * remainingFrac;
+        if (anyFilled) {
+          booked += lastFilledAtR * remainingFrac;
+        } else {
+          // No partial filled and trade didn't stop — book proven-reached R
+          // in new-R units, capped at the last-partial target (rule would
+          // have exited there at the latest).
+          booked += Math.min(reachedNewR, maxTargetAtR) * remainingFrac;
+        }
       } else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
         const mfeNewR = proof.loggedMfe / slScale;
