@@ -294,7 +294,9 @@ function replayOneTrade(
       // Not stopped under the new SL.
       const reachedNewR = proof.reachedR / slScale;
       if (strategy.exitRule.runner === "be_after_first_tp") {
-        booked += 0;
+        // PR-4 · Fix 3 parity — cap-MFE Bayesian floor instead of hard 0.
+        booked += 0.5 * Math.min(reachedNewR, maxTargetAtR) * remainingFrac;
+
       } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
         if (anyFilled) {
           booked += lastFilledAtR * remainingFrac;
