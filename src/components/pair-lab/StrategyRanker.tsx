@@ -23,6 +23,7 @@ import { Trophy, AlertTriangle, CheckCircle2, Info, ChevronRight, ChevronDown } 
 import {
   rankStrategies,
   TP_SOURCE_LABELS,
+  type ReplayMode,
   type ReplayResult,
   type RankerRow,
   type ExclusionBreakdown,
