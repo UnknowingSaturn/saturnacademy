@@ -668,6 +668,7 @@ function ctxFor(opts: ReplayOpts, bucket: BucketConstants): ReplayContext {
     trailCapture: opts.trailCapture != null && opts.trailCapture > 0
       ? opts.trailCapture
       : TRAIL_CAPTURE_FRAC,
+    replayMode: opts.replayMode ?? "expected",
   };
 }
 
