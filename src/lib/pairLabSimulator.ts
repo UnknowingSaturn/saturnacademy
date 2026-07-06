@@ -128,13 +128,29 @@ export interface ReplayResult {
   appliedSlPipsMedian: number | null;
   /** Inter-quartile range (p25, p75) of applied SL in pips. */
   appliedSlPipsRange: [number, number] | null;
+  /**
+   * Median SL scale actually applied, in R (dimensionless — 1.0 = original
+   * stop, 1.15 = 15% wider, 0.60 = 40% tighter). Unlike appliedSlPipsMedian
+   * this is comparable across symbols, so it's the number the ranker should
+   * display on multi-symbol buckets.
+   */
+  appliedSlScaleMedian: number | null;
   /** Resolved TP ladder. For adaptive presets, atR reflects the bucket statistic. */
   appliedTpLadder: AppliedTpLeg[];
   /** Plain-English label for the SL rule. */
   slRuleLabel: string;
   /** Plain-English label for the runner rule. */
   runnerLabel: string;
+  /**
+   * BCa (bias-corrected & accelerated) 95% CI on expectancy R. Wider and
+   * more honest than `expectancyRCi` at n < 30, which the ranker mostly
+   * lives at. `expectancyRCi` stays as the plain percentile fallback.
+   */
+  expectancyRCiBCa: [number, number] | null;
+  /** Composite score used by the ranker to sort (higher = better). */
+  compositeScore: number | null;
 }
+
 
 export const SL_RULE_LABELS: Record<SlRule, string> = {
   original: "Use original stop",
