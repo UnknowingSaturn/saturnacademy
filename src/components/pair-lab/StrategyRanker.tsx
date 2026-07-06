@@ -271,8 +271,12 @@ function ExclusionPanel({ b, open, onToggle }: { b: ExclusionBreakdown; open: bo
           {b.missingMae > 0 && <div>· {b.missingMae} missing <span className="text-foreground">MAE</span> (log in Journal to include)</div>}
           {b.missingSl > 0 && <div>· {b.missingSl} missing <span className="text-foreground">initial SL or entry price</span></div>}
           <div className="pt-1 text-[11px] leading-relaxed text-muted-foreground/80 not-italic">
-            Every preset is scored on the same strict pool so rows are directly comparable. Log MFE/MAE on more trades to expand the sample.
+            Presets start from this strict pool, but each may drop additional trades
+            (e.g. tighten-SL needs an ideal-SL or MAE proxy; adaptive-TP needs a
+            thick bucket). The per-row N column shows what actually scored. Log
+            MFE/MAE on more trades to expand the pool.
           </div>
+
         </div>
       )}
     </div>
