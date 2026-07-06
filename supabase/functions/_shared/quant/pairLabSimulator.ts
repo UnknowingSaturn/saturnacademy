@@ -328,7 +328,7 @@ function replayOneTrade(
     }
   }
 
-  return { r: booked };
+  return { r: booked, slProxy };
 }
 
 
