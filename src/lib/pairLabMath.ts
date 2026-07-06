@@ -1185,6 +1185,8 @@ function buildRecommendation(
     tp1Star,
     suggestedRiskPct,
     riskBelowFloor,
+    rawKellyClipped,
+    rawKellyPct: rawKelly,
     suggestedRiskPctCi,
     rCoverageWarning,
     suggestedRiskPctPropFirm,
