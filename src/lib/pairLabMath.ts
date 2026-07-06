@@ -576,6 +576,7 @@ function computeBucket(
   baseline: BucketReport | null,
   propFirm: PropFirmContext | null,
   recentN: number = 10,
+  disableWalkForward: boolean = false,
 ): BucketReport {
   // R1.1: closed-only gate via `!is_open`. The previous `net_pnl != null`
   // filter let floating-P&L on live positions enter win/loss/Kelly math.
