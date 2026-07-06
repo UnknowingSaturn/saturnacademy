@@ -494,6 +494,10 @@ export interface ReplayOpts {
   propFirm: PropFirmContext | null;
   /** Empirically-derived trail capture ratio (overrides TRAIL_CAPTURE_FRAC). */
   trailCapture?: number;
+  /** PR-1 — path-ordering assumption when a trade breaches both counterfactual
+   *  TP and SL. "expected" uses the Brownian-bridge probability; "optimistic"
+   *  = TP-first (legacy behaviour); "pessimistic" = SL-first (safety floor). */
+  replayMode?: ReplayMode;
 }
 
 export const MIN_ELIGIBLE_SAMPLE = 10;
