@@ -326,9 +326,14 @@ export interface PresetReplayResult {
   biasWarning: boolean;
 }
 
-export function replayAllPresets(trades: any[], keys: PairLabFieldKeys): PresetReplayResult[] {
+export function replayAllPresets(
+  trades: any[],
+  keys: PairLabFieldKeys,
+  opts: { replayMode?: ReplayMode } = {},
+): PresetReplayResult[] {
   const all = trades.filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null);
   const bucket = buildBucketConstants(all, keys);
+  const replayMode: ReplayMode = opts.replayMode ?? "expected";
 
   // First pass: replay each preset, store per-trade outcomes keyed by trade id.
   const perPreset = STRATEGY_PRESETS.map((strategy) => {
@@ -337,7 +342,7 @@ export function replayAllPresets(trades: any[], keys: PairLabFieldKeys): PresetR
     let reachedSum = 0, reachedCount = 0;
     for (const t of all) {
       const proof = extractProof(t, keys);
-      const out = replayOneTrade(strategy, t, proof, bucket);
+      const out = replayOneTrade(strategy, t, proof, bucket, replayMode);
       if ("r" in out) {
         outcomes.set(t.id, out.r);
         if (Number.isFinite(proof.reachedR)) {
