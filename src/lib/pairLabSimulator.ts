@@ -389,6 +389,9 @@ function replayOneTrade(
   let remainingFrac = 1;
   let anyFilled = false;
   let lastFilledAtR = 0;
+  /** First partial whose TP was breached by MFE. Drives the bridge probability
+   *  when the stop was ALSO breached — that's the ambiguous ordering case. */
+  let firstBreachedTpR: number | null = null;
   for (const p of resolved) {
     const needOrigR = p.atR * slScale;
     if (proof.reachedR >= needOrigR) {
@@ -397,6 +400,7 @@ function replayOneTrade(
       remainingFrac -= take;
       anyFilled = true;
       lastFilledAtR = p.atR;
+      if (firstBreachedTpR == null) firstBreachedTpR = p.atR;
     }
     // Otherwise: partial did not fill. Do NOT drop the trade here — the
     // runner block below books the honest outcome using proven-reached R
@@ -449,6 +453,31 @@ function replayOneTrade(
       }
     }
 
+  }
+
+  // PR-1 — MFE-vs-MAE ordering fix (Brownian-bridge / gambler's-ruin mixture).
+  //
+  // When a partial's TP AND the counterfactual SL BOTH breached, the code
+  // above assumed TP-first (the legacy behaviour). That inflated WR on early-
+  // TP presets. Blend `booked` (TP-first realisation) with a full-stop
+  // realisation (-slScale on the whole position) using the classical
+  // first-passage probability of a symmetric random walk between two barriers.
+  //
+  // Ambiguity only exists when at least one partial's TP was breached AND the
+  // trade also breached the new SL. Deterministic branches (only TP breached,
+  // only SL breached, neither) pass through unchanged (pStopFirst = 0).
+  if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
+    const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
+    const mfeInNewR = mfeForBridge / slScale;
+    const maeInNewR = proof.loggedMae / slScale;
+    const pTpFirstRaw = pathProbTpFirst(firstBreachedTpR, 1, mfeInNewR, maeInNewR);
+    const pTpFirst = resolveTpFirstProb(pTpFirstRaw, ctx.replayMode);
+    const pStopFirst = 1 - pTpFirst;
+    if (pStopFirst > 0) {
+      // SL-first alternative: whole position stops, no partial ever books.
+      const bookedSlFirst = -slScale;
+      booked = pTpFirst * booked + pStopFirst * bookedSlFirst;
+    }
   }
 
   const baseSlPips = slDistancePips(trade);
