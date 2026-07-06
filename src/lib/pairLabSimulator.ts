@@ -750,7 +750,7 @@ export function isRankerEligible(t: Trade, keys: PairLabFieldKeys): boolean {
 export function rankerEligibleTrades(trades: Trade[], keys: PairLabFieldKeys): Trade[] {
   return trades
     .filter((t) => isRankerEligible(t, keys))
-    .sort((a, b) => String(a.entry_time ?? "").localeCompare(String(b.entry_time ?? "")));
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
 }
 
 /** Non-mutating audit of why trades didn't make the ranker pool. Powers the
