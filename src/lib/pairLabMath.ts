@@ -949,9 +949,20 @@ function pickBestTp(
     samples[i] = scoreTp(best.tp, buf);
   }
   samples.sort((a, b) => a - b);
+  // PR-2 (2A): post-selection inference correction. The bootstrap CI above
+  // is conditional on `best.tp` having already won the argmax race over the
+  // grid of `scored.length` candidates. A vanilla percentile CI therefore
+  // under-covers by roughly a factor of √log(k). Widen symmetrically around
+  // the observed expectancy to compensate. Standard adjustment used by any
+  // grid-search TP/SL optimiser when a bar-walk isn't available.
+  const rawLo = percentileFromSorted(samples, 0.025);
+  const rawHi = percentileFromSorted(samples, 0.975);
+  const halfWidth = (rawHi - rawLo) / 2;
+  const centre = (rawHi + rawLo) / 2;
+  const kAdjust = Math.sqrt(Math.log(Math.max(2, scored.length) + 1));
   const ci: [number, number] = [
-    percentileFromSorted(samples, 0.025),
-    percentileFromSorted(samples, 0.975),
+    centre - halfWidth * kAdjust,
+    centre + halfWidth * kAdjust,
   ];
   const ladder = Array.from(
     new Set([...scored].filter((c) => c.e > 0).sort((a, b) => b.e - a.e).slice(0, 3).map((c) => c.tp)),
