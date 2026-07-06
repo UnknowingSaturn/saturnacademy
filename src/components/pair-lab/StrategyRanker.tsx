@@ -32,8 +32,8 @@ import { EquityCurveOverlay } from "./EquityCurveOverlay";
 import {
   useDistanceUnit,
   formatDistance,
-  nativeUnitForSymbol,
 } from "@/hooks/useDistanceUnit";
+
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext, TrailCaptureEstimate } from "@/lib/pairLabMath";
 import { MIN_PROVEN_SAMPLE } from "../../../shared/quant/config";
