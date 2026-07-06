@@ -441,7 +441,7 @@ export const MIN_ELIGIBLE_SAMPLE = 10;
 
 function buildResult(
   strategy: Strategy,
-  replayed: Array<{ trade: Trade; r: number; reachedR?: number; slPips?: number | null }>,
+  replayed: Array<{ trade: Trade; r: number; reachedR?: number; slPips?: number | null; slScale?: number }>,
   ineligibleReasons: Record<string, number>,
   totalTradeCount: number,
   opts: ReplayOpts,
@@ -501,9 +501,6 @@ function buildResult(
 
   let verdict: ReplayResult["propFirmVerdict"] = "n/a";
   let bustNote: string | null = null;
-  // J7 fix: `dailyLossDollars === 0` previously made every losing trade trip
-  // the cap. Treat 0/null/negative as "not set" to match buildRecommendation
-  // and edge computeBucket.
   if (opts.propFirm && opts.propFirm.dailyLossDollars != null && opts.propFirm.dailyLossDollars > 0) {
     const dailyCap = opts.propFirm.dailyLossDollars;
     for (const [day, sum] of dailyDollars) {
@@ -531,9 +528,7 @@ function buildResult(
   ];
 
   const expectancyRCi = bootstrapMeanCi(rs);
-  // Mean per-trade dollars CI = mean-R CI × dollarRisk. Shrinks with n as
-  // expected. The earlier `totalDollarsCi = expectancyRCi × n × dollarRisk`
-  // was a category error (CI on a mean is not the same as CI on a sum).
+  const expectancyRCiBCa = bootstrapMeanCiBCa(rs);
   const meanDollarsCi: [number, number] | null = expectancyRCi
     ? [expectancyRCi[0] * dollarRisk, expectancyRCi[1] * dollarRisk]
     : null;
@@ -548,6 +543,16 @@ function buildResult(
   const slP75 = slPipsSamples.length ? quantile(slPipsSamples, 0.75) : null;
   const appliedSlPipsRange: [number, number] | null =
     slP25 != null && slP75 != null ? [slP25, slP75] : null;
+
+  const slScaleSamples = replayed
+    .map((x) => x.slScale)
+    .filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
+  const appliedSlScaleMedian = slScaleSamples.length ? quantile(slScaleSamples, 0.5) : null;
+
+  // Composite score is set later by the ranker orchestrator (needs cross-preset
+  // context to compute the drawdown/sample penalties consistently). Left null
+  // when computed from a raw replayBucket() call.
+  const compositeScore: number | null = null;
 
   return {
     strategy,
@@ -574,14 +579,18 @@ function buildResult(
     propFirmVerdict: verdict,
     bustNote,
     expectancyRCi,
+    expectancyRCiBCa,
     meanDollarsCi,
     appliedSlPipsMedian,
     appliedSlPipsRange,
+    appliedSlScaleMedian,
     appliedTpLadder,
     slRuleLabel: SL_RULE_LABELS[strategy.slRule],
     runnerLabel: RUNNER_LABELS[strategy.exitRule.runner],
+    compositeScore,
   };
 }
+
 
 
 function preparedTrades(trades: Trade[]): Trade[] {
