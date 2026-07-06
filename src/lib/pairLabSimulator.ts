@@ -642,7 +642,7 @@ export function replayBucket(
   const all = preparedTrades(trades);
   const bucket = buildBucketConstants(all, keys);
   const ctx = ctxFor(opts, bucket);
-  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null }> = [];
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
   const reasons: Record<string, number> = {};
 
   for (const t of all) {
