@@ -806,7 +806,15 @@ export function computeCompositeScore(
   const expLower = ci[0];
   const maxDdR = dollarRisk > 0 ? Math.abs(r.maxDrawdownDollars) / dollarRisk : 0;
   const ddPenalty = 1 / (1 + maxDdR / Math.max(1, riskToleranceR));
-  const samplePenalty = Math.min(1, r.n / MIN_PROVEN_SAMPLE);
+  // PR-2 (2G): switch from a linear ramp that plateaus at n=MIN_PROVEN_SAMPLE
+  // to a diminishing-returns curve that keeps rewarding sample growth. Under
+  // the old min(1, n/10) a 10-trade preset and a 100-trade preset got the
+  // same sample factor; now 100 trades earn ~0.68 vs 10 trades' 0.0, so the
+  // ranker prefers rows whose CI has actually tightened. Composite is still
+  // bounded and null on empty rows.
+  const samplePenalty = r.n >= MIN_PROVEN_SAMPLE
+    ? 1 - 1 / Math.sqrt(r.n / MIN_PROVEN_SAMPLE)
+    : 0;
   return expLower * ddPenalty * samplePenalty;
 }
 
