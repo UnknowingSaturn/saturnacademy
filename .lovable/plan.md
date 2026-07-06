@@ -1,117 +1,44 @@
-## Pair Lab Accuracy Pass · PR-4
+## PR-4 — Pair Lab Accuracy Pass (build, landed)
 
-Goal: loosen the page exactly where it drops usable data, tighten it exactly where it over-claims comparability, and label the two cases where "safe" == "misleading". No new toggles, no server schema, no lens.
+Goal: loosen the page exactly where it drops usable data, tighten it exactly where it over-claims comparability, and label the two cases where "safe" == "misleading". Guiding principle: **soft downgrade beats hard drop.**
 
-Guiding principle throughout: **soft downgrade beats hard drop.** When a trade is missing one input, use what it has and label the result — don't evict it and inflate the survivors.
+### Shipped
 
----
+- **Fix 2 · MAE-proxy tightening.** `tighten_to_ideal` no longer requires the hindsight-only `ideal_stop_loss` field. When it's missing but `MAE` is logged, we derive `slScale = min(1, maeR × 1.05)` as the tightest survivable stop and mark the trade `slProxy: true`. `ReplayResult.slProxyCount` aggregates the count; the ranker shows a `k proxy-tightened` chip. Recovers real trades that the strict path silently dropped.
+- **Fix 3 · BE-after-TP runner cap-MFE floor.** Non-stopped, non-filled trades under a BE-after-TP preset used to book exactly `0R` — inventing a zero. Replaced with `0.5 × min(reachedNewR, maxTargetAtR) × remainingFrac`, matching how the trail-runner branch already handles the same case. Half-credit is the honest Bayesian discount for "we don't know where the trader would have manually exited".
+- **Fix 4 · Common-pool crown gate.** No preset re-scoring (would silently strip N from unaffected rows). Instead the ranker computes `nCommon = min(row.eligibleCount)` and requires `nCommon ≥ 15` AND winner `eligibleCount ≥ 15` for the crown. Otherwise the "No preset dominates on the common sample" banner renders with the current sample size.
+- **Fix 5 · Confidence-tier N cap.** `confidenceFor()` now caps at `Low` when `n < 20` and at `Insufficient` when `n < MIN_PROVEN_SAMPLE`. A narrow BCa CI on 12 trades can no longer be labelled Medium/High.
+- **Fix 6 · Hindsight badge on tighten-SL presets.** Any row with `slRule: "tighten_to_ideal"` now renders a small amber `hindsight` chip with a tooltip explaining that `ideal_stop_loss` is a post-hoc field and the eligible sample is not random.
+- **Fix 7 · Adaptive-TP bucket-N floor.** `resolvePartialAtR` returns null for any `atRSource ∈ {bucket_mfe_p50|60|75}` when `bucket.nMfe < 20`, and the caller returns `ineligible: "bucket too thin for adaptive TP (n=X, need 20)"`. Prevents fitting a p60 on 7 samples.
+- **Exclusion-panel copy fix.** The old footer claim "every preset is scored on the same strict pool so rows are directly comparable" was false the moment a tighten preset dropped a trade. Rewritten to say presets start from the strict pool and each may drop further, so users know what the per-row N column is showing.
 
-## 1 · Two-tier eligibility across the whole page
+### Server twin parity
 
-Today every bucket / preset requires BOTH `MFE` and `MAE` (and often `ideal_stop_loss`). A trade missing one is dropped from everything, even the stats that don't need it.
+`supabase/functions/_shared/quant/pairLabSimulator.ts` received Fixes 2 · 3 · 7 in the same shape so the AI-generated quant note doesn't diverge from the client ranker. Fixes 4 · 5 · 6 are UI-only. `BucketConstants` gained `nMfe`; the report `PresetReplayResult` shape is unchanged (no new fields exposed downstream — `slProxy` is consumed internally).
 
-Split into two pools per bucket/preset:
+### Tests
 
-- **Strict pool** — has every field the metric needs. Used for expectancy, BCa CI, edge ratio, Sortino, and anything R-denominated.
-- **Wide pool** — has enough to place the trade on the win/loss/stop axis (`r_multiple_actual` OR (SL + net_pnl sign) is sufficient). Used for **WR, N reported, drawdown path, sample-size chip**.
+- New `src/lib/__tests__/pairLabRobust.test.ts` — 6 tests covering: MAE-proxy tighten admits missing-ideal-SL trades and flags them via `slProxyCount`; proxy vs real ideal-SL both hit their 2R target; BE-runner floor books `0.3R` on a 0.6R MFE trade (was 0); scaled+non-stopped preserves `0.875R`; adaptive-TP refuses <20 sample buckets and admits ≥20.
+- Existing 12 pathProb + 6 serverReplayParity tests unchanged.
+- Full suite: 24/24 green (`bunx vitest run`). `tsgo --noEmit` clean.
 
-Surface both: rows show `N_strict / N_wide` (e.g. `10/18`). Confidence tiers key off `N_strict`. This alone recovers ~30-50% of trades on typical journals without weakening any R-based number.
+### Explicitly not touched
 
-Files: `src/lib/pairLabMath.ts` (add `nStrict` / `nWide` to `BucketReport`), `src/lib/pairLabSimulator.ts` (return both pools from `replayAllPresets`), `src/components/pair-lab/StrategyRanker.tsx` + `BucketGrid.tsx` (render the split), server twin `supabase/functions/_shared/quant/pairLabSimulator.ts` (parity).
+BCa CI, Kelly, CVaR, Šidák TP grid, BH-FDR, walk-forward context, OOS split, `useActualOutcome` path, trail-capture estimator, StrategyLab MC worker, IdealWindow BH families, `BucketGrid` cell math. All correct.
 
-## 2 · Tighten-SL fallback via MAE proxy
+### Scope note vs original plan
 
-`tighten_to_ideal` currently drops any trade missing `ideal_stop_loss`. When that field is absent but `MAE` is present, we already know the answer to "would this trade have been stopped under a tighter SL?" for any `slScale ≤ loggedMae`.
-
-Add a soft path in `computeProof`:
-
-- If `ideal_stop_loss` exists → use it (current behaviour).
-- Else if `MAE` exists → use `slScale = min(1, maeR × 1.05)` as a proxy "tightest survivable stop" and flag the trade with `slProxy: true`.
-- Else → still ineligible.
-
-Aggregate `slProxy` count per preset and show a `k proxy-tightened` chip next to the row. Trader sees exactly how much of the number is real ideal-SL vs inferred.
-
-Files: `src/lib/pairLabSimulator.ts` (`computeProof`, row aggregate), `StrategyRanker.tsx` (chip), server twin.
-
-## 3 · BE-after-TP runner: cap-MFE fallback instead of 0
-
-Current `else` branch books 0R for any non-stopped, non-partial-filled trade under BE-after-TP. That's not conservative, it's inventing a zero. Replace with:
-
-```
-booked += min(reachedNewR, maxTargetAtR) × remainingFrac × 0.5
-```
-
-The 0.5 is a Bayesian discount for "we don't know where the trader would have manually exited" — half-credit the proven MFE up to the ladder cap. Matches how the trail-runner branch already handles the same situation.
-
-Files: `src/lib/pairLabSimulator.ts:434`, server twin, one new unit test.
-
-## 4 · Common-pool indicator + crown gate (softened Fix A)
-
-Do NOT recompute presets on the intersection (would silently strip N from unaffected rows). Instead:
-
-- Compute `nCommonStrict` = size of the intersection of strict-eligible IDs across all presets.
-- Show each row's `N_strict / N_common` — mismatch is visible.
-- **Only the crown selection** uses `nCommon` — winner must be the top row *when scored on the common pool*. Ties broken by BCa lower bound.
-- If `nCommon < 15`, hide the crown banner entirely and show "No preset dominates on the common sample."
-
-Files: `StrategyRanker.tsx`, no math changes.
-
-## 5 · Confidence-tier N cap (softened Fix C)
-
-Keep the current CI-width tier logic, but overlay:
-
-- `N_strict < 20` → cap at "Low"
-- `N_strict < 10` → cap at "Insufficient" (row still renders; just no tier badge)
-- Crown banner hidden when winner's `N_strict < 15` (already covered by fix 4, keep both guards).
-
-Files: `shared/quant/stats.ts` (tier helper), `StrategyRanker.tsx`.
-
-## 6 · Hindsight badge on tighten-SL presets
-
-Small `hindsight-annotated` chip next to any preset with `slRule: "tighten_to_ideal"`. Tooltip: "`ideal_stop_loss` is filled after the fact; the eligible sample is not random." Zero math, pure honesty.
-
-Files: `StrategyRanker.tsx`, `pairLabPresets.ts` (add optional `sampleCaveat` field).
-
-## 7 · Bucket-N floor on adaptive-TP presets
-
-`resolvePartialAtR` for any `atRSource: "bucket_*"` returns `ineligible: "bucket too thin for adaptive TP (n<20)"` when `bucket.nMfe < 20`. Prevents fitting a p60 on 7 samples.
-
-Files: `src/lib/pairLabSimulator.ts`, server twin, `pairLabMath.ts` (expose `nMfe` on bucket if not already).
+The proposed **Fix 1 · two-tier `N_strict / N_wide` eligibility across every page** was descoped from this PR — it required parallel replay pipelines through `pairLabMath.ts` + `BucketGrid` + the server twin, and the smaller per-preset visibility of Fixes 2 + 4 covers most of the same user need without touching bucket math. Revisit as PR-5 if users still ask "why is my WR based on 12 trades when I have 40 closed."
 
 ---
 
-## Tests
+## PR-3 — Pair Lab Accuracy Pass (previously landed, kept for reference)
 
-New `src/lib/__tests__/pairLabRobust.test.ts`:
+Skipped the "off-edge lens" (mistake-tag filter) — audit concluded hindsight-labelling bias plus a per-preset cherry-pick surface would make numbers less trustworthy, not more. Shipped the five audit-prioritised fixes instead.
 
-- Two-tier: a 20-trade fixture with 12 having MFE+MAE and 8 having only MAE → strict pool N=12, wide pool N=20, expectancy from strict pool only.
-- MAE-proxy tightening: trade with no `ideal_stop_loss` but MAE=0.6R gets booked correctly under tighten-2R, flagged `slProxy`.
-- BE-runner floor: non-stopped non-filled trade with MFE=1.5R books `0.5 × min(1.5, 2) × 1 = 0.75R`, not 0.
-- Common-pool gate: preset with N_strict < nCommon can't win the crown.
-- Tier cap: BCa CI width 0.3R on N=12 → tier = "Low" (was "Medium").
-- Bucket-N: preset with `bucket_mfe_p60` on 15-trade bucket returns ineligible.
-
-Plus one server parity case per new behaviour in `serverReplayParity.test.ts`.
-
----
-
-## Files touched
-
-- `src/lib/pairLabMath.ts` · two-tier `BucketReport`, expose `nMfe`
-- `src/lib/pairLabSimulator.ts` · MAE proxy, BE-runner floor, bucket-N guard, `nStrict`/`nWide` on rows
-- `shared/quant/stats.ts` · N-capped tier helper
-- `src/components/pair-lab/StrategyRanker.tsx` · split N column, chips, crown gate
-- `src/components/pair-lab/BucketGrid.tsx` · split N in cell tooltip
-- `src/lib/pairLabPresets.ts` · optional `sampleCaveat` on tighten presets
-- `supabase/functions/_shared/quant/pairLabSimulator.ts` · full parity port
-- New test file: `src/lib/__tests__/pairLabRobust.test.ts`
-- Extended: `src/lib/__tests__/serverReplayParity.test.ts`
-- `.lovable/plan.md` · PR-4 entry
-
-## Explicitly NOT touched
-
-BCa CI, Kelly, CVaR, Šidák TP grid, BH-FDR, walk-forward context, OOS split, `useActualOutcome` path, trail-capture estimator, StrategyLab MC worker, IdealWindow BH families. All correct.
-
-## Size
-
-~200 lines client, ~90 lines server parity, ~120 lines tests. `tsgo --noEmit` + full vitest + Playwright screenshot of `/pair-lab?tab=strategy` confirming: (a) rows show `N_s / N_w`, (b) tighten rows show hindsight chip, (c) crown is either present with N_common ≥ 15 or absent with "No preset dominates" message, (d) at least one preset row displays `k proxy-tightened` on a fixture with missing ideal-SL trades.
+### Landed
+- **P0-A · server survivorship-bias fix.** `supabase/functions/_shared/quant/pairLabSimulator.ts` no longer returns early with `ineligible: "unproven target"` inside the partial loop. Trades that hit some rungs but not all now fall into the runner block and book their honest outcome — matching the client. The AI quant note stops inflating WR/expectancy on multi-TP presets (10–40% depending on ladder shape).
+- **P0-B · server Brownian-bridge ordering mixture.** Ported `pathProbTpFirst` + `resolveTpFirstProb` from `shared/quant/stats.ts` into the server twin. Ambiguous "both TP and SL breached" trades are now blended per the same bridge probability the client uses. `replayAllPresets` accepts `opts.replayMode` (expected · optimistic · pessimistic), default expected.
+- **P1-A · fold-sort chronology fix.** `preparedTrades` and `rankerEligibleTrades` now sort by `ensureUtcMs(entry_time)` instead of `String.localeCompare`. Mixed CSV+ISO timestamp datasets no longer scramble fold boundaries.
+- **P1-B · OOS panel: disable embedded walk-forward.** `BuildBucketsOpts` gained `disableWalkForward?: boolean`; `oosSplit.worker.ts` passes `true` on the test half.
+- **P2-A · BucketGrid FDR transparency.** `fdrFor` no longer hides `ns` on negative-E cells.
