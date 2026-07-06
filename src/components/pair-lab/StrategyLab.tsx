@@ -110,7 +110,11 @@ export function StrategyLab({
       if (t.is_open || t.is_archived) continue;
       if (t.r_multiple_actual == null) continue;
       if (!t.entry_time) continue;
-      const ts = new Date(t.entry_time).getTime();
+      // PR-2 (2K): TZ-stable parse. `new Date(naiveString)` interprets
+      // naive strings as local (Chrome) or UTC (Safari/Node), which drifts
+      // windowMeta's displayed date range and biases autoTradesPerDay by up
+      // to the user's UTC offset. `ensureUtcMs` matches the rest of Pair Lab.
+      const ts = ensureUtcMs(t.entry_time);
       if (!Number.isFinite(ts)) continue;
       n += 1;
       if (first == null || ts < first) first = ts;
