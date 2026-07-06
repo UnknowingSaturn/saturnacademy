@@ -423,7 +423,7 @@ function replayOneTrade(
 
   const baseSlPips = slDistancePips(trade);
   const slPipsApplied = baseSlPips != null ? baseSlPips * slScale : null;
-  return { r: booked, slPips: slPipsApplied };
+  return { r: booked, slPips: slPipsApplied, slScale };
 }
 
 // ----------------------------------------------------------------------------
