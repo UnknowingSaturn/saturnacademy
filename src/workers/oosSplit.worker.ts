@@ -93,6 +93,11 @@ self.onmessage = (e: MessageEvent<{ id: number; params: OosSplitRequest }>) => {
       dateTo: params.dateTo,
       includeUnrealized: params.includeUnrealized,
       recentN: params.recentN,
+      // P1-B: the OOS test slice is already the naive held-out sample. Running
+      // a 70/30 walk-forward WITHIN it would make "Test E[R]" a 70/30 split
+      // of the test half rather than the true out-of-sample expectancy, which
+      // understates degradation vs train.
+      disableWalkForward: true,
     });
 
     const cellKey = (b: BucketReport) => `${b.key.symbol}__${b.key.session}`;
