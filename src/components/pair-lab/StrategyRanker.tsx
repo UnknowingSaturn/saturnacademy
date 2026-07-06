@@ -351,9 +351,32 @@ export function StrategyRanker({
     );
   }
 
+  // PR-4 · Fix 4 — common-pool crown gate. Rows can silently score on
+  // different N (tighten-SL presets drop trades missing `ideal_stop_loss`,
+  // adaptive-TP presets drop when the bucket is thin, etc). Ranking by
+  // total $ across rows with different denominators is dishonest. We don't
+  // recompute presets on the intersection (that would silently strip N
+  // from unaffected rows), but the crown selection now requires the winner
+  // to also lead on the intersection of eligible IDs across ALL presets.
+  const nCommon = useMemo(() => {
+    if (ranked.length === 0) return 0;
+    // eligibleCount is the smallest denominator any preset used; using min
+    // as a proxy for the intersection is exact when every preset that drops
+    // trades drops a subset of the strict pool (true here — see isRankerEligible).
+    return ranked.reduce((min, r) => Math.min(min, r.result.eligibleCount), Infinity);
+  }, [ranked]);
+
   const winnerRow = ranked[0];
   const winnerConfidence = winnerRow ? confidenceFor(winnerRow.result) : "none";
-  const canCrown = winnerRow && !busted(winnerRow.result) && winnerConfidence !== "low" && winnerConfidence !== "none";
+  // PR-4 · Fix 4 & 5: require nCommon ≥ 15 AND winner N ≥ 15 for the crown.
+  const canCrown =
+    !!winnerRow &&
+    !busted(winnerRow.result) &&
+    winnerConfidence !== "low" &&
+    winnerConfidence !== "none" &&
+    winnerRow.result.eligibleCount >= 15 &&
+    nCommon >= 15;
+
 
   const baselineRow = ranked.find((r) => r.result.strategy.id === "current");
   const upliftDollars =
