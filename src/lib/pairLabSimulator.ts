@@ -1052,7 +1052,25 @@ export function walkForwardEvaluate(
   });
   const winner = ranked[0];
   if (!winner) return null;
-  const oos = replayBucket(oosTrades, keys, winner.strategy, opts);
+  // Finding 3 (audit): must build bucket constants + trail capture from the IS
+  // slice, not the OOS slice. Previous `replayBucket(oosTrades, …)` re-derived
+  // adaptive-preset targets (MFE p60, MAE p75) from OOS data — a direct
+  // look-ahead leak on any preset with `atRSource: bucket_mfe_pX` or SL rule
+  // `widen_to_mae_p75_x_1_15`. Fixed presets were unaffected but any caller
+  // of walkForwardEvaluate on adaptive presets was silently overfit.
+  const isBucket = buildBucketConstants(isTrades, keys);
+  const isTrailCapture = estimateTrailCaptureLocal(isTrades, keys);
+  const oosCtx: ReplayContext = { bucket: isBucket, trailCapture: isTrailCapture, replayMode: opts.replayMode ?? "expected" };
+  const oosReplayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+  const oosReasons: Record<string, number> = {};
+  for (const t of oosTrades) {
+    const proof = extractProof(t, keys);
+    const out = replayOneTrade(winner.strategy, t, proof, oosCtx);
+    if ("r" in out) oosReplayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+    else oosReasons[out.ineligible] = (oosReasons[out.ineligible] ?? 0) + 1;
+  }
+  const oosLadder = buildAppliedTpLadder(winner.strategy, isBucket);
+  const oos = buildResult(winner.strategy, oosReplayed, oosReasons, oosTrades.length, opts, oosLadder);
   const overfit =
     winner.expectancyR > 0 &&
     oos.expectancyR < winner.expectancyR * 0.5;
