@@ -25,8 +25,18 @@
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
+import { bootstrapMeanCiBCa } from "../../shared/quant/stats";
 import { pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
-import { MAE_P75_WIDEN_BUFFER, TRAIL_CAPTURE_FALLBACK } from "../../shared/quant/config";
+import {
+  MAE_P75_WIDEN_BUFFER,
+  TRAIL_CAPTURE_FALLBACK,
+  MIN_PROVEN_SAMPLE,
+  WALK_FORWARD_KFOLD_MIN_N,
+  WALK_FORWARD_SPLIT_MIN_N,
+  WALK_FORWARD_KFOLDS,
+  RISK_TOLERANCE_R_DEFAULT,
+} from "../../shared/quant/config";
+
 
 /** Default fraction of MFE captured by a trailing stop when no empirical estimate is available.
  *  S2.11: single source of truth lives in `shared/quant/config.ts:TRAIL_CAPTURE_FALLBACK`.
