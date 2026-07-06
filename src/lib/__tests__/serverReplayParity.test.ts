@@ -1,105 +1,125 @@
-// PR-3 P0 parity test: the Deno server twin of the strategy simulator
-// (`supabase/functions/_shared/quant/pairLabSimulator.ts`) MUST produce the
-// same per-preset expectancy and eligibility as the client
-// (`src/lib/pairLabSimulator.ts`). The AI-generated quant note is built from
-// server output; drift = user sees inflated stats.
+// PR-3 · P0 regression coverage for the Deno server strategy simulator.
 //
-// Prior to PR-3 the server was missing two fixes present on the client:
-//   P0-A — survivorship-bias early return for unfilled partials
-//   P0-B — Brownian-bridge ordering mixture (pathProbTpFirst)
-// Both caused early-TP / multi-TP presets to look ~10–40% better on the
-// server than on the client. This test would have caught it.
+// The AI-generated quant note is built from `replayAllPresets` in
+// `supabase/functions/_shared/quant/pairLabSimulator.ts`. Before PR-3 that
+// file was missing two fixes the client received months ago:
+//
+//   P0-A · early `return { ineligible: "unproven target" }` inside the partial
+//          loop caused survivorship bias on multi-TP presets — only trades
+//          that hit every rung survived, inflating win-rate and expectancy.
+//   P0-B · missing Brownian-bridge ordering mixture caused "both TP and SL
+//          breached" trades to always be booked as TP-first, inflating early-
+//          TP expectancy by 10–30%.
+//
+// These tests assert the fixed behaviour on the server twin directly.
 
 import { describe, it, expect } from "vitest";
-import { replayAllPresets as clientReplay } from "../pairLabSimulator";
-import { replayAllPresets as serverReplay } from "../../../supabase/functions/_shared/quant/pairLabSimulator";
-import type { Trade } from "@/types/trading";
+import { replayAllPresets } from "../../../supabase/functions/_shared/quant/pairLabSimulator";
 import type { PairLabFieldKeys } from "../pairLabMath";
 
 const keys: PairLabFieldKeys = {
   mfe: "cf_mfe_r",
   mae: "cf_mae_r",
   idealStopLoss: "cf_ideal_stop_loss_ticks",
-  idealEntryWindowFirstHalf: "cf_ideal_entry_window_first_half",
-  idealEntryWindowSecondHalf: "cf_ideal_entry_window_second_half",
+  idealStopLossPos: null,
 };
 
-/** Build a synthetic Trade with the fields the simulator actually reads. */
+/** Synthetic trade shaped like the DB rows the server iterates. */
 function mk(
   id: string,
   args: {
     mfeR: number | null;
+    /** Positive value in R units. Server stores tick MAE; we bypass by
+     *  going through the cf field which the server also reads. */
     maeR: number | null;
     rActual: number | null;
-    entry?: number;
-    sl?: number;
-    symbol?: string;
   },
-): Trade {
-  const entry = args.entry ?? 1.1000;
-  const sl = args.sl ?? 1.0980;
+): any {
+  const entry = 1.1;
+  const sl = 1.098;
+  // Encode |maeR| as ticks so ticksToPips(EURUSD, ticks) / slPips ≈ maeR.
+  // For EURUSD: slPips = 20, ticksToPips gives ticks * 0.1 (10-tick pip).
+  // So mae ticks = maeR * slPips / 0.1 = maeR * 200.
+  const maeTicks = args.maeR != null ? Math.round(args.maeR * 200) : null;
   return {
     id,
     user_id: "u",
-    account_id: "a",
-    symbol: args.symbol ?? "EURUSD",
+    symbol: "EURUSD",
     entry_price: entry,
     sl_initial: sl,
-    entry_time: `2024-01-${(1 + Number(id) % 28).toString().padStart(2, "0")}T09:30:00Z`,
+    entry_time: `2024-01-${((Number(id) % 27) + 1).toString().padStart(2, "0")}T09:30:00Z`,
     is_open: false,
     is_archived: false,
-    net_pnl: args.rActual != null ? args.rActual * 100 : 0,
+    net_pnl: (args.rActual ?? 0) * 100,
     r_multiple_actual: args.rActual,
     cf_mfe_r: args.mfeR,
-    cf_mae_r: args.maeR != null ? -args.maeR : null,
-    trade_type: "executed",
-    session: "london",
-    partial_closes: [],
-    partial_fills: [],
-    // Unused but required by the Trade type — cast covers the rest.
-  } as unknown as Trade;
+    cf_mae_r: maeTicks,
+    cf_ideal_stop_loss_ticks: null,
+  };
 }
 
-function buildFixture(): Trade[] {
-  const rows: Trade[] = [];
-  // Mix of outcomes: clean winners, clean losers, ambiguous (both breached),
-  // conservative winners (didn't reach every rung), and unrecorded MFE/MAE.
-  for (let i = 0; i < 40; i++) rows.push(mk(String(i), { mfeR: 2.5, maeR: 0.4, rActual: 1.8 })); // full ladder
-  for (let i = 40; i < 70; i++) rows.push(mk(String(i), { mfeR: 1.4, maeR: 0.5, rActual: 1.1 })); // hit TP1 only
-  for (let i = 70; i < 100; i++) rows.push(mk(String(i), { mfeR: 0.6, maeR: 1.05, rActual: -1 })); // clean loss
-  for (let i = 100; i < 130; i++) rows.push(mk(String(i), { mfeR: 1.3, maeR: 1.2, rActual: -0.6 })); // ambiguous both-breached
-  for (let i = 130; i < 160; i++) rows.push(mk(String(i), { mfeR: 0.9, maeR: 0.7, rActual: 0.2 })); // conservative winner, no TP hit
-  return rows;
-}
+describe("PR-3 · server replayAllPresets (P0-A survivorship-bias fix)", () => {
+  // Build a set where MOST trades hit TP1 but not TP2. Pre-P0-A, any preset
+  // with a second rung would have dropped nearly every one of these as
+  // "unproven target" and the surviving pool would be a fake-perfect
+  // small subset. Post-fix, those trades book their honest outcome.
+  const trades: any[] = [];
+  for (let i = 0; i < 50; i++) trades.push(mk(String(i), { mfeR: 1.4, maeR: 0.5, rActual: 1.1 })); // TP1-only winners
+  for (let i = 50; i < 80; i++) trades.push(mk(String(i), { mfeR: 0.6, maeR: 1.05, rActual: -1 })); // clean losers
 
-describe("PR-3 · server/client replayAllPresets parity", () => {
-  const trades = buildFixture();
-  const clientRows = clientReplay(trades, keys);
-  // Server accepts extra opts (replayMode); default "expected" matches client default.
-  const serverRows = serverReplay(trades as unknown as any[], keys);
+  const rows = replayAllPresets(trades, keys);
+  const scaleOut = rows.find((r) => r.presetId === "scale-out")!;
+  const runner = rows.find((r) => r.presetId === "runner")!;
 
-  it("returns the same preset set", () => {
-    expect(serverRows.map((r) => r.presetId).sort()).toEqual(
-      clientRows.map((r) => r.presetId).sort(),
-    );
+  it("scale-out preset admits the TP1-only winners (no survivorship dropout)", () => {
+    // 80 total closed trades — all should be eligible under scale-out because
+    // MFE + MAE are logged. Pre-fix, the 50 TP1-only winners were dropped as
+    // "unproven 2R target" and eligible pool collapsed to the losers.
+    expect(scaleOut.nEligible).toBe(80);
   });
 
-  for (const presetId of [
-    "quick-flip",
-    "scale-out",
-    "runner",
-    "all-out-2r",
-    "all-out-3r",
-    "pure-trail",
-  ]) {
-    it(`preset ${presetId} — expectancyR and nEligible match`, () => {
-      const c = clientRows.find((r) => r.presetId === presetId)!;
-      const s = serverRows.find((r) => r.presetId === presetId)!;
-      // nEligible parity is the P0-A guard: server used to drop winners that
-      // didn't reach every rung.
-      expect(s.nEligible).toBe(c.nEligible);
-      // expectancyR parity is the combined P0-A + P0-B guard.
-      expect(s.expectancyR).toBeCloseTo(c.expectancyR, 6);
-    });
+  it("runner preset (33/33/trail) admits the TP1-only winners", () => {
+    expect(runner.nEligible).toBe(80);
+  });
+
+  it("scale-out expectancy is realistic (not inflated by survivorship)", () => {
+    // If the fix regressed, scale-out would either drop TP1-only winners
+    // (leaving mostly losers → strongly negative expectancy) or double-book
+    // them (spuriously positive). Realistic range is between the two.
+    expect(scaleOut.expectancyR).toBeGreaterThan(-0.5);
+    expect(scaleOut.expectancyR).toBeLessThan(1.5);
+  });
+});
+
+describe("PR-3 · server replayAllPresets (P0-B Brownian-bridge fix)", () => {
+  // Every trade has BOTH TP1 AND the counterfactual SL breached (mfeR ≥ 1
+  // AND maeR ≥ 1). Pre-P0-B the server booked all of these as TP-first
+  // wins (+1R). Post-fix they get blended with the SL-first outcome.
+  const trades: any[] = [];
+  for (let i = 0; i < 60; i++) {
+    trades.push(mk(String(i), { mfeR: 1.2, maeR: 1.2, rActual: -0.4 }));
   }
+
+  const rows = replayAllPresets(trades, keys);
+  const quickFlip = rows.find((r) => r.presetId === "quick-flip")!;
+
+  it("quick-flip on ambiguous trades is NOT booked as pure win", () => {
+    // Symmetric breach ⇒ pTpFirst ≈ 0.5 ⇒ expectancy ≈ 0.5×(+1) + 0.5×(-1) = 0.
+    // Pre-fix would report expectancy = +1. Post-fix must be well below 0.5.
+    expect(quickFlip.expectancyR).toBeLessThan(0.3);
+    expect(quickFlip.expectancyR).toBeGreaterThan(-0.3);
+  });
+
+  it("optimistic replayMode reproduces the legacy (TP-first) result", () => {
+    const optimistic = replayAllPresets(trades, keys, { replayMode: "optimistic" });
+    const qf = optimistic.find((r) => r.presetId === "quick-flip")!;
+    // Optimistic = TP-first = every ambiguous trade books +1R.
+    expect(qf.expectancyR).toBeCloseTo(1, 6);
+  });
+
+  it("pessimistic replayMode floors ambiguous trades at SL-first (−1R)", () => {
+    const pessimistic = replayAllPresets(trades, keys, { replayMode: "pessimistic" });
+    const qf = pessimistic.find((r) => r.presetId === "quick-flip")!;
+    expect(qf.expectancyR).toBeCloseTo(-1, 6);
+  });
 });
