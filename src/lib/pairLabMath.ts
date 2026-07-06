@@ -1150,7 +1150,19 @@ function buildRecommendation(
     propFirm.dailyLossDollars != null &&
     propFirm.dailyLossDollars > 0
   ) {
-    const streak = Math.max(MIN_STREAK_FLOOR, s.worstLosingStreak || 0);
+    // PR-2 (2H): the observed worst streak on a small sample is a max-of-
+    // empirical — unstable and easily changed by one more trade. Blend with
+    // the theoretical expected worst streak from win-rate and N:
+    //   E[longest loss run] ≈ log(N × q) / log(1 / q), where q = 1 − winRate
+    // Use max(observed, expected + 1σ) as a distributional upper bound so a
+    // lucky-clean sample doesn't produce an over-aggressive size suggestion.
+    const q = Math.max(0.01, Math.min(0.99, 1 - s.winRate));
+    const nForStreak = Math.max(1, s.n);
+    const expectedRun = Math.log(nForStreak * q) / Math.log(1 / q);
+    const streakStd = expectedRun > 0 ? Math.sqrt(expectedRun) : 1;
+    const distributionalStreak = Math.ceil(Math.max(1, expectedRun + streakStd));
+    const observedStreak = s.worstLosingStreak || 0;
+    const streak = Math.max(MIN_STREAK_FLOOR, observedStreak, distributionalStreak);
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
     const ddCappedPct = dailyBudgetPct / streak;
     const hardCap = propFirm.hardCapPct > 0 ? propFirm.hardCapPct : 2;
