@@ -180,7 +180,10 @@ function buildBucketConstants(trades: any[], keys: PairLabFieldKeys): BucketCons
 
 
 function resolvePartialAtR(p: { atR: number; atRSource?: AtRSource }, bucket: BucketConstants): number | null {
-  switch (p.atRSource ?? "fixed") {
+  const src = p.atRSource ?? "fixed";
+  // PR-4 · Fix 7 — refuse to fit adaptive TP percentiles when the bucket is thin.
+  if (src !== "fixed" && bucket.nMfe < MIN_BUCKET_N_ADAPTIVE) return null;
+  switch (src) {
     case "bucket_mfe_p50": return bucket.mfeP50 != null && bucket.mfeP50 > 0 ? bucket.mfeP50 : null;
     case "bucket_mfe_p60": return bucket.mfeP60 != null && bucket.mfeP60 > 0 ? bucket.mfeP60 : null;
     case "bucket_mfe_p75": return bucket.mfeP75 != null && bucket.mfeP75 > 0 ? bucket.mfeP75 : null;
@@ -196,17 +199,25 @@ function replayOneTrade(
   replayMode: ReplayMode = "expected",
 ): ReplayOutcome {
   if (strategy.useActualOutcome) {
-    return proof.hasActualR ? { r: proof.rActual } : { ineligible: "no recorded r_actual" };
+    return proof.hasActualR ? { r: proof.rActual, slProxy: false } : { ineligible: "no recorded r_actual" };
   }
   // Pure-trail (no partials, trail_to_mfe) is allowed; BE-after-TP without a partial is not.
   if (strategy.exitRule.runner === "be_after_first_tp" && strategy.exitRule.partials.length === 0) {
     return { ineligible: "BE-after-TP runner needs ≥1 partial" };
   }
   let slScale: number;
+  let slProxy = false;
   if (strategy.slRule === "original") slScale = 1;
   else if (strategy.slRule === "tighten_to_ideal") {
-    if (proof.idealSlScale == null) return { ineligible: "missing SL/entry or ideal-SL" };
-    slScale = proof.idealSlScale;
+    // PR-4 · Fix 2 — MAE-proxy fallback (parity with client).
+    if (proof.idealSlScale != null) {
+      slScale = proof.idealSlScale;
+    } else if (proof.loggedMae != null) {
+      slScale = Math.min(1, Math.max(0.1, proof.loggedMae * 1.05));
+      slProxy = true;
+    } else {
+      return { ineligible: "missing SL/entry or ideal-SL" };
+    }
   } else {
     if (bucket.maeP75 == null) return { ineligible: "no MAE samples for widen rule" };
     slScale = Math.max(1, bucket.maeP75 * MAE_P75_WIDEN_BUFFER);
@@ -225,11 +236,18 @@ function replayOneTrade(
 
   const resolved: Array<{ atR: number; fraction: number }> = [];
   for (const p of strategy.exitRule.partials) {
+    const src = p.atRSource ?? "fixed";
     const atR = resolvePartialAtR(p, bucket);
-    if (atR == null) return { ineligible: `bucket has no MFE samples for adaptive TP (${p.atRSource})` };
+    if (atR == null) {
+      if (src !== "fixed" && bucket.nMfe < MIN_BUCKET_N_ADAPTIVE) {
+        return { ineligible: `bucket too thin for adaptive TP (n=${bucket.nMfe}, need ${MIN_BUCKET_N_ADAPTIVE})` };
+      }
+      return { ineligible: `bucket has no MFE samples for adaptive TP (${src})` };
+    }
     resolved.push({ atR, fraction: p.fraction });
   }
   resolved.sort((a, b) => a.atR - b.atR);
+
 
   let booked = 0;
   let remainingFrac = 1;
