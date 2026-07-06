@@ -125,6 +125,106 @@ export function bootstrapMeanCi(values: number[], iters = BOOTSTRAP_ITERATIONS):
 }
 
 /**
+ * BCa (bias-corrected & accelerated) bootstrap 95% CI on the mean. Standard
+ * fix for the under-coverage of the plain percentile bootstrap at small n
+ * (10–30 samples) or when the sampling distribution is skewed. Requires a
+ * jackknife pass to estimate acceleration.
+ *
+ * Falls back to the plain percentile CI when the acceleration estimator
+ * degenerates (n < 5, zero variance, or all jackknife means identical).
+ */
+export function bootstrapMeanCiBCa(
+  values: number[],
+  iters = BOOTSTRAP_ITERATIONS,
+): [number, number] | null {
+  const xs = values.filter((v) => Number.isFinite(v));
+  const n = xs.length;
+  if (n < 5) return null;
+
+  // Deterministic seed (mirrors bootstrapMeanCi).
+  let hash = n * 1000003 + 11;
+  for (let i = 0; i < n; i++) hash = (hash * 31 + Math.floor(xs[i] * 1000)) | 0;
+  const rand = makeSeededRng(hash);
+
+  const observed = xs.reduce((s, v) => s + v, 0) / n;
+
+  // Bootstrap distribution of means.
+  const means: number[] = new Array(iters);
+  for (let i = 0; i < iters; i++) {
+    let sum = 0;
+    for (let j = 0; j < n; j++) sum += xs[Math.floor(rand() * n)];
+    means[i] = sum / n;
+  }
+  means.sort((a, b) => a - b);
+
+  // Bias-correction: z0 = Φ⁻¹(fraction of boot-means < observed mean).
+  let below = 0;
+  for (let i = 0; i < iters; i++) if (means[i] < observed) below += 1;
+  const prop = Math.min(iters - 0.5, Math.max(0.5, below)) / iters;
+  const z0 = invNormCdf(prop);
+
+  // Acceleration: jackknife on the mean.
+  const sum = xs.reduce((s, v) => s + v, 0);
+  const jack: number[] = new Array(n);
+  for (let i = 0; i < n; i++) jack[i] = (sum - xs[i]) / (n - 1);
+  const jMean = jack.reduce((s, v) => s + v, 0) / n;
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) {
+    const d = jMean - jack[i];
+    num += d * d * d;
+    den += d * d;
+  }
+  const acc = den > 0 ? num / (6 * Math.pow(den, 1.5)) : 0;
+
+  const z025 = -1.959963984540054;
+  const z975 = 1.959963984540054;
+  const alphaLo = normCdf(z0 + (z0 + z025) / (1 - acc * (z0 + z025)));
+  const alphaHi = normCdf(z0 + (z0 + z975) / (1 - acc * (z0 + z975)));
+
+  if (!Number.isFinite(alphaLo) || !Number.isFinite(alphaHi) || alphaLo >= alphaHi) {
+    return [percentileFromSorted(means, 0.025), percentileFromSorted(means, 0.975)];
+  }
+  return [
+    percentileFromSorted(means, clamp01(alphaLo)),
+    percentileFromSorted(means, clamp01(alphaHi)),
+  ];
+}
+
+function clamp01(x: number): number {
+  if (x < 0.001) return 0.001;
+  if (x > 0.999) return 0.999;
+  return x;
+}
+
+// Abramowitz & Stegun 26.2.23 — |error| < 4.5e-4. Sufficient for BCa endpoints.
+function invNormCdf(p: number): number {
+  if (p <= 0) return -Infinity;
+  if (p >= 1) return Infinity;
+  const q = p < 0.5 ? p : 1 - p;
+  const t = Math.sqrt(-2 * Math.log(q));
+  const c0 = 2.515517, c1 = 0.802853, c2 = 0.010328;
+  const d1 = 1.432788, d2 = 0.189269, d3 = 0.001308;
+  const num = c0 + c1 * t + c2 * t * t;
+  const den = 1 + d1 * t + d2 * t * t + d3 * t * t * t;
+  const x = t - num / den;
+  return p < 0.5 ? -x : x;
+}
+
+// Standard normal CDF via erf (Abramowitz 7.1.26).
+function normCdf(x: number): number {
+  const sign = x < 0 ? -1 : 1;
+  const a = Math.abs(x) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * a);
+  const y =
+    1 -
+    (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) *
+      t *
+      Math.exp(-a * a);
+  return 0.5 * (1 + sign * y);
+}
+
+
+/**
  * One-sided bootstrap p-value that mean(values) > 0. p = fraction of
  * resampled means ≤ 0. Returns null when n < 5. Floored at 1/iters.
  */
