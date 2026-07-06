@@ -888,7 +888,7 @@ function computeBucket(
   );
   const recommendation: BucketRecommendation = {
     ...baseRec,
-    walkForward: runWalkForward(rows, keys),
+    walkForward: disableWalkForward ? null : runWalkForward(rows, keys),
   };
 
   const sorted = [...closed].sort(
