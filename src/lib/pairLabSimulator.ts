@@ -467,11 +467,15 @@ function replayOneTrade(
       // Not stopped under the new SL.
       const reachedNewR = proof.reachedR / slScale;
       if (strategy.exitRule.runner === "be_after_first_tp") {
-        // Runner sat at BE (if a TP filled) or at the original SL (if no TP
-        // filled — BE was never armed). Either way, on a non-stopped trade
-        // that didn't fully complete the ladder, 0 is the conservative
-        // book — we don't know where the trader would have manually exited.
-        booked += 0;
+        // PR-4 · Fix 3 — cap-MFE Bayesian floor. Previously booked exactly 0
+        // for any non-stopped, non-filled trade. That "conservative zero"
+        // silently discarded real proven excursion (a 1.5R MFE trade under a
+        // 2R BE preset was booked as 0). Half-credit the proven-reached R up
+        // to the ladder cap: matches how trail runners already handle the
+        // same situation, and matches what a disciplined manual exit near
+        // the ladder would have produced on average.
+        booked += 0.5 * Math.min(reachedNewR, maxTargetAtR) * remainingFrac;
+
       } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
         if (anyFilled) {
           booked += lastFilledAtR * remainingFrac;
