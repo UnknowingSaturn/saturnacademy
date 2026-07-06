@@ -211,6 +211,19 @@ function StrategyDetailPanel({ result, riskPctOverride }: { result: ReplayResult
           </div>
         </div>
       </div>
+      {result.ineligibleCount > 0 && (
+        <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2 text-[11px] space-y-1">
+          <div className="text-muted-foreground">
+            <span className="font-medium text-foreground">{result.ineligibleCount}</span>{" "}
+            strict-eligible trade{result.ineligibleCount === 1 ? "" : "s"} dropped by this preset:
+          </div>
+          <ul className="font-mono-numbers text-muted-foreground space-y-0.5">
+            {topReasons(result.ineligibleReasons, 4).map(([reason, count]) => (
+              <li key={reason}>· {count} × {reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
