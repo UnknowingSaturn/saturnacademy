@@ -922,6 +922,21 @@ export function rankStrategies(
     // Report the strict-eligible total, not per-preset ineligibles inside the
     // numerator, so every row has the same denominator.
     (result as any).totalTradeCount = n;
+
+    // Dev-mode sanity check: after the survivorship-bias fix, presets that
+    // aren't adaptive-TP or actual-outcome should retain ~all strict-eligible
+    // trades. Big shortfalls hint at a regression in replayOneTrade.
+    if (typeof console !== "undefined" && import.meta.env?.DEV) {
+      const isAdaptive = s.exitRule.partials.some((p) => (p.atRSource ?? "fixed") !== "fixed");
+      const skipCheck = s.useActualOutcome || isAdaptive;
+      if (!skipCheck && n >= 10 && result.eligibleCount < n * 0.9) {
+        console.warn(
+          `[ranker] preset "${s.label}" kept ${result.eligibleCount}/${n} strict-eligible trades — expected ≥ ${Math.ceil(n * 0.9)}. Reasons:`,
+          result.ineligibleReasons,
+        );
+      }
+    }
+
     return { result, mode, totalEligible: n };
   });
 
