@@ -200,3 +200,23 @@ export function classifyDataTier(x: DataTierInput): DataTier {
   return "validated";
 }
 
+// ---------- Strategy Ranker (walk-forward + risk-adjusted) ----------
+//
+// Minimum eligible OOS sample before a preset can be crowned "winner".
+// Below this the ranker still renders numbers but suppresses the trophy and
+// the composite score is discounted by penalty(sample).
+export const MIN_PROVEN_SAMPLE = 10;
+
+// K-fold walk-forward: total eligible trades required. Below this we fall back
+// to a single 70/30 chronological split (WALK_FORWARD_SPLIT_MIN_N); below that
+// the whole ranker is provisional and crowning is disabled.
+export const WALK_FORWARD_KFOLD_MIN_N = 25;
+export const WALK_FORWARD_SPLIT_MIN_N = 15;
+export const WALK_FORWARD_KFOLDS = 5;
+
+// Drawdown penalty tuning: score = expLowerCi × penalty(dd) × penalty(n).
+// penalty(dd) = 1 / (1 + max_dd_R / RISK_TOLERANCE_R). 10R is roughly a
+// "comfortable" account drawdown for a 1% risk-per-trade sizing.
+export const RISK_TOLERANCE_R_DEFAULT = 10;
+
+

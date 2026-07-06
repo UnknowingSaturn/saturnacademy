@@ -25,8 +25,18 @@
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
+import { bootstrapMeanCiBCa } from "../../shared/quant/stats";
 import { pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
-import { MAE_P75_WIDEN_BUFFER, TRAIL_CAPTURE_FALLBACK } from "../../shared/quant/config";
+import {
+  MAE_P75_WIDEN_BUFFER,
+  TRAIL_CAPTURE_FALLBACK,
+  MIN_PROVEN_SAMPLE,
+  WALK_FORWARD_KFOLD_MIN_N,
+  WALK_FORWARD_SPLIT_MIN_N,
+  WALK_FORWARD_KFOLDS,
+  RISK_TOLERANCE_R_DEFAULT,
+} from "../../shared/quant/config";
+
 
 /** Default fraction of MFE captured by a trailing stop when no empirical estimate is available.
  *  S2.11: single source of truth lives in `shared/quant/config.ts:TRAIL_CAPTURE_FALLBACK`.
@@ -128,13 +138,29 @@ export interface ReplayResult {
   appliedSlPipsMedian: number | null;
   /** Inter-quartile range (p25, p75) of applied SL in pips. */
   appliedSlPipsRange: [number, number] | null;
+  /**
+   * Median SL scale actually applied, in R (dimensionless — 1.0 = original
+   * stop, 1.15 = 15% wider, 0.60 = 40% tighter). Unlike appliedSlPipsMedian
+   * this is comparable across symbols, so it's the number the ranker should
+   * display on multi-symbol buckets.
+   */
+  appliedSlScaleMedian: number | null;
   /** Resolved TP ladder. For adaptive presets, atR reflects the bucket statistic. */
   appliedTpLadder: AppliedTpLeg[];
   /** Plain-English label for the SL rule. */
   slRuleLabel: string;
   /** Plain-English label for the runner rule. */
   runnerLabel: string;
+  /**
+   * BCa (bias-corrected & accelerated) 95% CI on expectancy R. Wider and
+   * more honest than `expectancyRCi` at n < 30, which the ranker mostly
+   * lives at. `expectancyRCi` stays as the plain percentile fallback.
+   */
+  expectancyRCiBCa: [number, number] | null;
+  /** Composite score used by the ranker to sort (higher = better). */
+  compositeScore: number | null;
 }
+
 
 export const SL_RULE_LABELS: Record<SlRule, string> = {
   original: "Use original stop",
@@ -252,7 +278,7 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
 // Single-trade proof-based replay
 // ----------------------------------------------------------------------------
 
-type ReplayOutcome = { r: number; slPips: number | null } | { ineligible: string };
+type ReplayOutcome = { r: number; slPips: number | null; slScale: number } | { ineligible: string };
 
 interface BucketConstants {
   maeP75: number | null;
@@ -304,7 +330,7 @@ function replayOneTrade(
 ): ReplayOutcome {
   if (strategy.useActualOutcome) {
     if (!proof.hasActualR) return { ineligible: "no recorded r_actual" };
-    return { r: proof.rActual, slPips: slDistancePips(trade) };
+    return { r: proof.rActual, slPips: slDistancePips(trade), slScale: 1 };
   }
 
   // BE-after-TP runner needs at least one partial to have a TP to move stops
@@ -407,7 +433,7 @@ function replayOneTrade(
 
   const baseSlPips = slDistancePips(trade);
   const slPipsApplied = baseSlPips != null ? baseSlPips * slScale : null;
-  return { r: booked, slPips: slPipsApplied };
+  return { r: booked, slPips: slPipsApplied, slScale };
 }
 
 // ----------------------------------------------------------------------------
@@ -425,7 +451,7 @@ export const MIN_ELIGIBLE_SAMPLE = 10;
 
 function buildResult(
   strategy: Strategy,
-  replayed: Array<{ trade: Trade; r: number; reachedR?: number; slPips?: number | null }>,
+  replayed: Array<{ trade: Trade; r: number; reachedR?: number; slPips?: number | null; slScale?: number }>,
   ineligibleReasons: Record<string, number>,
   totalTradeCount: number,
   opts: ReplayOpts,
@@ -485,9 +511,6 @@ function buildResult(
 
   let verdict: ReplayResult["propFirmVerdict"] = "n/a";
   let bustNote: string | null = null;
-  // J7 fix: `dailyLossDollars === 0` previously made every losing trade trip
-  // the cap. Treat 0/null/negative as "not set" to match buildRecommendation
-  // and edge computeBucket.
   if (opts.propFirm && opts.propFirm.dailyLossDollars != null && opts.propFirm.dailyLossDollars > 0) {
     const dailyCap = opts.propFirm.dailyLossDollars;
     for (const [day, sum] of dailyDollars) {
@@ -515,9 +538,7 @@ function buildResult(
   ];
 
   const expectancyRCi = bootstrapMeanCi(rs);
-  // Mean per-trade dollars CI = mean-R CI × dollarRisk. Shrinks with n as
-  // expected. The earlier `totalDollarsCi = expectancyRCi × n × dollarRisk`
-  // was a category error (CI on a mean is not the same as CI on a sum).
+  const expectancyRCiBCa = bootstrapMeanCiBCa(rs);
   const meanDollarsCi: [number, number] | null = expectancyRCi
     ? [expectancyRCi[0] * dollarRisk, expectancyRCi[1] * dollarRisk]
     : null;
@@ -532,6 +553,16 @@ function buildResult(
   const slP75 = slPipsSamples.length ? quantile(slPipsSamples, 0.75) : null;
   const appliedSlPipsRange: [number, number] | null =
     slP25 != null && slP75 != null ? [slP25, slP75] : null;
+
+  const slScaleSamples = replayed
+    .map((x) => x.slScale)
+    .filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
+  const appliedSlScaleMedian = slScaleSamples.length ? quantile(slScaleSamples, 0.5) : null;
+
+  // Composite score is set later by the ranker orchestrator (needs cross-preset
+  // context to compute the drawdown/sample penalties consistently). Left null
+  // when computed from a raw replayBucket() call.
+  const compositeScore: number | null = null;
 
   return {
     strategy,
@@ -558,14 +589,18 @@ function buildResult(
     propFirmVerdict: verdict,
     bustNote,
     expectancyRCi,
+    expectancyRCiBCa,
     meanDollarsCi,
     appliedSlPipsMedian,
     appliedSlPipsRange,
+    appliedSlScaleMedian,
     appliedTpLadder,
     slRuleLabel: SL_RULE_LABELS[strategy.slRule],
     runnerLabel: RUNNER_LABELS[strategy.exitRule.runner],
+    compositeScore,
   };
 }
+
 
 
 function preparedTrades(trades: Trade[]): Trade[] {
@@ -607,19 +642,276 @@ export function replayBucket(
   const all = preparedTrades(trades);
   const bucket = buildBucketConstants(all, keys);
   const ctx = ctxFor(opts, bucket);
-  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null }> = [];
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
   const reasons: Record<string, number> = {};
 
   for (const t of all) {
     const proof = extractProof(t, keys);
     const out = replayOneTrade(strategy, t, proof, ctx);
-    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips });
+    if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
     else reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
   }
 
   const ladder = buildAppliedTpLadder(strategy, bucket);
   return buildResult(strategy, replayed, reasons, all.length, opts, ladder);
 }
+
+// ----------------------------------------------------------------------------
+// Ranker eligibility — strict "has MFE AND MAE AND SL" filter
+// ----------------------------------------------------------------------------
+//
+// The ranker's denominator across every preset. Trades missing MFE, MAE, SL or
+// entry price get no chance to fit any preset that depends on those fields —
+// letting them into the pool drowns the sample in exclusions and makes every
+// row look under-sampled. This is the single source of truth so the "why
+// excluded" panel, the k-fold splitter, and the ranker table all agree.
+
+export interface ExclusionBreakdown {
+  total: number;
+  openOrArchived: number;
+  noPnl: number;
+  missingMfe: number;
+  missingMae: number;
+  missingSl: number;
+  eligible: number;
+}
+
+function hasNumericCf(t: Trade, key: string | null): boolean {
+  if (!key) return false;
+  const v = numericCf(t as any, key);
+  return v != null && Number.isFinite(v);
+}
+
+/** Strict eligibility: trade is closed, has P&L, and carries MFE + MAE + SL + entry. */
+export function isRankerEligible(t: Trade, keys: PairLabFieldKeys): boolean {
+  if (t.is_open || t.is_archived) return false;
+  if (t.net_pnl == null) return false;
+  if (t.sl_initial == null || t.entry_price == null) return false;
+  if (!hasNumericCf(t, keys.mfe)) return false;
+  if (!hasNumericCf(t, keys.mae)) return false;
+  return true;
+}
+
+/** Chronologically sorted trades that pass the ranker's strict eligibility. */
+export function rankerEligibleTrades(trades: Trade[], keys: PairLabFieldKeys): Trade[] {
+  return trades
+    .filter((t) => isRankerEligible(t, keys))
+    .sort((a, b) => String(a.entry_time ?? "").localeCompare(String(b.entry_time ?? "")));
+}
+
+/** Non-mutating audit of why trades didn't make the ranker pool. Powers the
+ *  "why excluded" panel. Counts are non-exclusive (a trade missing both MFE
+ *  and MAE increments both), so `eligible + Σ(missing*)` may exceed `total`. */
+export function computeExclusionBreakdown(
+  trades: Trade[],
+  keys: PairLabFieldKeys,
+): ExclusionBreakdown {
+  const b: ExclusionBreakdown = {
+    total: trades.length,
+    openOrArchived: 0,
+    noPnl: 0,
+    missingMfe: 0,
+    missingMae: 0,
+    missingSl: 0,
+    eligible: 0,
+  };
+  for (const t of trades) {
+    if (t.is_open || t.is_archived) { b.openOrArchived += 1; continue; }
+    if (t.net_pnl == null) { b.noPnl += 1; continue; }
+    let missing = false;
+    if (t.sl_initial == null || t.entry_price == null) { b.missingSl += 1; missing = true; }
+    if (!hasNumericCf(t, keys.mfe)) { b.missingMfe += 1; missing = true; }
+    if (!hasNumericCf(t, keys.mae)) { b.missingMae += 1; missing = true; }
+    if (!missing) b.eligible += 1;
+  }
+  return b;
+}
+
+// ----------------------------------------------------------------------------
+// Composite score (risk-adjusted, sample-aware)
+// ----------------------------------------------------------------------------
+//
+// score = expLowerCI × penalty(drawdown) × penalty(sample)
+//   - expLowerCI: lower BCa 95% bound on expectancy R. Rewards presets whose
+//     edge is robustly positive under bootstrap; a preset that got lucky on a
+//     small sample gets a wide CI and thus a low (or negative) score.
+//   - penalty(dd) = 1 / (1 + max_dd_R / risk_tolerance_R). Discounts strategies
+//     that would have blown a comfortable account drawdown budget.
+//   - penalty(sample) = min(1, n / MIN_PROVEN_SAMPLE). Smooth ramp so an 8-
+//     trade preset can't beat a 30-trade preset on noise.
+// Presets with insufficient data (no CI, no R samples) get null → sort last.
+
+export function computeCompositeScore(
+  r: ReplayResult,
+  dollarRisk: number,
+  riskToleranceR = RISK_TOLERANCE_R_DEFAULT,
+): number | null {
+  if (r.n === 0) return null;
+  const ci = r.expectancyRCiBCa ?? r.expectancyRCi;
+  if (!ci) return null;
+  const expLower = ci[0];
+  const maxDdR = dollarRisk > 0 ? Math.abs(r.maxDrawdownDollars) / dollarRisk : 0;
+  const ddPenalty = 1 / (1 + maxDdR / Math.max(1, riskToleranceR));
+  const samplePenalty = Math.min(1, r.n / MIN_PROVEN_SAMPLE);
+  return expLower * ddPenalty * samplePenalty;
+}
+
+// ----------------------------------------------------------------------------
+// Chronological k-fold walk-forward
+// ----------------------------------------------------------------------------
+//
+// For each fold i ∈ 2..k, bucket constants (MAE p75, MFE p50/60/75, trail
+// capture) are re-estimated on blocks 1..i-1 only, then the preset is scored
+// on block i. The scored (OOS-only) tapes are concatenated into a single
+// `ReplayResult`. This eliminates the in-sample leak where the old default
+// mode both estimated bucket constants and scored trades against the whole
+// history.
+//
+// Requirements:
+//   - N ≥ WALK_FORWARD_KFOLD_MIN_N (25) — otherwise caller should fall back
+//     to a single 70/30 split via `walkForwardEvaluate`.
+//   - Block 1 is warm-up (never scored); blocks 2..k are OOS scored.
+
+/** Estimate trail capture on the given trade slice; falls back to the
+ *  configured default when < 10 qualifying winners are present. Kept local to
+ *  the simulator so we don't have to thread `estimateTrailCapture` through
+ *  every call site. */
+function estimateTrailCaptureLocal(trades: Trade[], keys: PairLabFieldKeys): number {
+  const ratios: number[] = [];
+  for (const t of trades) {
+    if (t.is_open || t.is_archived) continue;
+    const mfe = numericCf(t as any, keys.mfe);
+    const r = t.r_multiple_actual;
+    if (mfe == null || r == null) continue;
+    if (!(mfe > 0) || !(r > 0)) continue;
+    if (mfe - r < 0.1) continue;
+    const ratio = r / mfe;
+    if (ratio > 0 && ratio < 1.05) ratios.push(ratio);
+  }
+  if (ratios.length < 10) return TRAIL_CAPTURE_FRAC;
+  const m = quantile(ratios, 0.5);
+  if (m == null || !(m > 0)) return TRAIL_CAPTURE_FRAC;
+  return Math.max(0.1, Math.min(0.95, m));
+}
+
+export function walkForwardKFold(
+  trades: Trade[],
+  keys: PairLabFieldKeys,
+  strategy: Strategy,
+  opts: ReplayOpts,
+  k: number = WALK_FORWARD_KFOLDS,
+): ReplayResult | null {
+  const all = rankerEligibleTrades(trades, keys);
+  if (all.length < WALK_FORWARD_KFOLD_MIN_N) return null;
+
+  const foldSize = Math.floor(all.length / k);
+  if (foldSize < 2) return null;
+
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+  const reasons: Record<string, number> = {};
+  // Track the last fold's bucket for the displayed TP ladder (represents the
+  // most recent train-slice inference — what the user's next trade would use).
+  let lastBucket: BucketConstants | null = null;
+
+  for (let i = 1; i < k; i++) {
+    const trainEnd = i * foldSize;
+    const testStart = trainEnd;
+    const testEnd = i === k - 1 ? all.length : trainEnd + foldSize;
+    const trainSlice = all.slice(0, trainEnd);
+    const testSlice = all.slice(testStart, testEnd);
+    if (trainSlice.length === 0 || testSlice.length === 0) continue;
+
+    const bucket = buildBucketConstants(trainSlice, keys);
+    lastBucket = bucket;
+    const trailCapture = estimateTrailCaptureLocal(trainSlice, keys);
+    const ctx: ReplayContext = { bucket, trailCapture };
+
+    for (const t of testSlice) {
+      const proof = extractProof(t, keys);
+      const out = replayOneTrade(strategy, t, proof, ctx);
+      if ("r" in out) {
+        replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+      } else {
+        reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
+      }
+    }
+  }
+
+  const ladder = lastBucket ? buildAppliedTpLadder(strategy, lastBucket) : [];
+  const result = buildResult(strategy, replayed, reasons, all.length, opts, ladder);
+  return result;
+}
+
+/** Convenience: rank every preset with k-fold walk-forward and composite
+ *  score. Falls back to a single 70/30 walk-forward split, then to a
+ *  full-sample replay marked provisional when neither has enough data. */
+export interface RankerRunOpts extends ReplayOpts {
+  riskToleranceR?: number;
+}
+
+export interface RankerRow {
+  result: ReplayResult;
+  /** How the row was scored: k-fold OOS, single-split OOS, or full-sample. */
+  mode: "kfold" | "split" | "full";
+  /** Sample size we had to work with before fallbacks. */
+  totalEligible: number;
+}
+
+export function rankStrategies(
+  trades: Trade[],
+  keys: PairLabFieldKeys,
+  strategies: Strategy[],
+  opts: RankerRunOpts,
+): { rows: RankerRow[]; exclusion: ExclusionBreakdown; mode: "kfold" | "split" | "full" } {
+  const exclusion = computeExclusionBreakdown(trades, keys);
+  const eligible = rankerEligibleTrades(trades, keys);
+  const n = eligible.length;
+
+  let mode: "kfold" | "split" | "full";
+  if (n >= WALK_FORWARD_KFOLD_MIN_N) mode = "kfold";
+  else if (n >= WALK_FORWARD_SPLIT_MIN_N) mode = "split";
+  else mode = "full";
+
+  const rows: RankerRow[] = strategies.map((s) => {
+    let result: ReplayResult | null = null;
+    if (mode === "kfold") {
+      result = walkForwardKFold(eligible, keys, s, opts);
+    } else if (mode === "split") {
+      // 70/30 chronological split, scored on OOS only, but re-estimating
+      // bucket + trailCapture on the IS slice so the leak is closed.
+      const cut = Math.max(1, Math.floor(n * 0.7));
+      const isSlice = eligible.slice(0, cut);
+      const oosSlice = eligible.slice(cut);
+      if (oosSlice.length >= 3) {
+        const bucket = buildBucketConstants(isSlice, keys);
+        const trailCapture = estimateTrailCaptureLocal(isSlice, keys);
+        const ctx: ReplayContext = { bucket, trailCapture };
+        const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+        const reasons: Record<string, number> = {};
+        for (const t of oosSlice) {
+          const proof = extractProof(t, keys);
+          const out = replayOneTrade(s, t, proof, ctx);
+          if ("r" in out) replayed.push({ trade: t, r: out.r, reachedR: proof.reachedR, slPips: out.slPips, slScale: out.slScale });
+          else reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
+        }
+        const ladder = buildAppliedTpLadder(s, bucket);
+        result = buildResult(s, replayed, reasons, n, opts, ladder);
+      }
+    }
+    // Fallback (mode === "full" or the above returned null for lack of data).
+    if (!result) result = replayBucket(eligible, keys, s, opts);
+
+    const dollarRisk = (opts.balance * s.riskPct) / 100;
+    result.compositeScore = computeCompositeScore(result, dollarRisk, opts.riskToleranceR);
+    // Report the strict-eligible total, not per-preset ineligibles inside the
+    // numerator, so every row has the same denominator.
+    (result as any).totalTradeCount = n;
+    return { result, mode, totalEligible: n };
+  });
+
+  return { rows, exclusion, mode };
+}
+
 
 // `replayBucketMatched` was an alternate matched-sample replay path that the
 // Compare view ended up not using (Sprint C2 audit, 2026-06: zero external
