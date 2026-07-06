@@ -282,17 +282,35 @@ export function StrategyRanker({
   const [replayMode, setReplayMode] = useState<ReplayMode>("expected");
   useEffect(() => { setRiskPct(defaultRiskPct); }, [defaultRiskPct]);
 
-  const { rows, exclusion, mode } = useMemo(() => {
+  // PR-2 G2 — compute all three modes in one memo so we can render the active
+  // mode primarily while also showing the pessimistic ↔ optimistic range on
+  // rows whose ambiguous-trade count actually matters. Three passes is cheap
+  // (bootstrap dominates cost, not the replay itself) and lets us gate the
+  // confidence tier by ordering sensitivity, not just sampling noise.
+  const { rows, exclusion, mode, sensitivityById } = useMemo(() => {
     const presets = STRATEGY_PRESETS.map((p) => ({ ...p, riskPct }));
-    // Finding 4 (audit): thread empirical trail capture so the "full" fallback
-    // path uses the same value the header displays, instead of silently
-    // reverting to the 0.70 default.
-    return rankStrategies(trades, fieldKeys, presets, {
-      balance,
-      propFirm,
-      trailCapture: effectiveTrailCapture,
-      replayMode,
-    });
+    const runMode = (m: ReplayMode) =>
+      rankStrategies(trades, fieldKeys, presets, {
+        balance,
+        propFirm,
+        trailCapture: effectiveTrailCapture,
+        replayMode: m,
+      });
+    const active = runMode(replayMode);
+    const pess = replayMode === "pessimistic" ? active : runMode("pessimistic");
+    const opti = replayMode === "optimistic" ? active : runMode("optimistic");
+    const byId = new Map<string, { pessimistic: number; optimistic: number }>();
+    for (const r of active.rows) {
+      const pRow = pess.rows.find((x) => x.result.strategy.id === r.result.strategy.id);
+      const oRow = opti.rows.find((x) => x.result.strategy.id === r.result.strategy.id);
+      if (pRow && oRow) {
+        byId.set(r.result.strategy.id, {
+          pessimistic: pRow.result.expectancyR,
+          optimistic: oRow.result.expectancyR,
+        });
+      }
+    }
+    return { ...active, sensitivityById: byId };
   }, [trades, fieldKeys, riskPct, balance, propFirm, effectiveTrailCapture, replayMode]);
 
   const ranked: RankerRow[] = useMemo(() => {
