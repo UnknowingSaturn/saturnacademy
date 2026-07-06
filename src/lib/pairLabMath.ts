@@ -236,7 +236,13 @@ export interface BucketRecommendation {
   suggestedRiskPct: number | null;  // % of account, edge-only (Kelly), uncapped
   /** True when raw quarter-Kelly is positive but below the 0.25% floor — edge too thin to size meaningfully. */
   riskBelowFloor: boolean;
-  /** Bootstrap 95% CI on the quarter-Kelly fraction (raw, uncapped). */
+  /** PR-2 (2E): true when raw Kelly exceeded the safety ceiling and got clipped.
+   *  When true, `suggestedRiskPct === KELLY_CEILING_PCT` but the underlying
+   *  edge estimate wanted more. UI should show the raw value alongside. */
+  rawKellyClipped: boolean;
+  /** Raw (pre-clamp) quarter-Kelly percent. Null when edge ≤ 0 or n<10. */
+  rawKellyPct: number | null;
+  /** Bootstrap 95% CI on the quarter-Kelly fraction (raw, uncapped). BCa when possible. */
   suggestedRiskPctCi: [number, number] | null;
   /** S4.4: true when n>=10 but R-coverage (winR.length + lossR.length) < 50% of n. */
   rCoverageWarning: boolean;
