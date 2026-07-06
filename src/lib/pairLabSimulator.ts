@@ -326,19 +326,24 @@ function buildBucketConstants(trades: Trade[], keys: PairLabFieldKeys): BucketCo
     mfeP50: quantile(mfes, 0.5),
     mfeP60: quantile(mfes, 0.6),
     mfeP75: quantile(mfes, 0.75),
+    nMfe: mfes.length,
   };
 }
 
 /** Resolve a partial's atR, honoring bucket-adaptive sources. Returns null when
- *  the bucket lacks the required stat (caller marks the trade ineligible). */
+ *  the bucket lacks the required stat OR — PR-4 · Fix 7 — when a bucket-adaptive
+ *  source is asked to fit fewer than `MIN_BUCKET_N_ADAPTIVE` MFE samples. */
 function resolvePartialAtR(p: { atR: number; atRSource?: AtRSource }, bucket: BucketConstants): number | null {
-  switch (p.atRSource ?? "fixed") {
+  const src = p.atRSource ?? "fixed";
+  if (src !== "fixed" && bucket.nMfe < MIN_BUCKET_N_ADAPTIVE) return null;
+  switch (src) {
     case "bucket_mfe_p50": return bucket.mfeP50 != null && bucket.mfeP50 > 0 ? bucket.mfeP50 : null;
     case "bucket_mfe_p60": return bucket.mfeP60 != null && bucket.mfeP60 > 0 ? bucket.mfeP60 : null;
     case "bucket_mfe_p75": return bucket.mfeP75 != null && bucket.mfeP75 > 0 ? bucket.mfeP75 : null;
     default: return p.atR;
   }
 }
+
 
 
 function replayOneTrade(
