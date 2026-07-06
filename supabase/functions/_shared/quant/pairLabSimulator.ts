@@ -8,6 +8,7 @@
 import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
 import { pipSizeForSymbol, ticksToPips } from "./symbolMapping.ts";
 import { MAE_P75_WIDEN_BUFFER, TRAIL_CAPTURE_FALLBACK } from "../../../../shared/quant/config.ts";
+import { pathProbTpFirst, resolveTpFirstProb, type ReplayMode } from "../../../../shared/quant/stats.ts";
 
 
 /** Fallback when too few trades to estimate empirical trail capture.
