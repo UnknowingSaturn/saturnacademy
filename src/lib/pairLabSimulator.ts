@@ -738,7 +738,7 @@ export function replayBucket(
   const all = preparedTrades(trades);
   const bucket = buildBucketConstants(all, keys);
   const ctx = ctxFor(opts, bucket);
-  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number; slProxy: boolean }> = [];
   const reasons: Record<string, number> = {};
 
   for (const t of all) {
@@ -914,7 +914,7 @@ export function walkForwardKFold(
   const foldEnd = (i: number) => Math.ceil((all.length * (i + 1)) / k);
   if (foldEnd(0) < 2) return null;
 
-  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+  const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number; slProxy: boolean }> = [];
   const reasons: Record<string, number> = {};
   // Track the last fold's bucket for the displayed TP ladder (represents the
   // most recent train-slice inference — what the user's next trade would use).
@@ -993,7 +993,7 @@ export function rankStrategies(
         const bucket = buildBucketConstants(isSlice, keys);
         const trailCapture = estimateTrailCaptureLocal(isSlice, keys);
         const ctx: ReplayContext = { bucket, trailCapture, replayMode: opts.replayMode ?? "expected" };
-        const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+        const replayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number; slProxy: boolean }> = [];
         const reasons: Record<string, number> = {};
         for (const t of oosSlice) {
           const proof = extractProof(t, keys);
@@ -1103,7 +1103,7 @@ export function walkForwardEvaluate(
   const isBucket = buildBucketConstants(isTrades, keys);
   const isTrailCapture = estimateTrailCaptureLocal(isTrades, keys);
   const oosCtx: ReplayContext = { bucket: isBucket, trailCapture: isTrailCapture, replayMode: opts.replayMode ?? "expected" };
-  const oosReplayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number }> = [];
+  const oosReplayed: Array<{ trade: Trade; r: number; reachedR: number; slPips: number | null; slScale: number; slProxy: boolean }> = [];
   const oosReasons: Record<string, number> = {};
   for (const t of oosTrades) {
     const proof = extractProof(t, keys);
