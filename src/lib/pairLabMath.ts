@@ -459,7 +459,7 @@ export function buildBuckets(
   const perCell: BucketReport[] = [];
   cellMap.forEach((rows, cellKey) => {
     const [symbol, session] = cellKey.split("__");
-    const report = computeBucket({ symbol, session }, rows, keys, baseline, opts.propFirm ?? null, recentN);
+    const report = computeBucket({ symbol, session }, rows, keys, baseline, opts.propFirm ?? null, recentN, disableWalkForward);
     report.rawSymbols = Array.from(cellRawSymbols.get(cellKey) ?? []).sort();
     perCell.push(report);
   });
@@ -472,6 +472,7 @@ export function buildBuckets(
       baseline,
       opts.propFirm ?? null,
       recentN,
+      disableWalkForward,
     );
     report.rawSymbols = Array.from(rowRawSymbols.get(symbol) ?? []).sort();
     perRow.push(report);
