@@ -509,7 +509,8 @@ export const MIN_ELIGIBLE_SAMPLE = 10;
 
 function buildResult(
   strategy: Strategy,
-  replayed: Array<{ trade: Trade; r: number; reachedR?: number; slPips?: number | null; slScale?: number }>,
+  replayed: Array<{ trade: Trade; r: number; reachedR?: number; slPips?: number | null; slScale?: number; slProxy?: boolean }>,
+
   ineligibleReasons: Record<string, number>,
   totalTradeCount: number,
   opts: ReplayOpts,
