@@ -659,7 +659,7 @@ function buildResult(
 function preparedTrades(trades: Trade[]): Trade[] {
   return trades
     .filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null)
-    .sort((a, b) => String(a.entry_time ?? "").localeCompare(String(b.entry_time ?? "")));
+    .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
 }
 
 function ctxFor(opts: ReplayOpts, bucket: BucketConstants): ReplayContext {
