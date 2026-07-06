@@ -202,10 +202,10 @@ export function StrategyLab({
 
   const cells = useMemo(() => {
     return rawCells.map((c) => {
-      const parts = scoreCellParts(c.result);
+      const parts = scoreCellParts(c.result, lambda);
       return { ...c, score: parts.score, parts };
     });
-  }, [rawCells]);
+  }, [rawCells, lambda]);
 
   const best = cells.length > 0
     ? cells.reduce((a, b) => (b.score > a.score ? b : a), cells[0])
