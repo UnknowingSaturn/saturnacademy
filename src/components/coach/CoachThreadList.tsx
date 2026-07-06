@@ -1,6 +1,6 @@
 import * as React from "react";
-import { useState } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,14 +17,21 @@ interface Props {
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
-  compact?: boolean;
+  showSearch?: boolean;
 }
 
-export function CoachThreadList({ threads, activeId, onSelect, onNew, compact }: Props) {
+export function CoachThreadList({ threads, activeId, onSelect, onNew, showSearch = true }: Props) {
   const rename = useRenameCoachThread();
   const del = useDeleteCoachThread();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return threads;
+    return threads.filter((t) => t.title.toLowerCase().includes(q));
+  }, [threads, query]);
 
   const commitRename = async (id: string) => {
     const next = draft.trim();
@@ -34,29 +41,39 @@ export function CoachThreadList({ threads, activeId, onSelect, onNew, compact }:
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-2 border-b border-border">
-        <Button size="sm" className="w-full justify-start" onClick={onNew}>
+    <div className="flex flex-col h-full min-h-0">
+      <div className="p-2 space-y-2 border-b border-border">
+        <Button size="sm" className="w-full justify-start gap-2" onClick={onNew}>
           <Plus className="w-4 h-4" /> New conversation
         </Button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
-        {threads.length === 0 && (
-          <div className="text-xs text-muted-foreground p-4 text-center">
-            No conversations yet.
+        {showSearch && threads.length > 4 && (
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search"
+              className="h-8 pl-8 text-xs"
+            />
           </div>
         )}
-        {threads.map((t) => {
+      </div>
+      <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+        {filtered.length === 0 && (
+          <div className="text-xs text-muted-foreground p-6 text-center">
+            {query ? "No matches." : "No conversations yet."}
+          </div>
+        )}
+        {filtered.map((t) => {
           const active = t.id === activeId;
           const isEditing = editingId === t.id;
           return (
             <div
               key={t.id}
               className={cn(
-                "group relative rounded-md px-2 py-1.5 cursor-pointer hover:bg-accent",
+                "group relative rounded-lg px-2.5 py-2 hover:bg-accent/60 transition",
                 active && "bg-accent",
               )}
-              onClick={() => !isEditing && onSelect(t.id)}
             >
               {isEditing ? (
                 <Input
@@ -71,39 +88,37 @@ export function CoachThreadList({ threads, activeId, onSelect, onNew, compact }:
                   className="h-7 text-sm"
                 />
               ) : (
-                <>
-                  <div className="text-sm truncate pr-12">{t.title}</div>
-                  {!compact && (
-                    <div className="text-[10px] text-muted-foreground">
+                <div className="flex items-start gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(t.id)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <div className="text-sm truncate font-medium text-foreground/90">{t.title}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
                       {t.last_message_at
                         ? `${formatDistanceToNow(new Date(t.last_message_at))} ago`
                         : "empty"}
                       {t.message_count > 0 && ` · ${t.message_count} msg`}
                     </div>
-                  )}
-                  <div className="absolute right-1 top-1 flex opacity-0 group-hover:opacity-100 transition">
+                  </button>
+                  <div className="flex opacity-0 group-hover:opacity-100 transition shrink-0">
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6"
-                      onClick={(e) => { e.stopPropagation(); setEditingId(t.id); setDraft(t.title); }}
+                      onClick={() => { setEditingId(t.id); setDraft(t.title); }}
                       aria-label="Rename thread"
                     >
                       <Pencil className="w-3 h-3" />
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={(e) => e.stopPropagation()}
-                          aria-label="Delete thread"
-                        >
+                        <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Delete thread">
                           <Trash2 className="w-3 h-3" />
                         </Button>
                       </AlertDialogTrigger>
-                      <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                      <AlertDialogContent>
                         <AlertDialogHeader>
                           <AlertDialogTitle>Delete conversation?</AlertDialogTitle>
                           <AlertDialogDescription>
@@ -112,14 +127,12 @@ export function CoachThreadList({ threads, activeId, onSelect, onNew, compact }:
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => del.mutate(t.id)}>
-                            Delete
-                          </AlertDialogAction>
+                          <AlertDialogAction onClick={() => del.mutate(t.id)}>Delete</AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
                   </div>
-                </>
+                </div>
               )}
             </div>
           );
