@@ -354,7 +354,7 @@ function replayOneTrade(
 ): ReplayOutcome {
   if (strategy.useActualOutcome) {
     if (!proof.hasActualR) return { ineligible: "no recorded r_actual" };
-    return { r: proof.rActual, slPips: slDistancePips(trade), slScale: 1 };
+    return { r: proof.rActual, slPips: slDistancePips(trade), slScale: 1, slProxy: false };
   }
 
   // BE-after-TP runner needs at least one partial to have a TP to move stops
@@ -370,15 +370,30 @@ function replayOneTrade(
   }
 
   let slScale: number;
+  let slProxy = false;
   if (strategy.slRule === "original") {
     slScale = 1;
   } else if (strategy.slRule === "tighten_to_ideal") {
-    if (proof.idealSlScale == null) return { ineligible: "missing SL/entry or ideal-SL — can't convert ticks to R" };
-    slScale = proof.idealSlScale;
+    if (proof.idealSlScale != null) {
+      slScale = proof.idealSlScale;
+    } else if (proof.loggedMae != null) {
+      // PR-4 · Fix 2 — MAE proxy fallback. `ideal_stop_loss` is a hindsight
+      // annotation; when it's missing but MAE is present we can still bound
+      // the tightest survivable stop at `loggedMae × 1.05` (5% cushion so
+      // wick-perfect losers still count as stopped). Capped at 1 so the
+      // "tightened" stop is never wider than the original. Flag the trade
+      // so the UI can show a `k proxy-tightened` chip and users see how
+      // much of the row is real ideal-SL vs inferred.
+      slScale = Math.min(1, Math.max(0.1, proof.loggedMae * 1.05));
+      slProxy = true;
+    } else {
+      return { ineligible: "missing SL/entry or ideal-SL — can't convert ticks to R" };
+    }
   } else {
     if (ctx.bucket.maeP75 == null) return { ineligible: "no MAE samples in bucket for widen rule" };
     slScale = Math.max(1, ctx.bucket.maeP75 * MAE_P75_WIDEN_BUFFER);
   }
+
 
   let stoppedUnderNewSl: boolean | null;
   if (proof.loggedMae != null) {
