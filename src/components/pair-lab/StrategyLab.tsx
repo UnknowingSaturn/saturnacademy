@@ -151,6 +151,11 @@ export function StrategyLab({
   // Custom limits used only when no prop-firm profile is selected.
   const [customDailyPct, setCustomDailyPct] = useState<number>(5);
   const [customMaxPct, setCustomMaxPct] = useState<number>(10);
+  // PR-2 (2J): downside-aversion coefficient λ for the CVaR-based utility.
+  // 0 = ignore tail losses (rank purely on pass × survival); 2 = double weight
+  // on the worst-5% tail. 0.5 default matches the pre-change ranking on most
+  // typical prop-firm sweeps.
+  const [lambda, setLambda] = useState<number>(0.5);
 
   // Selected detail cell — defaults to recommended after compute.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
