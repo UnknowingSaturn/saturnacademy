@@ -284,14 +284,24 @@ function extractProof(trade: Trade, keys: PairLabFieldKeys): TradeProof {
 // Single-trade proof-based replay
 // ----------------------------------------------------------------------------
 
-type ReplayOutcome = { r: number; slPips: number | null; slScale: number } | { ineligible: string };
+type ReplayOutcome =
+  | { r: number; slPips: number | null; slScale: number; slProxy: boolean }
+  | { ineligible: string };
 
 interface BucketConstants {
   maeP75: number | null;
   mfeP50: number | null;
   mfeP60: number | null;
   mfeP75: number | null;
+  /** PR-4 · Fix 7 — MFE sample count. Adaptive-TP presets refuse to fit
+   *  a bucket percentile when this is below MIN_BUCKET_N. */
+  nMfe: number;
 }
+
+/** PR-4 · Fix 7 — minimum bucket sample count for adaptive-TP presets.
+ *  Fitting a p60 on ~7 samples is noise, not adaptation. */
+const MIN_BUCKET_N_ADAPTIVE = 20;
+
 
 interface ReplayContext {
   bucket: BucketConstants;
