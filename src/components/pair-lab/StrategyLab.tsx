@@ -426,6 +426,32 @@ export function StrategyLab({
             Trailing drawdown (FTMO / MyFF style — max-loss line follows peak equity)
           </Label>
         </div>
+
+        {/* PR-2 (2J): downside-aversion slider. Re-ranks cells without re-running
+            the Monte Carlo — score is a linear function of the already-computed
+            per-cell CVaR-5%. */}
+        <div className="col-span-2 md:col-span-4">
+          <Label className="text-xs flex items-center gap-2">
+            <span>
+              Downside aversion λ{" "}
+              <span className="font-mono-numbers font-semibold ml-1">{lambda.toFixed(2)}</span>
+            </span>
+            <span
+              className="text-muted-foreground text-[10px]"
+              title="Weight on the worst-5% tail loss in the ranking score. 0 = ignore tail (rank on pass × survival only). 0.5 = tail loss of 20% costs 0.10 of score (comparable to 10-pp pass-prob swing). 2 = heavy tail penalty."
+            >
+              (CVaR-5% penalty weight — hover for details)
+            </span>
+          </Label>
+          <Slider
+            min={0}
+            max={2}
+            step={0.05}
+            value={[lambda]}
+            onValueChange={(v) => setLambda(v[0])}
+            className="mt-2"
+          />
+        </div>
       </div>
 
       {/* Heatmap */}
