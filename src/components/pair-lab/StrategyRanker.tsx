@@ -270,17 +270,30 @@ function ExclusionPanel({ b, open, onToggle }: { b: ExclusionBreakdown; open: bo
 
 export function StrategyRanker({
   trades, fieldKeys, balance, propFirm, scopeLabel,
-  defaultRiskPct = 1, trailCapture,
+  defaultRiskPct = 1, trailCapture, effectiveTrailCapture,
 }: Props) {
   const [riskPct, setRiskPct] = useState<number>(defaultRiskPct);
   const [openId, setOpenId] = useState<string | null>(null);
   const [exclusionOpen, setExclusionOpen] = useState<boolean>(false);
+  // PR-1 — path-ordering assumption. Default "expected" uses the Brownian-
+  // bridge probability; users can flip to "pessimistic" (SL-first on ambiguous
+  // trades — safety floor) or "optimistic" (TP-first, the legacy pre-fix
+  // behaviour, kept for A/B comparison).
+  const [replayMode, setReplayMode] = useState<ReplayMode>("expected");
   useEffect(() => { setRiskPct(defaultRiskPct); }, [defaultRiskPct]);
 
   const { rows, exclusion, mode } = useMemo(() => {
     const presets = STRATEGY_PRESETS.map((p) => ({ ...p, riskPct }));
-    return rankStrategies(trades, fieldKeys, presets, { balance, propFirm });
-  }, [trades, fieldKeys, riskPct, balance, propFirm]);
+    // Finding 4 (audit): thread empirical trail capture so the "full" fallback
+    // path uses the same value the header displays, instead of silently
+    // reverting to the 0.70 default.
+    return rankStrategies(trades, fieldKeys, presets, {
+      balance,
+      propFirm,
+      trailCapture: effectiveTrailCapture,
+      replayMode,
+    });
+  }, [trades, fieldKeys, riskPct, balance, propFirm, effectiveTrailCapture, replayMode]);
 
   const ranked: RankerRow[] = useMemo(() => {
     return [...rows].sort((a, b) => {
