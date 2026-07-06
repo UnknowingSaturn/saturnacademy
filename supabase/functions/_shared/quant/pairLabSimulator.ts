@@ -121,7 +121,7 @@ function extractProof(trade: any, keys: PairLabFieldKeys): TradeProof {
   return { reachedR, hasReachProof: proofs.length > 0, stoppedOut, loggedMfe, loggedMae, hasActualR, rActual: rActual ?? 0, idealSlScale };
 }
 
-type ReplayOutcome = { r: number } | { ineligible: string };
+type ReplayOutcome = { r: number; slProxy: boolean } | { ineligible: string };
 interface BucketConstants {
   maeP75: number | null;
   mfeP50: number | null;
@@ -129,7 +129,12 @@ interface BucketConstants {
   mfeP75: number | null;
   /** Empirical trail-capture ratio (median r/mfe over winners with mfe-r ≥ 0.1). */
   trailCapture: number;
+  /** PR-4 · Fix 7 — MFE sample count for adaptive-TP guard (min 20). */
+  nMfe: number;
 }
+
+/** PR-4 · Fix 7 — minimum bucket sample count for adaptive-TP presets. */
+const MIN_BUCKET_N_ADAPTIVE = 20;
 
 function buildBucketConstants(trades: any[], keys: PairLabFieldKeys): BucketConstants {
   const maes = trades
@@ -169,8 +174,10 @@ function buildBucketConstants(trades: any[], keys: PairLabFieldKeys): BucketCons
     mfeP60: quantile(mfes, 0.6),
     mfeP75: quantile(mfes, 0.75),
     trailCapture,
+    nMfe: mfes.length,
   };
 }
+
 
 function resolvePartialAtR(p: { atR: number; atRSource?: AtRSource }, bucket: BucketConstants): number | null {
   switch (p.atRSource ?? "fixed") {
