@@ -386,11 +386,15 @@ export function replayAllPresets(
     const outcomes = new Map<string, number>();
     const reasons: Record<string, number> = {};
     let reachedSum = 0, reachedCount = 0;
+    const slPipsSamples: number[] = [];
+    const slScaleSamples: number[] = [];
     for (const t of all) {
       const proof = extractProof(t, keys);
       const out = replayOneTrade(strategy, t, proof, bucket, replayMode);
       if ("r" in out) {
         outcomes.set(t.id, out.r);
+        if (out.slPips != null && Number.isFinite(out.slPips)) slPipsSamples.push(out.slPips);
+        if (Number.isFinite(out.slScale)) slScaleSamples.push(out.slScale);
         if (Number.isFinite(proof.reachedR)) {
           reachedSum += proof.reachedR;
           reachedCount += 1;
@@ -399,13 +403,13 @@ export function replayAllPresets(
         reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
       }
     }
-    return { strategy, outcomes, reasons, reachedSum, reachedCount };
+    return { strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples };
   });
 
   const currentRow = perPreset.find((p) => p.strategy.id === "current");
   const currentOutcomes = currentRow?.outcomes ?? new Map<string, number>();
 
-  return perPreset.map(({ strategy, outcomes, reasons, reachedSum, reachedCount }) => {
+  return perPreset.map(({ strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples }) => {
     const rs = Array.from(outcomes.values());
     const n = rs.length;
     const totalR = rs.reduce((s, v) => s + v, 0);
@@ -447,6 +451,8 @@ export function replayAllPresets(
       expectancyROnIntersection: intersectionN > 0 ? intersectionSumPreset / intersectionN : null,
       currentExpectancyROnIntersection: intersectionN > 0 ? intersectionSumCurrent / intersectionN : null,
       biasWarning,
+      appliedSlPipsMedian: slPipsSamples.length ? quantile(slPipsSamples, 0.5) : null,
+      appliedSlScaleMedian: slScaleSamples.length ? quantile(slScaleSamples, 0.5) : null,
     };
   });
 }
