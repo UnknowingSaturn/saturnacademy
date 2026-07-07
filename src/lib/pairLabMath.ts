@@ -804,10 +804,7 @@ function computeBucket(
     maeMaxTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a > b ? a : b)) : null,
     idealSlMedianPips: idealMed,
     slInitialMedianPips: slInitMed,
-    // Deprecated aliases — kept populated so any consumer still reading the
-    // old names sees the same number until they upgrade. Will be removed.
-    idealSlMedian: idealMed,
-    slInitialMedian: slInitMed,
+
     slDrift,
     confidence: confidenceFor(n),
     expectedRCi: bootstrapMeanCi(rActuals),
