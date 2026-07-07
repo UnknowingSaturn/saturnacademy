@@ -137,8 +137,18 @@ export interface BucketStats {
   /** Min/max of logged MAE values (ticks). Null when no MAE samples. */
   maeMinTicks: number | null;
   maeMaxTicks: number | null;
-  idealSlMedianPips: number | null;   // pips (S2.2: was `idealSlMedian`; unified with edge)
+  idealSlMedianPips: number | null;   // pips — median of user-logged cf_ideal_stop_loss
   slInitialMedianPips: number | null; // pips (S2.2: was `slInitialMedian`)
+  /**
+   * Data-driven ideal SL in pips: quantile(winners' MAE, WINNERS_MAE_SL_QUANTILE)
+   * × MAE_P75_WIDEN_BUFFER. Null when winners' MAE sample < 8. Independent of
+   * the journaled `cf_ideal_stop_loss` custom field — surface both side by side
+   * so drift between the trader's judgement and the data is visible.
+   */
+  idealSlDataDrivenPips: number | null;
+  /** Sample size backing `idealSlDataDrivenPips`. Null when data-driven SL null. */
+  idealSlDataDrivenN: number | null;
+
 
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   confidence: ConfidenceLevel;
