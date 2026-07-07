@@ -703,6 +703,16 @@ export function computeBucket(
     maeMaxTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a > b ? a : b)) : null,
     idealSlMedianPips: idealMed,
     slInitialMedianPips: slInitMed,
+    ...(() => {
+      if (winnersMaePips.length < 8) {
+        return { idealSlDataDrivenPips: null, idealSlDataDrivenN: null };
+      }
+      const q = quantile(winnersMaePips, WINNERS_MAE_SL_QUANTILE);
+      return {
+        idealSlDataDrivenPips: q != null ? q * MAE_P75_WIDEN_BUFFER : null,
+        idealSlDataDrivenN: winnersMaePips.length,
+      };
+    })(),
     slDrift,
     confidence: confidenceFor(n),
     suggestedSlPips,
