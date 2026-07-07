@@ -121,7 +121,9 @@ function extractProof(trade: any, keys: PairLabFieldKeys): TradeProof {
   return { reachedR, hasReachProof: proofs.length > 0, stoppedOut, loggedMfe, loggedMae, hasActualR, rActual: rActual ?? 0, idealSlScale };
 }
 
-type ReplayOutcome = { r: number; slProxy: boolean } | { ineligible: string };
+type ReplayOutcome =
+  | { r: number; slPips: number | null; slScale: number; slProxy: boolean }
+  | { ineligible: string };
 interface BucketConstants {
   maeP75: number | null;
   mfeP50: number | null;
@@ -199,7 +201,9 @@ function replayOneTrade(
   replayMode: ReplayMode = "expected",
 ): ReplayOutcome {
   if (strategy.useActualOutcome) {
-    return proof.hasActualR ? { r: proof.rActual, slProxy: false } : { ineligible: "no recorded r_actual" };
+    return proof.hasActualR
+      ? { r: proof.rActual, slPips: slDistancePips(trade), slScale: 1, slProxy: false }
+      : { ineligible: "no recorded r_actual" };
   }
   // Pure-trail (no partials, trail_to_mfe) is allowed; BE-after-TP without a partial is not.
   if (strategy.exitRule.runner === "be_after_first_tp" && strategy.exitRule.partials.length === 0) {
