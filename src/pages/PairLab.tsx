@@ -265,7 +265,6 @@ export default function PairLab() {
     }
   }, [profileQuery.isLoading, profileQuery.data, patchParams]);
 
-
   const { dateFrom, dateTo } = useMemo(() => resolveWindow(wf), [wf]);
 
   const data = usePairLab({
@@ -279,7 +278,6 @@ export default function PairLab() {
       ? { name: activeGroup.name, symbols: activeGroup.symbols }
       : null,
   });
-
 
   // P-UI: Only show the full-page spinner on the FIRST load. Subsequent refetches
   // (filter / lens / as-of changes) now keep the provider + tabs mounted so
