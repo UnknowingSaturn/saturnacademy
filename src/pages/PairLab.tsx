@@ -194,8 +194,9 @@ export default function PairLab() {
         if (atLatest) p.delete("asOf");
         else p.set("asOf", new Date(next.asOfMs).toISOString().slice(0, 10));
       });
+      savePrefs({ lens: next.lens });
     },
-    [patchParams, maxMs],
+    [patchParams, maxMs, savePrefs],
   );
   useEffect(() => {
     setWfRaw((s) => ({
@@ -203,6 +204,47 @@ export default function PairLab() {
       asOfMs: Math.max(minMs, Math.min(maxMs, s.asOfMs)),
     }));
   }, [minMs, maxMs]);
+
+  // Hydrate filter state from the persisted per-user prefs, but ONLY for
+  // params the URL didn't already carry at first mount. This way:
+  //   - A fresh navigation to `/pair-lab` restores the last-used setup.
+  //   - A shared / deep link like `?pf=0&lens=90d` always wins.
+  // Runs once, after the profile query resolves.
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    if (profileQuery.isLoading) return;
+    const prefs = profileQuery.data?.pair_lab_prefs;
+    hydratedRef.current = true;
+    if (!prefs || Object.keys(prefs).length === 0) return;
+    const present = initialUrlKeys.current;
+    patchParams((p) => {
+      if (prefs.profile != null && !present.has("profile") && prefs.profile !== "any") {
+        p.set("profile", prefs.profile);
+      }
+      if (prefs.propFirmMode === false && !present.has("pf")) {
+        p.set("pf", "0");
+      }
+      if (prefs.includeUnrealized === true && !present.has("unreal")) {
+        p.set("unreal", "1");
+      }
+      if (prefs.includeUnassigned === false && !present.has("orphans")) {
+        p.set("orphans", "0");
+      }
+      if (prefs.scope && prefs.scope !== "all" && !present.has("scope")) {
+        p.set("scope", prefs.scope);
+      }
+      if (prefs.tab && prefs.tab !== "overview" && !present.has("tab") && VALID_TABS.has(prefs.tab)) {
+        p.set("tab", prefs.tab);
+      }
+      if ((prefs.lens === "90d" || prefs.lens === "30d") && !present.has("lens")) {
+        p.set("lens", prefs.lens);
+      }
+    });
+    if ((prefs.lens === "90d" || prefs.lens === "30d") && !present.has("lens")) {
+      setWfRaw((s) => ({ ...s, lens: prefs.lens as WalkForwardState["lens"] }));
+    }
+  }, [profileQuery.isLoading, profileQuery.data, patchParams]);
+
 
   const { dateFrom, dateTo } = useMemo(() => resolveWindow(wf), [wf]);
 
