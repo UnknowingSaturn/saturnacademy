@@ -709,6 +709,18 @@ export function StrategyRanker({
                   Max DD
                 </th>
                 <th className="text-center py-2 px-2">Confidence</th>
+                <th
+                  className="text-right py-2 px-2"
+                  title="The risk % that would have grown your account fastest without your drawdown going past your comfort setting. Based on Monte-Carlo simulation of this strategy's per-trade R-outcomes with compounding."
+                >
+                  Suggested risk
+                </th>
+                <th
+                  className="text-left py-2 pl-2"
+                  title="Plain-English read on whether your current risk % is safe, too low, or too high for this strategy."
+                >
+                  Verdict
+                </th>
                 <th className="text-left py-2 pl-2">Prop-firm</th>
               </tr>
             </thead>
