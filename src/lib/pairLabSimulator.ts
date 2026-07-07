@@ -691,6 +691,10 @@ function buildResult(
   const perTradeEdgeRatio = sd > 0 ? expectancyR / sd : null;
   const perTradeSortinoRatio = sdDown > 0 ? expectancyR / sdDown : null;
 
+  // Audit M-B2: this verdict is **display-only** — it counts the whole tape
+  // even after a hypothetical bust so users can see the shape of the failure
+  // in the retrospective view. The prop-firm Monte Carlo engine
+  // (`propFirmMonteCarlo.ts`) is the source of truth for pass/bust probability.
   let verdict: ReplayResult["propFirmVerdict"] = "n/a";
   let bustNote: string | null = null;
   if (opts.propFirm && opts.propFirm.dailyLossDollars != null && opts.propFirm.dailyLossDollars > 0) {
