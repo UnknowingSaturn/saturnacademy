@@ -41,3 +41,30 @@ describe("classifySymbol — bare index aliases", () => {
     expect(slTicks).toBeCloseTo(46.4, 1);
   });
 });
+
+/**
+ * V4 regression: short 2-char futures roots (ES / NQ / YM / RTY) previously
+ * substring-matched inside exotic broker symbols and mis-classified them as
+ * indices. Anchor them so only real futures roots (with a valid month/digit
+ * suffix or bare) classify as index.
+ */
+describe("classifySymbol — short-root anchoring (V4)", () => {
+  it("XNQUSD is NOT an index (fx5 fallback)", () => {
+    expect(classifySymbol("XNQUSD")).not.toBe("index");
+  });
+  it("ESGOLD is NOT an index", () => {
+    expect(classifySymbol("ESGOLD")).not.toBe("index");
+  });
+  it("bare ES / NQ / YM / RTY still classify as index", () => {
+    expect(classifySymbol("ES")).toBe("index");
+    expect(classifySymbol("NQ")).toBe("index");
+    expect(classifySymbol("YM")).toBe("index");
+    expect(classifySymbol("RTY")).toBe("index");
+  });
+  it("ES futures month-coded roots classify as index", () => {
+    expect(classifySymbol("ESM24")).toBe("index");
+    expect(classifySymbol("NQU25")).toBe("index");
+    expect(classifySymbol("ES.f")).toBe("index");
+    expect(classifySymbol("NQ_H24")).toBe("index");
+  });
+});
