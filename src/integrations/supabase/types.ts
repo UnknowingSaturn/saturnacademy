@@ -2269,6 +2269,7 @@ export type Database = {
           display_timezone: string
           field_label_overrides: Json
           id: string
+          ranker_comfort_dd_pct: number
           sim_balance: number
           sim_hard_cap_pct: number
           sim_prop_firm: string | null
@@ -2291,6 +2292,7 @@ export type Database = {
           display_timezone?: string
           field_label_overrides?: Json
           id?: string
+          ranker_comfort_dd_pct?: number
           sim_balance?: number
           sim_hard_cap_pct?: number
           sim_prop_firm?: string | null
@@ -2313,6 +2315,7 @@ export type Database = {
           display_timezone?: string
           field_label_overrides?: Json
           id?: string
+          ranker_comfort_dd_pct?: number
           sim_balance?: number
           sim_hard_cap_pct?: number
           sim_prop_firm?: string | null
