@@ -814,6 +814,28 @@ function computeBucket(
     maeMaxTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a > b ? a : b)) : null,
     idealSlMedianPips: idealMed,
     slInitialMedianPips: slInitMed,
+    ...(() => {
+      // Data-driven ideal SL: winners' MAE p90 × widen buffer. Computed here
+      // (independent of the recommendation pipeline) so the SL-drift row can
+      // show the journaled value AND the empirical one side by side, even
+      // when the recommendation later prefers the journaled median.
+      const winnersMaePips: number[] = [];
+      for (const t of rows) {
+        if (t.r_multiple_actual == null || !(t.r_multiple_actual > 0)) continue;
+        const maeTicks = numericCf(t as any, keys.mae);
+        if (maeTicks == null || !t.symbol) continue;
+        winnersMaePips.push(Math.abs(ticksToPips(t.symbol, Math.abs(maeTicks))));
+      }
+      if (winnersMaePips.length < 8) {
+        return { idealSlDataDrivenPips: null, idealSlDataDrivenN: null };
+      }
+      const q = quantile(winnersMaePips, WINNERS_MAE_SL_QUANTILE);
+      return {
+        idealSlDataDrivenPips: q != null ? q * MAE_P75_WIDEN_BUFFER : null,
+        idealSlDataDrivenN: winnersMaePips.length,
+      };
+    })(),
+
 
     slDrift,
     confidence: confidenceFor(n),
