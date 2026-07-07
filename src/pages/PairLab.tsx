@@ -59,9 +59,6 @@ export default function PairLab() {
 
   const profileQuery = useSimulatorProfile();
   const savePrefs = useUpdatePairLabPrefs();
-
-
-
   const profile = searchParams.get("profile") ?? "any";
   const propFirmMode = searchParams.get("pf") !== "0";
   const includeUnrealized = searchParams.get("unreal") === "1";
