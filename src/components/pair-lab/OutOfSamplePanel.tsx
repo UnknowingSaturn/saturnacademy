@@ -27,6 +27,7 @@ import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useOosSplit } from "@/hooks/useOosSplit";
 // S3.5: minMs/maxMs now read from PairLabWalkForwardContext (single source).
 import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
+import { ensureUtcMs } from "../../../shared/quant/stats";
 
 interface Props {
   trades: Trade[];
