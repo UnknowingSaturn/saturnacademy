@@ -57,7 +57,11 @@ export function WalkForwardControls({ state, onChange, minMs, maxMs }: Props) {
           <History className="w-3.5 h-3.5 text-muted-foreground" />
           <Label className="text-xs">Lens</Label>
         </div>
-        <div className="inline-flex rounded-md border border-border/60 overflow-hidden">
+        <div
+          className="inline-flex rounded-md border border-border/60 overflow-hidden"
+          role="group"
+          aria-label="Analysis lens"
+        >
           {(["all", "90d", "30d"] as const).map((l) => {
             const active = state.lens === l;
             const label = l === "all" ? "All-time" : l;
@@ -70,6 +74,7 @@ export function WalkForwardControls({ state, onChange, minMs, maxMs }: Props) {
                 aria-label={`Lens: ${label}${active ? " (selected)" : ""}`}
                 className={
                   "px-2.5 py-1 text-[11px] font-medium transition-colors " +
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 " +
                   (active
                     ? "bg-primary/15 text-foreground"
                     : "text-muted-foreground hover:text-foreground")
