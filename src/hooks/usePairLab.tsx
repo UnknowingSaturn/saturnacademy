@@ -318,18 +318,23 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const naiveTimestampCount = countNaiveEntryTimes(trades);
 
     return {
+      // Audit Bug C: also gate on rules / account / groups so prop-firm
+      // constraints don't briefly render against empty rules on first mount.
       isLoading:
         tradesQuery.isLoading ||
         defsQuery.isLoading ||
         aliasesQuery.isLoading ||
-        profileQuery.isLoading,
+        profileQuery.isLoading ||
+        rulesQuery.isLoading ||
+        accountQuery.isLoading ||
+        groupsQuery.isLoading,
       fieldKeys,
       baseline,
       perCell,
       perRow,
       symbols,
       sessions,
-      totalTrades: closedTrades.length,
+      totalTrades: scopedTrades.length,
       missingFields,
       ambiguousFields,
       propFirm,
