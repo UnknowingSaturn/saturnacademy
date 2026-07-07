@@ -469,3 +469,40 @@ export function replayAllPresets(
     };
   });
 }
+
+function buildAppliedSlBySymbol(
+  perSymbol: Map<string, { pips: number[]; scale: number[] }>,
+  maxSymbols = 8,
+  minPerSymbol = 3,
+): PresetReplayResult["appliedSlBySymbol"] {
+  if (perSymbol.size === 0) return null;
+  const rows: NonNullable<PresetReplayResult["appliedSlBySymbol"]> = [];
+  for (const [symbol, g] of perSymbol) {
+    if (g.pips.length < minPerSymbol) continue;
+    rows.push({
+      symbol,
+      unit: pipLabelForSymbol(symbol),
+      n: g.pips.length,
+      medianNative: quantile(g.pips, 0.5),
+      iqrNative: [quantile(g.pips, 0.25), quantile(g.pips, 0.75)],
+      medianScale: quantile(g.scale, 0.5),
+    });
+  }
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => (b.n - a.n) || a.symbol.localeCompare(b.symbol));
+  if (rows.length > maxSymbols) {
+    const kept = rows.slice(0, maxSymbols);
+    const rest = rows.slice(maxSymbols);
+    const totalN = rest.reduce((s, r) => s + r.n, 0);
+    kept.push({
+      symbol: `Other (${rest.length} symbols)`,
+      unit: "pips",
+      n: totalN,
+      medianNative: Number.NaN,
+      iqrNative: [Number.NaN, Number.NaN],
+      medianScale: quantile(rest.map((r) => r.medianScale), 0.5),
+    });
+    return kept;
+  }
+  return rows;
+}
