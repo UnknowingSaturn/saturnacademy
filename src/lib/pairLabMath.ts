@@ -1152,7 +1152,12 @@ function buildRecommendation(
   // win rate alone. Recompute the win rate over the same R subsample.
   const rSubsampleN = winR.length + lossR.length;
   const rWinRate = rSubsampleN > 0 ? winR.length / rSubsampleN : 0;
-  const rawKelly = s.n >= 10 && rSubsampleN >= 10
+  // Audit §2.4 + §2.9 #2: require ≥3 real losses. Without observed losses,
+  // avgLossR falls back to 1 and Kelly becomes degenerate (edge is estimated
+  // from win rate alone). Ceiling clip saves the trader but the estimate is
+  // meaningless — better to suppress the number and surface a warning.
+  const hasLossHistory = lossR.length >= 3;
+  const rawKelly = s.n >= 10 && rSubsampleN >= 10 && hasLossHistory
     ? rawQuarterKellyPct(rWinRate, avgWinR, avgLossR)
     : null;
   const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
@@ -1165,8 +1170,10 @@ function buildRecommendation(
   // PR-2 (2F): use BCa CI at small n (< 30) where percentile bootstrap under-
   // covers by 5–10%. Falls back to percentile CI automatically on jackknife
   // degeneracy inside `bootstrapKellyCiBCa`.
-  const suggestedRiskPctCi = s.n >= 10 ? bootstrapKellyCiBCa(winR, lossR) : null;
-  const rCoverageWarning = s.n >= 10 && rSubsampleN / s.n < 0.5;
+  const suggestedRiskPctCi = s.n >= 10 && hasLossHistory ? bootstrapKellyCiBCa(winR, lossR) : null;
+  // Widened R-coverage warning also fires when we have samples but not enough
+  // losses to make Kelly honest — surfaces the "no-loss history" case.
+  const rCoverageWarning = s.n >= 10 && (rSubsampleN / s.n < 0.5 || !hasLossHistory);
 
   const tp1Star = computeTp1Star(ctx.tp1StarPairs, avgLossR || 1);
 
