@@ -2,8 +2,26 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { useCallback, useEffect, useRef } from "react";
 
 export type SimulatorSource = "manual" | "active_account";
+
+/**
+ * Per-user last-used Pair Lab filter state. Hydrated on Pair Lab mount when
+ * the URL doesn't specify a given value; any URL param present at mount wins
+ * over the persisted preference (so shared / deep links keep working).
+ * `asOf` and per-cell selection are intentionally NOT persisted — they're
+ * session-scoped and would confuse the user across reloads.
+ */
+export interface PairLabPrefs {
+  profile?: string;              // "any" | profile tag
+  propFirmMode?: boolean;
+  includeUnrealized?: boolean;
+  includeUnassigned?: boolean;
+  scope?: string;                // "all" | "grp:<id>"
+  tab?: "overview" | "grid" | "windows" | "strategy" | "setup";
+  lens?: "all" | "90d" | "30d";
+}
 
 export interface SimulatorProfile {
   sim_balance: number;
@@ -14,6 +32,8 @@ export interface SimulatorProfile {
   /** Biggest peak-to-trough drawdown the trader would stay calm through, as %.
    *  Drives the Strategy Ranker's "Suggested risk" and Verdict columns. */
   ranker_comfort_dd_pct: number;
+  /** Persisted Pair Lab filter state. */
+  pair_lab_prefs: PairLabPrefs;
 }
 
 export const DEFAULT_SIM_PROFILE: SimulatorProfile = {
@@ -23,6 +43,7 @@ export const DEFAULT_SIM_PROFILE: SimulatorProfile = {
   sim_hard_cap_pct: 2,
   sim_source: "manual",
   ranker_comfort_dd_pct: 10,
+  pair_lab_prefs: {},
 };
 
 export function useSimulatorProfile() {
