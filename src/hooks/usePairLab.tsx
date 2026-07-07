@@ -352,6 +352,7 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
         (rulesQuery.error as Error | null)?.message ??
         (accountQuery.error as Error | null)?.message ??
         null,
+      isAllAccounts,
       fieldKeys,
       baseline,
       perCell,
