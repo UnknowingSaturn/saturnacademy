@@ -253,6 +253,10 @@ function replayOneTrade(
   let remainingFrac = 1;
   let anyFilled = false;
   let lastFilledAtR = 0;
+  /** PR-5 · B1 parity — filled-partial subtotal, tracked separately from the
+   *  runner contribution so the SL-first bridge alternative books partials at
+   *  their TPs plus a stop on the runner only. */
+  let filledBooked = 0;
   /** First partial whose TP was breached by MFE. Drives the bridge probability
    *  when the stop was ALSO breached — that's the ambiguous ordering case. */
   let firstBreachedTpR: number | null = null;
@@ -260,7 +264,9 @@ function replayOneTrade(
     const needOrigR = p.atR * slScale;
     if (proof.reachedR >= needOrigR) {
       const take = Math.min(p.fraction, remainingFrac);
-      booked += p.atR * take;
+      const leg = p.atR * take;
+      booked += leg;
+      filledBooked += leg;
       remainingFrac -= take;
       anyFilled = true;
       lastFilledAtR = p.atR;
@@ -301,7 +307,10 @@ function replayOneTrade(
         if (anyFilled) {
           booked += lastFilledAtR * remainingFrac;
         } else {
-          booked += Math.min(reachedNewR, maxTargetAtR) * remainingFrac;
+          // PR-5 · H4 parity — no fill AND no stop under this rule has no
+          // observable exit. Symmetric conservative accounting with the
+          // stopped-branch above (`-slScale × remainingFrac`).
+          booked += -slScale * remainingFrac;
         }
       } else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
@@ -312,9 +321,9 @@ function replayOneTrade(
   }
 
   // P0-B — PR-1 Brownian-bridge / gambler's-ruin ordering mixture.
-  // Ambiguity only exists when at least one partial's TP was breached AND the
-  // trade also breached the new SL. Deterministic branches pass through
-  // unchanged (pStopFirst = 0). Mirrors client `src/lib/pairLabSimulator.ts`.
+  // PR-5 · B1 parity — SL-first alternative now books filled partials at
+  // their TPs plus `-slScale × remainingFrac` on the runner, instead of
+  // wiping the whole position.
   if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
     const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
     const mfeInNewR = mfeForBridge / slScale;
@@ -323,7 +332,7 @@ function replayOneTrade(
     const pTpFirst = resolveTpFirstProb(pTpFirstRaw, replayMode);
     const pStopFirst = 1 - pTpFirst;
     if (pStopFirst > 0) {
-      const bookedSlFirst = -slScale;
+      const bookedSlFirst = filledBooked + (-slScale) * remainingFrac;
       booked = pTpFirst * booked + pStopFirst * bookedSlFirst;
     }
   }
