@@ -146,6 +146,9 @@ export function useRankerRiskMC({
         s.currentRiskPct,
         s.rSample.length,
         s.rSample.reduce((a, b) => a + b, 0),
+        // E1 fix: second moment detects mid-sample variance changes that
+        // (n, Σr, first, last) would collide on.
+        s.rSample.reduce((a, b) => a + b * b, 0),
         s.rSample[0] ?? 0,
         s.rSample[s.rSample.length - 1] ?? 0,
       ]),
