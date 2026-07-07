@@ -60,8 +60,9 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
             mfeP75: bucket.mfeP75,
             maeP50: bucket.maeP50,
             maeP75: bucket.maeP75,
-            idealSlMedian: bucket.idealSlMedian,
-            slInitialMedian: bucket.slInitialMedian,
+            idealSlMedianPips: bucket.idealSlMedianPips,
+            slInitialMedianPips: bucket.slInitialMedianPips,
+
             slDrift: bucket.slDrift,
             confidence: bucket.confidence,
             expectedRCi: bucket.expectedRCi,
@@ -212,8 +213,9 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
             <div className="text-muted-foreground">SL drift</div>
             <div className="font-mono-numbers font-semibold text-sm">
               {(() => {
-                const sli = (b as any).slInitialMedianPips ?? b.slInitialMedian;
-                const idl = (b as any).idealSlMedianPips ?? b.idealSlMedian;
+                const sli = b.slInitialMedianPips;
+                const idl = b.idealSlMedianPips;
+
                 if (sli == null || idl == null) return "—";
                 const unit = b.slUnit ?? nativeUnitForSymbol(b.key.symbol);
                 return `${formatDistance(b.key.symbol, sli, unit, distanceUnit)} → ${formatDistance(b.key.symbol, idl, unit, distanceUnit)}`;
