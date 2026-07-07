@@ -61,11 +61,27 @@ export function OutOfSamplePanel({
   dateTo,
   includeUnrealized,
 }: Props) {
-  // Slider bounds come from the shared bounds hook (single O(n) pass on the
-  // cached trade list — no per-memo sort here). The 70/30 split is computed
-  // as a linear calendar fraction of [min,max]; it used to be index-based
-  // (sort + percentile) which was O(n log n) on every slider drag.
-  const { minMs, maxMs } = usePairLabWalkForward();
+  // U2 fix: slider bounds come from the panel's *active* trade slice, not
+  // from the shared full-history bounds. Previously `usePairLabWalkForward`
+  // returned oldest→newest across the entire history, so with lens=30d the
+  // slider could be dragged years before the active window and produce a
+  // "Train N 0" state that read as broken.
+  const { minMs: fullMinMs, maxMs: fullMaxMs } = usePairLabWalkForward();
+  const { minMs, maxMs } = useMemo(() => {
+    let lo = Number.POSITIVE_INFINITY;
+    let hi = Number.NEGATIVE_INFINITY;
+    for (const t of trades) {
+      const ms = t.entry_time ? new Date(t.entry_time).getTime() : NaN;
+      if (!Number.isFinite(ms)) continue;
+      if (ms < lo) lo = ms;
+      if (ms > hi) hi = ms;
+    }
+    // Fall back to context bounds if the slice is empty (e.g., still loading).
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) {
+      return { minMs: fullMinMs, maxMs: fullMaxMs };
+    }
+    return { minMs: lo, maxMs: hi };
+  }, [trades, fullMinMs, fullMaxMs]);
   const defaultSplit = useMemo(
     () => Math.round(minMs + 0.7 * (maxMs - minMs)),
     [minMs, maxMs],
