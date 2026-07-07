@@ -160,7 +160,16 @@ export default function PairLab() {
       }),
     [patchParams],
   );
-
+  const setSetupTab = useCallback(
+    (v: string) => {
+      patchParams((p) =>
+        v === "simulator" || !VALID_SETUP_TABS.has(v)
+          ? p.delete("setupTab")
+          : p.set("setupTab", v),
+      );
+    },
+    [patchParams],
+  );
 
   // Resolve active scope group for data filtering.
   const { groups } = useSymbolGroups();
@@ -171,7 +180,9 @@ export default function PairLab() {
   }, [scope, groups]);
 
   // Single source of truth for the as-of slider bounds (no double fetch).
-  const { minMs, maxMs } = usePairLabTradeBounds();
+  // Audit §1.4: mirror `includeUnassigned` so slider bounds match the
+  // analytics universe when the toggle is off.
+  const { minMs, maxMs } = usePairLabTradeBounds({ includeUnassigned });
 
   // S2.15: persist lens + asOf in the URL so a refresh or a shared link
   // restores the same walk-forward viewport. `lens=all` (default) and an
