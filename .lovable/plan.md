@@ -1,125 +1,67 @@
+# Pair Lab Post-Remediation Cleanup Plan
 
-# Pair Lab + Journal Remediation Plan
+Two parallel read-only audits (math/simulator + UI/journal parity) verified the previous batch's M1–M7 and U/J fixes landed correctly, and surfaced **7 remaining items** — 2 real bugs producing wrong numbers, 2 parity/robustness gaps, 3 efficiency/hygiene items. This plan fixes root causes only; no speculative rewrites.
 
-Two parallel deep audits (math core + data/UI + Journal) surfaced 12 confirmed bugs, 6 items requiring verification, 6 client/edge parity risks, and several stale-code cleanups. This plan groups them by risk so the highest-impact fixes land first and each change is verified before moving on.
+## Section 1 — Real Bugs (wrong numbers or hangs)
 
-## Section 1 — Math / Simulator Correctness (highest impact)
+**B1. `OutOfSamplePanel.tsx:74` — slice bounds use naive `new Date()`**
+The U2 fix replaced context-global bounds with slice-local bounds but forgot to route through `ensureUtcMs`. For CSV-imported trades with naive timestamps, the OOS slider min/max shift by the user's UTC offset. Replace `new Date(t.entry_time).getTime()` with `ensureUtcMs(t.entry_time)` (returns `number | null`; skip nulls).
 
-**M1. Edge Brownian-bridge guard mismatch** (`supabase/functions/_shared/quant/pairLabSimulator.ts:325`)
-Add the missing `proof.loggedMfe != null` guard so edge matches client. Currently the edge falls back to `reachedR` as an MFE proxy, biasing expectancy pessimistically for early-TP presets.
+**B2. `Journal.tsx:265–270` — period boundary uses local-tz date-fns**
+J1 correctly moved `entry_time` parsing to `ensureUtcMs`, but `periodRange.start/end` still come from `startOfWeek/endOfMonth/etc.`, which anchor to the host local timezone. A trader outside UTC sees week/month boundaries drift; a 00:05 UTC trade can fall outside a local-tz week. Compute period boundaries in UTC (`Date.UTC(y, m, d)` or format-then-`ensureUtcMs`) so period filtering matches the trade-time frame.
 
-**M2. Edge `buildBuckets` drops `recentN`** (`supabase/functions/_shared/quant/pairLabMath.ts:825, 842`)
-Forward `opts.recentN` into both `computeBucket` calls. Every edge-generated report with a non-default drift window is currently computing recent-win-rate / drift over the wrong window.
+**B3. `useRankerRiskMC.ts:57–77` — missing worker error handlers**
+R5.1 added `onerror`/`onmessageerror` to `useStrategyLabSweep` and `useOosSplit` but skipped this hook. A worker crash leaves `loading: true` forever and the ranker card sits on a skeleton. Mirror the pattern from `useStrategyLabSweep.ts:67–75`.
 
-**M3. Prop-firm MC: target-hit fires before daily-bust check** (`src/lib/propFirmMonteCarlo.ts:198–210`)
-Reorder so the daily-loss cap is evaluated at end-of-day before returning `passed: true`. Otherwise a single trade that simultaneously hits both target and daily cap silently inflates `passProb` for simultaneous-account configs.
+## Section 2 — Parity & Robustness
 
-**M4. `idealSlDataDrivenPips` uses wrong buffer** (`src/lib/pairLabMath.ts:834`, `supabase/functions/_shared/quant/pairLabMath.ts:711`)
-Change `MAE_P75_WIDEN_BUFFER` (1.15) → `WINNERS_MAE_SL_BUFFER` (1.10) so the *display* value matches what the recommendation pipeline actually suggests. Prevents a phantom 5% "drift" signal in the QuantNotePanel.
+**P1. `pairLabSimulator.ts:493` — misleading ineligibility reason**
+When `proof.loggedMae == null` the code emits `"ambiguous stop/TP ordering — MAE present but direction unknown"`. Split the return into two distinct messages so the audit trail is truthful:
+- `loggedMae == null` → `"no MAE and r_actual ambiguous near stop"`
+- `loggedMae != null` → keep the existing message.
 
-**M5. `oosSplit.worker.ts` naive-`Date.parse`** (`src/workers/oosSplit.worker.ts:77`)
-Replace `Date.parse(params.splitIso)` with `ensureUtcMs`. Same class of TZ bug as M6 / J1 below.
+**P2. Edge `_shared/quant/pairLabSimulator.ts` — silent field drift from client**
+Edge `ReplayResult` lacks `appliedSlBySymbol`, `expectancyRCiBCa`, `compositeScore`. Documented as "intentionally diverged" but there's no type-level fence — any consumer JSON-diffing client vs edge sees silent missing fields. Fix: extract a `SharedReplayResult` base type in `shared/quant/types.ts`, have both client and edge extend it, and mark client-only fields with a `ClientOnlyReplayFields` extension so the divergence is compile-time visible.
 
-**M6. Edge `resolveSlAtMaePrice` naive-`Date.parse`** (`supabase/functions/_shared/quant/pairLabMath.ts:285, 289`)
-Route `exit_time` and modification `occurred_at` through `ensureUtcMs` for engine-independent behavior.
+## Section 3 — Efficiency / Hygiene
 
-**M7. `makeSeededRng` modulo bias** (`shared/quant/stats.ts:100`)
-Replace `((seed >>> 0) % 1_000_000) / 1_000_000` with `(seed >>> 0) / 0x1_0000_0000`. Removes bootstrap bias.
+**E1. `useRankerRiskMC.ts:133–140` — cache-key mid-sample collision**
+Current key hashes `(strategyId, riskPct, n, Σr, r[0], r[-1])`. Two R-samples that differ only in the middle (cancelling edits at both ends) skip a legitimate MC re-run. Append `Σ(r²)` — detects any variance change with negligible cost.
 
-## Section 2 — Data / UI Correctness
+**E2. `useSimulatorProfile.tsx:98–113` and `:201` — SELECT-then-write pattern**
+Both `useUpdateSimulatorProfile` and `useUpdatePairLabPrefs` do an existence SELECT before INSERT/UPDATE (2 round-trips). Replace with `upsert({ user_id, ... }, { onConflict: 'user_id' })`. Halves latency on every prefs save.
 
-**U1. `setWf` recreates on every `maxMs` change → context thrash** (`src/pages/PairLab.tsx:206–219`)
-Drop `maxMs` from the `setWf` `useCallback` deps by reading `maxMs` inside `patchParams` via a ref, or by removing the clamp there and clamping inside context. Six consumers currently re-render on every bounds refetch.
+**E3. `IdealWindowHeatmap.tsx:46–60` — `localStorage` read every render**
+Wrap `loadStoredHours`/`loadStoredMinN` in `useState(() => loadStoredHours())` lazy initializers so the sync read happens once on mount.
 
-**U2. `OutOfSamplePanel` slider bounded to full history, not active window** (`src/components/pair-lab/OutOfSamplePanel.tsx:68, 197–208`)
-Compute `min`/`max` from the panel's already-filtered `trades` (or from the active `dateFrom` / `dateTo`), not from context `minMs` / `maxMs`.
+## Section 4 — Test Coverage
 
-**U3. `VALID_SETUP_TABS` inside component body** (`src/pages/PairLab.tsx:72`)
-Hoist to module scope alongside `VALID_TABS`. Removes latent stale-closure and the per-render Set allocation.
+`.lovable/plan.md` claims M1–M6 have regression coverage but `src/lib/__tests__/auditBatch.test.ts` only asserts M7 (RNG bias) and M4 (buffer constants). Add:
+- `pathProb.test.ts` extension — `pathProbTpFirst` symmetry / bounds (covers M-B4).
+- `propFirmMonteCarlo.test.ts` — construct a run where target and daily-cap hit same trade; assert `passed=false` (covers M3).
+- `journalTimezone.test.ts` — round-trip a naive `2024-01-31T23:00:00` timestamp through both `Journal` period-window and `Pair Lab` scope-filter; assert same day classification (covers J1 + B2).
 
-**U4. `StrategyLab` local state stales when simulator profile updates** (`src/components/pair-lab/StrategyLab.tsx:146, 149`)
-Move `accountSize` / `tradesPerDay` to controlled state derived from prefs (or `useEffect` sync on defaults change), so navigating Setup → Strategy reflects the newly-saved balance and detected TPD.
+## Section 5 — Explicitly NOT in scope (verified clean)
 
-**U5. Journal `clearModelFilter` non-functional `setSearchParams`** (`src/pages/Journal.tsx:91–94`)
-Switch to functional form and construct a new `URLSearchParams` (don't mutate the closure snapshot).
+Audit confirmed these previous fixes landed correctly and need no further work:
+- M7 RNG (`shared/quant/stats.ts:110`) ✓
+- M4 buffer parity (`pairLabMath.ts:846`) ✓
+- M3 MC pass/bust order (`propFirmMonteCarlo.ts:203`) ✓
+- MFE bridge guard (`pairLabSimulator.ts:599`) ✓
+- Kelly three-stream bootstrap (`shared/quant/stats.ts:309`) ✓
+- Journal `useSearchParams` migration, ensureUtcMs on `entry_time`, open/closed chip ✓
+- Symbol classification anchors ✓
 
-**U6. Journal model-filter effect never clears on URL removal** (`src/pages/Journal.tsx:83–88`)
-Add the `else setModelFilter(null)` branch so removing `?model=` from the URL clears the badge.
+## Section 6 — Execution Order
 
-**U7. Dead `selectedAccountId` dep in Journal `filteredTrades` memo** (`src/pages/Journal.tsx:213`)
-Remove — account filtering is DB-side; keeping it forces a full re-filter on every account switch.
+1. **Correctness first** — B1, B2, B3 in one batch. All small, all root-cause.
+2. **Parity fence** — P1, P2 together (P2 touches shared types).
+3. **Efficiency + tests** — E1, E2, E3 + Section 4 tests.
 
-**U8. `partialFillFlag.groups` == `.trades` reads awkwardly** (`src/hooks/usePairLab.tsx:139–141`, `src/components/pair-lab/tabs/OverviewTab.tsx:320`)
-Either drop the `groups` field from the type + banner, or reword the banner to a single count.
+No schema migrations. Edge redeploy required for P2 only. No user-visible string changes except P1 (audit ineligibility reason wording).
 
-## Section 3 — Journal ↔ Pair Lab Parity
+## Technical notes
 
-**J1. Naive timestamps: local vs UTC** (`src/pages/Journal.tsx:134` vs Pair Lab `ensureUtcMs`)
-Replace `parseISO(trade.entry_time)` in Journal with `ensureUtcMs` (and matching helpers in exit-time and modification-time code paths). Ensures the same trade lands on the same calendar day everywhere.
-
-**J2. Default period window mismatch** (`Journal.tsx:55–56` = "month", `PairLab.tsx:193` = "all")
-Align Journal's default to match Pair Lab's `lens=all`, OR add a "Sync with Pair Lab" affordance. Recommend defaulting Journal to "all" for consistency and letting the user narrow, since Pair Lab is the analysis surface most linked from.
-
-**J3. Open-trade counting divergence** (`Journal.tsx:325` vs `PairLab.tsx:315`)
-Add an `Open: N · Closed: M` breakdown to the Journal header so the difference from Pair Lab's "closed trades in scope" chip is explicit rather than confusing.
-
-**J4. Journal filters not URL-persisted** (`Journal.tsx:42–57`)
-Migrate `symbolFilter`, `sessionFilter`, `periodType`, `currentDate`, `customFrom`, `customTo`, `resultFilter`, `tradeTypeFilter` to `useSearchParams` — mirroring the Pair Lab pattern. Enables shareable/deep-linked Journal views and back-button behavior.
-
-## Section 4 — Verification Items (investigate then decide)
-
-**V1.** `numericCf` accepting negatives — add a `numericCfDistance` wrapper that floors at 0, replace scattered `Math.abs` at call sites. (`shared/quant/stats.ts:581`)
-
-**V2.** `computeBucket` uses `rows` (not `closed`) for MFE/MAE/idealSL distributions — confirm intent; if unintentional, switch to `closed` to prevent open-trade excursions from biasing TP grids. (`src/lib/pairLabMath.ts:612, 640, 671`)
-
-**V3.** `downsideStddev` denominator — align to `n` (Bloomberg/Quantopian) OR document `n−1` choice. (`shared/quant/stats.ts:65`)
-
-**V4.** `classifySymbol` substring match — anchor `NQ`/`ES`/`YM`/`RTY` patterns so `XNQUSD` / `ESGOLD` are not mis-classified as indices. (`shared/quant/symbolMapping.ts:41`)
-
-**V5.** Walk-forward OOS guard — add `oosRows.length >= DATA_TIER_INSUFFICIENT_N` check before `oosPairs.length >= 5`. (`src/lib/pairLabMath.ts:1057`, edge twin)
-
-**V6.** `useUpdatePairLabPrefs` optimistic-revert races on rapid successive edits — capture `prev` inside the flush closure, not at call time. (`src/hooks/useSimulatorProfile.tsx:169, 203`)
-
-**V7.** `IdealWindowHeatmap` `hours` / `minN` in localStorage vs URL — decide policy (currently inconsistent with "all filters in URL" contract). (`src/components/pair-lab/IdealWindowHeatmap.tsx:42–62`)
-
-## Section 5 — Parity Contracts (edge ↔ client)
-
-**P1.** Extend edge `BucketReport` type to include `slSweep`, `eventsRFallbackCount`, `entryEfficiencyMedian/P75`, `stopLocationQualityMedian`, `featuresCount`, `rawKellyClipped`, `rawKellyPct`, `bindingConstraint`, `edgeVsBaseline` — mirroring client. Prevents silent-null in AI report consumers.
-
-**P2.** Re-export `bootstrapKellyCiBCa` from edge `_shared/pairLabMath.ts` for parity with `src/lib/pairLabMath.ts:57`.
-
-**P3.** Expose `trailCapture` on `PresetReplayResult` (both twins) so audit consumers can see which fraction was applied.
-
-## Section 6 — Stale Code Cleanup
-
-**C1.** Delete stale `_trail`-parameter comment at `src/lib/pairLabMath.ts:1059–1062`.
-**C2.** Add tracking issue reference OR raise `TRAIL_CAPTURE_FALLBACK` per-asset-class TODO in `shared/quant/config.ts:142` (leave code, just add issue link).
-**C3.** Delete `useOptionalPairLabWalkForward` tombstone comment at `src/contexts/PairLabWalkForwardContext.tsx:73`.
-**C4.** `useRankerRiskMC.ts:127` hash — add a note explaining sum-collision risk (parity with `useStrategyLabSweep`'s S2.8 comment). Optionally strengthen hash to include first/last R values.
-
-## Section 7 — Regression Tests
-
-Add unit tests colocated with the fixed modules:
-
-- `pairLabSimulator.test.ts` — assert edge and client match on `loggedMfe == null && loggedMae != null` (covers M1).
-- `pairLabMath.test.ts` — `buildBuckets` with `recentN: 20` propagates to `computeBucket` drift window (covers M2).
-- `propFirmMonteCarlo.test.ts` — construct a scenario where target and daily cap hit on the same trade; assert failed=true (covers M3).
-- `journalTimezone.test.ts` — assert Journal and Pair Lab classify a `2024-01-31T23:00:00` naive timestamp into the same calendar day for a UTC-5 viewer (covers J1 + M5 + M6).
-- `symbolClassification.test.ts` — extend to assert `XNQUSD` is FX, not index (covers V4 once decided).
-
-## Section 8 — Execution Order
-
-Ship in three review-sized batches:
-
-1. **Math correctness** — M1–M7 + tests. Highest impact, no UI churn.
-2. **Journal parity + UI** — J1–J4, U1–U8. Ship together because J1 touches paths U5/U6/U7 already edit.
-3. **Verification + parity + cleanup** — Section 4 decisions, P1–P3, C1–C4.
-
-Deferred (not in this plan): the .lovable/plan.md doc will be updated after each batch lands so future audits can diff cleanly.
-
-## Notes for the reviewer
-
-- No schema migrations required — all changes are in TS.
-- All edge functions changed (`_shared/pairLabMath.ts`, `_shared/pairLabSimulator.ts`) will need redeploy.
-- Batch 2 changes the *default* Journal window; users with bookmarked Journal URLs are unaffected because Batch 2 also adds URL-persisted filters.
-- No user-visible strings change outside of the Journal open/closed breakdown chip and the QuantNotePanel drift label.
+- `ensureUtcMs` is already imported in both `OutOfSamplePanel` neighbors and `Journal.tsx`; no new imports needed for B1/B2.
+- The `upsert` fix (E2) requires a unique constraint on `user_id`; both tables already have it (verified in prior audits).
+- The `SharedReplayResult` extraction (P2) is TS-only — no runtime behavior change on either side.
