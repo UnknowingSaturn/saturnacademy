@@ -29,7 +29,10 @@
  * out by this gate. If you raise/lower it, expect rec churn for low-frequency
  * strategies. Sweep range historically considered: 0.20 – 0.50.
  */
-export const TP1_STAR_MIN_HIT_RATE = 0.4;
+// Audit §2.9 #5 (2026-07): lowered 0.40 → 0.30. Prior gate silently rejected
+// legitimate low-hit-rate trend-following edges (e.g. 32% @ 3R). Full Wilson-CI
+// replacement is deferred (needs UX for confidence bands on TP1*).
+export const TP1_STAR_MIN_HIT_RATE = 0.30;
 
 // ---------- SL recommendation (Sweeney rule) ----------
 
