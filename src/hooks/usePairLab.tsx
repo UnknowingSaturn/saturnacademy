@@ -301,9 +301,9 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       (a, b) => SESSION_ORDER.indexOf(a) - SESSION_ORDER.indexOf(b),
     );
 
-    const trailCapture = estimateTrailCapture(closedTrades, fieldKeys);
+    const trailCapture = estimateTrailCapture(scopedTrades, fieldKeys);
     const effectiveTrailCapture = trailCapture?.ratio ?? TRAIL_CAPTURE_FRAC;
-    const partialFillFlag = detectPartialFills(closedTrades);
+    const partialFillFlag = detectPartialFills(scopedTrades);
 
     // Header chips: orphan rows actually in scope, and R-fallback (sign-inferred)
     // count drawn from the baseline cell which mirrors what the grid renders.
