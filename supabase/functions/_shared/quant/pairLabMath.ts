@@ -594,7 +594,10 @@ export function computeBucket(
   // R-coverage is partial.
   const rSubsampleN = winR.length + lossR.length;
   const rWinRate = rSubsampleN > 0 ? winR.length / rSubsampleN : 0;
-  const rawKelly = n >= 10 && rSubsampleN >= 10
+  // Audit §2.4 parity: require ≥3 real losses. Without observed losses,
+  // avgLossR falls back to 1 and Kelly becomes degenerate.
+  const hasLossHistory = lossR.length >= 3;
+  const rawKelly = n >= 10 && rSubsampleN >= 10 && hasLossHistory
     ? rawQuarterKellyPct(rWinRate, avgWinR, avgLossR)
     : null;
   const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
@@ -602,8 +605,8 @@ export function computeBucket(
   // PR-5 · H2b parity — BCa at small n (< 30) where percentile bootstrap
   // under-covers by 5–10%. Falls back to percentile CI on jackknife
   // degeneracy inside `bootstrapKellyCiBCa`.
-  const suggestedRiskPctCi = n >= 10 ? bootstrapKellyCiBCa(winR, lossR) : null;
-  const rCoverageWarning = n >= 10 && rSubsampleN / n < 0.5;
+  const suggestedRiskPctCi = n >= 10 && hasLossHistory ? bootstrapKellyCiBCa(winR, lossR) : null;
+  const rCoverageWarning = n >= 10 && (rSubsampleN / n < 0.5 || !hasLossHistory);
   const tp1Star = computeTp1Star(tp1StarPairs, avgLossR || 1);
 
   // Profit factor — null + flag so callers can distinguish "no losses" from

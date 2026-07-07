@@ -9,7 +9,8 @@
 //   - Cells with n < minN render greyed (directional only).
 // ============================================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -111,37 +112,42 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
   // walk-forward window (parity drift risk).
   const { wf, dateFrom, dateTo, groups } = usePairLabWalkForward();
 
-  // S3.5: persist heatmap pair scope in the URL so the view survives reloads
-  // and is shareable. `heatmapPair` accepts "sym:<SYMBOL>" or "grp:<id>".
+  // Audit U-B1: use `useSearchParams` (React Router) instead of
+  // `window.history.replaceState`, so `heatmapPair` participates in the
+  // browser back-stack and any parent listeners re-render on change.
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const defaultScope = useMemo(() => {
     if (allSymbols.length === 0) return null;
     return `sym:${allSymbols[0]}`;
   }, [allSymbols]);
 
-  const [scope, setScopeRaw] = useState<string | null>(() => {
-    if (typeof window === "undefined") return defaultScope;
-    const p = new URLSearchParams(window.location.search).get("heatmapPair");
-    return p || defaultScope;
-  });
-  const setScope = (next: string | null) => {
-    setScopeRaw(next);
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      if (next) url.searchParams.set("heatmapPair", next);
-      else url.searchParams.delete("heatmapPair");
-      window.history.replaceState({}, "", url.toString());
-    }
-  };
+  const scope = searchParams.get("heatmapPair") || defaultScope;
+  const setScope = useCallback(
+    (next: string | null) => {
+      setSearchParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          if (next) p.set("heatmapPair", next);
+          else p.delete("heatmapPair");
+          return p;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
   const [regime, setRegime] = useState<string>("any");
   const [direction, setDirection] = useState<string>("any");
   const [minN, setMinN] = useState<number>(() => loadStoredMinN());
   const [sortBy, setSortBy] = useState<"lift" | "expectancy" | "rate">("lift");
   const [selectedCell, setSelectedCell] = useState<{ hour: number; half: Half } | null>(null);
 
-  // Close any drilled-in cell when the lens shifts.
+  // Close any drilled-in cell when the lens OR scope shifts (Audit U-B4).
   useEffect(() => {
     setSelectedCell(null);
-  }, [wf.lens, wf.asOfMs]);
+  }, [wf.lens, wf.asOfMs, scope]);
 
   // M10 — Escape closes drill-down, parity with PairGridTab.
   useEffect(() => {

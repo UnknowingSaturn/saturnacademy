@@ -59,9 +59,6 @@ export default function PairLab() {
 
   const profileQuery = useSimulatorProfile();
   const savePrefs = useUpdatePairLabPrefs();
-
-
-
   const profile = searchParams.get("profile") ?? "any";
   const propFirmMode = searchParams.get("pf") !== "0";
   const includeUnrealized = searchParams.get("unreal") === "1";
@@ -71,6 +68,10 @@ export default function PairLab() {
   const scope = searchParams.get("scope") ?? "all";
   const tabParam = searchParams.get("tab") ?? "overview";
   const tab = VALID_TABS.has(tabParam) ? tabParam : "overview";
+  // Audit U-B5: Setup sub-tab persists in the URL as ?setupTab=…
+  const VALID_SETUP_TABS = new Set(["simulator", "groups", "aliases"]);
+  const setupTabParam = searchParams.get("setupTab") ?? "simulator";
+  const setupTab = VALID_SETUP_TABS.has(setupTabParam) ? setupTabParam : "simulator";
   const selected: Selected = (() => {
     const symbol = searchParams.get("symbol");
     const session = searchParams.get("session");
@@ -82,13 +83,21 @@ export default function PairLab() {
   // them (e.g. PairGridTab's Escape-to-deselect listener) don't tear down and
   // re-subscribe on every parent re-render — slider drags previously dropped
   // keystrokes in the gap between detach and re-attach.
+  // Audit §3.1: use `setSearchParams(prev => …)` functional form so two
+  // writes in the same tick both see the latest URL state instead of racing
+  // on a stale `searchParams` snapshot.
   const patchParams = useCallback(
     (mut: (next: URLSearchParams) => void) => {
-      const next = new URLSearchParams(searchParams);
-      mut(next);
-      setSearchParams(next, { replace: true });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          mut(next);
+          return next;
+        },
+        { replace: true },
+      );
     },
-    [searchParams, setSearchParams],
+    [setSearchParams],
   );
 
   const setProfile = useCallback(
@@ -151,7 +160,16 @@ export default function PairLab() {
       }),
     [patchParams],
   );
-
+  const setSetupTab = useCallback(
+    (v: string) => {
+      patchParams((p) =>
+        v === "simulator" || !VALID_SETUP_TABS.has(v)
+          ? p.delete("setupTab")
+          : p.set("setupTab", v),
+      );
+    },
+    [patchParams],
+  );
 
   // Resolve active scope group for data filtering.
   const { groups } = useSymbolGroups();
@@ -162,7 +180,9 @@ export default function PairLab() {
   }, [scope, groups]);
 
   // Single source of truth for the as-of slider bounds (no double fetch).
-  const { minMs, maxMs } = usePairLabTradeBounds();
+  // Audit §1.4: mirror `includeUnassigned` so slider bounds match the
+  // analytics universe when the toggle is off.
+  const { minMs, maxMs } = usePairLabTradeBounds({ includeUnassigned });
 
   // S2.15: persist lens + asOf in the URL so a refresh or a shared link
   // restores the same walk-forward viewport. `lens=all` (default) and an
@@ -245,7 +265,6 @@ export default function PairLab() {
     }
   }, [profileQuery.isLoading, profileQuery.data, patchParams]);
 
-
   const { dateFrom, dateTo } = useMemo(() => resolveWindow(wf), [wf]);
 
   const data = usePairLab({
@@ -259,7 +278,6 @@ export default function PairLab() {
       ? { name: activeGroup.name, symbols: activeGroup.symbols }
       : null,
   });
-
 
   // P-UI: Only show the full-page spinner on the FIRST load. Subsequent refetches
   // (filter / lens / as-of changes) now keep the provider + tabs mounted so
@@ -339,8 +357,6 @@ export default function PairLab() {
             />
           </TabsContent>
 
-
-
           <TabsContent value="grid" className="mt-4">
             <PairGridTab
               data={data}
@@ -364,7 +380,7 @@ export default function PairLab() {
           </TabsContent>
 
           <TabsContent value="setup" className="mt-4">
-            <SetupTab data={data} />
+            <SetupTab data={data} setupTab={setupTab} setSetupTab={setSetupTab} />
           </TabsContent>
         </Tabs>
       </PairLabWalkForwardProvider>

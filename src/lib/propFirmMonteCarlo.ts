@@ -174,6 +174,10 @@ function simulateOnePath(p: MCParams, rng: () => number): PathState {
       for (const i of targets) {
         equity[i] += pnl;
         dayPnL[i] += pnl;
+        // Audit M-B5: update `peak` BEFORE the trailing-DD check so a
+        // freshly-set peak on this same trade is used as the reference,
+        // not the pre-trade peak (which would over-generously flag a
+        // winning trade as still under water).
         if (equity[i] > peak[i]) peak[i] = equity[i];
         const dd = peak[i] - equity[i];
         if (dd > peakDD[i]) peakDD[i] = dd;

@@ -46,8 +46,9 @@ export function PairGridTab({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.symbol, selected?.session]);
+    // Audit U-B3: `setSelected` is stable (useCallback in PairLab.tsx) so
+    // including it in deps is safe and eliminates the exhaustive-deps disable.
+  }, [selected?.symbol, selected?.session, selected, setSelected]);
 
   const selectedBucket = useMemo(() => {
     if (!selected) return null;
@@ -81,6 +82,8 @@ export function PairGridTab({
       <div
         ref={headerRef}
         className="sticky top-0 z-10 -mx-6 px-6 py-3 bg-background/95 backdrop-blur border-y border-border/60 scroll-mt-4"
+        role="status"
+        aria-live="polite"
       >
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 text-sm flex-wrap">
@@ -104,7 +107,11 @@ export function PairGridTab({
       </div>
 
       {selectedBucket && (
+        // Audit U-B2: key by selected cell so QuantNotePanel remounts on
+        // navigation — otherwise its internal `note` / `loading` / `error`
+        // state carries over from the previous cell.
         <QuantNotePanel
+          key={`${selectedBucket.key.symbol}:${selectedBucket.key.session}`}
           bucket={selectedBucket}
           baseline={data.baseline}
           propFirm={propFirmMode ? data.propFirm : null}

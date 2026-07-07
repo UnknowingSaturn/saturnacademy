@@ -158,6 +158,7 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
           size="sm"
           onClick={generate}
           disabled={loading || bucket.n === 0 || lowConfidence}
+          aria-busy={loading}
           title={lowConfidence ? "Bootstrap 95% CI on expectancy is too wide / overlaps zero — the sample lacks the statistical separation needed for an honest LLM read." : undefined}
         >
           {loading ? (

@@ -160,28 +160,33 @@ export function OverviewTab({
             />
           </div>
           <TooltipProvider delayDuration={150}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-1.5 cursor-help">
-                  <Label htmlFor="orphan-mode" className="text-xs cursor-pointer">
+            <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-1.5">
+              {/* U-B6: cursor-help lives on the Label/Tooltip trigger only —
+                  the outer wrapper no longer intercepts pointer / focus,
+                  so the <Switch> is fully keyboard + click reachable. */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Label
+                    htmlFor="orphan-mode"
+                    className="text-xs cursor-help"
+                  >
                     Include orphan trades
                   </Label>
-                  <Switch
-                    id="orphan-mode"
-                    checked={includeUnassigned}
-                    onCheckedChange={setIncludeUnassigned}
-                    aria-label="Include trades with no account assigned"
-                  />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
-                When off, only trades attached to the selected account are
-                bucketed. When on, trades whose <code>account_id</code> is NULL
-                (legacy CSV imports, advisory closes) are also included. Off by
-                default in Pair Lab so cross-account orphan rows can't pollute
-                expectancy.
-              </TooltipContent>
-            </Tooltip>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  When off, only trades attached to the selected account are
+                  bucketed. When on, trades whose <code>account_id</code> is NULL
+                  (legacy CSV imports, advisory closes) are also included.
+                  Defaults ON in Pair Lab to match the Journal.
+                </TooltipContent>
+              </Tooltip>
+              <Switch
+                id="orphan-mode"
+                checked={includeUnassigned}
+                onCheckedChange={setIncludeUnassigned}
+                aria-label="Include trades with no account assigned"
+              />
+            </div>
           </TooltipProvider>
 
           <Select value={profile} onValueChange={setProfile}>
@@ -488,12 +493,13 @@ export function OverviewTab({
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
-                  These trades have <code>entry_time</code> without a timezone
-                  (no <code>Z</code> or <code>±HH:MM</code>). Pair Lab parses
-                  them deterministically via the account's broker-DST profile,
-                  but TZ-qualified imports are safer. Set the account's broker
-                  DST profile in Settings → Account, or re-ingest with
-                  ISO 8601 + offset.
+                  Counted across <strong>all your trades</strong> (not just the
+                  current in-scope window). These rows have <code>entry_time</code>{" "}
+                  without a timezone (no <code>Z</code> or <code>±HH:MM</code>).
+                  Pair Lab parses them deterministically via the account's
+                  broker-DST profile, but TZ-qualified imports are safer. Set
+                  the account's broker DST profile in Settings → Account, or
+                  re-ingest with ISO 8601 + offset.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -534,38 +540,14 @@ export function OverviewTab({
             (indices) matching TradingView's measure tool; "ticks" surfaces
             the raw broker unit so values can be pasted into an MT5 EA. */}
         <div className="mt-3 flex items-center gap-2 text-[11px]">
-          <span className="text-muted-foreground">Distance:</span>
+          {/* Audit §3.4: tooltip trigger sits on the label, not the button
+              group — buttons remain fully focusable + hit-testable. */}
           <TooltipProvider delayDuration={150}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="inline-flex rounded-md border border-border overflow-hidden cursor-help">
-                  <button
-                    type="button"
-                    onClick={() => setDistanceUnit("native")}
-                    className={
-                      "px-2 py-0.5 transition-colors " +
-                      (distanceUnit === "native"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-background text-muted-foreground hover:bg-muted")
-                    }
-                    aria-pressed={distanceUnit === "native"}
-                  >
-                    pips / points
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDistanceUnit("ticks")}
-                    className={
-                      "px-2 py-0.5 transition-colors border-l border-border " +
-                      (distanceUnit === "ticks"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-background text-muted-foreground hover:bg-muted")
-                    }
-                    aria-pressed={distanceUnit === "ticks"}
-                  >
-                    ticks
-                  </button>
-                </div>
+                <span className="text-muted-foreground cursor-help underline decoration-dotted">
+                  Distance:
+                </span>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs text-xs">
                 MAE and Ideal-SL are stored in broker <strong>ticks</strong>
@@ -577,6 +559,38 @@ export function OverviewTab({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          <div
+            className="inline-flex rounded-md border border-border overflow-hidden"
+            role="group"
+            aria-label="Distance display unit"
+          >
+            <button
+              type="button"
+              onClick={() => setDistanceUnit("native")}
+              className={
+                "px-2 py-0.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 " +
+                (distanceUnit === "native"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-muted-foreground hover:bg-muted")
+              }
+              aria-pressed={distanceUnit === "native"}
+            >
+              pips / points
+            </button>
+            <button
+              type="button"
+              onClick={() => setDistanceUnit("ticks")}
+              className={
+                "px-2 py-0.5 transition-colors border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 " +
+                (distanceUnit === "ticks"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-muted-foreground hover:bg-muted")
+              }
+              aria-pressed={distanceUnit === "ticks"}
+            >
+              ticks
+            </button>
+          </div>
         </div>
         <div className="mt-3 text-[11px] text-muted-foreground">
           {data.totalTrades} closed trades · {data.perCell.length} cells ·{" "}

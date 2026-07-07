@@ -25,7 +25,7 @@
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
-import { bootstrapMeanCiBCa, pathProbTpFirst, resolveTpFirstProb, ensureUtcMs, type ReplayMode } from "../../shared/quant/stats";
+import { bootstrapMeanCiBCa, pathProbTpFirst, resolveTpFirstProb, ensureUtcMs, isUnrealized, type ReplayMode } from "../../shared/quant/stats";
 export type { ReplayMode } from "../../shared/quant/stats";
 import { pipSizeForSymbol, ticksToPips, pipLabelForSymbol } from "@/lib/symbolMapping";
 import {
@@ -490,7 +490,7 @@ function replayOneTrade(
     if (proof.stoppedOut === false) stoppedUnderNewSl = false;
     else stoppedUnderNewSl = null;
   }
-  if (stoppedUnderNewSl === null) return { ineligible: "missing SL/entry — can't convert MAE ticks to R" };
+  if (stoppedUnderNewSl === null) return { ineligible: "ambiguous stop/TP ordering — MAE present but direction unknown" };
 
 
   // Resolve each partial's effective atR (bucket-adaptive presets may override).
@@ -592,9 +592,12 @@ function replayOneTrade(
   // (An earlier PR-5 draft mistakenly preserved filled partials in the SL-
   // first branch, but by construction the filled partials only exist on the
   // `pTpFirst` mass — preserving them on both branches double-counts.)
-  if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
-    const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
-    const mfeInNewR = mfeForBridge / slScale;
+  // Audit M-B4: only take the Brownian-bridge branch when we have a *logged*
+  // MFE. Using `proof.reachedR` as an MFE proxy underestimates the excursion
+  // when reachedR was itself inferred from r_multiple_actual sign, biasing
+  // early-TP presets toward SL-first.
+  if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null && proof.loggedMfe != null) {
+    const mfeInNewR = proof.loggedMfe / slScale;
     const maeInNewR = proof.loggedMae / slScale;
     const pTpFirstRaw = pathProbTpFirst(firstBreachedTpR, 1, mfeInNewR, maeInNewR);
     const pTpFirst = resolveTpFirstProb(pTpFirstRaw, ctx.replayMode);
@@ -688,6 +691,10 @@ function buildResult(
   const perTradeEdgeRatio = sd > 0 ? expectancyR / sd : null;
   const perTradeSortinoRatio = sdDown > 0 ? expectancyR / sdDown : null;
 
+  // Audit M-B2: this verdict is **display-only** — it counts the whole tape
+  // even after a hypothetical bust so users can see the shape of the failure
+  // in the retrospective view. The prop-firm Monte Carlo engine
+  // (`propFirmMonteCarlo.ts`) is the source of truth for pass/bust probability.
   let verdict: ReplayResult["propFirmVerdict"] = "n/a";
   let bustNote: string | null = null;
   if (opts.propFirm && opts.propFirm.dailyLossDollars != null && opts.propFirm.dailyLossDollars > 0) {
@@ -797,7 +804,10 @@ function buildResult(
 
 function preparedTrades(trades: Trade[]): Trade[] {
   return trades
-    .filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null)
+    // Audit M-B1: exclude unrealized (idea / paper / missed / manual-dismiss /
+    // zero-PnL untouched) rows so walk-forward IS/OOS expectancy matches the
+    // `rankerEligibleTrades` universe.
+    .filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null && !isUnrealized(t as any))
     .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
 }
 

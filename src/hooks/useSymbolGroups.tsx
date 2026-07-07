@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -126,8 +126,12 @@ export function useSymbolGroups() {
     onError: (e: any) => toast.error(e?.message ?? "Failed to delete group"),
   });
 
+  // Audit §1.3 + §3.3 M1: memoize the returned array so downstream memo deps
+  // (usePairLab, PairLabWalkForwardContext) don't churn on every render.
+  const groups = useMemo(() => query.data ?? [], [query.data]);
+
   return {
-    groups: query.data ?? [],
+    groups,
     isLoading: query.isLoading,
     create,
     update,

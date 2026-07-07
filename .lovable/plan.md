@@ -1,82 +1,54 @@
+# Pair Lab Audit — Fix All Findings
 
-# Pair Lab — Persistence + Honest Audit
+Address every finding in `.lovable/pair-lab-audit.md` with the recommended fix. For each "needs your call" item I pick a default (rationale inline); flag anything you want reversed before I build.
 
-Two workstreams. I want to do the audit **before** rewriting math — the safe way to "not make things worse" is to first document what actually exists (with file:line refs), diff it against Journal semantics, and only then patch. Any fix I propose without that step would be a guess.
+---
 
-## Part A — Persist filter state per user (root-cause fix)
+## Part 1 — Data ingress (`src/hooks/usePairLab.tsx`, `usePairLabTradeBounds.ts`)
 
-**Problem (verified in code).** `src/pages/PairLab.tsx` reads every filter from `useSearchParams`. If the URL has no query string (fresh navigation from the sidebar, new tab, bookmark to `/pair-lab`), every toggle falls back to its hard-coded default (`profile=any`, `pf=on`, `unreal=off`, `orphans=on`, `scope=all`, `lens=all`, `asOf=now`, `tab=overview`). Nothing is written to the database or `localStorage`, so it looks like the app "forgets" your setup on every reload.
+1. **Bug A — Orphan default.** Change `filters.includeUnassigned` default from `false` to `true` so callers without the flag match Journal. Pair Lab page still wires the toggle explicitly, so behaviour there is unchanged; only silent-drop for other consumers is fixed.
+2. **Bug C — `isLoading` gating.** Add `rulesQuery.isLoading || accountQuery.isLoading || groupsQuery.isLoading` to the OR at `usePairLab.tsx:317`. Prevents transient wrong prop-firm constraints.
+3. **`usePairLabTradeBounds` orphan mismatch.** Pass `includeUnassigned` through from caller (default `true`) so slider bounds match analytics window.
+4. **`naiveTimestampCount` scope.** Keep the "whole set" semantic (matches the comment's intent) but update the chip tooltip in `OverviewTab` to say "across all your trades, not just this window."
+5. **`groupsQuery.groups` stability.** Wrap the returned array in `useMemo` inside `useSymbolGroups` so downstream memo deps are stable.
+6. **Journal vs. Pair Lab local-time period.** Leave Journal semantics alone (call-out item, not a bug). Document in the audit doc footer only — no code change.
 
-**Fix.** Store last-used Pair Lab filters per user and hydrate them on mount when the URL doesn't already specify them. URL still wins when present (shared links, deep links from Coach/Journal keep working).
+## Part 2 — Math core
 
-Concretely:
-1. Add a JSONB column `pair_lab_prefs` to `public.simulator_profile` (same row that already owns `ranker_comfort_dd_pct`, `sim_hard_cap_pct`, etc. — one round-trip, one RLS policy already in place). Migration includes the standard GRANT block; existing RLS untouched.
-2. Shape (small, forward-compatible):
-   ```ts
-   {
-     profile?: string;              // "any" | tag
-     propFirmMode?: boolean;
-     includeUnrealized?: boolean;
-     includeUnassigned?: boolean;
-     scope?: string;                // "all" | "grp:<id>"
-     tab?: "overview"|"grid"|"windows"|"strategy"|"setup";
-     lens?: "all"|"90d"|"30d";
-     distanceUnit?: "pips"|"ticks";
-   }
-   ```
-3. Extend `useSimulatorProfile` with a debounced `updatePairLabPrefs(partial)` mutation (300 ms debounce, optimistic cache update, no toast).
-4. In `PairLab.tsx`:
-   - On first mount, if a given URL param is absent, seed from `pair_lab_prefs`; if present, URL wins.
-   - Every existing `setX` callback also fires `updatePairLabPrefs({ x })`.
-   - `asOf` and per-cell `symbol`/`session` selection are **not** persisted (session-scoped; would confuse across sessions).
-5. `distanceUnit` today uses `useDistanceUnit` (localStorage). Move source of truth into the same server prefs so it survives across devices; keep a localStorage fallback for unauth'd renders.
+7. **M-B1** — Add `&& !isUnrealized(t as any)` to `preparedTrades` filter in `pairLabSimulator.ts:800`.
+8. **M-B2** — Add a code comment above `buildResult`'s prop-firm verdict block clarifying "display-only, MC engine is source of truth." (No behavioural change; intra-replay bust would break the retrospective tape view.)
+9. **M-B3** — Fix error message at `pairLabSimulator.ts:493` to `"ambiguous stop/TP ordering — MAE present but direction unknown"`.
+10. **M-B4** — Guard Brownian-bridge branch on `proof.loggedMfe != null`; otherwise mark ineligible.
+11. **M-B5** — Update `peak[i]` before the trailing-bust check in `propFirmMonteCarlo.ts:190`.
+12. **Kelly with zero losses (§2.4 edge case + §2.9 #2).** Suppress Kelly (return `null` + `rCoverageWarning: 'insufficient-losses'`) when `lossR.length < 3`.
+13. **DD-penalty denominator (§2.6 + §2.9 #4).** Replace `Math.max(1, RISK_TOLERANCE_R_DEFAULT)` with `Math.max(1, comfortDdPct / riskPct)` derived from user's `ranker_comfort_dd_pct` and current `riskPct`. Keep 10R as fallback when either is missing.
+14. **Composite negative-score sort (§2.9 #3).** Add explicit comparator: `nulls last, then numeric desc` in the ranker sort site. Add unit test.
+15. **`Math.max(50, params.paths)` surprise (§2.5).** Change to honour explicit small values (`params.paths ?? 2000`) but keep 50 as the floor only when the caller omitted the field.
+16. **`ticksToPips` fallback safety (§2.3).** When `tickSize`/`pipSize` unknown, return `null` (drop the trade + increment `slMissingCount`) instead of returning ticks unscaled. Prevents silent wrong SL distances.
+17. **`TP1_STAR_MIN_HIT_RATE` (§2.9 #5).** Lower to `0.30`. (Keeping full CI-lower-bound replacement out of scope — a constant change is the minimal safe fix.)
+18. **Trail-capture 0.7 fallback (§2.9 #1).** Keep as-is, add a `// TODO(empirical): derive per-asset-class prior` comment. No behavioural change without data.
+19. **Parity tests (§2.7 + §2.9 #6).** Add `pickBestTp`, `computeTp1Star`, `rawQuarterKellyPct` cases to `serverReplayParity.test.ts`.
 
-**Acceptance.** Reload `/pair-lab` in a fresh tab with no query string → prop-firm toggle, unrealized, orphans, scope, profile, lens, tab, distance unit are restored to whatever the user last set. A shared URL with `?pf=0&lens=90d` still overrides.
+## Part 3 — UI shell + dead code
 
-## Part B — Thorough Pair Lab audit (deliverable = report, not code)
+20. **U-B1** — Migrate `heatmapPair` to `useSearchParams` (lift state to `PairLab.tsx` alongside `selected`), remove the `window.history.replaceState` call.
+21. **U-B2** — Add `key={selectedBucket.key.symbol + ":" + selectedBucket.key.session}` to `QuantNotePanel` at `PairGridTab.tsx:107`.
+22. **U-B3** — Add `setSelected` to Escape effect deps.
+23. **U-B4** — Add `scope` to `IdealWindowHeatmap` reset-effect deps.
+24. **U-B5** — URL-persist Setup sub-tab as `?setupTab=`, plumbed through existing `patchParams`.
+25. **U-B6** — Move `cursor-help` off the orphan `<Switch>` wrapper onto the `<Label>` only.
+26. **`patchParams` stale-closure (§3.1).** Migrate to `setSearchParams(prev => …)` functional form.
+27. **`IdealWindowHeatmap.setScope` inline (§3.3).** Wrap in `useCallback`.
+28. **A11y batch (§3.4):** add `role="group"` + `aria-label="Analysis lens"` on lens button group; add visible `focus-visible:ring` on lens buttons; add `aria-busy={loading}` to `QuantNotePanel` generate button; move `cursor-help` off the distance-unit `TooltipTrigger` wrapper so inner buttons are keyboard-reachable; add `aria-live="polite"` announcement on `PairGridTab` selection change.
+29. **Dead code (§3.5):** delete `useOptionalPairLabWalkForward`, `WINDOW_PRESETS` in `StrategyLab.tsx`, `closedTrades` alias in `usePairLab.tsx`, and the double blank lines at `PairLab.tsx:119` and `:184`.
 
-You explicitly asked me not to hallucinate. The only way I can honestly deliver a "heavy and thorough analysis of all pages, code, math, methodologies, data accuracy vs. journal" is to first produce a written audit doc you can read and approve/reject item by item. I will not silently rewrite math in the same PR.
+## Out of scope
 
-Scope of the audit (fixed, nothing else touched):
-
-| Area | Files audited | What I check |
-|---|---|---|
-| Data ingress vs. Journal | `usePairLab.tsx`, `useTrades.tsx`, `shared/quant/stats.ts` (`isUnrealized`, `ensureUtcMs`, `countNaiveEntryTimes`), `hooks/useOosSplit.ts` | Does the trade universe Pair Lab bucketizes exactly match what Journal shows? Account filter, orphans, archived, open, unrealized, TZ handling, walk-forward window edges. Cross-check by row count and by a sampled trade ID list. |
-| Bucketing & baselines | `lib/pairLabMath.ts` (1285 lines) — `buildBuckets`, `resolvePairLabFieldKeys`, `detectAmbiguousFieldKeys`, `estimateTrailCapture`, quantile / expectancy / recommendation code | Quantile method (interpolation vs. nearest), R-fallback branch (sign-inferred R), MFE/MAE unit conversion via tick overrides, ¼-Kelly formula, recommendation guardrails, empty-sample and single-sample behaviour, NaN propagation. |
-| Simulator / prop-firm math | `lib/pairLabSimulator.ts` (1225 lines), `lib/propFirmMonteCarlo.ts`, `useSimulatorProfile.tsx` | Balance source resolution (`manual` vs `active_account`), rule → dollars conversion (percentage flag), hard-cap application order, compounding vs. fixed risk, RNG seeding, path count, DD tolerance semantics. |
-| Ranker + risk-MC | `StrategyRanker.tsx`, `useRankerRiskMC.ts`, `workers/rankerRiskMC.worker.ts`, `useStrategyLabSweep.ts` | Sort key (BCa lower bound of R), risk grid clipping to `sim_hard_cap_pct`, ruin-prob ceiling, comfort-DD flow, worker payload contract, verdict thresholds. |
-| Presets & Strategy Lab | `lib/pairLabPresets.ts`, `StrategyLab.tsx`, `tabs/StrategyTab.tsx` | Preset R sample derivation, deterministic replay, out-of-sample split (`useOosSplit`), whether preset simulations still respect walk-forward and profile scope. |
-| Ideal windows & grid | `IdealWindowHeatmap.tsx`, `BucketGrid.tsx`, `lib/idealWindowMath.ts`, `lib/hourSetup.ts` | Timezone of hour-buckets vs. session definitions, min-sample gating, colour-scale saturation, drift-signal window `recentN`. |
-| Symbol layer | `lib/symbolMapping.ts`, `lib/symbolAliasing.ts`, `useSymbolGroups.tsx`, `useSymbolAliases.tsx`, `SymbolGroupManager.tsx`, `SymbolAliasManager.tsx` | Tick-size override precedence, classify vs. normalize order, group scope override interaction with aliases, the J4 side-effect subscription. |
-| UI shell & context | `pages/PairLab.tsx`, `contexts/PairLabWalkForwardContext.tsx`, `WalkForwardControls.tsx`, `usePairLabTradeBounds.ts` | URL ↔ state contract, memoization boundaries, tabs that re-mount and lose local state, effect deps that miss inputs. |
-| Server parity | `supabase/functions/pair-lab-report/*` and `serverReplayParity.test.ts` | Any server surface must produce the same numbers as the client for the same inputs. Divergences get logged, not silently normalized. |
-| Dead code / drift | Entire `src/components/pair-lab` and `src/lib/pairLab*.ts` | Unreferenced exports, superseded helpers, legacy field-key branches, TODO/FIXME density, tests pinning obsolete behaviour. |
-
-**Method (no guessing).**
-- Three parallel `spawn_agent` explorations (data-plumbing, math-core, UI/UX+dead-code), each producing a section of the report with `file:line` citations.
-- Cross-check ~20 randomly sampled trade IDs against Journal's own hook to confirm identical inclusion decisions.
-- Where the code deviates from its docstring/comment → finding.
-- Where two surfaces (Overview baseline vs. Ranker vs. server report) can produce different numbers for the same window → finding.
-
-**Deliverable.** A single markdown file `.lovable/pair-lab-audit.md` with:
-1. Executive summary — count of findings by severity (blocker / correctness / perf / UX / dead-code).
-2. One entry per finding: title, `file:line`, current behaviour (quoted), expected behaviour, evidence, suggested fix, risk of fixing.
-3. An explicit "unresolved / needs your call" list — e.g. "Ranker sort key is BCa lower bound of R, ignoring compounding. Intended?" I will not silently change these.
-
-**Then and only then** you pick which findings to actually fix, and I open a follow-up plan with the concrete diff set. This is the only way to genuinely not make things worse.
-
-## Out of scope for this plan
-- Rewriting any math or UI in Pair Lab before the audit report is reviewed.
-- Journal, Copier, Coach, Playbooks, Reports, Strategy Lab preset library changes.
-- Adding new features (new metrics, new presets, new charts).
+- No DB migrations, no changes to Journal, no new features.
+- Deferred (would need product decisions beyond the audit): unifying Journal ↔ Pair Lab timezone semantics; replacing `TP1_STAR_MIN_HIT_RATE` with Wilson-CI lower bound; deriving per-asset-class trail-capture priors.
 
 ## Technical notes
-- Migration is additive (JSONB column with default `'{}'::jsonb`). No backfill required — absence means "no saved prefs, use current defaults".
-- Prefs write is fire-and-forget with optimistic cache update; a failed write logs a console warning and doesn't block the UI.
-- `TanStack Query` cache key already keyed by `user.id`; adding one field doesn't invalidate other consumers.
-- Audit produces a doc committed under `.lovable/` — no runtime impact.
 
-## Order of execution
-1. Ship Part A (small, isolated, verifiable in one reload).
-2. Produce Part B report.
-3. You review the report → we open a third plan for the concrete fixes you approve.
+- All math changes get unit-test additions alongside the existing `pairLabRobust.test.ts` and `serverReplayParity.test.ts` suites.
+- Grand total: 11 confirmed bugs + 4 UX bugs fixed; 5 verification items resolved (either fixed or explicitly kept); 10 of 16 "needs your call" items resolved with defaults above (6 semantic ones deferred as out-of-scope); 4 dead-code deletions.
+- Verification: run `bunx vitest run` after each part; if any assertion around composite ordering / walk-forward expectancy changes, update snapshots deliberately, not blindly.

@@ -143,7 +143,9 @@ function detectPartialFills(trades: Trade[]): PartialFillFlag | null {
 export function usePairLab(filters: PairLabFilters = {}): PairLabData {
   const { selectedAccountId } = useAccountFilter();
   const isAllAccounts = !selectedAccountId || selectedAccountId === "all";
-  const includeUnassigned = filters.includeUnassigned === true;
+  // Audit Bug A: default TRUE to match Journal. Callers that want the
+  // strict-account view must set `includeUnassigned: false` explicitly.
+  const includeUnassigned = filters.includeUnassigned !== false;
   const accountFilter = !isAllAccounts
     ? { accountId: selectedAccountId, includeUnassigned }
     : undefined;
@@ -291,16 +293,17 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       return true;
     };
     const scopedTrades = trades.filter(matchesScope);
-    const closedTrades = scopedTrades;
+    // (Audit §3.5) removed unused `closedTrades` alias — was == scopedTrades.
+
 
     const symbols = Array.from(new Set(perRow.map((r) => r.key.symbol))).sort();
     const sessions = Array.from(new Set(perCell.map((c) => c.key.session))).sort(
       (a, b) => SESSION_ORDER.indexOf(a) - SESSION_ORDER.indexOf(b),
     );
 
-    const trailCapture = estimateTrailCapture(closedTrades, fieldKeys);
+    const trailCapture = estimateTrailCapture(scopedTrades, fieldKeys);
     const effectiveTrailCapture = trailCapture?.ratio ?? TRAIL_CAPTURE_FRAC;
-    const partialFillFlag = detectPartialFills(closedTrades);
+    const partialFillFlag = detectPartialFills(scopedTrades);
 
     // Header chips: orphan rows actually in scope, and R-fallback (sign-inferred)
     // count drawn from the baseline cell which mirrors what the grid renders.
@@ -315,18 +318,23 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     const naiveTimestampCount = countNaiveEntryTimes(trades);
 
     return {
+      // Audit Bug C: also gate on rules / account / groups so prop-firm
+      // constraints don't briefly render against empty rules on first mount.
       isLoading:
         tradesQuery.isLoading ||
         defsQuery.isLoading ||
         aliasesQuery.isLoading ||
-        profileQuery.isLoading,
+        profileQuery.isLoading ||
+        rulesQuery.isLoading ||
+        accountQuery.isLoading ||
+        groupsQuery.isLoading,
       fieldKeys,
       baseline,
       perCell,
       perRow,
       symbols,
       sessions,
-      totalTrades: closedTrades.length,
+      totalTrades: scopedTrades.length,
       missingFields,
       ambiguousFields,
       propFirm,
@@ -355,6 +363,9 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     profileQuery.data,
     profileQuery.isLoading,
     rulesQuery.data,
+    rulesQuery.isLoading,
+    accountQuery.isLoading,
+    groupsQuery.isLoading,
     // J4 — re-run when overrides install/change so MAE / Ideal-SL scaling
     // matches the canonical tick map. The hook itself doesn't read groupsQuery
     // directly; the effect inside useSymbolGroups writes the overrides into

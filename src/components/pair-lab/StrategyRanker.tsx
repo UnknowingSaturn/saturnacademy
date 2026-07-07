@@ -540,12 +540,21 @@ export function StrategyRanker({
   // confidence tier by ordering sensitivity, not just sampling noise.
   const { rows, exclusion, mode, sensitivityById } = useMemo(() => {
     const presets = STRATEGY_PRESETS.map((p) => ({ ...p, riskPct }));
+    // Audit §2.6 / §2.9 #4: tie DD-penalty tolerance to the user's actual
+    // comfort limit. comfortDdPct / riskPct converts the drawdown budget
+    // (e.g. 10% peak DD) into R units the composite score expects. Fall
+    // back to the shared 10R default if either input is missing/zero.
+    const riskToleranceR =
+      localComfortDd > 0 && riskPct > 0
+        ? Math.max(1, localComfortDd / riskPct)
+        : undefined;
     const runMode = (m: ReplayMode) =>
       rankStrategies(trades, fieldKeys, presets, {
         balance,
         propFirm,
         trailCapture: effectiveTrailCapture,
         replayMode: m,
+        riskToleranceR,
       });
     const active = runMode(replayMode);
     const pess = replayMode === "pessimistic" ? active : runMode("pessimistic");
@@ -562,7 +571,7 @@ export function StrategyRanker({
       }
     }
     return { ...active, sensitivityById: byId };
-  }, [trades, fieldKeys, riskPct, balance, propFirm, effectiveTrailCapture, replayMode]);
+  }, [trades, fieldKeys, riskPct, balance, propFirm, effectiveTrailCapture, replayMode, localComfortDd]);
 
   const ranked: RankerRow[] = useMemo(() => {
     return [...rows].sort((a, b) => {

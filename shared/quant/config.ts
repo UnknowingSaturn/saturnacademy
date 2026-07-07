@@ -29,7 +29,10 @@
  * out by this gate. If you raise/lower it, expect rec churn for low-frequency
  * strategies. Sweep range historically considered: 0.20 – 0.50.
  */
-export const TP1_STAR_MIN_HIT_RATE = 0.4;
+// Audit §2.9 #5 (2026-07): lowered 0.40 → 0.30. Prior gate silently rejected
+// legitimate low-hit-rate trend-following edges (e.g. 32% @ 3R). Full Wilson-CI
+// replacement is deferred (needs UX for confidence bands on TP1*).
+export const TP1_STAR_MIN_HIT_RATE = 0.30;
 
 // ---------- SL recommendation (Sweeney rule) ----------
 
@@ -133,6 +136,10 @@ export const MIN_STREAK_FLOOR = 3;
  * simulator (`TRAIL_CAPTURE_FRAC`), the edge simulator
  * (`DEFAULT_TRAIL_CAPTURE_FRAC`) and the bucket-local fallback in
  * `pairLabMath.ts`. Edit here, not at the call site.
+ *
+ * TODO(empirical): derive per-asset-class priors once we have ≥1k winners per
+ * class. Current 0.7 is a conservative FX default and is likely low for
+ * fast-tape indices and high for slow-drift metals.
  */
 export const TRAIL_CAPTURE_FALLBACK = 0.7;
 
