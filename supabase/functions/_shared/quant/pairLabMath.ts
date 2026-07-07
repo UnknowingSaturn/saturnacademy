@@ -88,6 +88,7 @@ import {
   rawQuarterKellyPct,
   quarterKellyPct,
   bootstrapKellyCi,
+  bootstrapKellyCiBCa,
   normalizeSession,
   getCf,
   numericCf,
@@ -598,7 +599,10 @@ export function computeBucket(
     : null;
   const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
   const riskBelowFloor = rawKelly != null && rawKelly < KELLY_FLOOR_PCT;
-  const suggestedRiskPctCi = n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
+  // PR-5 · H2b parity — BCa at small n (< 30) where percentile bootstrap
+  // under-covers by 5–10%. Falls back to percentile CI on jackknife
+  // degeneracy inside `bootstrapKellyCiBCa`.
+  const suggestedRiskPctCi = n >= 10 ? bootstrapKellyCiBCa(winR, lossR) : null;
   const rCoverageWarning = n >= 10 && rSubsampleN / n < 0.5;
   const tp1Star = computeTp1Star(tp1StarPairs, avgLossR || 1);
 
