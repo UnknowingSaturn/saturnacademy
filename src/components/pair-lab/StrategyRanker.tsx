@@ -330,7 +330,8 @@ function ExclusionPanel({ b, open, onToggle }: { b: ExclusionBreakdown; open: bo
 
 export function StrategyRanker({
   trades, fieldKeys, balance, propFirm, scopeLabel,
-  defaultRiskPct = 1, trailCapture, effectiveTrailCapture,
+  defaultRiskPct = 1, hardCapPct, comfortDdPct = 10,
+  trailCapture, effectiveTrailCapture,
 }: Props) {
   const [riskPct, setRiskPct] = useState<number>(defaultRiskPct);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -340,7 +341,12 @@ export function StrategyRanker({
   // trades — safety floor) or "optimistic" (TP-first, the legacy pre-fix
   // behaviour, kept for A/B comparison).
   const [replayMode, setReplayMode] = useState<ReplayMode>("expected");
+  // Local comfort-DD is initialised from the persisted profile setting; a
+  // change here is written back so it sticks across sessions and other tabs.
+  const [localComfortDd, setLocalComfortDd] = useState<number>(comfortDdPct);
   useEffect(() => { setRiskPct(defaultRiskPct); }, [defaultRiskPct]);
+  useEffect(() => { setLocalComfortDd(comfortDdPct); }, [comfortDdPct]);
+  const updateProfile = useUpdateSimulatorProfile();
 
   // PR-2 G2 — compute all three modes in one memo so we can render the active
   // mode primarily while also showing the pessimistic ↔ optimistic range on
