@@ -141,16 +141,19 @@ export function StrategyTab({ data, propFirmMode, selected, includeUnrealized }:
         />
       </section>
 
-      {/* Section 3 — Out-of-sample */}
-      {data.totalTrades >= 30 && (
+      {/* Section 3 — Out-of-sample. PR-5 · M2: use the same scopedTrades slice
+          as the Ranker and Lab so a selected pair·session cell narrows the OOS
+          question too. Previously passed full data.trades, silently answering
+          a different question than the two panels above. */}
+      {scopedTrades.length >= 30 && (
         <section>
           <SectionHeader
             icon={<GitBranch className="w-4 h-4 text-primary" />}
             title="Out-of-Sample"
-            blurb="Chronological train/test split within the active window. Flags cells profitable in train but negative in test."
+            blurb={`Chronological train/test split within ${scopeLabel.toLowerCase()}. Flags cells profitable in train but negative in test.`}
           />
           <OutOfSamplePanel
-            trades={data.trades}
+            trades={scopedTrades}
             fieldKeys={data.fieldKeys}
             symbolResolver={data.symbolResolver}
             propFirm={propFirmMode ? data.propFirm : null}
