@@ -40,8 +40,11 @@ export interface Strategy {
 }
 
 export const STRATEGY_PRESETS: Strategy[] = [
+  // PR-5 · L5 — "current" uses actual recorded outcome; partials array must
+  // be empty to match the client, otherwise downstream describers (AI note
+  // builder) list a ghost 100%@1R partial for the baseline.
   { id: "current", label: "Your current behavior", riskPct: 1, slRule: "original",
-    exitRule: { partials: [{ atR: 1, fraction: 1 }], runner: "be_after_first_tp" }, useActualOutcome: true },
+    exitRule: { partials: [], runner: "be_after_first_tp" }, useActualOutcome: true },
   { id: "quick-flip", label: "Quick-flip · 100% @1R", riskPct: 1, slRule: "original",
     exitRule: { partials: [{ atR: 1, fraction: 1 }], runner: "all_out_at_last_partial" } },
   { id: "scale-out", label: "Scale-out · 50% @1R + 50% @2R", riskPct: 1, slRule: "original",
