@@ -2,8 +2,26 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { useCallback, useEffect, useRef } from "react";
 
 export type SimulatorSource = "manual" | "active_account";
+
+/**
+ * Per-user last-used Pair Lab filter state. Hydrated on Pair Lab mount when
+ * the URL doesn't specify a given value; any URL param present at mount wins
+ * over the persisted preference (so shared / deep links keep working).
+ * `asOf` and per-cell selection are intentionally NOT persisted — they're
+ * session-scoped and would confuse the user across reloads.
+ */
+export interface PairLabPrefs {
+  profile?: string;              // "any" | profile tag
+  propFirmMode?: boolean;
+  includeUnrealized?: boolean;
+  includeUnassigned?: boolean;
+  scope?: string;                // "all" | "grp:<id>"
+  tab?: "overview" | "grid" | "windows" | "strategy" | "setup";
+  lens?: "all" | "90d" | "30d";
+}
 
 export interface SimulatorProfile {
   sim_balance: number;
@@ -14,6 +32,8 @@ export interface SimulatorProfile {
   /** Biggest peak-to-trough drawdown the trader would stay calm through, as %.
    *  Drives the Strategy Ranker's "Suggested risk" and Verdict columns. */
   ranker_comfort_dd_pct: number;
+  /** Persisted Pair Lab filter state. */
+  pair_lab_prefs: PairLabPrefs;
 }
 
 export const DEFAULT_SIM_PROFILE: SimulatorProfile = {
@@ -23,6 +43,7 @@ export const DEFAULT_SIM_PROFILE: SimulatorProfile = {
   sim_hard_cap_pct: 2,
   sim_source: "manual",
   ranker_comfort_dd_pct: 10,
+  pair_lab_prefs: {},
 };
 
 export function useSimulatorProfile() {
@@ -35,12 +56,17 @@ export function useSimulatorProfile() {
       const { data, error } = await supabase
         .from("user_settings")
         .select(
-          "sim_balance, sim_prop_firm, sim_risk_per_trade_pct, sim_hard_cap_pct, sim_source, ranker_comfort_dd_pct",
+          "sim_balance, sim_prop_firm, sim_risk_per_trade_pct, sim_hard_cap_pct, sim_source, ranker_comfort_dd_pct, pair_lab_prefs",
         )
         .eq("user_id", user.id)
         .maybeSingle();
       if (error) throw error;
       if (!data) return DEFAULT_SIM_PROFILE;
+      const rawPrefs = (data as { pair_lab_prefs?: unknown }).pair_lab_prefs;
+      const pair_lab_prefs: PairLabPrefs =
+        rawPrefs && typeof rawPrefs === "object" && !Array.isArray(rawPrefs)
+          ? (rawPrefs as PairLabPrefs)
+          : {};
       return {
         sim_balance: Number(data.sim_balance ?? DEFAULT_SIM_PROFILE.sim_balance),
         sim_prop_firm: (data.sim_prop_firm as string | null) ?? null,
@@ -56,6 +82,7 @@ export function useSimulatorProfile() {
           (data as { ranker_comfort_dd_pct?: number | null }).ranker_comfort_dd_pct ??
             DEFAULT_SIM_PROFILE.ranker_comfort_dd_pct,
         ),
+        pair_lab_prefs,
       };
     },
     enabled: !!user?.id,
@@ -110,4 +137,73 @@ export function usePropFirms() {
       return (data ?? []) as Array<{ id: string; name: string }>;
     },
   });
+}
+
+/**
+ * Fire-and-forget writer for Pair Lab filter prefs. Debounced (300 ms) so
+ * rapid toggle flips coalesce into one round-trip. Optimistic update patches
+ * the cached SimulatorProfile immediately; a failed write logs and reverts
+ * the cache silently — no toast, since this is a background preference save
+ * the user didn't ask for.
+ */
+export function useUpdatePairLabPrefs() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const pending = useRef<PairLabPrefs>({});
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  return useCallback(
+    (patch: PairLabPrefs) => {
+      if (!user?.id) return;
+      pending.current = { ...pending.current, ...patch };
+
+      // Optimistic cache update so a same-tick re-read sees the new value.
+      const key = ["simulator_profile", user.id];
+      const prev = qc.getQueryData<SimulatorProfile>(key);
+      if (prev) {
+        qc.setQueryData<SimulatorProfile>(key, {
+          ...prev,
+          pair_lab_prefs: { ...prev.pair_lab_prefs, ...patch },
+        });
+      }
+
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(async () => {
+        const flush = pending.current;
+        pending.current = {};
+        const current = qc.getQueryData<SimulatorProfile>(key);
+        const merged = { ...(current?.pair_lab_prefs ?? {}), ...flush };
+        try {
+          const { data: existing } = await supabase
+            .from("user_settings")
+            .select("id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (existing) {
+            const { error } = await supabase
+              .from("user_settings")
+              .update({ pair_lab_prefs: merged } as any)
+              .eq("user_id", user.id);
+            if (error) throw error;
+          } else {
+            const { error } = await supabase
+              .from("user_settings")
+              .insert({ user_id: user.id, pair_lab_prefs: merged } as any);
+            if (error) throw error;
+          }
+        } catch (e) {
+          console.warn("[pair_lab_prefs] save failed", e);
+          // Revert optimistic patch on failure so the UI reflects DB truth.
+          if (prev) qc.setQueryData<SimulatorProfile>(key, prev);
+        }
+      }, 300);
+    },
+    [qc, user?.id],
+  );
 }
