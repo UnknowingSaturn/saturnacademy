@@ -112,6 +112,8 @@ export function StrategyTab({ data, propFirmMode, selected, includeUnrealized }:
           propFirm={propFirmMode ? data.propFirm : null}
           scopeLabel={scopeLabel}
           defaultRiskPct={data.defaultSimRiskPct}
+          hardCapPct={data.simHardCapPct}
+          comfortDdPct={data.rankerComfortDdPct}
           trailCapture={data.trailCapture}
           effectiveTrailCapture={data.effectiveTrailCapture}
         />

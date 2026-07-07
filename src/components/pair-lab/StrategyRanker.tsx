@@ -18,8 +18,15 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Trophy, AlertTriangle, CheckCircle2, Info, ChevronRight, ChevronDown } from "lucide-react";
+import { Trophy, AlertTriangle, CheckCircle2, Info, ChevronRight, ChevronDown, ArrowDown, ArrowUp, Minus } from "lucide-react";
 import {
   rankStrategies,
   TP_SOURCE_LABELS,
@@ -34,6 +41,9 @@ import {
   useDistanceUnit,
   formatDistance,
 } from "@/hooks/useDistanceUnit";
+import { useRankerRiskMC, type UseRankerRiskMCState } from "@/hooks/useRankerRiskMC";
+import type { StrategyRiskResult } from "@/workers/rankerRiskMC.worker";
+import { useUpdateSimulatorProfile } from "@/hooks/useSimulatorProfile";
 
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext, TrailCaptureEstimate } from "@/lib/pairLabMath";
@@ -50,6 +60,10 @@ interface Props {
   propFirm: PropFirmContext | null;
   scopeLabel: string;
   defaultRiskPct?: number;
+  /** Ceiling on suggested risk %; from user's `sim_hard_cap_pct`. */
+  hardCapPct?: number;
+  /** Peak DD the trader would stay calm through, %. From user's `ranker_comfort_dd_pct`. */
+  comfortDdPct?: number;
   trailCapture?: TrailCaptureEstimate | null;
   effectiveTrailCapture?: number;
 }
@@ -111,10 +125,131 @@ function topReasons(reasons: Record<string, number>, k = 3): Array<[string, numb
 }
 
 // ---------------------------------------------------------------------------
+// Suggested-risk + Verdict cells (risk-Monte-Carlo consumers)
+// ---------------------------------------------------------------------------
+
+
+interface RiskCellProps {
+  mc: UseRankerRiskMCState;
+  strategyId: string;
+  currentRiskPct: number;
+  insufficient: boolean;
+}
+
+/** Ratio of suggested vs current risk → arrow icon. */
+function ratioArrow(ratio: number) {
+  if (ratio >= 1.15) return <ArrowUp className="w-3 h-3 inline text-emerald-600 dark:text-emerald-400" />;
+  if (ratio <= 0.85) return <ArrowDown className="w-3 h-3 inline text-amber-600 dark:text-amber-400" />;
+  return <Minus className="w-3 h-3 inline text-muted-foreground" />;
+}
+
+function SuggestedRiskCell({ mc, strategyId, currentRiskPct, insufficient }: RiskCellProps) {
+  if (insufficient) return <span className="text-muted-foreground text-xs">—</span>;
+  const res = mc.results[strategyId];
+  if (!res && mc.loading) {
+    return <span className="text-[10px] text-muted-foreground animate-pulse">simulating…</span>;
+  }
+  if (!res || !res.suggested) {
+    return (
+      <span className="text-xs text-muted-foreground" title="No risk % keeps the simulated drawdown within your comfort zone.">
+        —
+      </span>
+    );
+  }
+  const ratio = res.suggested.riskPct / Math.max(0.01, currentRiskPct);
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="font-semibold text-foreground">{res.suggested.riskPct.toFixed(2)}%</span>
+      {ratioArrow(ratio)}
+    </span>
+  );
+}
+
+interface Verdict {
+  label: string;
+  className: string;
+  tooltip: string;
+}
+
+function computeVerdict(res: StrategyRiskResult | undefined, currentRiskPct: number): Verdict | null {
+  if (!res) return null;
+  if (!res.suggested) {
+    return {
+      label: "Too fat-tailed for a safe risk",
+      className: "bg-muted text-muted-foreground border-border",
+      tooltip:
+        "No simulated risk % keeps the peak drawdown inside your comfort setting. Loosen the setting or avoid this strategy.",
+    };
+  }
+  const ratio = res.suggested.riskPct / Math.max(0.01, currentRiskPct);
+  const suggested = res.suggested.riskPct.toFixed(2);
+  if (ratio >= 0.85 && ratio <= 1.15) {
+    return {
+      label: "You're dialed in",
+      className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
+      tooltip:
+        `Your current risk (${currentRiskPct.toFixed(2)}%) is within 15% of the growth-optimal (${suggested}%). No change needed.`,
+    };
+  }
+  if (ratio > 1.15) {
+    return {
+      label: `You could risk more — up to ${suggested}%`,
+      className: "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30",
+      tooltip:
+        `This strategy tolerated ${suggested}% risk in simulation while staying inside your drawdown comfort. Raising risk grows the account faster; only do so if your emotional bandwidth matches.`,
+    };
+  }
+  if (ratio >= 0.5) {
+    return {
+      label: `Slightly too hot — try ${suggested}%`,
+      className: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
+      tooltip:
+        `At ${currentRiskPct.toFixed(2)}% the simulated peak drawdown crossed your comfort zone. Cutting to ${suggested}% keeps the edge while respecting your DD limit.`,
+    };
+  }
+  return {
+    label: `Too risky — cut to ${suggested}%`,
+    className: "bg-destructive/15 text-destructive border-destructive/30",
+    tooltip:
+      `At ${currentRiskPct.toFixed(2)}%, this strategy's simulated peak drawdown is well beyond your comfort zone. The simulator's safe ceiling is ${suggested}%.`,
+  };
+}
+
+function VerdictCell({ mc, strategyId, currentRiskPct, insufficient }: RiskCellProps) {
+  if (insufficient) return <span className="text-muted-foreground text-xs">—</span>;
+  const res = mc.results[strategyId];
+  if (!res && mc.loading) {
+    return <span className="text-[10px] text-muted-foreground animate-pulse">simulating…</span>;
+  }
+  const v = computeVerdict(res, currentRiskPct);
+  if (!v) return <span className="text-muted-foreground text-xs">—</span>;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge className={`text-[10px] cursor-help ${v.className}`}>{v.label}</Badge>
+      </TooltipTrigger>
+      <TooltipContent side="left" className="max-w-xs text-xs leading-relaxed">
+        {v.tooltip}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Row detail panel
 // ---------------------------------------------------------------------------
 
-function StrategyDetailPanel({ result, riskPctOverride }: { result: ReplayResult; riskPctOverride?: number }) {
+function StrategyDetailPanel({
+  result,
+  riskPctOverride,
+  riskSweep,
+  comfortDdPct,
+}: {
+  result: ReplayResult;
+  riskPctOverride?: number;
+  riskSweep?: StrategyRiskResult | null;
+  comfortDdPct?: number;
+}) {
   const s = result.strategy;
   const effectiveRiskPct =
     typeof riskPctOverride === "number" && Number.isFinite(riskPctOverride)
@@ -255,6 +390,69 @@ function StrategyDetailPanel({ result, riskPctOverride }: { result: ReplayResult
           </div>
         </div>
       </div>
+      {/* Risk sweep — the pro view behind "Suggested risk". */}
+      {riskSweep && riskSweep.grid.length > 0 && (
+        <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2 text-[11px] space-y-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              Risk sweep
+            </div>
+            {comfortDdPct != null && (
+              <span className="text-[10px] text-muted-foreground">
+                Comfort limit: -{comfortDdPct}% peak DD · based on {result.eligibleCount} trades
+              </span>
+            )}
+          </div>
+          <table className="w-full text-[11px] font-mono-numbers">
+            <thead className="text-muted-foreground/70">
+              <tr>
+                <th className="text-left font-normal pr-2">Risk %</th>
+                <th className="text-right font-normal pr-2">Median growth</th>
+                <th className="text-right font-normal pr-2">Mean peak DD</th>
+                <th className="text-right font-normal pr-2">Ruin prob</th>
+                <th className="text-left font-normal pl-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {riskSweep.grid.map((rung) => {
+                const isSuggested =
+                  riskSweep.suggested != null && rung.riskPct === riskSweep.suggested.riskPct;
+                return (
+                  <tr key={rung.riskPct} className={isSuggested ? "text-foreground font-semibold" : ""}>
+                    <td className="pr-2">{rung.riskPct.toFixed(2)}%</td>
+                    <td className={`pr-2 text-right ${rung.medianTerminalPct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                      {rung.medianTerminalPct >= 0 ? "+" : ""}
+                      {rung.medianTerminalPct.toFixed(1)}%
+                    </td>
+                    <td className="pr-2 text-right text-muted-foreground">
+                      -{rung.meanPeakDdPct.toFixed(1)}%
+                    </td>
+                    <td className="pr-2 text-right text-muted-foreground">
+                      {(rung.ruinProb * 100).toFixed(1)}%
+                    </td>
+                    <td className="pl-2">
+                      {isSuggested ? (
+                        <span className="text-primary">← suggested</span>
+                      ) : rung.violatesComfort ? (
+                        <span className="text-destructive">exceeds comfort</span>
+                      ) : (
+                        <span className="text-muted-foreground">ok</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="text-[10px] text-muted-foreground/80 not-italic leading-relaxed">
+            Each row is a Monte-Carlo simulation of this strategy's per-trade R outcomes with compounding.
+            Ruin prob = chance the account hits its worst-case bust point.
+            {result.eligibleCount < 20 && (
+              <span> Based on only {result.eligibleCount} trades — treat as directional.</span>
+            )}
+          </div>
+        </div>
+      )}
       {result.ineligibleCount > 0 && (
         <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2 text-[11px] space-y-1">
           <div className="text-muted-foreground">
@@ -317,7 +515,8 @@ function ExclusionPanel({ b, open, onToggle }: { b: ExclusionBreakdown; open: bo
 
 export function StrategyRanker({
   trades, fieldKeys, balance, propFirm, scopeLabel,
-  defaultRiskPct = 1, trailCapture, effectiveTrailCapture,
+  defaultRiskPct = 1, hardCapPct, comfortDdPct = 10,
+  trailCapture, effectiveTrailCapture,
 }: Props) {
   const [riskPct, setRiskPct] = useState<number>(defaultRiskPct);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -327,7 +526,12 @@ export function StrategyRanker({
   // trades — safety floor) or "optimistic" (TP-first, the legacy pre-fix
   // behaviour, kept for A/B comparison).
   const [replayMode, setReplayMode] = useState<ReplayMode>("expected");
+  // Local comfort-DD is initialised from the persisted profile setting; a
+  // change here is written back so it sticks across sessions and other tabs.
+  const [localComfortDd, setLocalComfortDd] = useState<number>(comfortDdPct);
   useEffect(() => { setRiskPct(defaultRiskPct); }, [defaultRiskPct]);
+  useEffect(() => { setLocalComfortDd(comfortDdPct); }, [comfortDdPct]);
+  const updateProfile = useUpdateSimulatorProfile();
 
   // PR-2 G2 — compute all three modes in one memo so we can render the active
   // mode primarily while also showing the pessimistic ↔ optimistic range on
@@ -374,6 +578,39 @@ export function StrategyRanker({
       return b.result.eligibleCount - a.result.eligibleCount;
     });
   }, [rows]);
+
+  // Risk sweep — per strategy, Monte-Carlo an R-outcome sample across a
+  // risk-% grid with compounding on. Non-blocking (worker); populates the
+  // "Suggested risk" and "Verdict" columns once ready.
+  const riskInputs = useMemo(() => {
+    return ranked
+      .filter((r) => r.result.eligibleCount >= MIN_PROVEN_SAMPLE)
+      .map((r) => ({
+        strategyId: r.result.strategy.id,
+        rSample: r.result.perTrade.map((p) => p.resultR),
+        currentRiskPct: riskPct,
+      }));
+  }, [ranked, riskPct]);
+
+  const riskMc = useRankerRiskMC({
+    strategies: riskInputs,
+    accountSize: balance,
+    comfortDdPct: localComfortDd,
+    hardCapPct,
+    propFirm: propFirm
+      ? {
+          dailyLossPct:
+            propFirm.dailyLossDollars != null && propFirm.balance > 0
+              ? propFirm.dailyLossDollars / propFirm.balance
+              : null,
+          maxLossPct:
+            propFirm.maxDrawdownDollars != null && propFirm.balance > 0
+              ? propFirm.maxDrawdownDollars / propFirm.balance
+              : null,
+        }
+      : null,
+    enabled: balance > 0,
+  });
 
   if (trades.length === 0) {
     return (
@@ -471,6 +708,38 @@ export function StrategyRanker({
                 className="w-40"
               />
             </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2 text-xs cursor-help">
+                  <Label htmlFor="rank-comfort" className="text-xs whitespace-nowrap inline-flex items-center gap-1">
+                    Biggest drop you'd stay calm through
+                    <Info className="w-3 h-3 text-muted-foreground" />
+                  </Label>
+                  <Select
+                    value={String(localComfortDd)}
+                    onValueChange={(v) => {
+                      const num = Number(v);
+                      setLocalComfortDd(num);
+                      updateProfile.mutate({ ranker_comfort_dd_pct: num });
+                    }}
+                  >
+                    <SelectTrigger id="rank-comfort" className="h-7 w-[80px] text-xs font-mono-numbers">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="3">-3%</SelectItem>
+                      <SelectItem value="5">-5%</SelectItem>
+                      <SelectItem value="10">-10%</SelectItem>
+                      <SelectItem value="15">-15%</SelectItem>
+                      <SelectItem value="20">-20%</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs leading-relaxed">
+                We simulate each strategy at different risk levels and only suggest one whose worst simulated drawdown stays within this limit. Lower = more conservative suggestion.
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
 
@@ -625,6 +894,18 @@ export function StrategyRanker({
                   Max DD
                 </th>
                 <th className="text-center py-2 px-2">Confidence</th>
+                <th
+                  className="text-right py-2 px-2"
+                  title="The risk % that would have grown your account fastest without your drawdown going past your comfort setting. Based on Monte-Carlo simulation of this strategy's per-trade R-outcomes with compounding."
+                >
+                  Suggested risk
+                </th>
+                <th
+                  className="text-left py-2 pl-2"
+                  title="Plain-English read on whether your current risk % is safe, too low, or too high for this strategy."
+                >
+                  Verdict
+                </th>
                 <th className="text-left py-2 pl-2">Prop-firm</th>
               </tr>
             </thead>
@@ -796,6 +1077,24 @@ export function StrategyRanker({
                           {CONFIDENCE_LABEL[conf]}
                         </Badge>
                       </td>
+                      {/* Suggested risk */}
+                      <td className="py-2 px-2 text-right font-mono-numbers">
+                        <SuggestedRiskCell
+                          mc={riskMc}
+                          strategyId={r.strategy.id}
+                          currentRiskPct={riskPct}
+                          insufficient={insufficient}
+                        />
+                      </td>
+                      {/* Verdict */}
+                      <td className="py-2 pl-2">
+                        <VerdictCell
+                          mc={riskMc}
+                          strategyId={r.strategy.id}
+                          currentRiskPct={riskPct}
+                          insufficient={insufficient}
+                        />
+                      </td>
                       <td className="py-2 pl-2">
                         {r.propFirmVerdict === "n/a" || insufficient ? (
                           <span className="text-xs text-muted-foreground">—</span>
@@ -812,8 +1111,13 @@ export function StrategyRanker({
                     </tr>
                     {isOpen && (
                       <tr className="bg-muted/20 border-b border-border/30">
-                        <td colSpan={10} className="py-3 px-3">
-                          <StrategyDetailPanel result={r} riskPctOverride={riskPct} />
+                        <td colSpan={12} className="py-3 px-3">
+                          <StrategyDetailPanel
+                            result={r}
+                            riskPctOverride={riskPct}
+                            riskSweep={riskMc.results[r.strategy.id] ?? null}
+                            comfortDdPct={localComfortDd}
+                          />
                         </td>
                       </tr>
                     )}

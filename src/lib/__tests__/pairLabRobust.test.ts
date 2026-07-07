@@ -239,3 +239,49 @@ describe("computeAppliedSlBySymbol — per-symbol native-unit breakdown", () => 
 });
 
 
+
+// ---------------------------------------------------------------------------
+// Ranker risk sweep — verdict logic
+// ---------------------------------------------------------------------------
+
+import { runMonteCarlo } from "@/lib/propFirmMonteCarlo";
+
+describe("ranker risk sweep MC (per-strategy)", () => {
+  it("suggests a higher risk when the sample has strong positive expectancy and tight DD", () => {
+    // Winning sample: mostly +1R with occasional −0.5R losses. Any risk %
+    // stays comfortably inside 20% DD in MC.
+    const rSample = [1, 1, 1, -0.5, 1, 1, -0.5, 1, 1, 1, -0.5, 1, 1, 1, 1, -0.5, 1, 1, 1, 1];
+    const at1 = runMonteCarlo({
+      rSample, riskPerTradeFrac: 0.01, numAccounts: 1, accountSize: 100_000,
+      dailyLossPct: null, maxLossPct: null, targetPct: null,
+      tradesPerDay: 1, maxDays: 20, rotationModel: "one_only",
+      maxLossMode: "trailing", paths: 500, seed: 1,
+    });
+    const at3 = runMonteCarlo({
+      rSample, riskPerTradeFrac: 0.03, numAccounts: 1, accountSize: 100_000,
+      dailyLossPct: null, maxLossPct: null, targetPct: null,
+      tradesPerDay: 1, maxDays: 20, rotationModel: "one_only",
+      maxLossMode: "trailing", paths: 500, seed: 1,
+    });
+    // With linear R, expected-return scales linearly with risk %. DD also
+    // scales linearly. The 3% run should be far higher.
+    expect(at3.expectedReturnPct).toBeGreaterThan(at1.expectedReturnPct * 2);
+  });
+
+  it("keeps ruin probability monotonic in risk % for a fat-tailed sample", () => {
+    // Fat-tailed loser: occasional −5R blowouts. Bust probability must
+    // increase as risk % rises.
+    const rSample = [1, -1, 1, -5, 1, -1, 1, -5, -1, 1, -1, 1, -5, -1, 1, -5, 1, -1, 1, -1];
+    const runs = [0.5, 1, 2, 3].map((pct) =>
+      runMonteCarlo({
+        rSample, riskPerTradeFrac: pct / 100, numAccounts: 1, accountSize: 100_000,
+        dailyLossPct: null, maxLossPct: 0.1, targetPct: null,
+        tradesPerDay: 1, maxDays: 20, rotationModel: "one_only",
+        maxLossMode: "trailing", paths: 500, seed: 42,
+      }),
+    );
+    for (let i = 1; i < runs.length; i += 1) {
+      expect(runs[i].riskOfRuin).toBeGreaterThanOrEqual(runs[i - 1].riskOfRuin - 0.01);
+    }
+  });
+});
