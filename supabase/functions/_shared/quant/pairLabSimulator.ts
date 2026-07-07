@@ -260,10 +260,6 @@ function replayOneTrade(
   let remainingFrac = 1;
   let anyFilled = false;
   let lastFilledAtR = 0;
-  /** PR-5 · B1 parity — filled-partial subtotal, tracked separately from the
-   *  runner contribution so the SL-first bridge alternative books partials at
-   *  their TPs plus a stop on the runner only. */
-  let filledBooked = 0;
   /** First partial whose TP was breached by MFE. Drives the bridge probability
    *  when the stop was ALSO breached — that's the ambiguous ordering case. */
   let firstBreachedTpR: number | null = null;
@@ -271,19 +267,14 @@ function replayOneTrade(
     const needOrigR = p.atR * slScale;
     if (proof.reachedR >= needOrigR) {
       const take = Math.min(p.fraction, remainingFrac);
-      const leg = p.atR * take;
-      booked += leg;
-      filledBooked += leg;
+      booked += p.atR * take;
       remainingFrac -= take;
       anyFilled = true;
       lastFilledAtR = p.atR;
       if (firstBreachedTpR == null) firstBreachedTpR = p.atR;
     }
     // P0-A parity: do NOT drop the trade here. Fall into the runner block
-    // below so the honest outcome is booked from proven-reached R. Previously
-    // an early `ineligible: "unproven target"` return caused survivorship
-    // bias on multi-TP presets — only trades that hit every rung survived,
-    // inflating WR and expectancy in the server-generated AI quant note.
+    // below so the honest outcome is booked from proven-reached R.
   }
 
   const maxTargetAtR = resolved.length ? resolved[resolved.length - 1].atR : 0;
@@ -327,10 +318,10 @@ function replayOneTrade(
     }
   }
 
-  // P0-B — PR-1 Brownian-bridge / gambler's-ruin ordering mixture.
-  // PR-5 · B1 parity — SL-first alternative now books filled partials at
-  // their TPs plus `-slScale × remainingFrac` on the runner, instead of
-  // wiping the whole position.
+  // P0-B — PR-1 Brownian-bridge / gambler's-ruin ordering mixture. Mirrors
+  // client `src/lib/pairLabSimulator.ts`. `pStopFirst` = P(stop breached
+  // before ANY partial) — under SL-first, no partial ever fills, so the
+  // whole position takes `-slScale`.
   if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
     const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
     const mfeInNewR = mfeForBridge / slScale;
@@ -339,7 +330,7 @@ function replayOneTrade(
     const pTpFirst = resolveTpFirstProb(pTpFirstRaw, replayMode);
     const pStopFirst = 1 - pTpFirst;
     if (pStopFirst > 0) {
-      const bookedSlFirst = filledBooked + (-slScale) * remainingFrac;
+      const bookedSlFirst = -slScale;
       booked = pTpFirst * booked + pStopFirst * bookedSlFirst;
     }
   }
