@@ -73,8 +73,8 @@ function defaultTickSize(raw: string): number {
   // is silently 10–100× off until the user sets a Symbol Groups override.
   if (n.startsWith("BTC") || n.startsWith("XBT")) return 1.0;     // BTCUSD: most brokers 1.0 (some 0.10)
   if (n.startsWith("ETH")) return 0.1;                            // ETHUSD: most brokers 0.10
-  if (/^(NAS100|US100|USTEC|NDX)/.test(n)) return 0.25;           // CME-quoted Nasdaq
-  if (/^(SPX500|US500)/.test(n)) return 0.25;                      // CME-quoted S&P
+  if (/^(NAS100|NAS|NDX100|US100|USTEC|NDX)/.test(n)) return 0.25;  // CME-quoted Nasdaq
+  if (/^(SPX500|SP500|US500|ES)/.test(n)) return 0.25;               // CME-quoted S&P
   if (/^(US30|DJ30|DJI)/.test(n)) return 1.0;                      // Dow
   switch (classifySymbol(raw)) {
     case "fx5": return 0.00001;
