@@ -46,6 +46,8 @@ interface Props {
   /** Include trades with NULL account_id even when an account is selected. */
   includeUnassigned: boolean;
   setIncludeUnassigned: (v: boolean) => void;
+  /** U9: true in "All accounts" mode — the toggle is a no-op then. */
+  includeUnassignedDisabled?: boolean;
   scope: string;
   setScope: (v: string) => void;
   /** Symbol groups list — passed from PairLab.tsx to avoid a second
@@ -67,6 +69,7 @@ export function OverviewTab({
   setIncludeUnrealized,
   includeUnassigned,
   setIncludeUnassigned,
+  includeUnassignedDisabled = false,
   scope,
   setScope,
   groups,
