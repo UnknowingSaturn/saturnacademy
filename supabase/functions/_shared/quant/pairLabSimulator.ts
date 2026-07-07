@@ -465,6 +465,7 @@ export function replayAllPresets(
       biasWarning,
       appliedSlPipsMedian: slPipsSamples.length ? quantile(slPipsSamples, 0.5) : null,
       appliedSlScaleMedian: slScaleSamples.length ? quantile(slScaleSamples, 0.5) : null,
+      appliedSlBySymbol: buildAppliedSlBySymbol(perSymbol),
     };
   });
 }
