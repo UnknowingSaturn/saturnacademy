@@ -4,7 +4,7 @@ Compiled from three parallel read-only investigations. Every finding cites `file
 
 Sections:
 1. Data ingress vs. Journal — **complete**
-2. Math core — **pending** (background task still running)
+2. Math core — **complete**
 3. UI shell + dead code — **pending** (background task still running)
 
 ---
