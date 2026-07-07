@@ -48,6 +48,20 @@ const VALID_TABS = new Set([
 export default function PairLab() {
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Snapshot which URL keys were present on the very first render so hydration
+  // from persisted prefs never overwrites a value the user actually typed into
+  // the URL (shared link, deep link from Coach/Journal). Any key not in this
+  // set is fair game for hydration once the prefs query resolves.
+  const initialUrlKeys = useRef<Set<string>>(
+    new Set(Array.from(searchParams.keys())),
+  );
+  const hydratedRef = useRef(false);
+
+  const profileQuery = useSimulatorProfile();
+  const savePrefs = useUpdatePairLabPrefs();
+
+
+
   const profile = searchParams.get("profile") ?? "any";
   const propFirmMode = searchParams.get("pf") !== "0";
   const includeUnrealized = searchParams.get("unreal") === "1";
