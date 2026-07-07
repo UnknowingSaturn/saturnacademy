@@ -341,7 +341,9 @@ function replayOneTrade(
     }
   }
 
-  return { r: booked, slProxy };
+  const baseSlPips = slDistancePips(trade);
+  const slPipsApplied = baseSlPips != null ? baseSlPips * slScale : null;
+  return { r: booked, slPips: slPipsApplied, slScale, slProxy };
 }
 
 
