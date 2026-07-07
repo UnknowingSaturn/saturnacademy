@@ -70,7 +70,5 @@ export function usePairLabWalkForward(): PairLabWalkForwardValue {
   return v;
 }
 
-/** Non-throwing variant for components that may render outside the provider. */
-export function useOptionalPairLabWalkForward(): PairLabWalkForwardValue | null {
-  return useContext(Ctx);
-}
+// Audit §3.5: `useOptionalPairLabWalkForward` removed — zero consumers.
+
