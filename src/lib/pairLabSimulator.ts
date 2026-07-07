@@ -679,6 +679,16 @@ function buildResult(
     .filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
   const appliedSlScaleMedian = slScaleSamples.length ? quantile(slScaleSamples, 0.5) : null;
 
+  // Per-symbol robust breakdown. Actionable at trade time; no unit-mixing
+  // across FX/indices. See AppliedSlSymbolStat docstring.
+  const appliedSlBySymbol = computeAppliedSlBySymbol(
+    replayed.map((x) => ({
+      symbol: x.trade.symbol,
+      slPips: x.slPips,
+      slScale: x.slScale,
+    })),
+  );
+
   // Composite score is set later by the ranker orchestrator (needs cross-preset
   // context to compute the drawdown/sample penalties consistently). Left null
   // when computed from a raw replayBucket() call.
