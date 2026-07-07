@@ -221,13 +221,28 @@ export default function Journal() {
   };
 
   // Period calculations. `all` skips the date gate entirely.
+  // B2 fix: compute boundaries in UTC so filtering matches the trade frame
+  // (ensureUtcMs on entry_time). date-fns startOfWeek/Month anchor to the
+  // host local tz — a 00:05 UTC trade would fall outside a local-tz week
+  // for anyone west of UTC.
   const periodRange = useMemo(() => {
+    const y = currentDate.getUTCFullYear();
+    const m = currentDate.getUTCMonth();
+    const d = currentDate.getUTCDate();
     if (periodType === "week") {
-      return { start: startOfWeek(currentDate, { weekStartsOn: 1 }), end: endOfWeek(currentDate, { weekStartsOn: 1 }) };
+      const dow = new Date(Date.UTC(y, m, d)).getUTCDay(); // 0=Sun..6=Sat
+      const daysFromMon = (dow + 6) % 7;
+      const startMs = Date.UTC(y, m, d - daysFromMon);
+      const endMs = startMs + 7 * 86_400_000 - 1;
+      return { start: new Date(startMs), end: new Date(endMs) };
     } else if (periodType === "month") {
-      return { start: startOfMonth(currentDate), end: endOfMonth(currentDate) };
+      const startMs = Date.UTC(y, m, 1);
+      const endMs = Date.UTC(y, m + 1, 1) - 1;
+      return { start: new Date(startMs), end: new Date(endMs) };
     } else if (periodType === "custom" && customFrom && customTo) {
-      return { start: customFrom, end: customTo };
+      const s = Date.UTC(customFrom.getUTCFullYear(), customFrom.getUTCMonth(), customFrom.getUTCDate());
+      const e = Date.UTC(customTo.getUTCFullYear(), customTo.getUTCMonth(), customTo.getUTCDate()) + 86_400_000 - 1;
+      return { start: new Date(s), end: new Date(e) };
     }
     return null;
   }, [periodType, currentDate, customFrom, customTo]);
