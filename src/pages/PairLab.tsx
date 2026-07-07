@@ -79,13 +79,21 @@ export default function PairLab() {
   // them (e.g. PairGridTab's Escape-to-deselect listener) don't tear down and
   // re-subscribe on every parent re-render — slider drags previously dropped
   // keystrokes in the gap between detach and re-attach.
+  // Audit §3.1: use `setSearchParams(prev => …)` functional form so two
+  // writes in the same tick both see the latest URL state instead of racing
+  // on a stale `searchParams` snapshot.
   const patchParams = useCallback(
     (mut: (next: URLSearchParams) => void) => {
-      const next = new URLSearchParams(searchParams);
-      mut(next);
-      setSearchParams(next, { replace: true });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          mut(next);
+          return next;
+        },
+        { replace: true },
+      );
     },
-    [searchParams, setSearchParams],
+    [setSearchParams],
   );
 
   const setProfile = useCallback(
