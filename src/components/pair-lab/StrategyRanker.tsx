@@ -571,8 +571,18 @@ export function StrategyRanker({
                 <th className="text-left py-2 pr-2">#</th>
                 <th className="text-left py-2 pr-2">Strategy</th>
                 <th className="text-left py-2 px-2">N (OOS)</th>
-                <th className="text-right py-2 px-2">Total $</th>
-                <th className="text-right py-2 px-2">Win %</th>
+                <th
+                  className="text-right py-2 px-2"
+                  title="Simulated $ P&L on the strict-eligible sample at the current Sim $ and Risk %. Not your journal P&L."
+                >
+                  Total $
+                </th>
+                <th
+                  className="text-right py-2 px-2"
+                  title="Win rate on the strict-eligible replay sample (N shown in the N column), not on your full journal."
+                >
+                  Win %
+                </th>
                 <th className="text-right py-2 px-2">Expectancy · BCa 95%</th>
                 <th
                   className="text-right py-2 px-2"
@@ -580,7 +590,12 @@ export function StrategyRanker({
                 >
                   Edge (R/σ)
                 </th>
-                <th className="text-right py-2 px-2">Max DD</th>
+                <th
+                  className="text-right py-2 px-2"
+                  title="Peak-to-trough drawdown of the simulated equity curve on the strict-eligible sample only."
+                >
+                  Max DD
+                </th>
                 <th className="text-center py-2 px-2">Confidence</th>
                 <th className="text-left py-2 pl-2">Prop-firm</th>
               </tr>
