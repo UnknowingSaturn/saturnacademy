@@ -540,38 +540,14 @@ export function OverviewTab({
             (indices) matching TradingView's measure tool; "ticks" surfaces
             the raw broker unit so values can be pasted into an MT5 EA. */}
         <div className="mt-3 flex items-center gap-2 text-[11px]">
-          <span className="text-muted-foreground">Distance:</span>
+          {/* Audit §3.4: tooltip trigger sits on the label, not the button
+              group — buttons remain fully focusable + hit-testable. */}
           <TooltipProvider delayDuration={150}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="inline-flex rounded-md border border-border overflow-hidden cursor-help">
-                  <button
-                    type="button"
-                    onClick={() => setDistanceUnit("native")}
-                    className={
-                      "px-2 py-0.5 transition-colors " +
-                      (distanceUnit === "native"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-background text-muted-foreground hover:bg-muted")
-                    }
-                    aria-pressed={distanceUnit === "native"}
-                  >
-                    pips / points
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDistanceUnit("ticks")}
-                    className={
-                      "px-2 py-0.5 transition-colors border-l border-border " +
-                      (distanceUnit === "ticks"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-background text-muted-foreground hover:bg-muted")
-                    }
-                    aria-pressed={distanceUnit === "ticks"}
-                  >
-                    ticks
-                  </button>
-                </div>
+                <span className="text-muted-foreground cursor-help underline decoration-dotted">
+                  Distance:
+                </span>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs text-xs">
                 MAE and Ideal-SL are stored in broker <strong>ticks</strong>
@@ -583,6 +559,38 @@ export function OverviewTab({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          <div
+            className="inline-flex rounded-md border border-border overflow-hidden"
+            role="group"
+            aria-label="Distance display unit"
+          >
+            <button
+              type="button"
+              onClick={() => setDistanceUnit("native")}
+              className={
+                "px-2 py-0.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 " +
+                (distanceUnit === "native"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-muted-foreground hover:bg-muted")
+              }
+              aria-pressed={distanceUnit === "native"}
+            >
+              pips / points
+            </button>
+            <button
+              type="button"
+              onClick={() => setDistanceUnit("ticks")}
+              className={
+                "px-2 py-0.5 transition-colors border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 " +
+                (distanceUnit === "ticks"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-muted-foreground hover:bg-muted")
+              }
+              aria-pressed={distanceUnit === "ticks"}
+            >
+              ticks
+            </button>
+          </div>
         </div>
         <div className="mt-3 text-[11px] text-muted-foreground">
           {data.totalTrades} closed trades · {data.perCell.length} cells ·{" "}
