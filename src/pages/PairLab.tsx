@@ -44,6 +44,11 @@ const VALID_TABS = new Set([
   "strategy",
   "setup",
 ]);
+// U3 fix: hoisted to module scope. Previously declared inside the component
+// body it (a) allocated a new Set on every render, and (b) was captured by
+// `setSetupTab`'s useCallback without appearing in its deps → latent
+// stale-closure. Content never changes.
+const VALID_SETUP_TABS = new Set(["simulator", "groups", "aliases"]);
 
 export default function PairLab() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -69,7 +74,6 @@ export default function PairLab() {
   const tabParam = searchParams.get("tab") ?? "overview";
   const tab = VALID_TABS.has(tabParam) ? tabParam : "overview";
   // Audit U-B5: Setup sub-tab persists in the URL as ?setupTab=…
-  const VALID_SETUP_TABS = new Set(["simulator", "groups", "aliases"]);
   const setupTabParam = searchParams.get("setupTab") ?? "simulator";
   const setupTab = VALID_SETUP_TABS.has(setupTabParam) ? setupTabParam : "simulator";
   const selected: Selected = (() => {
