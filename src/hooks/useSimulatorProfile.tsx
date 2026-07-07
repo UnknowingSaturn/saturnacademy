@@ -187,23 +187,14 @@ export function useUpdatePairLabPrefs() {
         const current = qc.getQueryData<SimulatorProfile>(key);
         const merged = { ...(current?.pair_lab_prefs ?? {}), ...flush };
         try {
-          const { data: existing } = await supabase
+          // E2 fix: single-round-trip upsert (UNIQUE(user_id)).
+          const { error } = await supabase
             .from("user_settings")
-            .select("id")
-            .eq("user_id", user.id)
-            .maybeSingle();
-          if (existing) {
-            const { error } = await supabase
-              .from("user_settings")
-              .update({ pair_lab_prefs: merged } as any)
-              .eq("user_id", user.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase
-              .from("user_settings")
-              .insert({ user_id: user.id, pair_lab_prefs: merged } as any);
-            if (error) throw error;
-          }
+            .upsert(
+              { user_id: user.id, pair_lab_prefs: merged } as any,
+              { onConflict: "user_id" },
+            );
+          if (error) throw error;
         } catch (e) {
           console.warn("[pair_lab_prefs] save failed", e);
           // Revert to the pre-optimistic snapshot (captured before *any* of
