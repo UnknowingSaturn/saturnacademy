@@ -236,9 +236,16 @@ function computeTp1Star(
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
   const fallbackMiss = -Math.abs(avgLossR);
-  // Empirical miss cost: when MFE < r, use the conditional mean r_actual of
-  // missing trades (BE / partial / full stop) rather than the worst-case
-  // avgLossR. Falls back to −avgLossR when fewer than 5 misses with rActual.
+  // PR-5 · H2c parity — client uses the global median of rActual (which
+  // includes early-exit winners, BE moves, partial fills) as the neutral
+  // prior when a candidate TP has fewer than 5 misses with rActual. Server
+  // previously fell straight back to −avgLossR (worst-case), biasing the
+  // argmax toward conservative TPs by treating near-miss trades as full
+  // stops.
+  const allRs = pairs
+    .map((p) => p.rActual)
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  const globalMedian = allRs.length >= 5 ? median(allRs) : null;
   for (const r of candidates) {
     let hits = 0;
     const missRs: number[] = [];
@@ -250,7 +257,7 @@ function computeTp1Star(
     if (hitRate < TP1_STAR_MIN_HIT_RATE) continue;
     const missMean = missRs.length >= 5
       ? missRs.reduce((s, v) => s + v, 0) / missRs.length
-      : fallbackMiss;
+      : (globalMedian ?? fallbackMiss);
     const expectancyR = hitRate * r + (1 - hitRate) * missMean;
     if (!best || expectancyR > best.expectancyR) {
       best = { r, hitRate, hitRateCi: wilsonCi(hits, pairs.length), expectancyR };
