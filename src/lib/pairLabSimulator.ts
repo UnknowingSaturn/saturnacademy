@@ -724,6 +724,7 @@ function buildResult(
     appliedSlPipsMedian,
     appliedSlPipsRange,
     appliedSlScaleMedian,
+    appliedSlBySymbol,
     appliedTpLadder,
     slRuleLabel: SL_RULE_LABELS[strategy.slRule],
     runnerLabel: RUNNER_LABELS[strategy.exitRule.runner],
