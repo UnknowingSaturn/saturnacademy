@@ -70,7 +70,18 @@ export function useRankerRiskMC({
         error: e.data.error ?? null,
       });
     };
+    // B3 fix: mirror useStrategyLabSweep's onerror/onmessageerror pattern —
+    // otherwise a worker crash leaves loading:true forever and the ranker
+    // sits on a skeleton with no diagnostic.
+    const onFail = (fallback: string) => (e: Event) => {
+      const detail = (e as ErrorEvent).message || fallback;
+      // eslint-disable-next-line no-console
+      console.error("[useRankerRiskMC] worker error:", detail);
+      setState({ results: {}, loading: false, error: detail });
+    };
     worker.addEventListener("message", handler);
+    worker.onerror = onFail("Ranker risk MC worker crashed");
+    worker.onmessageerror = onFail("Ranker risk MC worker message error");
     return () => {
       worker.removeEventListener("message", handler);
     };
@@ -135,6 +146,9 @@ export function useRankerRiskMC({
         s.currentRiskPct,
         s.rSample.length,
         s.rSample.reduce((a, b) => a + b, 0),
+        // E1 fix: second moment detects mid-sample variance changes that
+        // (n, Σr, first, last) would collide on.
+        s.rSample.reduce((a, b) => a + b * b, 0),
         s.rSample[0] ?? 0,
         s.rSample[s.rSample.length - 1] ?? 0,
       ]),

@@ -490,7 +490,16 @@ function replayOneTrade(
     if (proof.stoppedOut === false) stoppedUnderNewSl = false;
     else stoppedUnderNewSl = null;
   }
-  if (stoppedUnderNewSl === null) return { ineligible: "ambiguous stop/TP ordering — MAE present but direction unknown" };
+  if (stoppedUnderNewSl === null) {
+    // P1 fix: truthful audit trail — the previous single message claimed
+    // "MAE present" even when loggedMae was null (ambiguity actually came
+    // from r_actual sign near the stop).
+    return {
+      ineligible: proof.loggedMae == null
+        ? "no MAE and r_actual ambiguous near stop"
+        : "ambiguous stop/TP ordering — MAE present but direction unknown",
+    };
+  }
 
 
   // Resolve each partial's effective atR (bucket-adaptive presets may override).
