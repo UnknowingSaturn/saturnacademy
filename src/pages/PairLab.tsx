@@ -13,7 +13,7 @@
 //   Setup        — Simulator profile / Groups / Aliases
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, FlaskConical } from "lucide-react";
@@ -21,6 +21,11 @@ import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 import { usePairLab } from "@/hooks/usePairLab";
 import { usePairLabTradeBounds } from "@/hooks/usePairLabTradeBounds";
 import { useSymbolGroups } from "@/hooks/useSymbolGroups";
+import {
+  useSimulatorProfile,
+  useUpdatePairLabPrefs,
+  type PairLabPrefs,
+} from "@/hooks/useSimulatorProfile";
 import {
   resolveWindow,
   type WalkForwardState,
