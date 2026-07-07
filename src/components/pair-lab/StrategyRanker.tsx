@@ -518,7 +518,7 @@ export function StrategyRanker({
             <p className="text-xs text-muted-foreground leading-relaxed">
               {winnerRow.result.strategy.description}{" "}
               <span className="text-foreground">
-                {fmtMoney(winnerRow.result.totalDollars)} total · {(winnerRow.result.winRate * 100).toFixed(0)}% WR ·{" "}
+                {fmtMoney(winnerRow.result.totalDollars)} total · {(winnerRow.result.winRate * 100).toFixed(0)}% WR on {winnerRow.result.eligibleCount} strict-eligible trades ·{" "}
                 {winnerRow.result.expectancyR >= 0 ? "+" : ""}{winnerRow.result.expectancyR.toFixed(2)}R expectancy
                 {winnerRow.result.expectancyRCiBCa && (
                   <span className="text-muted-foreground">
