@@ -143,7 +143,9 @@ function detectPartialFills(trades: Trade[]): PartialFillFlag | null {
 export function usePairLab(filters: PairLabFilters = {}): PairLabData {
   const { selectedAccountId } = useAccountFilter();
   const isAllAccounts = !selectedAccountId || selectedAccountId === "all";
-  const includeUnassigned = filters.includeUnassigned === true;
+  // Audit Bug A: default TRUE to match Journal. Callers that want the
+  // strict-account view must set `includeUnassigned: false` explicitly.
+  const includeUnassigned = filters.includeUnassigned !== false;
   const accountFilter = !isAllAccounts
     ? { accountId: selectedAccountId, includeUnassigned }
     : undefined;
