@@ -357,8 +357,6 @@ export default function PairLab() {
             />
           </TabsContent>
 
-
-
           <TabsContent value="grid" className="mt-4">
             <PairGridTab
               data={data}
