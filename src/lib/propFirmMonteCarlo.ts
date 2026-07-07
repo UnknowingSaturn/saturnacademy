@@ -195,7 +195,12 @@ function simulateOnePath(p: MCParams, rng: () => number): PathState {
           busted[i] = true;
         }
 
-        if (target != null && equity[i] >= target) {
+        // M3 fix: only book a pass if this account did NOT bust on the same
+        // trade. Previously a single trade that simultaneously breached the
+        // daily-loss cap AND reached target returned passed=true, silently
+        // inflating passProb for simultaneous-account configs with tight
+        // daily caps.
+        if (target != null && !busted[i] && equity[i] >= target) {
           return {
             passed: true,
             failed: false,

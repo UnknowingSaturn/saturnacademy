@@ -44,6 +44,11 @@ const VALID_TABS = new Set([
   "strategy",
   "setup",
 ]);
+// U3 fix: hoisted to module scope. Previously declared inside the component
+// body it (a) allocated a new Set on every render, and (b) was captured by
+// `setSetupTab`'s useCallback without appearing in its deps → latent
+// stale-closure. Content never changes.
+const VALID_SETUP_TABS = new Set(["simulator", "groups", "aliases"]);
 
 export default function PairLab() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -69,7 +74,6 @@ export default function PairLab() {
   const tabParam = searchParams.get("tab") ?? "overview";
   const tab = VALID_TABS.has(tabParam) ? tabParam : "overview";
   // Audit U-B5: Setup sub-tab persists in the URL as ?setupTab=…
-  const VALID_SETUP_TABS = new Set(["simulator", "groups", "aliases"]);
   const setupTabParam = searchParams.get("setupTab") ?? "simulator";
   const setupTab = VALID_SETUP_TABS.has(setupTabParam) ? setupTabParam : "simulator";
   const selected: Selected = (() => {
@@ -203,6 +207,13 @@ export default function PairLab() {
   // Wrap setter so every change writes back to URL. Only persist asOf when
   // the user has actually pinned it (not equal to maxMs / "now"), to avoid
   // an ever-shifting URL on every render.
+  // U1 fix: read `maxMs` via a ref inside the callback instead of listing it
+  // as a dep. Previously `setWf` recreated on every bounds refetch, which
+  // rebuilt the context `merged` value and re-rendered all six consumers
+  // (OverviewTab, PairGridTab, StrategyTab, IdealWindowHeatmap,
+  // OutOfSamplePanel, StrategyRanker) on any window-focus refetch.
+  const maxMsRef = useRef(maxMs);
+  useEffect(() => { maxMsRef.current = maxMs; }, [maxMs]);
   const setWf = useCallback(
     (next: WalkForwardState) => {
       setWfRaw(next);
@@ -210,13 +221,13 @@ export default function PairLab() {
         if (next.lens === "all") p.delete("lens");
         else p.set("lens", next.lens);
         // Persist asOf only when the user has moved it off the right edge.
-        const atLatest = Math.abs(next.asOfMs - maxMs) < 24 * 3600_000;
+        const atLatest = Math.abs(next.asOfMs - maxMsRef.current) < 24 * 3600_000;
         if (atLatest) p.delete("asOf");
         else p.set("asOf", new Date(next.asOfMs).toISOString().slice(0, 10));
       });
       savePrefs({ lens: next.lens });
     },
-    [patchParams, maxMs, savePrefs],
+    [patchParams, savePrefs],
   );
   useEffect(() => {
     setWfRaw((s) => ({

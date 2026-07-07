@@ -7,7 +7,7 @@
 // hides the true optimum.
 // ============================================================================
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -147,6 +147,27 @@ export function StrategyLab({
   const [targetPct, setTargetPct] = useState<number>(8);
   const [windowDays, setWindowDays] = useState<number>(30);
   const [tradesPerDay, setTradesPerDay] = useState<number>(detectedTpd);
+  // U4 fix: keep local defaults in sync with upstream inputs so that
+  // navigating Setup → Strategy (Radix keeps StrategyLab mounted) reflects
+  // the newly-saved sim balance and the currently-detected TPD. We only
+  // overwrite when the user is still on the previous auto value; once the
+  // user has manually edited a field we leave it alone.
+  const lastDefaultAccountSizeRef = useRef(defaultAccountSize);
+  useEffect(() => {
+    if (defaultAccountSize > 0 && accountSize === lastDefaultAccountSizeRef.current) {
+      setAccountSize(defaultAccountSize);
+    }
+    lastDefaultAccountSizeRef.current = defaultAccountSize;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultAccountSize]);
+  const lastDetectedTpdRef = useRef(detectedTpd);
+  useEffect(() => {
+    if (tradesPerDay === lastDetectedTpdRef.current) {
+      setTradesPerDay(detectedTpd);
+    }
+    lastDetectedTpdRef.current = detectedTpd;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detectedTpd]);
   const [trailingDD, setTrailingDD] = useState<boolean>(false);
   // Custom limits used only when no prop-firm profile is selected.
   const [customDailyPct, setCustomDailyPct] = useState<number>(5);

@@ -55,9 +55,16 @@ export function stddev(values: number[]): number {
 }
 
 /**
- * Downside deviation (penalises only sub-target outcomes). Divides squared
- * downside deviations by total-observation count − 1 (Bloomberg/Quantopian
- * Sortino convention).
+ * Downside deviation (penalises only sub-target outcomes).
+ *
+ * V3 note: divides by `n − 1` (sample deviation), NOT the classic
+ * Bloomberg/Quantopian `n` (population). We keep `n − 1` deliberately: our
+ * inputs are always samples from a longer trading history rather than the
+ * whole population, and the sample denominator matches how `bootstrapMeanCi`
+ * and every other CI in this module treat the same inputs. The tradeoff is
+ * a slightly inflated downside stdev for very small samples (< 10 trades),
+ * which conservatively drags Sortino toward zero and prevents the ranker
+ * from over-crediting undersampled strategies.
  */
 export function downsideStddev(values: number[], target = 0): number {
   const xs = values.filter((v) => Number.isFinite(v));
@@ -97,7 +104,10 @@ export function makeSeededRng(seedBase: number): () => number {
     seed ^= seed << 13;
     seed ^= seed >>> 17;
     seed ^= seed << 5;
-    return ((seed >>> 0) % 1_000_000) / 1_000_000;
+    // M7 fix: divide by 2^32 (power of two) instead of `% 1_000_000`, which
+    // introduced ~0.023% modulo bias because 2^32 is not divisible by 1e6.
+    // Affects every bootstrap CI, Kelly BCa, and positive-p bootstrap.
+    return (seed >>> 0) / 0x1_0000_0000;
   };
 }
 
@@ -583,6 +593,19 @@ export function numericCf(trade: any, key: string | null): number | null {
   if (v === undefined || v === null || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * V1: numericCf for distance fields (MAE ticks, ideal SL ticks, etc.) that
+ * must be non-negative by definition. A user who accidentally records a
+ * negative value gets it clamped to +abs here so downstream `ticksToPips` /
+ * quantile pipelines don't have to sprinkle `Math.abs` at every call site.
+ * Returns null for missing / non-finite values (same as `numericCf`).
+ */
+export function numericCfDistance(trade: any, key: string | null): number | null {
+  const n = numericCf(trade, key);
+  if (n == null) return null;
+  return Math.abs(n);
 }
 
 export function multiSelectCf(trade: any, key: string | null): string[] {

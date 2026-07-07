@@ -123,8 +123,21 @@ export function useRankerRiskMC({
     comfortDdPct,
     hardCapPct,
     JSON.stringify(propFirm ?? null),
+    // C4 note: this cache key hashes each strategy as
+    // (id, risk%, sample size, sum of R). Two strategies with identical
+    // (n, sum) but different individual trade outcomes collide → the MC
+    // won't re-fire on an edit that cancels out. Same tradeoff documented
+    // in `useStrategyLabSweep`'s S2.8 comment. First/last R appended below
+    // to shrink the collision surface without stringifying the whole sample.
     JSON.stringify(
-      strategies.map((s) => [s.strategyId, s.currentRiskPct, s.rSample.length, s.rSample.reduce((a, b) => a + b, 0)]),
+      strategies.map((s) => [
+        s.strategyId,
+        s.currentRiskPct,
+        s.rSample.length,
+        s.rSample.reduce((a, b) => a + b, 0),
+        s.rSample[0] ?? 0,
+        s.rSample[s.rSample.length - 1] ?? 0,
+      ]),
     ),
   ]);
 

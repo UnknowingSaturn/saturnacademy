@@ -35,10 +35,16 @@ export function classifySymbol(raw: string): SymbolClass {
   if (/^(BTC|XBT|ETH|LTC|XRP|BCH|SOL|ADA|DOT|DOGE|MATIC|POL|AVAX|BNB|LINK|UNI|SHIB|TRX|ATOM|ARB|OP|APT|NEAR|FIL|ICP|ETC|XLM|AAVE)/.test(n)) return "crypto";
   if (/(USOIL|UKOIL|WTI|BRENT|XTIUSD|XBRUSD|USOUSD|UKOUSD|CRUDE)/.test(n)) return "oil";
   if (
-    // Bare-name aliases (SP500, NDX100, ES/NQ/YM/RTY futures roots) previously
-    // fell through to "unknown" → fx5 tick 0.0001, blowing up ticks×10000×.
+    // Bare-name aliases (SP500, NDX100 etc.) previously fell through to
+    // "unknown" → fx5 tick 0.0001, blowing up ticks×10000×.
+    // V4 fix: short 2-3 char futures roots (ES, NQ, YM, RTY) are anchored
+    // with ^ + suffix rules so exotic broker symbols like `XNQUSD` or
+    // `ESGOLD` are NOT mis-classified as indices via substring match.
+    // Longer patterns keep the substring semantics (safe — no realistic FX
+    // symbol contains "NAS100" or "SPX500").
     // See src/lib/__tests__/symbolClassification.test.ts for coverage.
-    /(NAS100|NAS|US100|USTEC|NDX|NDX100|SPX|SPX500|SP500|US500|ES|NQ|YM|RTY|US30|DJ30|DJI|DAX|DE40|DE30|GER40|GER30|UK100|FTSE|JP225|JPN225|NIKKEI|N225|HK50|HSI|EU50|STOXX|AUS200|US2000|RUSSELL|FRA40|CAC|CHINA50|CN50|A50)/.test(n)
+    /(NAS100|NAS|US100|USTEC|NDX|NDX100|SPX|SPX500|SP500|US500|US30|DJ30|DJI|DAX|DE40|DE30|GER40|GER30|UK100|FTSE|JP225|JPN225|NIKKEI|N225|HK50|HSI|EU50|STOXX|AUS200|US2000|RUSSELL|FRA40|CAC|CHINA50|CN50|A50)/.test(n)
+    || /^(ES|NQ|YM|RTY)(\d|[FGHJKMNQUVXZ]\d|\.|_|-|$)/.test(n)
   ) return "index";
   if (/^[A-Z]{6}$/.test(n)) {
     return /JPY/.test(n) ? "fx3" : "fx5";

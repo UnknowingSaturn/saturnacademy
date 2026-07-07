@@ -1,54 +1,125 @@
-# SL drift "116000 t" and ideal-SL methodology
 
-## Where the 116000 comes from (root cause)
+# Pair Lab + Journal Remediation Plan
 
-The number is **wrong** — it's a symbol-classification bug, not real data.
+Two parallel deep audits (math core + data/UI + Journal) surfaced 12 confirmed bugs, 6 items requiring verification, 6 client/edge parity risks, and several stale-code cleanups. This plan groups them by risk so the highest-impact fixes land first and each change is verified before moving on.
 
-Trace (`shared/quant/symbolMapping.ts`):
+## Section 1 — Math / Simulator Correctness (highest impact)
 
-1. Your symbol is logged as **`SP500`**.
-2. `classifySymbol("SP500")` runs the index regex at line 38, which only matches `SPX`, `US500`, `SPX500`, `NAS100`, etc. The literal string `"SP500"` contains **neither `SPX` nor `US500`** as a substring, so it falls through to `"unknown"`.
-3. `defaultTickSize` for `unknown` returns `0.0001` (the FX-5 fallback at line 84).
-4. `pipSizeForSymbol` for `unknown` returns `tick * 10 = 0.001`.
-5. `slInitialMedianPips = |entry − sl_initial| / pip`. For a real ~11.6-point SP500 stop: `11.6 / 0.001 = 11,600` "pips".
-6. Display converts pips → ticks: `11,600 × 0.001 / 0.0001 = 116,000 t`. ✅ Matches your screenshot exactly.
+**M1. Edge Brownian-bridge guard mismatch** (`supabase/functions/_shared/quant/pairLabSimulator.ts:325`)
+Add the missing `proof.loggedMfe != null` guard so edge matches client. Currently the edge falls back to `reachedR` as an MFE proxy, biasing expectancy pessimistically for early-TP presets.
 
-The ideal SL (`125 t`) is stored directly by you in ticks on the custom field, so it renders correctly and doesn't go through the broken classifier path.
+**M2. Edge `buildBuckets` drops `recentN`** (`supabase/functions/_shared/quant/pairLabMath.ts:825, 842`)
+Forward `opts.recentN` into both `computeBucket` calls. Every edge-generated report with a non-default drift window is currently computing recent-win-rate / drift over the wrong window.
 
-**Fix:** extend the index regex to catch `SP500` (and add `NAS`, `NDX100`, `SPX500`, `ES`, `NQ`, `YM` bare forms that also miss today). Then add `SP500` to the per-symbol default-tick block so it gets `0.25` like `SPX500`/`US500`, matching CME.
+**M3. Prop-firm MC: target-hit fires before daily-bust check** (`src/lib/propFirmMonteCarlo.ts:198–210`)
+Reorder so the daily-loss cap is evaluated at end-of-day before returning `passed: true`. Otherwise a single trade that simultaneously hits both target and daily cap silently inflates `passProb` for simultaneous-account configs.
 
-```ts
-// classifySymbol regex — add SP500, NDX100, NAS, ES, NQ, YM, RTY
-/(NAS100|NAS|US100|USTEC|NDX|NDX100|SPX|SPX500|SP500|US500|ES|NQ|YM|RTY|US30|…)/
-// defaultTickSize — extend the SPX/US500 branch
-if (/^(SPX500|SP500|US500|ES)/.test(n)) return 0.25;
-```
+**M4. `idealSlDataDrivenPips` uses wrong buffer** (`src/lib/pairLabMath.ts:834`, `supabase/functions/_shared/quant/pairLabMath.ts:711`)
+Change `MAE_P75_WIDEN_BUFFER` (1.15) → `WINNERS_MAE_SL_BUFFER` (1.10) so the *display* value matches what the recommendation pipeline actually suggests. Prevents a phantom 5% "drift" signal in the QuantNotePanel.
 
-I'll also add a **unit test** for `classifySymbol`/`tickSizeForSymbol` over the common index aliases (`SP500`, `SPX`, `NAS`, `NAS100`, `US30`, `DAX`, `DE40`) so this regression can't silently return.
+**M5. `oosSplit.worker.ts` naive-`Date.parse`** (`src/workers/oosSplit.worker.ts:77`)
+Replace `Date.parse(params.splitIso)` with `ensureUtcMs`. Same class of TZ bug as M6 / J1 below.
 
-## Is this the most optimal way to compute the ideal SL in walk-forward?
+**M6. Edge `resolveSlAtMaePrice` naive-`Date.parse`** (`supabase/functions/_shared/quant/pairLabMath.ts:285, 289`)
+Route `exit_time` and modification `occurred_at` through `ensureUtcMs` for engine-independent behavior.
 
-Short answer: **no — the current "ideal SL" is not a walk-forward estimator at all.** It's just the median of a user-entered custom field (`Ideal Stop-Loss`) across the whole in-scope bucket (`src/lib/pairLabMath.ts:660-665, 694`). Two structural issues:
+**M7. `makeSeededRng` modulo bias** (`shared/quant/stats.ts:100`)
+Replace `((seed >>> 0) % 1_000_000) / 1_000_000` with `(seed >>> 0) / 0x1_0000_0000`. Removes bootstrap bias.
 
-1. **It's the same value at every point on the causal chart.** `estimateBucket` computes one median over `rows`, so the "ideal" line doesn't evolve as trades accumulate — no walk-forward property.
-2. **The SL-drift verdict compares planned vs. ideal medians only.** It ignores whether the ideal SL would actually have *survived* the realized MAE distribution — so "aligned" can still bleed at −1R on the tail.
+## Section 2 — Data / UI Correctness
 
-Proposed upgrade (kept behind the existing custom-field path, no schema changes):
+**U1. `setWf` recreates on every `maxMs` change → context thrash** (`src/pages/PairLab.tsx:206–219`)
+Drop `maxMs` from the `setWf` `useCallback` deps by reading `maxMs` inside `patchParams` via a ref, or by removing the clamp there and clamping inside context. Six consumers currently re-render on every bounds refetch.
 
-- **Rolling / expanding-window ideal SL.** For each trade `i` in causal order, recompute `idealSL_i` from trades `[0..i−1]` (expanding) or the last `W` (rolling, default 20). Render as a second series on the "Expectancy over time" chart so drift is visible.
-- **MAE-quantile anchor as the objective.** The best-supported causal rule is: pick the smallest SL that keeps the winners' MAE inside the stop. Formally `SL* = quantile(MAE_winners, q)` with `q ∈ {0.85, 0.90, 0.95}`, then sanity-check by replaying at that SL and picking the `q` that maximises out-of-sample `E[R]`. This is exactly the formula already documented under the panel (`SL = p90(winners' MAE) × 1.10`) but the number rendered isn't computed that way — it just reads the user field. I'll wire the real computation.
-- **Confidence gating.** Suppress the "ideal SL" pill when the winners' MAE sample `< 8` (current sweep already needs 10; matching thresholds).
-- **Keep the user's custom-field value as a manual override**, shown as a third dotted reference when present, so your journaled judgement stays visible next to the data-driven number.
+**U2. `OutOfSamplePanel` slider bounded to full history, not active window** (`src/components/pair-lab/OutOfSamplePanel.tsx:68, 197–208`)
+Compute `min`/`max` from the panel's already-filtered `trades` (or from the active `dateFrom` / `dateTo`), not from context `minMs` / `maxMs`.
 
-## Scope of changes
+**U3. `VALID_SETUP_TABS` inside component body** (`src/pages/PairLab.tsx:72`)
+Hoist to module scope alongside `VALID_TABS`. Removes latent stale-closure and the per-render Set allocation.
 
-1. `shared/quant/symbolMapping.ts` — extend index regex + per-symbol tick defaults; add tests in `src/lib/__tests__/`.
-2. `src/lib/pairLabMath.ts` — add walk-forward `idealSlSeries` (expanding + rolling) and MAE-quantile-based `idealSlDataDriven` alongside the existing custom-field median; both surfaced on `BucketStats`.
-3. `src/components/pair-lab/QuantNotePanel.tsx` — show data-driven ideal SL as primary, journaled value as secondary reference; add a small series to the expectancy chart.
-4. Tests: symbol classification, MAE-quantile ideal-SL determinism, and a fixture proving the SP500 bug is fixed (`11.6-point stop → ~46 ticks`, not 116000).
+**U4. `StrategyLab` local state stales when simulator profile updates** (`src/components/pair-lab/StrategyLab.tsx:146, 149`)
+Move `accountSize` / `tradesPerDay` to controlled state derived from prefs (or `useEffect` sync on defaults change), so navigating Setup → Strategy reflects the newly-saved balance and detected TPD.
 
-## Out of scope
+**U5. Journal `clearModelFilter` non-functional `setSearchParams`** (`src/pages/Journal.tsx:91–94`)
+Switch to functional form and construct a new `URLSearchParams` (don't mutate the closure snapshot).
 
-- No DB migrations, no changes to how the `Ideal Stop-Loss` custom field is captured.
-- No Journal changes.
-- No changes to the sweep / replay math beyond consuming the new ideal-SL value.
+**U6. Journal model-filter effect never clears on URL removal** (`src/pages/Journal.tsx:83–88`)
+Add the `else setModelFilter(null)` branch so removing `?model=` from the URL clears the badge.
+
+**U7. Dead `selectedAccountId` dep in Journal `filteredTrades` memo** (`src/pages/Journal.tsx:213`)
+Remove — account filtering is DB-side; keeping it forces a full re-filter on every account switch.
+
+**U8. `partialFillFlag.groups` == `.trades` reads awkwardly** (`src/hooks/usePairLab.tsx:139–141`, `src/components/pair-lab/tabs/OverviewTab.tsx:320`)
+Either drop the `groups` field from the type + banner, or reword the banner to a single count.
+
+## Section 3 — Journal ↔ Pair Lab Parity
+
+**J1. Naive timestamps: local vs UTC** (`src/pages/Journal.tsx:134` vs Pair Lab `ensureUtcMs`)
+Replace `parseISO(trade.entry_time)` in Journal with `ensureUtcMs` (and matching helpers in exit-time and modification-time code paths). Ensures the same trade lands on the same calendar day everywhere.
+
+**J2. Default period window mismatch** (`Journal.tsx:55–56` = "month", `PairLab.tsx:193` = "all")
+Align Journal's default to match Pair Lab's `lens=all`, OR add a "Sync with Pair Lab" affordance. Recommend defaulting Journal to "all" for consistency and letting the user narrow, since Pair Lab is the analysis surface most linked from.
+
+**J3. Open-trade counting divergence** (`Journal.tsx:325` vs `PairLab.tsx:315`)
+Add an `Open: N · Closed: M` breakdown to the Journal header so the difference from Pair Lab's "closed trades in scope" chip is explicit rather than confusing.
+
+**J4. Journal filters not URL-persisted** (`Journal.tsx:42–57`)
+Migrate `symbolFilter`, `sessionFilter`, `periodType`, `currentDate`, `customFrom`, `customTo`, `resultFilter`, `tradeTypeFilter` to `useSearchParams` — mirroring the Pair Lab pattern. Enables shareable/deep-linked Journal views and back-button behavior.
+
+## Section 4 — Verification Items (investigate then decide)
+
+**V1.** `numericCf` accepting negatives — add a `numericCfDistance` wrapper that floors at 0, replace scattered `Math.abs` at call sites. (`shared/quant/stats.ts:581`)
+
+**V2.** `computeBucket` uses `rows` (not `closed`) for MFE/MAE/idealSL distributions — confirm intent; if unintentional, switch to `closed` to prevent open-trade excursions from biasing TP grids. (`src/lib/pairLabMath.ts:612, 640, 671`)
+
+**V3.** `downsideStddev` denominator — align to `n` (Bloomberg/Quantopian) OR document `n−1` choice. (`shared/quant/stats.ts:65`)
+
+**V4.** `classifySymbol` substring match — anchor `NQ`/`ES`/`YM`/`RTY` patterns so `XNQUSD` / `ESGOLD` are not mis-classified as indices. (`shared/quant/symbolMapping.ts:41`)
+
+**V5.** Walk-forward OOS guard — add `oosRows.length >= DATA_TIER_INSUFFICIENT_N` check before `oosPairs.length >= 5`. (`src/lib/pairLabMath.ts:1057`, edge twin)
+
+**V6.** `useUpdatePairLabPrefs` optimistic-revert races on rapid successive edits — capture `prev` inside the flush closure, not at call time. (`src/hooks/useSimulatorProfile.tsx:169, 203`)
+
+**V7.** `IdealWindowHeatmap` `hours` / `minN` in localStorage vs URL — decide policy (currently inconsistent with "all filters in URL" contract). (`src/components/pair-lab/IdealWindowHeatmap.tsx:42–62`)
+
+## Section 5 — Parity Contracts (edge ↔ client)
+
+**P1.** Extend edge `BucketReport` type to include `slSweep`, `eventsRFallbackCount`, `entryEfficiencyMedian/P75`, `stopLocationQualityMedian`, `featuresCount`, `rawKellyClipped`, `rawKellyPct`, `bindingConstraint`, `edgeVsBaseline` — mirroring client. Prevents silent-null in AI report consumers.
+
+**P2.** Re-export `bootstrapKellyCiBCa` from edge `_shared/pairLabMath.ts` for parity with `src/lib/pairLabMath.ts:57`.
+
+**P3.** Expose `trailCapture` on `PresetReplayResult` (both twins) so audit consumers can see which fraction was applied.
+
+## Section 6 — Stale Code Cleanup
+
+**C1.** Delete stale `_trail`-parameter comment at `src/lib/pairLabMath.ts:1059–1062`.
+**C2.** Add tracking issue reference OR raise `TRAIL_CAPTURE_FALLBACK` per-asset-class TODO in `shared/quant/config.ts:142` (leave code, just add issue link).
+**C3.** Delete `useOptionalPairLabWalkForward` tombstone comment at `src/contexts/PairLabWalkForwardContext.tsx:73`.
+**C4.** `useRankerRiskMC.ts:127` hash — add a note explaining sum-collision risk (parity with `useStrategyLabSweep`'s S2.8 comment). Optionally strengthen hash to include first/last R values.
+
+## Section 7 — Regression Tests
+
+Add unit tests colocated with the fixed modules:
+
+- `pairLabSimulator.test.ts` — assert edge and client match on `loggedMfe == null && loggedMae != null` (covers M1).
+- `pairLabMath.test.ts` — `buildBuckets` with `recentN: 20` propagates to `computeBucket` drift window (covers M2).
+- `propFirmMonteCarlo.test.ts` — construct a scenario where target and daily cap hit on the same trade; assert failed=true (covers M3).
+- `journalTimezone.test.ts` — assert Journal and Pair Lab classify a `2024-01-31T23:00:00` naive timestamp into the same calendar day for a UTC-5 viewer (covers J1 + M5 + M6).
+- `symbolClassification.test.ts` — extend to assert `XNQUSD` is FX, not index (covers V4 once decided).
+
+## Section 8 — Execution Order
+
+Ship in three review-sized batches:
+
+1. **Math correctness** — M1–M7 + tests. Highest impact, no UI churn.
+2. **Journal parity + UI** — J1–J4, U1–U8. Ship together because J1 touches paths U5/U6/U7 already edit.
+3. **Verification + parity + cleanup** — Section 4 decisions, P1–P3, C1–C4.
+
+Deferred (not in this plan): the .lovable/plan.md doc will be updated after each batch lands so future audits can diff cleanly.
+
+## Notes for the reviewer
+
+- No schema migrations required — all changes are in TS.
+- All edge functions changed (`_shared/pairLabMath.ts`, `_shared/pairLabSimulator.ts`) will need redeploy.
+- Batch 2 changes the *default* Journal window; users with bookmarked Journal URLs are unaffected because Batch 2 also adds URL-persisted filters.
+- No user-visible strings change outside of the Journal open/closed breakdown chip and the QuantNotePanel drift label.

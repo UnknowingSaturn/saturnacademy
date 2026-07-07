@@ -70,5 +70,4 @@ export function usePairLabWalkForward(): PairLabWalkForwardValue {
   return v;
 }
 
-// Audit §3.5: `useOptionalPairLabWalkForward` removed — zero consumers.
 

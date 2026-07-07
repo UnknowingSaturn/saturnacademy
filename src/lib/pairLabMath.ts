@@ -609,7 +609,14 @@ function computeBucket(
     .filter((v): v is number => v != null && Number.isFinite(v) && v < 0)
     .map((v) => Math.abs(v));
 
-  const mfes = rows.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
+  // V2 fix: MFE/MAE/idealSL distributions must be computed over `closed`
+  // trades only. Using `rows` (which includes unrealized ideas / paper /
+  // missed / dismissed / zero-PnL rows when `includeUnrealized=true`) let
+  // interim excursion values from open ideas bleed into the TP grid /
+  // quantiles that drive the SL recommendation. `mfeRPairsForTp1` below
+  // already correctly filters unrealized rows — this brings the raw
+  // distribution accessors into line.
+  const mfes = closed.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
   // Paired (mfeR, rActual) used by computeTp1Star for empirical miss-cost.
   // B-fix: drop unrealized rows (idea / paper / missed / dismissed / zero-PnL
   // no-mod) so `includeUnrealized=true` doesn't lower the hit-rate denominator
@@ -636,7 +643,7 @@ function computeBucket(
   /** Per-trade tuples used by the SL sweep — needs MAE-pips, planned SL-pips, and actual R. */
   const sweepRows: Array<{ maePips: number; slPips: number; rActual: number }> = [];
   const maesTicks: number[] = [];
-  for (const t of rows) {
+  for (const t of closed) {
     const maeTicks = numericCf(t as any, keys.mae);
     if (maeTicks == null) continue;
     maesTicks.push(Math.abs(maeTicks));
@@ -667,8 +674,9 @@ function computeBucket(
   }
 
   // Ideal SL is stored in TICKS. Convert to pips for the SL recommendation.
+  // V2 fix: iterate over `closed`, not `rows` (see MFE note above).
   const idealSls: number[] = [];
-  for (const t of rows) {
+  for (const t of closed) {
     const idealTicks = numericCf(t as any, keys.idealStopLoss);
     if (idealTicks == null || !t.symbol) continue;
     idealSls.push(Math.abs(ticksToPips(t.symbol, idealTicks)));
@@ -830,8 +838,12 @@ function computeBucket(
         return { idealSlDataDrivenPips: null, idealSlDataDrivenN: null };
       }
       const q = quantile(winnersMaePips, WINNERS_MAE_SL_QUANTILE);
+      // M4 fix: use WINNERS_MAE_SL_BUFFER (1.10) so the *displayed* data-
+      // driven ideal SL matches what the recommendation pipeline actually
+      // suggests for the same population (see line ~1114 below). Previously
+      // 1.15 produced a phantom 5% "drift" signal in QuantNotePanel.
       return {
-        idealSlDataDrivenPips: q != null ? q * MAE_P75_WIDEN_BUFFER : null,
+        idealSlDataDrivenPips: q != null ? q * WINNERS_MAE_SL_BUFFER : null,
         idealSlDataDrivenN: winnersMaePips.length,
       };
     })(),
@@ -1054,12 +1066,14 @@ export function runWalkForward(
 
   const isPairs = collectMfeRPairs(isRows, keys);
   const oosPairs = collectMfeRPairs(oosRows, keys);
+  // V5: the pairs floor (5) alone lets a bucket with 28 total closed trades
+  // trigger walk-forward whenever those 8 OOS rows happen to have 5+ MFE
+  // pairs. `oosRows.length < 10` already guards this, so V5 is a no-op today
+  // — but keep the explicit check for clarity in the report line below.
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
 
-  // Walk-forward must not estimate trailCapture on the OOS slice. We no
-  // longer pass `trail` into `scoreTp`/`pickBestTp` (dead parameter removed),
-  // but `pickBestTp`'s signature still accepts it as `_trail` for API
-  // stability — passing 0 is a no-op.
+  // C1 cleanup: prior comment claimed `pickBestTp` still accepted `_trail`
+  // for API stability — it does not; the signature is `(pairs)` only.
   const isPick = pickBestTp(isPairs);
   if (!isPick) return null;
   const inSampleE = isPick.expectancy;
