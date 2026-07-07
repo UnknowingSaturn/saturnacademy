@@ -120,34 +120,53 @@ serve(async (req) => {
       });
     }
 
-    // ===== Deal-level dedup for close/partial_close =====
-    // EAs sometimes emit BOTH a `partial_close` and a `close` event for the
-    // same MT5 deal (different idempotency keys). Without this guard the
-    // processor double-aggregates and can overwrite a prior partial's PnL.
+    // ===== Deal-level dedup for open/close/partial_close =====
+    // EAs sometimes emit the SAME broker deal from multiple terminals or
+    // during history_sync retro-fills, each carrying a distinct
+    // `idempotency_key` but the same `deal_id`. Without this guard the
+    // processor either double-aggregates a close (overwriting a prior
+    // partial's PnL) or, for opens, spuriously reopens a legitimately-closed
+    // trade when the entry branch's snapshot-repair path fires.
+    //
+    // Guarded logical types: open, entry (pre-enum-map alias), close,
+    // partial_close, exit. history_sync events are guarded by their
+    // `original_event_type` so retro-fills are treated identically to live.
     const tradeTicketEarly = payload.position_id || payload.ticket;
     const dealId = payload.deal_id;
+    const dedupEventType = payload.event_type === "history_sync"
+      ? payload.original_event_type
+      : payload.event_type;
+    const openLikeTypes = new Set(["open", "entry"]);
     const closeLikeTypes = new Set(["close", "partial_close", "exit"]);
+    const isOpenLike = dedupEventType ? openLikeTypes.has(dedupEventType) : false;
+    const isCloseLike = dedupEventType ? closeLikeTypes.has(dedupEventType) : false;
     if (
       dealId &&
       Number(dealId) !== 0 &&
       tradeTicketEarly &&
-      closeLikeTypes.has(payload.event_type)
+      (isOpenLike || isCloseLike)
     ) {
+      const matchTypes = isOpenLike ? ["open"] : ["close", "partial_close"];
       const { data: dupDeal } = await supabase
         .from("events")
         .select("id, event_type")
-        .eq("ticket", tradeTicketEarly)
         .eq("account_id", account.id)
+        .eq("ticket", tradeTicketEarly)
         .filter("raw_payload->>deal_id", "eq", String(dealId))
-        .in("event_type", ["close", "partial_close"])
+        .in("event_type", matchTypes)
         .limit(1)
         .maybeSingle();
       if (dupDeal) {
-        console.log("Duplicate deal-level close event:", { ticket: tradeTicketEarly, deal_id: dealId });
+        console.log("Duplicate deal-level event:", {
+          ticket: tradeTicketEarly,
+          deal_id: dealId,
+          incoming: dedupEventType,
+          existing: dupDeal.event_type,
+        });
         return json({
           status: "duplicate",
           event_id: dupDeal.id,
-          message: "Close event already recorded for this deal_id",
+          message: `Event with deal_id=${dealId} already recorded for this position`,
         });
       }
     }
