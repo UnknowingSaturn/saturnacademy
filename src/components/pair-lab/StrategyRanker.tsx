@@ -121,8 +121,9 @@ function StrategyDetailPanel({ result, riskPctOverride }: { result: ReplayResult
       ? riskPctOverride
       : s.riskPct;
   const scale = result.appliedSlScaleMedian;
-  const slPips = result.appliedSlPipsMedian;
-  const slRange = result.appliedSlPipsRange;
+  // appliedSlPipsMedian / appliedSlPipsRange intentionally not read here:
+  // the cross-symbol median mixes FX pips with index points and isn't
+  // actionable. UI now consumes `result.appliedSlBySymbol` instead.
   const isActual = !!s.useActualOutcome;
   const { unit: distanceUnit } = useDistanceUnit();
   const ciBCa = result.expectancyRCiBCa;
@@ -142,37 +143,64 @@ function StrategyDetailPanel({ result, riskPctOverride }: { result: ReplayResult
               <span>{result.slRuleLabel}</span>
             )}
           </div>
-          <div className="text-xs font-mono-numbers text-muted-foreground space-y-0.5">
-            {scale != null && (
+          <div className="text-xs font-mono-numbers text-muted-foreground space-y-1.5">
+            {result.appliedSlBySymbol && result.appliedSlBySymbol.length > 0 ? (
+              <>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80 font-medium not-italic">
+                  Ideal stop by symbol (median · IQR)
+                </div>
+                <table className="w-full text-[11px]">
+                  <thead className="text-muted-foreground/70">
+                    <tr>
+                      <th className="text-left font-normal pr-2">Symbol</th>
+                      <th className="text-right font-normal pr-2">n</th>
+                      <th className="text-right font-normal pr-2">Median</th>
+                      <th className="text-right font-normal pr-2">IQR</th>
+                      <th className="text-right font-normal" title="Median applied SL divided by each trade's original SL. 1.00× = original, 0.50× = half as wide.">vs orig.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.appliedSlBySymbol.map((row) => {
+                      const isOther = row.symbol.startsWith("Other (");
+                      const symForFormat = isOther ? null : row.symbol;
+                      return (
+                        <tr key={row.symbol}>
+                          <td className="pr-2 text-foreground">{row.symbol}</td>
+                          <td className="pr-2 text-right">{row.n}</td>
+                          <td className="pr-2 text-right text-foreground font-semibold">
+                            {isOther
+                              ? "—"
+                              : formatDistance(symForFormat, row.medianNative, row.unit, distanceUnit, 1)}
+                          </td>
+                          <td className="pr-2 text-right">
+                            {isOther
+                              ? "—"
+                              : `${formatDistance(symForFormat, row.iqrNative[0], row.unit, distanceUnit, 1)} – ${formatDistance(symForFormat, row.iqrNative[1], row.unit, distanceUnit, 1)}`}
+                          </td>
+                          <td className="text-right">{row.medianScale.toFixed(2)}×</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="text-[10px] text-muted-foreground/70 not-italic">
+                  Each row is in its symbol's own unit (pips for FX, points for indices) — no cross-symbol averaging. Symbols with &lt;3 eligible trades are omitted.
+                </div>
+              </>
+            ) : scale != null ? (
               <div>
-                Median applied:{" "}
-                <span
-                  className="text-foreground font-semibold"
-                  title="Ratio of applied SL to each trade's original stop. 1.00R = original stop, 1.15R = 15% wider, 0.60R = 40% tighter. Cross-symbol comparable."
-                >
-                  {scale.toFixed(2)}R
-                </span>{" "}
-                <span>of original</span>
-              </div>
-            )}
-            {slPips != null && (
-              <div>
-                Cross-symbol median:{" "}
-                <span className="text-foreground">
-                  {formatDistance(null, slPips, "pips", distanceUnit, 1)}/pts
-                </span>
-                {slRange && (
-                  <span> · IQR {slRange[0].toFixed(1)}–{slRange[1].toFixed(1)}</span>
-                )}
-                <span className="text-[10px] block text-muted-foreground/70">
-                  (approximate — real SL varies per symbol; use R above for a true measure)
+                Applied SL ≈{" "}
+                <span className="text-foreground font-semibold">{scale.toFixed(2)}×</span>{" "}
+                <span>your original stop</span>
+                <span className="text-[10px] block text-muted-foreground/70 not-italic">
+                  (pooled across symbols — need ≥3 trades in one symbol for a native-unit breakdown)
                 </span>
               </div>
-            )}
-            {scale == null && slPips == null && (
+            ) : (
               <span>SL distance unavailable (missing entry/SL price).</span>
             )}
           </div>
+
         </div>
         {/* Take profits */}
         <div className="space-y-1.5">

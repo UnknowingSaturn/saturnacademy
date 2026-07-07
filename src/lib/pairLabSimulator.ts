@@ -27,7 +27,7 @@ import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
 import { bootstrapMeanCiBCa, pathProbTpFirst, resolveTpFirstProb, ensureUtcMs, type ReplayMode } from "../../shared/quant/stats";
 export type { ReplayMode } from "../../shared/quant/stats";
-import { pipSizeForSymbol, ticksToPips } from "@/lib/symbolMapping";
+import { pipSizeForSymbol, ticksToPips, pipLabelForSymbol } from "@/lib/symbolMapping";
 import {
   MAE_P75_WIDEN_BUFFER,
   TRAIL_CAPTURE_FALLBACK,
@@ -94,6 +94,21 @@ export interface AppliedTpLeg {
   source: AtRSource;
 }
 
+export interface AppliedSlSymbolStat {
+  /** Canonical symbol (uppercased) or "Other (k symbols)" for the collapsed remainder row. */
+  symbol: string;
+  /** "pips" for FX/metals/crypto/oil, "points" for indices/crypto. Same rule as pipLabelForSymbol. */
+  unit: "pips" | "points";
+  /** Number of eligible trades in this symbol under the preset. */
+  n: number;
+  /** Median applied SL distance in `unit`. NaN on the "Other" collapse row. */
+  medianNative: number;
+  /** IQR (25th, 75th) of applied SL in `unit`. Both NaN on the "Other" collapse row. */
+  iqrNative: [number, number];
+  /** Median of applied_SL / original_SL. 1.0 = original, <1 tighter, >1 wider. Dimensionless. */
+  medianScale: number;
+}
+
 export interface ReplayResult {
   strategy: Strategy;
   n: number;
@@ -146,6 +161,16 @@ export interface ReplayResult {
    * display on multi-symbol buckets.
    */
   appliedSlScaleMedian: number | null;
+  /**
+   * Per-symbol robust breakdown of the applied SL. This is what the UI shows
+   * because a cross-symbol pips/points median is meaningless (mixes FX pips
+   * with index points). Each row is in the symbol's native unit and derived
+   * from median + IQR only — no mean, no std-dev.
+   * Symbols with fewer than 3 eligible trades are dropped from the table;
+   * excess symbols beyond the display cap collapse into one "Other" row.
+   * `null` when no preset produced a per-trade SL (e.g. useActualOutcome).
+   */
+  appliedSlBySymbol: AppliedSlSymbolStat[] | null;
   /** Resolved TP ladder. For adaptive presets, atR reflects the bucket statistic. */
   appliedTpLadder: AppliedTpLeg[];
   /** Plain-English label for the SL rule. */
@@ -204,6 +229,65 @@ function slDistancePips(t: Trade): number | null {
   const distance = Math.abs(t.entry_price - t.sl_initial);
   if (!(distance > 0)) return null;
   return distance / pip;
+}
+
+/**
+ * Group per-trade applied-SL samples by symbol and return robust medians in
+ * each symbol's native unit. FX pips and index points are never mixed.
+ *
+ * - Requires ≥3 trades per symbol; symbols below the floor are dropped.
+ * - Returns `null` when no symbol clears the floor (UI falls back to a
+ *   scale-only sentence, which is the only cross-symbol safe summary).
+ * - Beyond `maxSymbols` rows, the tail collapses into a single "Other" row
+ *   that reports total n and a median-of-medians scale (native unit fields
+ *   are NaN because they'd be unit-mixed).
+ */
+export function computeAppliedSlBySymbol(
+  items: Array<{ symbol: string | null | undefined; slPips: number | null | undefined; slScale: number | null | undefined }>,
+  maxSymbols = 8,
+  minPerSymbol = 3,
+): AppliedSlSymbolStat[] | null {
+  const by = new Map<string, { pips: number[]; scale: number[] }>();
+  for (const it of items) {
+    const sym = (it.symbol || "").toUpperCase();
+    if (!sym) continue;
+    if (it.slPips == null || !Number.isFinite(it.slPips) || it.slPips <= 0) continue;
+    if (it.slScale == null || !Number.isFinite(it.slScale) || it.slScale <= 0) continue;
+    let g = by.get(sym);
+    if (!g) { g = { pips: [], scale: [] }; by.set(sym, g); }
+    g.pips.push(it.slPips);
+    g.scale.push(it.slScale);
+  }
+  if (by.size === 0) return null;
+  const rows: AppliedSlSymbolStat[] = [];
+  for (const [symbol, g] of by) {
+    if (g.pips.length < minPerSymbol) continue;
+    rows.push({
+      symbol,
+      unit: pipLabelForSymbol(symbol),
+      n: g.pips.length,
+      medianNative: quantile(g.pips, 0.5),
+      iqrNative: [quantile(g.pips, 0.25), quantile(g.pips, 0.75)],
+      medianScale: quantile(g.scale, 0.5),
+    });
+  }
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => (b.n - a.n) || a.symbol.localeCompare(b.symbol));
+  if (rows.length > maxSymbols) {
+    const kept = rows.slice(0, maxSymbols);
+    const rest = rows.slice(maxSymbols);
+    const totalN = rest.reduce((s, r) => s + r.n, 0);
+    kept.push({
+      symbol: `Other (${rest.length} symbols)`,
+      unit: "pips",
+      n: totalN,
+      medianNative: Number.NaN,
+      iqrNative: [Number.NaN, Number.NaN],
+      medianScale: quantile(rest.map((r) => r.medianScale), 0.5),
+    });
+    return kept;
+  }
+  return rows;
 }
 
 /** MAE-ticks → MAE in R-multiples of the original SL. Null when SL/entry missing. */
@@ -654,6 +738,16 @@ function buildResult(
     .filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
   const appliedSlScaleMedian = slScaleSamples.length ? quantile(slScaleSamples, 0.5) : null;
 
+  // Per-symbol robust breakdown. Actionable at trade time; no unit-mixing
+  // across FX/indices. See AppliedSlSymbolStat docstring.
+  const appliedSlBySymbol = computeAppliedSlBySymbol(
+    replayed.map((x) => ({
+      symbol: x.trade.symbol,
+      slPips: x.slPips,
+      slScale: x.slScale,
+    })),
+  );
+
   // Composite score is set later by the ranker orchestrator (needs cross-preset
   // context to compute the drawdown/sample penalties consistently). Left null
   // when computed from a raw replayBucket() call.
@@ -689,6 +783,7 @@ function buildResult(
     appliedSlPipsMedian,
     appliedSlPipsRange,
     appliedSlScaleMedian,
+    appliedSlBySymbol,
     appliedTpLadder,
     slRuleLabel: SL_RULE_LABELS[strategy.slRule],
     runnerLabel: RUNNER_LABELS[strategy.exitRule.runner],

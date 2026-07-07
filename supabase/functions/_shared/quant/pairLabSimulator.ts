@@ -6,7 +6,7 @@
 //     `expectancyROnIntersection` for the report pipeline's bias-aware deltas.
 
 import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
-import { pipSizeForSymbol, ticksToPips } from "./symbolMapping.ts";
+import { pipSizeForSymbol, ticksToPips, pipLabelForSymbol } from "./symbolMapping.ts";
 import { MAE_P75_WIDEN_BUFFER, TRAIL_CAPTURE_FALLBACK } from "../../../../shared/quant/config.ts";
 import { pathProbTpFirst, resolveTpFirstProb, type ReplayMode } from "../../../../shared/quant/stats.ts";
 
@@ -364,6 +364,15 @@ export interface PresetReplayResult {
   appliedSlPipsMedian: number | null;
   /** PR-5 · M7 parity — median applied SL scale (1.0 = original, <1 tighter, >1 wider). */
   appliedSlScaleMedian: number | null;
+  /** Per-symbol robust SL breakdown. Mirrors the client's AppliedSlSymbolStat. */
+  appliedSlBySymbol: Array<{
+    symbol: string;
+    unit: "pips" | "points";
+    n: number;
+    medianNative: number;
+    iqrNative: [number, number];
+    medianScale: number;
+  }> | null;
 }
 
 export function replayAllPresets(
@@ -382,6 +391,7 @@ export function replayAllPresets(
     let reachedSum = 0, reachedCount = 0;
     const slPipsSamples: number[] = [];
     const slScaleSamples: number[] = [];
+    const perSymbol = new Map<string, { pips: number[]; scale: number[] }>();
     for (const t of all) {
       const proof = extractProof(t, keys);
       const out = replayOneTrade(strategy, t, proof, bucket, replayMode);
@@ -389,6 +399,14 @@ export function replayAllPresets(
         outcomes.set(t.id, out.r);
         if (out.slPips != null && Number.isFinite(out.slPips)) slPipsSamples.push(out.slPips);
         if (Number.isFinite(out.slScale)) slScaleSamples.push(out.slScale);
+        if (out.slPips != null && Number.isFinite(out.slPips) && out.slPips > 0
+            && Number.isFinite(out.slScale) && out.slScale > 0 && t.symbol) {
+          const sym = String(t.symbol).toUpperCase();
+          let g = perSymbol.get(sym);
+          if (!g) { g = { pips: [], scale: [] }; perSymbol.set(sym, g); }
+          g.pips.push(out.slPips);
+          g.scale.push(out.slScale);
+        }
         if (Number.isFinite(proof.reachedR)) {
           reachedSum += proof.reachedR;
           reachedCount += 1;
@@ -397,13 +415,13 @@ export function replayAllPresets(
         reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
       }
     }
-    return { strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples };
+    return { strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples, perSymbol };
   });
 
   const currentRow = perPreset.find((p) => p.strategy.id === "current");
   const currentOutcomes = currentRow?.outcomes ?? new Map<string, number>();
 
-  return perPreset.map(({ strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples }) => {
+  return perPreset.map(({ strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples, perSymbol }) => {
     const rs = Array.from(outcomes.values());
     const n = rs.length;
     const totalR = rs.reduce((s, v) => s + v, 0);
@@ -447,6 +465,44 @@ export function replayAllPresets(
       biasWarning,
       appliedSlPipsMedian: slPipsSamples.length ? quantile(slPipsSamples, 0.5) : null,
       appliedSlScaleMedian: slScaleSamples.length ? quantile(slScaleSamples, 0.5) : null,
+      appliedSlBySymbol: buildAppliedSlBySymbol(perSymbol),
     };
   });
+}
+
+function buildAppliedSlBySymbol(
+  perSymbol: Map<string, { pips: number[]; scale: number[] }>,
+  maxSymbols = 8,
+  minPerSymbol = 3,
+): PresetReplayResult["appliedSlBySymbol"] {
+  if (perSymbol.size === 0) return null;
+  const rows: NonNullable<PresetReplayResult["appliedSlBySymbol"]> = [];
+  for (const [symbol, g] of perSymbol) {
+    if (g.pips.length < minPerSymbol) continue;
+    rows.push({
+      symbol,
+      unit: pipLabelForSymbol(symbol),
+      n: g.pips.length,
+      medianNative: quantile(g.pips, 0.5),
+      iqrNative: [quantile(g.pips, 0.25), quantile(g.pips, 0.75)],
+      medianScale: quantile(g.scale, 0.5),
+    });
+  }
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => (b.n - a.n) || a.symbol.localeCompare(b.symbol));
+  if (rows.length > maxSymbols) {
+    const kept = rows.slice(0, maxSymbols);
+    const rest = rows.slice(maxSymbols);
+    const totalN = rest.reduce((s, r) => s + r.n, 0);
+    kept.push({
+      symbol: `Other (${rest.length} symbols)`,
+      unit: "pips",
+      n: totalN,
+      medianNative: Number.NaN,
+      iqrNative: [Number.NaN, Number.NaN],
+      medianScale: quantile(rest.map((r) => r.medianScale), 0.5),
+    });
+    return kept;
+  }
+  return rows;
 }
