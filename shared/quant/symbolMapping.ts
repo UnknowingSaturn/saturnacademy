@@ -35,7 +35,10 @@ export function classifySymbol(raw: string): SymbolClass {
   if (/^(BTC|XBT|ETH|LTC|XRP|BCH|SOL|ADA|DOT|DOGE|MATIC|POL|AVAX|BNB|LINK|UNI|SHIB|TRX|ATOM|ARB|OP|APT|NEAR|FIL|ICP|ETC|XLM|AAVE)/.test(n)) return "crypto";
   if (/(USOIL|UKOIL|WTI|BRENT|XTIUSD|XBRUSD|USOUSD|UKOUSD|CRUDE)/.test(n)) return "oil";
   if (
-    /(NAS100|US100|USTEC|NDX|SPX|US500|US30|DJ30|DJI|DAX|DE40|DE30|GER40|GER30|UK100|FTSE|JP225|JPN225|NIKKEI|N225|HK50|HSI|EU50|STOXX|AUS200|US2000|RUSSELL|FRA40|CAC|CHINA50|CN50|A50)/.test(n)
+    // Bare-name aliases (SP500, NDX100, ES/NQ/YM/RTY futures roots) previously
+    // fell through to "unknown" → fx5 tick 0.0001, blowing up ticks×10000×.
+    // See src/lib/__tests__/symbolClassification.test.ts for coverage.
+    /(NAS100|NAS|US100|USTEC|NDX|NDX100|SPX|SPX500|SP500|US500|ES|NQ|YM|RTY|US30|DJ30|DJI|DAX|DE40|DE30|GER40|GER30|UK100|FTSE|JP225|JPN225|NIKKEI|N225|HK50|HSI|EU50|STOXX|AUS200|US2000|RUSSELL|FRA40|CAC|CHINA50|CN50|A50)/.test(n)
   ) return "index";
   if (/^[A-Z]{6}$/.test(n)) {
     return /JPY/.test(n) ? "fx3" : "fx5";
@@ -70,8 +73,8 @@ function defaultTickSize(raw: string): number {
   // is silently 10–100× off until the user sets a Symbol Groups override.
   if (n.startsWith("BTC") || n.startsWith("XBT")) return 1.0;     // BTCUSD: most brokers 1.0 (some 0.10)
   if (n.startsWith("ETH")) return 0.1;                            // ETHUSD: most brokers 0.10
-  if (/^(NAS100|US100|USTEC|NDX)/.test(n)) return 0.25;           // CME-quoted Nasdaq
-  if (/^(SPX500|US500)/.test(n)) return 0.25;                      // CME-quoted S&P
+  if (/^(NAS100|NAS|NDX100|US100|USTEC|NDX)/.test(n)) return 0.25;  // CME-quoted Nasdaq
+  if (/^(SPX500|SP500|US500|ES)/.test(n)) return 0.25;               // CME-quoted S&P
   if (/^(US30|DJ30|DJI)/.test(n)) return 1.0;                      // Dow
   switch (classifySymbol(raw)) {
     case "fx5": return 0.00001;

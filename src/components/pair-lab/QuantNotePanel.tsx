@@ -225,7 +225,24 @@ export function QuantNotePanel({ bucket, baseline, propFirm }: QuantNotePanelPro
             <div className="text-[10px] text-muted-foreground">
               planned → ideal ({distanceUnit === "ticks" ? "ticks" : (b.slUnit ?? nativeUnitForSymbol(b.key.symbol))})
             </div>
+            {b.idealSlDataDrivenPips != null && (
+              <div className="text-[10px] text-muted-foreground mt-0.5">
+                data-driven:{" "}
+                <span className="font-mono-numbers text-foreground/80">
+                  {formatDistance(
+                    b.key.symbol,
+                    b.idealSlDataDrivenPips,
+                    b.slUnit ?? nativeUnitForSymbol(b.key.symbol),
+                    distanceUnit,
+                  )}
+                </span>{" "}
+                <span className="opacity-70">
+                  (winners' MAE p90 × 1.15, N={b.idealSlDataDrivenN})
+                </span>
+              </div>
+            )}
           </div>
+
         </div>
       )}
 
