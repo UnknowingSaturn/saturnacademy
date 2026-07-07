@@ -124,10 +124,133 @@ function topReasons(reasons: Record<string, number>, k = 3): Array<[string, numb
 }
 
 // ---------------------------------------------------------------------------
+// Suggested-risk + Verdict cells (risk-Monte-Carlo consumers)
+// ---------------------------------------------------------------------------
+
+import type { StrategyRiskResult } from "@/workers/rankerRiskMC.worker";
+import type { UseRankerRiskMCState } from "@/hooks/useRankerRiskMC";
+
+interface RiskCellProps {
+  mc: UseRankerRiskMCState;
+  strategyId: string;
+  currentRiskPct: number;
+  insufficient: boolean;
+}
+
+/** Ratio of suggested vs current risk → arrow icon. */
+function ratioArrow(ratio: number) {
+  if (ratio >= 1.15) return <ArrowUp className="w-3 h-3 inline text-emerald-600 dark:text-emerald-400" />;
+  if (ratio <= 0.85) return <ArrowDown className="w-3 h-3 inline text-amber-600 dark:text-amber-400" />;
+  return <Minus className="w-3 h-3 inline text-muted-foreground" />;
+}
+
+function SuggestedRiskCell({ mc, strategyId, currentRiskPct, insufficient }: RiskCellProps) {
+  if (insufficient) return <span className="text-muted-foreground text-xs">—</span>;
+  const res = mc.results[strategyId];
+  if (!res && mc.loading) {
+    return <span className="text-[10px] text-muted-foreground animate-pulse">simulating…</span>;
+  }
+  if (!res || !res.suggested) {
+    return (
+      <span className="text-xs text-muted-foreground" title="No risk % keeps the simulated drawdown within your comfort zone.">
+        —
+      </span>
+    );
+  }
+  const ratio = res.suggested.riskPct / Math.max(0.01, currentRiskPct);
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="font-semibold text-foreground">{res.suggested.riskPct.toFixed(2)}%</span>
+      {ratioArrow(ratio)}
+    </span>
+  );
+}
+
+interface Verdict {
+  label: string;
+  className: string;
+  tooltip: string;
+}
+
+function computeVerdict(res: StrategyRiskResult | undefined, currentRiskPct: number): Verdict | null {
+  if (!res) return null;
+  if (!res.suggested) {
+    return {
+      label: "Too fat-tailed for a safe risk",
+      className: "bg-muted text-muted-foreground border-border",
+      tooltip:
+        "No simulated risk % keeps the peak drawdown inside your comfort setting. Loosen the setting or avoid this strategy.",
+    };
+  }
+  const ratio = res.suggested.riskPct / Math.max(0.01, currentRiskPct);
+  const suggested = res.suggested.riskPct.toFixed(2);
+  if (ratio >= 0.85 && ratio <= 1.15) {
+    return {
+      label: "You're dialed in",
+      className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
+      tooltip:
+        `Your current risk (${currentRiskPct.toFixed(2)}%) is within 15% of the growth-optimal (${suggested}%). No change needed.`,
+    };
+  }
+  if (ratio > 1.15) {
+    return {
+      label: `You could risk more — up to ${suggested}%`,
+      className: "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30",
+      tooltip:
+        `This strategy tolerated ${suggested}% risk in simulation while staying inside your drawdown comfort. Raising risk grows the account faster; only do so if your emotional bandwidth matches.`,
+    };
+  }
+  if (ratio >= 0.5) {
+    return {
+      label: `Slightly too hot — try ${suggested}%`,
+      className: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
+      tooltip:
+        `At ${currentRiskPct.toFixed(2)}% the simulated peak drawdown crossed your comfort zone. Cutting to ${suggested}% keeps the edge while respecting your DD limit.`,
+    };
+  }
+  return {
+    label: `Too risky — cut to ${suggested}%`,
+    className: "bg-destructive/15 text-destructive border-destructive/30",
+    tooltip:
+      `At ${currentRiskPct.toFixed(2)}%, this strategy's simulated peak drawdown is well beyond your comfort zone. The simulator's safe ceiling is ${suggested}%.`,
+  };
+}
+
+function VerdictCell({ mc, strategyId, currentRiskPct, insufficient }: RiskCellProps) {
+  if (insufficient) return <span className="text-muted-foreground text-xs">—</span>;
+  const res = mc.results[strategyId];
+  if (!res && mc.loading) {
+    return <span className="text-[10px] text-muted-foreground animate-pulse">simulating…</span>;
+  }
+  const v = computeVerdict(res, currentRiskPct);
+  if (!v) return <span className="text-muted-foreground text-xs">—</span>;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge className={`text-[10px] cursor-help ${v.className}`}>{v.label}</Badge>
+      </TooltipTrigger>
+      <TooltipContent side="left" className="max-w-xs text-xs leading-relaxed">
+        {v.tooltip}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Row detail panel
 // ---------------------------------------------------------------------------
 
-function StrategyDetailPanel({ result, riskPctOverride }: { result: ReplayResult; riskPctOverride?: number }) {
+function StrategyDetailPanel({
+  result,
+  riskPctOverride,
+  riskSweep,
+  comfortDdPct,
+}: {
+  result: ReplayResult;
+  riskPctOverride?: number;
+  riskSweep?: StrategyRiskResult | null;
+  comfortDdPct?: number;
+}) {
   const s = result.strategy;
   const effectiveRiskPct =
     typeof riskPctOverride === "number" && Number.isFinite(riskPctOverride)
