@@ -231,6 +231,65 @@ function slDistancePips(t: Trade): number | null {
   return distance / pip;
 }
 
+/**
+ * Group per-trade applied-SL samples by symbol and return robust medians in
+ * each symbol's native unit. FX pips and index points are never mixed.
+ *
+ * - Requires ≥3 trades per symbol; symbols below the floor are dropped.
+ * - Returns `null` when no symbol clears the floor (UI falls back to a
+ *   scale-only sentence, which is the only cross-symbol safe summary).
+ * - Beyond `maxSymbols` rows, the tail collapses into a single "Other" row
+ *   that reports total n and a median-of-medians scale (native unit fields
+ *   are NaN because they'd be unit-mixed).
+ */
+export function computeAppliedSlBySymbol(
+  items: Array<{ symbol: string | null | undefined; slPips: number | null | undefined; slScale: number | null | undefined }>,
+  maxSymbols = 8,
+  minPerSymbol = 3,
+): AppliedSlSymbolStat[] | null {
+  const by = new Map<string, { pips: number[]; scale: number[] }>();
+  for (const it of items) {
+    const sym = (it.symbol || "").toUpperCase();
+    if (!sym) continue;
+    if (it.slPips == null || !Number.isFinite(it.slPips) || it.slPips <= 0) continue;
+    if (it.slScale == null || !Number.isFinite(it.slScale) || it.slScale <= 0) continue;
+    let g = by.get(sym);
+    if (!g) { g = { pips: [], scale: [] }; by.set(sym, g); }
+    g.pips.push(it.slPips);
+    g.scale.push(it.slScale);
+  }
+  if (by.size === 0) return null;
+  const rows: AppliedSlSymbolStat[] = [];
+  for (const [symbol, g] of by) {
+    if (g.pips.length < minPerSymbol) continue;
+    rows.push({
+      symbol,
+      unit: pipLabelForSymbol(symbol),
+      n: g.pips.length,
+      medianNative: quantile(g.pips, 0.5),
+      iqrNative: [quantile(g.pips, 0.25), quantile(g.pips, 0.75)],
+      medianScale: quantile(g.scale, 0.5),
+    });
+  }
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => (b.n - a.n) || a.symbol.localeCompare(b.symbol));
+  if (rows.length > maxSymbols) {
+    const kept = rows.slice(0, maxSymbols);
+    const rest = rows.slice(maxSymbols);
+    const totalN = rest.reduce((s, r) => s + r.n, 0);
+    kept.push({
+      symbol: `Other (${rest.length} symbols)`,
+      unit: "pips",
+      n: totalN,
+      medianNative: Number.NaN,
+      iqrNative: [Number.NaN, Number.NaN],
+      medianScale: quantile(rest.map((r) => r.medianScale), 0.5),
+    });
+    return kept;
+  }
+  return rows;
+}
+
 /** MAE-ticks → MAE in R-multiples of the original SL. Null when SL/entry missing. */
 export function tradeMaeR(t: Trade, maeTicks: number | null): number | null {
   if (maeTicks == null || !t.symbol) return null;
