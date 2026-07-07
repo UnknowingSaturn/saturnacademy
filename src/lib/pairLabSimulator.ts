@@ -490,7 +490,7 @@ function replayOneTrade(
     if (proof.stoppedOut === false) stoppedUnderNewSl = false;
     else stoppedUnderNewSl = null;
   }
-  if (stoppedUnderNewSl === null) return { ineligible: "missing SL/entry — can't convert MAE ticks to R" };
+  if (stoppedUnderNewSl === null) return { ineligible: "ambiguous stop/TP ordering — MAE present but direction unknown" };
 
 
   // Resolve each partial's effective atR (bucket-adaptive presets may override).
