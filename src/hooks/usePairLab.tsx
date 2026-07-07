@@ -61,6 +61,9 @@ export interface PairLabData {
    *  recoverable error card instead of silently displaying an empty grid. */
   isError: boolean;
   errorMessage: string | null;
+  /** U9: true when the "All accounts" scope is active. The
+   *  `includeUnassigned` toggle is a no-op in that mode. */
+  isAllAccounts: boolean;
   fieldKeys: PairLabFieldKeys;
   baseline: BucketReport;
   perCell: BucketReport[];
