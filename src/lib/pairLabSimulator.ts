@@ -146,6 +146,16 @@ export interface ReplayResult {
    * display on multi-symbol buckets.
    */
   appliedSlScaleMedian: number | null;
+  /**
+   * Per-symbol robust breakdown of the applied SL. This is what the UI shows
+   * because a cross-symbol pips/points median is meaningless (mixes FX pips
+   * with index points). Each row is in the symbol's native unit and derived
+   * from median + IQR only — no mean, no std-dev.
+   * Symbols with fewer than 3 eligible trades are dropped from the table;
+   * excess symbols beyond the display cap collapse into one "Other" row.
+   * `null` when no preset produced a per-trade SL (e.g. useActualOutcome).
+   */
+  appliedSlBySymbol: AppliedSlSymbolStat[] | null;
   /** Resolved TP ladder. For adaptive presets, atR reflects the bucket statistic. */
   appliedTpLadder: AppliedTpLeg[];
   /** Plain-English label for the SL rule. */
