@@ -28,10 +28,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { SessionType, Trade } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
 import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, CheckCircle, ChevronLeft, ChevronRight, CalendarIcon } from "lucide-react";
-import {
-  startOfMonth, endOfMonth, startOfWeek, endOfWeek,
-  format,
-} from "date-fns";
+import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 
