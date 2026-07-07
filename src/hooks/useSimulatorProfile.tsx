@@ -11,6 +11,9 @@ export interface SimulatorProfile {
   sim_risk_per_trade_pct: number;
   sim_hard_cap_pct: number;
   sim_source: SimulatorSource;
+  /** Biggest peak-to-trough drawdown the trader would stay calm through, as %.
+   *  Drives the Strategy Ranker's "Suggested risk" and Verdict columns. */
+  ranker_comfort_dd_pct: number;
 }
 
 export const DEFAULT_SIM_PROFILE: SimulatorProfile = {
@@ -19,6 +22,7 @@ export const DEFAULT_SIM_PROFILE: SimulatorProfile = {
   sim_risk_per_trade_pct: 1,
   sim_hard_cap_pct: 2,
   sim_source: "manual",
+  ranker_comfort_dd_pct: 10,
 };
 
 export function useSimulatorProfile() {
