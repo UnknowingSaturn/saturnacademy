@@ -382,7 +382,19 @@ function pickBestTp(
     samples[i] = scoreTp(best.tp, buf);
   }
   samples.sort((a, b) => a - b);
-  const ci: [number, number] = [percentileFromSorted(samples, 0.025), percentileFromSorted(samples, 0.975)];
+  // PR-5 · H2a parity — post-selection inference correction. `best.tp` won
+  // the argmax over `scored.length` candidates; a vanilla percentile CI
+  // under-covers by roughly √log(k). Widen symmetrically around the observed
+  // expectancy (matches client `src/lib/pairLabMath.ts` pickBestTp).
+  const rawLo = percentileFromSorted(samples, 0.025);
+  const rawHi = percentileFromSorted(samples, 0.975);
+  const halfWidth = (rawHi - rawLo) / 2;
+  const centre = (rawHi + rawLo) / 2;
+  const kAdjust = Math.sqrt(Math.log(Math.max(2, scored.length) + 1));
+  const ci: [number, number] = [
+    centre - halfWidth * kAdjust,
+    centre + halfWidth * kAdjust,
+  ];
   const ladder = Array.from(
     new Set([...scored].filter((c) => c.e > 0).sort((a, b) => b.e - a.e).slice(0, 3).map((c) => c.tp)),
   ).sort((a, b) => a - b);
