@@ -389,7 +389,7 @@ export default function PairLab() {
               // query already returns every account's trades — orphans
               // included). Disable it visually so users don't think it's
               // silently dropping rows.
-              includeUnassignedDisabled={!selectedAccountId || selectedAccountId === "all"}
+              includeUnassignedDisabled={data.isAllAccounts}
               scope={scope}
               setScope={setScope}
               groups={groups}
