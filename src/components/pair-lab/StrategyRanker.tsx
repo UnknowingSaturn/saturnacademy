@@ -18,8 +18,15 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Trophy, AlertTriangle, CheckCircle2, Info, ChevronRight, ChevronDown } from "lucide-react";
+import { Trophy, AlertTriangle, CheckCircle2, Info, ChevronRight, ChevronDown, ArrowDown, ArrowUp, Minus } from "lucide-react";
 import {
   rankStrategies,
   TP_SOURCE_LABELS,
@@ -34,6 +41,8 @@ import {
   useDistanceUnit,
   formatDistance,
 } from "@/hooks/useDistanceUnit";
+import { useRankerRiskMC } from "@/hooks/useRankerRiskMC";
+import { useUpdateSimulatorProfile } from "@/hooks/useSimulatorProfile";
 
 import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext, TrailCaptureEstimate } from "@/lib/pairLabMath";
@@ -50,6 +59,10 @@ interface Props {
   propFirm: PropFirmContext | null;
   scopeLabel: string;
   defaultRiskPct?: number;
+  /** Ceiling on suggested risk %; from user's `sim_hard_cap_pct`. */
+  hardCapPct?: number;
+  /** Peak DD the trader would stay calm through, %. From user's `ranker_comfort_dd_pct`. */
+  comfortDdPct?: number;
   trailCapture?: TrailCaptureEstimate | null;
   effectiveTrailCapture?: number;
 }
