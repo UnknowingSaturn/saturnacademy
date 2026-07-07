@@ -28,6 +28,7 @@ import { Info, Layers, Shield, AlertTriangle, Clock } from "lucide-react";
 import { WalkForwardControls } from "@/components/pair-lab/WalkForwardControls";
 import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import type { SymbolGroup } from "@/hooks/useSymbolGroups";
+import { cn } from "@/lib/utils";
 import { usePairLabWalkForward } from "@/contexts/PairLabWalkForwardContext";
 import { classifySymbol, getTickSizeOverrides } from "@/lib/symbolMapping";
 import { normalizeSymbol } from "../../../../shared/quant/symbolAliasing";
