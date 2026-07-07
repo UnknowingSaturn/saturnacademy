@@ -121,8 +121,9 @@ function StrategyDetailPanel({ result, riskPctOverride }: { result: ReplayResult
       ? riskPctOverride
       : s.riskPct;
   const scale = result.appliedSlScaleMedian;
-  const slPips = result.appliedSlPipsMedian;
-  const slRange = result.appliedSlPipsRange;
+  // appliedSlPipsMedian / appliedSlPipsRange intentionally not read here:
+  // the cross-symbol median mixes FX pips with index points and isn't
+  // actionable. UI now consumes `result.appliedSlBySymbol` instead.
   const isActual = !!s.useActualOutcome;
   const { unit: distanceUnit } = useDistanceUnit();
   const ciBCa = result.expectancyRCiBCa;
