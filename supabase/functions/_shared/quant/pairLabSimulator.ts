@@ -391,6 +391,7 @@ export function replayAllPresets(
     let reachedSum = 0, reachedCount = 0;
     const slPipsSamples: number[] = [];
     const slScaleSamples: number[] = [];
+    const perSymbol = new Map<string, { pips: number[]; scale: number[] }>();
     for (const t of all) {
       const proof = extractProof(t, keys);
       const out = replayOneTrade(strategy, t, proof, bucket, replayMode);
@@ -398,6 +399,14 @@ export function replayAllPresets(
         outcomes.set(t.id, out.r);
         if (out.slPips != null && Number.isFinite(out.slPips)) slPipsSamples.push(out.slPips);
         if (Number.isFinite(out.slScale)) slScaleSamples.push(out.slScale);
+        if (out.slPips != null && Number.isFinite(out.slPips) && out.slPips > 0
+            && Number.isFinite(out.slScale) && out.slScale > 0 && t.symbol) {
+          const sym = String(t.symbol).toUpperCase();
+          let g = perSymbol.get(sym);
+          if (!g) { g = { pips: [], scale: [] }; perSymbol.set(sym, g); }
+          g.pips.push(out.slPips);
+          g.scale.push(out.slScale);
+        }
         if (Number.isFinite(proof.reachedR)) {
           reachedSum += proof.reachedR;
           reachedCount += 1;
@@ -406,13 +415,13 @@ export function replayAllPresets(
         reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
       }
     }
-    return { strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples };
+    return { strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples, perSymbol };
   });
 
   const currentRow = perPreset.find((p) => p.strategy.id === "current");
   const currentOutcomes = currentRow?.outcomes ?? new Map<string, number>();
 
-  return perPreset.map(({ strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples }) => {
+  return perPreset.map(({ strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples, perSymbol }) => {
     const rs = Array.from(outcomes.values());
     const n = rs.length;
     const totalR = rs.reduce((s, v) => s + v, 0);
