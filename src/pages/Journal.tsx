@@ -423,13 +423,14 @@ export default function Journal() {
 
       {/* Period Selector */}
       <div className="flex items-center gap-3 flex-wrap">
-        <ToggleGroup type="single" value={periodType} onValueChange={(v) => v && setPeriodType(v as PeriodType)}>
+        <ToggleGroup type="single" value={periodType} onValueChange={(v) => v && setPeriodType(v as PeriodType | "all")}>
+          <ToggleGroupItem value="all" className="px-3 text-xs">All</ToggleGroupItem>
           <ToggleGroupItem value="week" className="px-3 text-xs">Week</ToggleGroupItem>
           <ToggleGroupItem value="month" className="px-3 text-xs">Month</ToggleGroupItem>
           <ToggleGroupItem value="custom" className="px-3 text-xs">Custom</ToggleGroupItem>
         </ToggleGroup>
 
-        {periodType !== "custom" ? (
+        {periodType === "week" || periodType === "month" ? (
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigatePeriod(-1)}>
               <ChevronLeft className="h-4 w-4" />
@@ -439,7 +440,7 @@ export default function Journal() {
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
-        ) : (
+        ) : periodType === "custom" ? (
           <div className="flex items-center gap-2">
             <Popover>
               <PopoverTrigger asChild>
@@ -465,12 +466,17 @@ export default function Journal() {
               </PopoverContent>
             </Popover>
           </div>
+        ) : (
+          <span className="text-sm font-medium text-muted-foreground">{periodLabel}</span>
         )}
 
-        <Badge variant="secondary" className="text-xs">
-          {filteredTrades.length} trade{filteredTrades.length !== 1 ? 's' : ''}
+        {/* J3: Open · Closed breakdown so this matches Pair Lab's "closed
+             trades in scope" chip semantics rather than appearing to disagree. */}
+        <Badge variant="secondary" className="text-xs font-mono-numbers">
+          {closedCount} closed{openCount > 0 ? ` · ${openCount} open` : ""}
         </Badge>
       </div>
+
 
       {/* Active/Archived Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "active" | "archived")}>
