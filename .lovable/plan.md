@@ -1,154 +1,50 @@
-# PR-5 · Pair Lab accuracy, parity, and hygiene pass
+# Ranker copy — make the strict-sample caveat honest
 
-Two independent audits (math/simulator and UI/pipeline) produced 27 findings. Each fix below cites the exact file:line I verified. Speculative or "might-bias" items are listed under **Deferred** with the reason.
+## What's happening in the screenshot
 
-## Blocker
+The numbers are mathematically correct but easy to misread. Every preset is scored on the **same 13 strict-eligible trades** (closed trades with MFE, MAE, initial SL, and entry price logged). Those 13 happen to all be winners in your journal — that's why almost every preset shows **100% WR and $0 Max-DD**. The other 49 trades are silently absent, so:
 
-### B1 · Brownian-bridge SL-first branch over-stops filled partials
-`src/lib/pairLabSimulator.ts:513-525` and server twin `supabase/functions/_shared/quant/pairLabSimulator.ts` (same block).
-When a partial has already filled AND the trade later stops, the bridge blend uses `bookedSlFirst = -slScale` — a **whole-position** stop — and overwrites the running `booked` (which already includes the filled partials). Correct SL-first counterfactual books the filled partials at their TPs plus `-slScale × remainingFrac` for the runner only.
-Fix: replace `bookedSlFirst = -slScale` with
-`bookedSlFirst = filledBooked + (-slScale) × remainingFracAtBridge`, where `filledBooked` is the running sum of `p.atR * take` (tracked separately from the runner books). Mirror in the server twin. Add a test in `pairLabRobust.test.ts` covering "partial filled → runner stopped, bridge fires".
+- **Win %** = win rate on the strict sample, not on your book
+- **Max DD** = drawdown on the strict sample's replay, not on your book
+- **Total $** = simulated $ on the strict sample only
+- **Expectancy (BCa)** = the actual ranking signal, and the only number that survives comparison across presets
 
-## High
+You already decided (this turn) to keep the sample strict and not mix in no-MFE/MAE trades. So this plan is a **copy-only** pass. No simulator, math, or scoring changes.
 
-### H1 · QuantNote AI payload sends deprecated field names → SL-drift data silently dropped
-`src/components/pair-lab/QuantNotePanel.tsx:63-64` sends `idealSlMedian` / `slInitialMedian`; edge function `supabase/functions/pair-lab-report/index.ts:44` expects `idealSlMedianPips` / `slInitialMedianPips`. Confirmed via rg.
-Fix: send the `*Pips` names. Delete the deprecated writes in `src/lib/pairLabMath.ts:812-814` and the aliases in `pairLabMath.ts:140-146`. Update the fallback read at `pairLabMath.ts:1075` and `QuantNotePanel.tsx:216` to canonical names only.
+## Why not backfill the missing 49
 
-### H2 · Server↔client math parity — three cases diverge
-All three widen server CIs / recommendations relative to client, so a "validated" server bucket may show "low" on the client.
-- **H2a** Server `pickBestTp` uses plain percentile CI; client uses BCa + √log(k+1) widening. `supabase/.../pairLabMath.ts:376-382` vs `src/lib/pairLabMath.ts:986-995`.
-- **H2b** Server Kelly CI calls `bootstrapKellyCi` (percentile) while client calls `bootstrapKellyCiBCa`. `supabase/.../pairLabMath.ts:582` vs `src/lib/pairLabMath.ts:1175`.
-- **H2c** `computeTp1Star` miss-cost fallback: server uses `-|avgLossR|`; client uses `globalMedian` of `rActual` when <5 misses. `supabase/.../pairLabMath.ts:251-253` vs `src/lib/pairLabMath.ts:561-563`.
-Fix: port the BCa helpers, TP-grid widener, and `globalMedian` fallback into the server twin. Extend `serverReplayParity.test.ts` to cover the TP-grid widening and Kelly BCa paths.
+Presets like Tighten-SL, Adaptive-TP, and Scale-out all *require* MFE/MAE to counterfactually replay a trade. Backfilling those 49 with actual `net_pnl` would compare apples (13 replayed) to oranges (49 as-executed) inside the same row, which breaks apples-to-apples ranking. The right place for a "whole-book reality check" is the Overview / Journal, not the ranker.
 
-### H3 · Prop-firm streak formula diverges
-`supabase/.../pairLabMath.ts:601-605` uses `max(MIN_STREAK_FLOOR, worstStreak)`; client blends with `log(N·q)/log(1/q)` distributional bound. Fix: port client formula to server.
+## Changes (5 spots in `src/components/pair-lab/StrategyRanker.tsx`)
 
-### H4 · `all_out_at_last_partial`, not-stopped, no-fill: books positive R when the rule would have exited at SL
-`src/lib/pairLabSimulator.ts:487-491` (and server parity line 304). A trade that never touched the last-partial TP would, under this rule, have ridden to the stop — it should book `-slScale × remainingFrac`, not `min(reachedR, maxTargetAtR) × remainingFrac`.
-Fix: change the no-fill branch to `-slScale × remainingFrac` (matches the same rule's stopped branch already at line 465). Add a targeted test.
+1. **Header blurb (line ~414)** — add one sentence: "Win %, Max-DD, and Total $ below reflect only the strict-eligible sample (13/62 here). They will not match your journal totals."
 
-## Medium
+2. **Provisional banner (line ~545)** — extend the current text so it names the artifact explicitly: "Only 13 of 62 trades have MFE + MAE logged. If those 13 are mostly winners in your journal, every preset that doesn't stop earlier than reality will show ~100% WR and ~$0 DD — that's a sample artifact, not evidence of edge."
 
-### M1 · Simulator ↔ bucket population mismatch
-`replayAllPresets` gates on `net_pnl != null` (`supabase/.../pairLabSimulator.ts:361` and `src/lib/pairLabSimulator.ts:707-710`). `buildBuckets` deliberately removed that gate (S2.1). Fix: apply the same gate in `buildBuckets` OR drop it from the simulator — pick one and document. Recommendation: keep it in simulator (needs realised $ for equity curves), drop it from bucket stats (already the case), but log an `unrealizedExcluded`-style counter for the simulator so UI can display the split honestly.
+3. **Column header tooltips** — add `title` attributes to the `<th>` cells for:
+   - **Win %** → "Win rate on the strict-eligible replay sample (N shown in the N column), not on your full journal."
+   - **Max DD** → "Peak-to-trough drawdown of the simulated equity curve on the strict-eligible sample only."
+   - **Total $** → "Simulated $ P&L on the strict-eligible sample at the current Sim $ and Risk %. Not your journal P&L."
 
-### M2 · OOS panel scope drift
-`src/components/pair-lab/tabs/StrategyTab.tsx:153` passes full `data.trades` to `OutOfSamplePanel` while Ranker/Lab get `scopedTrades`. When a bucket cell is selected the OOS panel silently answers a different question. Fix: pass `scopedTrades` (or add a visible "portfolio-wide" label + selector).
+4. **Crown summary line (line ~516)** — append " on {N} strict-eligible trades" after the WR figure so the winner card can't be read as a whole-book claim.
 
-### M3 · OOS tooltip stale
-`src/components/pair-lab/OutOfSamplePanel.tsx:251` says "≥5 trades each side"; the worker gates at 10 (`src/workers/oosSplit.worker.ts:78`). Fix: update copy to "≥10".
+5. **Footnote (line ~785)** — add one more line under the existing walk-forward note: "Win %, Max-DD, and Total $ are properties of the strict-eligible replay only. Use the Overview tab for whole-book metrics."
 
-### M4 · `StrategyRanker` runs three synchronous bootstrap passes on the main thread
-`src/components/pair-lab/StrategyRanker.tsx:309-333`. Blocks the event loop on walk-forward slider drags. Fix: offload the `replayMode` × 3 sweep to the existing worker (or a new `strategyRanker.worker.ts`), keeping the main-thread path as a fallback. This is a real UX defect but a bigger change — flag it as a self-contained PR-5b if scope is a concern.
+## Out of scope (explicit)
 
-### M5 · `IdealWindowHeatmap` `bucketTrades` missing `is_open` guard
-`src/lib/idealWindowMath.ts:239` and `:382`. Currently safe because callers pre-filter, but the math function isn't defensive. Fix: add `if (t.is_open) continue;` in both spots — one-line defensive change.
-
-### M6 · `extractRSample` missing `isUnrealized` guard
-`src/lib/propFirmMonteCarlo.ts:379-392`. Same defensive gap — safe today because `usePairLab` pre-filters, but breaks if a caller ever passes raw trades. Fix: add the guard.
-
-### M7 · Server `ReplayOutcome` drops `slPips`/`slScale`
-`supabase/functions/_shared/quant/pairLabSimulator.ts:124`. Server AI note loses "median applied SL distance" datum. Fix: extend server `ReplayOutcome` to `{ r, slPips, slScale, slProxy }` and thread through `PresetReplayResult` like the client does.
-
-### M8 · Server per-fold trail-capture look-ahead
-`supabase/.../pairLabSimulator.ts:125-133` bakes trail capture into `BucketConstants` at the outer scope; client re-estimates per fold on IS-only. Fix: move server trail-capture estimation into `replayBucket`/per-fold context, matching client `ctxFor`.
-
-### M9 · Test-coverage gap for server `tighten_to_ideal` path and for the bridge-blend blocker
-`serverReplayParity.test.ts` covers only P0-A / P0-B; PR-4 Fix 2/3/7 have no server parity test. Fix: add server parity tests for MAE-proxy, BE-runner floor, adaptive-TP bucket-N guard, and the B1 bridge case above.
-
-### M10 · `bootstrapKellyCi`/`BCa` skip degenerate draws without accounting
-`shared/quant/stats.ts:318-319`. `continue` on `w=0`/`w=n` shrinks effective iters silently. Not a blocker but the reported CI is slightly wider than the code claims. Fix: draw-until-non-degenerate with a max-retry cap, or record and report the effective `iters`.
-
-## Low (cleanup — batch into one commit)
-
-### L1 · Delete deprecated aliases after H1
-`src/lib/pairLabMath.ts:140-146, 812-814` — remove `idealSlMedian`/`slInitialMedian` from the type and payload. Only safe once H1 lands.
-
-### L2 · De-duplicate `estimateTrailCapture` / `estimateTrailCaptureLocal`
-`src/lib/pairLabMath.ts:1270-1292` vs `src/lib/pairLabSimulator.ts:887-903` — byte-identical. Delete the local copy, import the public one.
-
-### L3 · Delete dead exports
-- `walkForwardEvaluate` in `src/lib/pairLabSimulator.ts:1058-1133` — no external callers.
-- Unused server-side `bootstrapKellyCi` export path if H2b lands (server switches to BCa).
-
-### L4 · `pairLabPresets.ts:121` — `atR: 1` placeholder on `adaptive-mfe-p60` is unreachable
-Runtime overrides it via `resolvePartialAtR`; unresolved → ineligible. Either delete the placeholder (nullable) or add a comment. Recommend delete + type nullable to prevent misuse.
-
-### L5 · Server preset "current" carries a ghost partial
-`supabase/.../pairLabSimulator.ts:43-44` — `[{ atR: 1, fraction: 1 }]`. Overridden by `useActualOutcome: true` but AI note builder reads it. Fix: `partials: []` to match client.
-
-### L6 · `computeBucket` redundant sort in `longestLossStreak`
-`src/lib/pairLabMath.ts:500-517` re-sorts an already-sorted slice. Pass the sorted `events`.
-
-### L7 · Copy honesty
-- `OverviewTab.tsx:381-385` — add "closed, realised" qualifier next to baseline `N`.
-- `OutOfSamplePanel.tsx:251` — see M3.
-
-## Performance (measure first, then fix)
-
-### P1 · `buildBuckets` recomputes bootstraps per cell (n cells × 1000 iters)
-`src/lib/pairLabMath.ts:459-479`. On 10 symbols × 4 sessions, 41 passes per render. Fix candidates: memoize per `(scope, filterKey)`; move `buildBuckets` behind the existing `usePairLab` cache with a stable key; run the whole call in the OOS worker on large datasets. Instrument first with `performance.mark` before choosing.
-
-### P2 · `pickBestTp` recomputes for baseline + walk-forward IS slice
-`src/lib/pairLabMath.ts:946-999`. Cache result by `(rows-hash, tpGrid-hash)` within a single `computeBucket` chain.
-
-### P3 · `buildBucketConstants` called `k × |strategies|` times in `rankStrategies`
-`src/lib/pairLabSimulator.ts:936`. Memoize by fold slice hash.
-
-## Not touching (deferred with reason)
-
-- **Finding 6 (BH-FDR on one-sided bootstrap p)** — the concern is theoretical; empirically the floor at `1/iters` matches how the recommendation UI treats "strong effect" buckets. Leaving alone until we have a reproducible false-positive.
-- **Finding 11 (trail-capture middle-band bias)** — impossible to correct without tick data; already documented as a proxy. No change beyond adding a note in the tooltip if it isn't there.
-- **Finding 5 (`walkForwardEvaluate` 5-trade minimum)** — deleting via L3 removes the inconsistency without a math change.
+- No changes to `pairLabSimulator.ts`, `pairLabMath.ts`, or the server twin.
+- No change to which trades enter the sample, the bootstrap, BCa CIs, or the composite score.
+- No new "portfolio baseline" row (rejected in the clarifying question).
+- No hybrid per-preset scoping (rejected).
 
 ## Verification
 
-- `bunx vitest run src/lib/__tests__/pairLabRobust.test.ts src/lib/__tests__/serverReplayParity.test.ts` green after each fix cluster.
-- `tsgo --noEmit` clean.
-- Playwright: open `/pair-lab?tab=strategy`, screenshot Ranker + OOS after selecting a bucket cell to confirm M2 fix.
-- Manual: send one QuantNote request post-H1, confirm the edge function receives non-null `ideal_sl_median_pips` (add a log line during verification, revert after).
+- `tsgo --noEmit` — should stay clean (copy + `title` attrs only).
+- Screenshot `/pair-lab?tab=strategy` after the change to confirm the caveat is visible above the fold and the column tooltips render.
+- No test changes needed; the ranker's numeric outputs are unchanged.
 
-## Order of execution
+## Answers to your two questions, plainly
 
-1. **B1 + H4** (simulator correctness) with tests — biggest single expectancy correction.
-2. **H1 + L1** (payload + alias deletion) — one PR, unblocks server AI note.
-3. **H2a/b/c + H3 + M7 + M8 + M9** (parity + server tests) — one PR, brings server twin back to spec.
-4. **M1, M2, M3, M5, M6, M10** (data-honesty + defensive) — small PR.
-5. **L2-L7** (cleanup) — one PR.
-6. **M4** (worker offload) — separate PR after 1-5.
-7. **P1-P3** — only after instrumenting; may be deferred if perf is acceptable.
+**Is it accurate?** Yes, given its stated scope. The 100% WR / $0 DD rows are correct for the 13-trade strict sample; they are not claims about your whole book. The current copy under-communicates that, which is what this plan fixes.
 
-## Not in scope
-
-No new features. No changes to preset library semantics beyond L4/L5 hygiene. No schema changes. No changes to `usePairLab`'s filter contract.
-
----
-
-## PR-5 execution record
-
-Merged:
-- **H4** (both twins) + test — asymmetric no-fill/no-stop branch on `all_out_at_last_partial` now books `-slScale × remainingFrac` symmetrically with the stopped branch.
-- **H1 + L1** — QuantNote payload sends canonical `*Pips` names; deprecated `idealSlMedian` / `slInitialMedian` type fields, writes, and read fallbacks removed across `pairLabMath.ts`, `QuantNotePanel.tsx`.
-- **H2a** — server `pickBestTp` now applies BCa-style √log(k+1) post-selection widening (parity with client).
-- **H2b** — server Kelly CI switched to `bootstrapKellyCiBCa` (added to import list).
-- **H2c** — server `computeTp1Star` uses `globalMedian` of `rActual` as neutral prior for miss-cost when a candidate TP has <5 misses.
-- **H3** — server prop-firm streak formula ports client's `log(N·q)/log(1/q) + σ` distributional upper bound.
-- **M2** — `StrategyTab` passes `scopedTrades` to `OutOfSamplePanel` and updates the section blurb; gate switched from `data.totalTrades` to `scopedTrades.length`.
-- **M3** — OOS tooltip copy updated to "≥10 trades each side" (matches worker gate).
-- **M5** — defensive `is_open` guards in `idealWindowMath` `bucketTrades` and `bucketRs`.
-- **M7** — server `ReplayOutcome` now returns `{ r, slPips, slScale, slProxy }`; `PresetReplayResult` gains `appliedSlPipsMedian` / `appliedSlScaleMedian`.
-- **L5** — server "current" preset `partials: []` (matches client; AI note no longer describes ghost 100%@1R partial).
-
-Withdrawn:
-- **B1** — the audit's claim that the SL-first branch should preserve filled partials is incorrect. `pStopFirst` = P(stop before ANY partial), so under the SL-first realisation no partial ever fills; preserving them would double-count on the `pTpFirst` mass. Original `bookedSlFirst = -slScale` is correct. Two `serverReplayParity.test.ts` cases confirmed the semantics — an inline B1 test I had added was replaced by a note in `pairLabRobust.test.ts`.
-
-Deferred (not-changed):
-- **M1, M6, M4, M8, M9, M10, L2, L3, L4, L6, L7, P1-P3** — either low priority, defensive-only (already safe today via caller-side gates), or larger refactors that belong in a separate PR. Documented for the next pass.
-
-Verification:
-- `tsgo --noEmit`: clean.
-- `bunx vitest run`: 25/25 green (`pathProb`, `pairLabRobust`, `serverReplayParity`).
-- Edge-function deploy of `pair-lab-report` blocked by pre-existing bundler config not resolving `../../../../shared/quant/*` — unrelated to these edits. Server code parity is verified against client via the vitest `serverReplayParity` suite.
+**Should WR and DD include no-MFE/MAE trades?** No, not inside the ranker. Doing so would either (a) require assumptions (e.g. "the preset wouldn't have changed this trade") that are false for tighten-SL / adaptive-TP, or (b) mix samples across presets and break the ranking. The honest interpretation of those 49 trades is: they're missing the inputs any counterfactual replay needs. The fix is to log MFE/MAE going forward (the Exclusion panel already tells you how many are missing each), and to read whole-book WR/DD off the Overview tab, where every closed trade with a `net_pnl` is included.

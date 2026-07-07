@@ -417,6 +417,11 @@ export function StrategyRanker({
               trail capture) are re-estimated on each fold's training slice only. Sort is by BCa lower-CI expectancy,
               penalised for drawdown and small samples.
             </p>
+            <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+              <span className="text-foreground font-medium">Note:</span> Win %, Max-DD, and Total $ below reflect only
+              the strict-eligible replay sample ({exclusion.eligible}/{exclusion.total} here). They will not match your
+              journal totals — use the Overview tab for whole-book metrics.
+            </p>
             <p className="text-[10px] text-muted-foreground mt-0.5 font-mono-numbers">{trailLabel}</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -513,7 +518,7 @@ export function StrategyRanker({
             <p className="text-xs text-muted-foreground leading-relaxed">
               {winnerRow.result.strategy.description}{" "}
               <span className="text-foreground">
-                {fmtMoney(winnerRow.result.totalDollars)} total · {(winnerRow.result.winRate * 100).toFixed(0)}% WR ·{" "}
+                {fmtMoney(winnerRow.result.totalDollars)} total · {(winnerRow.result.winRate * 100).toFixed(0)}% WR on {winnerRow.result.eligibleCount} strict-eligible trades ·{" "}
                 {winnerRow.result.expectancyR >= 0 ? "+" : ""}{winnerRow.result.expectancyR.toFixed(2)}R expectancy
                 {winnerRow.result.expectancyRCiBCa && (
                   <span className="text-muted-foreground">
@@ -540,12 +545,18 @@ export function StrategyRanker({
               <div className="font-medium text-sm text-amber-700 dark:text-amber-400">
                 Provisional ranking — no "best" yet
               </div>
-              <div className="text-muted-foreground mt-1">
-                {mode === "full"
-                  ? `Only ${exclusion.eligible} trade${exclusion.eligible === 1 ? "" : "s"} have MFE + MAE logged — need 15+ for a walk-forward split. Numbers below are directional.`
-                  : nCommon < 15
-                    ? `Presets scored on different sub-samples (common intersection: ${nCommon} trade${nCommon === 1 ? "" : "s"}). No preset dominates on the shared pool — numbers below are directional, not a recommendation.`
-                    : `Top preset's BCa 95% CI hasn't ruled out zero edge, or its sample is under 20. Numbers below are directional.`}
+              <div className="text-muted-foreground mt-1 space-y-1">
+                <div>
+                  {mode === "full"
+                    ? `Only ${exclusion.eligible} of ${exclusion.total} trades have MFE + MAE logged — need 15+ for a walk-forward split. Numbers below are directional.`
+                    : nCommon < 15
+                      ? `Presets scored on different sub-samples (common intersection: ${nCommon} trade${nCommon === 1 ? "" : "s"}). No preset dominates on the shared pool — numbers below are directional, not a recommendation.`
+                      : `Top preset's BCa 95% CI hasn't ruled out zero edge, or its sample is under 20. Numbers below are directional.`}
+                </div>
+                <div className="text-[11px]">
+                  If those {exclusion.eligible} trades are mostly winners in your journal, every preset that doesn't
+                  stop earlier than reality will show ~100% WR and ~$0 DD — that's a sample artifact, not evidence of edge.
+                </div>
               </div>
 
             </div>
@@ -560,8 +571,18 @@ export function StrategyRanker({
                 <th className="text-left py-2 pr-2">#</th>
                 <th className="text-left py-2 pr-2">Strategy</th>
                 <th className="text-left py-2 px-2">N (OOS)</th>
-                <th className="text-right py-2 px-2">Total $</th>
-                <th className="text-right py-2 px-2">Win %</th>
+                <th
+                  className="text-right py-2 px-2"
+                  title="Simulated $ P&L on the strict-eligible sample at the current Sim $ and Risk %. Not your journal P&L."
+                >
+                  Total $
+                </th>
+                <th
+                  className="text-right py-2 px-2"
+                  title="Win rate on the strict-eligible replay sample (N shown in the N column), not on your full journal."
+                >
+                  Win %
+                </th>
                 <th className="text-right py-2 px-2">Expectancy · BCa 95%</th>
                 <th
                   className="text-right py-2 px-2"
@@ -569,7 +590,12 @@ export function StrategyRanker({
                 >
                   Edge (R/σ)
                 </th>
-                <th className="text-right py-2 px-2">Max DD</th>
+                <th
+                  className="text-right py-2 px-2"
+                  title="Peak-to-trough drawdown of the simulated equity curve on the strict-eligible sample only."
+                >
+                  Max DD
+                </th>
                 <th className="text-center py-2 px-2">Confidence</th>
                 <th className="text-left py-2 pl-2">Prop-firm</th>
               </tr>
@@ -786,6 +812,8 @@ export function StrategyRanker({
             (MAE p75, MFE percentiles, trail capture) are re-estimated on prior blocks only, then scored
             on the next block. Numbers above are the concatenated out-of-sample tape. BCa bootstrap
             gives the 95% CI on expectancy. Composite score = lower-CI × drawdown-penalty × sample-penalty.
+            {" "}Win %, Max-DD, and Total $ are properties of the strict-eligible replay only —
+            use the Overview tab for whole-book metrics.
           </span>
         </p>
       </Card>
