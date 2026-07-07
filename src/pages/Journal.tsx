@@ -1,10 +1,11 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTrades } from "@/hooks/useTrades";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { useSymbolAliases } from "@/hooks/useSymbolAliases";
 import { buildSymbolResolver } from "@/lib/symbolAliasing";
+import { ensureUtcMs } from "../../shared/quant/stats";
 
 import { TradeTable } from "@/components/journal/TradeTable";
 import { DriftTray } from "@/components/journal/DriftTray";
@@ -27,35 +28,159 @@ import { Calendar } from "@/components/ui/calendar";
 import { SessionType, Trade } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
 import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, CheckCircle, ChevronLeft, ChevronRight, CalendarIcon } from "lucide-react";
-import { 
-  startOfMonth, endOfMonth, startOfWeek, endOfWeek, 
+import {
+  startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   addMonths, subMonths, addWeeks, subWeeks,
-  format, isWithinInterval, parseISO
+  format,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
 
 type PeriodType = "week" | "month" | "custom";
+type ResultFilter = "all" | "win" | "loss" | "open";
+type TradeTypeFilter = "all" | "executed" | "ideas";
+
+// J4: URL keys. Keeping them terse so shared links stay short.
+const URL_KEYS = {
+  symbol: "sym",
+  session: "sess",
+  result: "res",
+  type: "type",
+  period: "period",
+  date: "date",
+  from: "from",
+  to: "to",
+  view: "view",
+  tab: "atab",
+  model: "model",
+} as const;
+
+const isPeriodType = (v: string | null): v is PeriodType =>
+  v === "week" || v === "month" || v === "custom";
+const isResult = (v: string | null): v is ResultFilter =>
+  v === "win" || v === "loss" || v === "open" || v === "all";
+const isType = (v: string | null): v is TradeTypeFilter =>
+  v === "executed" || v === "ideas" || v === "all";
 
 export default function Journal() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [symbolFilter, setSymbolFilter] = useState("");
-  const [sessionFilter, setSessionFilter] = useState<SessionType | "all">("all");
-  const [resultFilter, setResultFilter] = useState<"all" | "win" | "loss" | "open">("all");
-  const [tradeTypeFilter, setTradeTypeFilter] = useState<"all" | "executed" | "ideas">("all");
+
+  // J4 fix: promote filter state into the URL so Journal deep-links,
+  // shareable views, and back-button behaviour match Pair Lab.
+  const patchParams = useCallback(
+    (mut: (next: URLSearchParams) => void) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          mut(next);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+  const setParam = useCallback(
+    (key: string, value: string | null | undefined) => {
+      patchParams((p) => {
+        if (value == null || value === "") p.delete(key);
+        else p.set(key, value);
+      });
+    },
+    [patchParams],
+  );
+
+  // URL-derived filter values. Defaults chosen so an unadorned /journal URL
+  // still behaves the way returning users expect.
+  const symbolFilter = searchParams.get(URL_KEYS.symbol) ?? "";
+  const setSymbolFilter = useCallback((v: string) => setParam(URL_KEYS.symbol, v || null), [setParam]);
+
+  const sessionParam = searchParams.get(URL_KEYS.session);
+  const sessionFilter: SessionType | "all" = (sessionParam as SessionType | null) ?? "all";
+  const setSessionFilter = useCallback(
+    (v: SessionType | "all") => setParam(URL_KEYS.session, v === "all" ? null : v),
+    [setParam],
+  );
+
+  const resultParam = searchParams.get(URL_KEYS.result);
+  const resultFilter: ResultFilter = isResult(resultParam) ? resultParam : "all";
+  const setResultFilter = useCallback(
+    (v: ResultFilter) => setParam(URL_KEYS.result, v === "all" ? null : v),
+    [setParam],
+  );
+
+  const typeParam = searchParams.get(URL_KEYS.type);
+  const tradeTypeFilter: TradeTypeFilter = isType(typeParam) ? typeParam : "all";
+  const setTradeTypeFilter = useCallback(
+    (v: TradeTypeFilter) => setParam(URL_KEYS.type, v === "all" ? null : v),
+    [setParam],
+  );
+
+  // J2: default period is now "all" to match Pair Lab. Users can still narrow
+  // via the ToggleGroup; the choice persists in the URL as ?period=…
+  const periodParam = searchParams.get(URL_KEYS.period);
+  const periodType: PeriodType | "all" = periodParam === "week" || periodParam === "month" || periodParam === "custom" ? periodParam : "all";
+  const setPeriodType = useCallback(
+    (v: PeriodType | "all") => setParam(URL_KEYS.period, v === "all" ? null : v),
+    [setParam],
+  );
+
+  const dateParam = searchParams.get(URL_KEYS.date);
+  const currentDate = useMemo(() => {
+    if (!dateParam) return new Date();
+    const ms = ensureUtcMs(dateParam);
+    return Number.isFinite(ms) ? new Date(ms) : new Date();
+  }, [dateParam]);
+  const setCurrentDate = useCallback(
+    (d: Date | ((prev: Date) => Date)) => {
+      const next = typeof d === "function" ? d(currentDate) : d;
+      setParam(URL_KEYS.date, format(next, "yyyy-MM-dd"));
+    },
+    [setParam, currentDate],
+  );
+
+  const fromParam = searchParams.get(URL_KEYS.from);
+  const toParam = searchParams.get(URL_KEYS.to);
+  const customFrom = useMemo(() => {
+    if (!fromParam) return undefined;
+    const ms = ensureUtcMs(fromParam);
+    return Number.isFinite(ms) ? new Date(ms) : undefined;
+  }, [fromParam]);
+  const customTo = useMemo(() => {
+    if (!toParam) return undefined;
+    const ms = ensureUtcMs(toParam);
+    return Number.isFinite(ms) ? new Date(ms) : undefined;
+  }, [toParam]);
+  const setCustomFrom = useCallback(
+    (d: Date | undefined) => setParam(URL_KEYS.from, d ? format(d, "yyyy-MM-dd") : null),
+    [setParam],
+  );
+  const setCustomTo = useCallback(
+    (d: Date | undefined) => setParam(URL_KEYS.to, d ? format(d, "yyyy-MM-dd") : null),
+    [setParam],
+  );
+
+  const viewParam = searchParams.get(URL_KEYS.view);
+  const viewMode: "table" | "calendar" = viewParam === "calendar" ? "calendar" : "table";
+  const setViewMode = useCallback(
+    (v: "table" | "calendar") => setParam(URL_KEYS.view, v === "table" ? null : v),
+    [setParam],
+  );
+
+  const tabParam = searchParams.get(URL_KEYS.tab);
+  const activeTab: "active" | "archived" = tabParam === "archived" ? "archived" : "active";
+  const setActiveTab = useCallback(
+    (v: "active" | "archived") => setParam(URL_KEYS.tab, v === "active" ? null : v),
+    [setParam],
+  );
+
+  // Non-persisted (transient) state. `selectedTradeId` intentionally stays
+  // local so opening a trade detail doesn't rewrite history.
   const [modelFilter, setModelFilter] = useState<string | null>(null);
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState("sessions");
   const [activeFilters, setActiveFilters] = useState<FilterCondition[]>([]);
-  const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
-  const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
-
-  // Period filter state
-  const [periodType, setPeriodType] = useState<PeriodType>("month");
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [customFrom, setCustomFrom] = useState<Date | undefined>();
-  const [customTo, setCustomTo] = useState<Date | undefined>();
 
   const { selectedAccountId, accounts } = useAccountFilter();
   // L1 fix: push the account filter into Supabase instead of fetching every
@@ -79,34 +204,37 @@ export default function Journal() {
     [aliases],
   );
 
-  // Read model filter from URL params on mount
+  // U6 fix: sync modelFilter with URL param in BOTH directions. Previously
+  // only set — never cleared — so manually deleting `?model=` from the URL
+  // left the badge visible.
   useEffect(() => {
     const modelParam = searchParams.get('model');
-    if (modelParam) {
-      setModelFilter(modelParam);
-    }
+    setModelFilter(modelParam || null);
   }, [searchParams]);
 
+  // U5 fix: functional setSearchParams form so a concurrent tick can't lose
+  // params written between our read and our write. Also constructs a fresh
+  // URLSearchParams instead of mutating the closure snapshot.
   const clearModelFilter = () => {
     setModelFilter(null);
-    searchParams.delete('model');
-    setSearchParams(searchParams);
+    setParam('model', null);
   };
 
-  // Period calculations
+  // Period calculations. `all` skips the date gate entirely.
   const periodRange = useMemo(() => {
     if (periodType === "week") {
       return { start: startOfWeek(currentDate, { weekStartsOn: 1 }), end: endOfWeek(currentDate, { weekStartsOn: 1 }) };
     } else if (periodType === "month") {
       return { start: startOfMonth(currentDate), end: endOfMonth(currentDate) };
-    } else if (customFrom && customTo) {
+    } else if (periodType === "custom" && customFrom && customTo) {
       return { start: customFrom, end: customTo };
     }
-    return { start: startOfMonth(currentDate), end: endOfMonth(currentDate) };
+    return null;
   }, [periodType, currentDate, customFrom, customTo]);
 
   const periodLabel = useMemo(() => {
-    if (periodType === "week") {
+    if (periodType === "all") return "All time";
+    if (periodType === "week" && periodRange) {
       return `${format(periodRange.start, "MMM d")} – ${format(periodRange.end, "MMM d, yyyy")}`;
     } else if (periodType === "month") {
       return format(currentDate, "MMMM yyyy");
@@ -115,6 +243,119 @@ export default function Journal() {
     }
     return format(currentDate, "MMMM yyyy");
   }, [periodType, currentDate, periodRange, customFrom, customTo]);
+
+  const navigatePeriod = (direction: -1 | 1) => {
+    if (periodType === "week") {
+      setCurrentDate(prev => direction === 1 ? addWeeks(prev, 1) : subWeeks(prev, 1));
+    } else if (periodType === "month") {
+      setCurrentDate(prev => direction === 1 ? addMonths(prev, 1) : subMonths(prev, 1));
+    }
+  };
+
+  // Apply all filters
+  const filteredTrades = useMemo(() => {
+    let result = trades || [];
+
+    // J1 fix: use ensureUtcMs (matches Pair Lab). parseISO from date-fns
+    // treats naive timestamps as *local* time, while Pair Lab treats them
+    // as UTC — same trade could land in different calendar days across the
+    // two views for a non-UTC trader with CSV-imported rows.
+    // Period filter — filter by entry_time. `periodRange == null` (period
+    // = "all") skips the gate entirely.
+    if (periodRange) {
+      const startMs = periodRange.start.getTime();
+      const endMs = periodRange.end.getTime();
+      result = result.filter(trade => {
+        const ms = ensureUtcMs(trade.entry_time);
+        return Number.isFinite(ms) && ms >= startMs && ms <= endMs;
+      });
+    }
+
+    // L1 fix: account scoping is now pushed into the SQL query above; no
+    // client-side re-filter needed. Earlier this branch also forced orphans
+    // (account_id IS NULL) to be visible whenever an account was selected,
+    // which `includeUnassigned: true` in useTrades preserves at the source.
+
+    // Model/Strategy filter (from URL)
+    if (modelFilter) {
+      result = result.filter(trade => trade.playbook_id === modelFilter || trade.playbook?.name === modelFilter);
+    }
+
+    // Symbol filter (canonicalized: matches raw broker symbol OR the
+    // alias-resolved canonical, so "EURUSD" finds EURUSD+/EURUSD.r too).
+    if (symbolFilter) {
+      const needle = symbolFilter.toLowerCase();
+      const needleCanonical = symbolResolver(symbolFilter).toLowerCase();
+      result = result.filter(trade => {
+        const raw = (trade.symbol || "").toLowerCase();
+        const canonical = symbolResolver(trade.symbol || "").toLowerCase();
+        return raw.includes(needle) || canonical.includes(needleCanonical);
+      });
+    }
+
+    // Session filter
+    if (sessionFilter !== "all") {
+      result = result.filter(trade => trade.session === sessionFilter);
+    }
+
+    // Result filter
+    if (resultFilter === "win") {
+      result = result.filter(trade => (trade.net_pnl || 0) > 0 && trade.trade_type === 'executed');
+    } else if (resultFilter === "loss") {
+      result = result.filter(trade => (trade.net_pnl || 0) < 0 && trade.trade_type === 'executed');
+    } else if (resultFilter === "open") {
+      result = result.filter(trade => trade.is_open);
+    }
+
+    // Trade type filter
+    if (tradeTypeFilter === "executed") {
+      result = result.filter(trade => !trade.trade_type || trade.trade_type === 'executed');
+    } else if (tradeTypeFilter === "ideas") {
+      result = result.filter(trade => trade.trade_type && trade.trade_type !== 'executed');
+    }
+
+    // Apply advanced filters from FilterBar
+    for (const filter of activeFilters) {
+      result = result.filter(trade => {
+        const value = getTradeValue(trade, filter.column);
+
+        switch (filter.operator) {
+          case 'equals':
+            return String(value).toLowerCase() === String(filter.value).toLowerCase();
+          case 'not_equals':
+            return String(value).toLowerCase() !== String(filter.value).toLowerCase();
+          case 'contains':
+            return String(value).toLowerCase().includes(String(filter.value).toLowerCase());
+          case 'not_contains':
+            return !String(value).toLowerCase().includes(String(filter.value).toLowerCase());
+          case 'greater_than':
+            return Number(value) > Number(filter.value);
+          case 'less_than':
+            return Number(value) < Number(filter.value);
+          case 'is_empty':
+            return value === null || value === undefined || value === '';
+          case 'is_not_empty':
+            return value !== null && value !== undefined && value !== '';
+          default:
+            return true;
+        }
+      });
+    }
+
+    return result;
+    // U7 fix: removed `selectedAccountId` — account filtering happens in SQL
+    // (see useTrades above). Keeping it here forced a full re-filter on any
+    // account switch even though `trades` already changes.
+  }, [trades, symbolFilter, sessionFilter, resultFilter, tradeTypeFilter, modelFilter, activeFilters, periodRange, symbolResolver]);
+
+  // J3: open/closed breakdown for the header chip so the divergence from
+  // Pair Lab's "closed trades in scope" count is explicit rather than
+  // confusing.
+  const openCount = useMemo(
+    () => filteredTrades.filter(t => t.is_open).length,
+    [filteredTrades],
+  );
+  const closedCount = filteredTrades.length - openCount;
 
   const navigatePeriod = (direction: -1 | 1) => {
     if (periodType === "week") {
