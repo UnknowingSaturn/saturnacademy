@@ -1,54 +1,54 @@
-# Pair Lab Audit — Fix All Findings
+# SL drift "116000 t" and ideal-SL methodology
 
-Address every finding in `.lovable/pair-lab-audit.md` with the recommended fix. For each "needs your call" item I pick a default (rationale inline); flag anything you want reversed before I build.
+## Where the 116000 comes from (root cause)
 
----
+The number is **wrong** — it's a symbol-classification bug, not real data.
 
-## Part 1 — Data ingress (`src/hooks/usePairLab.tsx`, `usePairLabTradeBounds.ts`)
+Trace (`shared/quant/symbolMapping.ts`):
 
-1. **Bug A — Orphan default.** Change `filters.includeUnassigned` default from `false` to `true` so callers without the flag match Journal. Pair Lab page still wires the toggle explicitly, so behaviour there is unchanged; only silent-drop for other consumers is fixed.
-2. **Bug C — `isLoading` gating.** Add `rulesQuery.isLoading || accountQuery.isLoading || groupsQuery.isLoading` to the OR at `usePairLab.tsx:317`. Prevents transient wrong prop-firm constraints.
-3. **`usePairLabTradeBounds` orphan mismatch.** Pass `includeUnassigned` through from caller (default `true`) so slider bounds match analytics window.
-4. **`naiveTimestampCount` scope.** Keep the "whole set" semantic (matches the comment's intent) but update the chip tooltip in `OverviewTab` to say "across all your trades, not just this window."
-5. **`groupsQuery.groups` stability.** Wrap the returned array in `useMemo` inside `useSymbolGroups` so downstream memo deps are stable.
-6. **Journal vs. Pair Lab local-time period.** Leave Journal semantics alone (call-out item, not a bug). Document in the audit doc footer only — no code change.
+1. Your symbol is logged as **`SP500`**.
+2. `classifySymbol("SP500")` runs the index regex at line 38, which only matches `SPX`, `US500`, `SPX500`, `NAS100`, etc. The literal string `"SP500"` contains **neither `SPX` nor `US500`** as a substring, so it falls through to `"unknown"`.
+3. `defaultTickSize` for `unknown` returns `0.0001` (the FX-5 fallback at line 84).
+4. `pipSizeForSymbol` for `unknown` returns `tick * 10 = 0.001`.
+5. `slInitialMedianPips = |entry − sl_initial| / pip`. For a real ~11.6-point SP500 stop: `11.6 / 0.001 = 11,600` "pips".
+6. Display converts pips → ticks: `11,600 × 0.001 / 0.0001 = 116,000 t`. ✅ Matches your screenshot exactly.
 
-## Part 2 — Math core
+The ideal SL (`125 t`) is stored directly by you in ticks on the custom field, so it renders correctly and doesn't go through the broken classifier path.
 
-7. **M-B1** — Add `&& !isUnrealized(t as any)` to `preparedTrades` filter in `pairLabSimulator.ts:800`.
-8. **M-B2** — Add a code comment above `buildResult`'s prop-firm verdict block clarifying "display-only, MC engine is source of truth." (No behavioural change; intra-replay bust would break the retrospective tape view.)
-9. **M-B3** — Fix error message at `pairLabSimulator.ts:493` to `"ambiguous stop/TP ordering — MAE present but direction unknown"`.
-10. **M-B4** — Guard Brownian-bridge branch on `proof.loggedMfe != null`; otherwise mark ineligible.
-11. **M-B5** — Update `peak[i]` before the trailing-bust check in `propFirmMonteCarlo.ts:190`.
-12. **Kelly with zero losses (§2.4 edge case + §2.9 #2).** Suppress Kelly (return `null` + `rCoverageWarning: 'insufficient-losses'`) when `lossR.length < 3`.
-13. **DD-penalty denominator (§2.6 + §2.9 #4).** Replace `Math.max(1, RISK_TOLERANCE_R_DEFAULT)` with `Math.max(1, comfortDdPct / riskPct)` derived from user's `ranker_comfort_dd_pct` and current `riskPct`. Keep 10R as fallback when either is missing.
-14. **Composite negative-score sort (§2.9 #3).** Add explicit comparator: `nulls last, then numeric desc` in the ranker sort site. Add unit test.
-15. **`Math.max(50, params.paths)` surprise (§2.5).** Change to honour explicit small values (`params.paths ?? 2000`) but keep 50 as the floor only when the caller omitted the field.
-16. **`ticksToPips` fallback safety (§2.3).** When `tickSize`/`pipSize` unknown, return `null` (drop the trade + increment `slMissingCount`) instead of returning ticks unscaled. Prevents silent wrong SL distances.
-17. **`TP1_STAR_MIN_HIT_RATE` (§2.9 #5).** Lower to `0.30`. (Keeping full CI-lower-bound replacement out of scope — a constant change is the minimal safe fix.)
-18. **Trail-capture 0.7 fallback (§2.9 #1).** Keep as-is, add a `// TODO(empirical): derive per-asset-class prior` comment. No behavioural change without data.
-19. **Parity tests (§2.7 + §2.9 #6).** Add `pickBestTp`, `computeTp1Star`, `rawQuarterKellyPct` cases to `serverReplayParity.test.ts`.
+**Fix:** extend the index regex to catch `SP500` (and add `NAS`, `NDX100`, `SPX500`, `ES`, `NQ`, `YM` bare forms that also miss today). Then add `SP500` to the per-symbol default-tick block so it gets `0.25` like `SPX500`/`US500`, matching CME.
 
-## Part 3 — UI shell + dead code
+```ts
+// classifySymbol regex — add SP500, NDX100, NAS, ES, NQ, YM, RTY
+/(NAS100|NAS|US100|USTEC|NDX|NDX100|SPX|SPX500|SP500|US500|ES|NQ|YM|RTY|US30|…)/
+// defaultTickSize — extend the SPX/US500 branch
+if (/^(SPX500|SP500|US500|ES)/.test(n)) return 0.25;
+```
 
-20. **U-B1** — Migrate `heatmapPair` to `useSearchParams` (lift state to `PairLab.tsx` alongside `selected`), remove the `window.history.replaceState` call.
-21. **U-B2** — Add `key={selectedBucket.key.symbol + ":" + selectedBucket.key.session}` to `QuantNotePanel` at `PairGridTab.tsx:107`.
-22. **U-B3** — Add `setSelected` to Escape effect deps.
-23. **U-B4** — Add `scope` to `IdealWindowHeatmap` reset-effect deps.
-24. **U-B5** — URL-persist Setup sub-tab as `?setupTab=`, plumbed through existing `patchParams`.
-25. **U-B6** — Move `cursor-help` off the orphan `<Switch>` wrapper onto the `<Label>` only.
-26. **`patchParams` stale-closure (§3.1).** Migrate to `setSearchParams(prev => …)` functional form.
-27. **`IdealWindowHeatmap.setScope` inline (§3.3).** Wrap in `useCallback`.
-28. **A11y batch (§3.4):** add `role="group"` + `aria-label="Analysis lens"` on lens button group; add visible `focus-visible:ring` on lens buttons; add `aria-busy={loading}` to `QuantNotePanel` generate button; move `cursor-help` off the distance-unit `TooltipTrigger` wrapper so inner buttons are keyboard-reachable; add `aria-live="polite"` announcement on `PairGridTab` selection change.
-29. **Dead code (§3.5):** delete `useOptionalPairLabWalkForward`, `WINDOW_PRESETS` in `StrategyLab.tsx`, `closedTrades` alias in `usePairLab.tsx`, and the double blank lines at `PairLab.tsx:119` and `:184`.
+I'll also add a **unit test** for `classifySymbol`/`tickSizeForSymbol` over the common index aliases (`SP500`, `SPX`, `NAS`, `NAS100`, `US30`, `DAX`, `DE40`) so this regression can't silently return.
+
+## Is this the most optimal way to compute the ideal SL in walk-forward?
+
+Short answer: **no — the current "ideal SL" is not a walk-forward estimator at all.** It's just the median of a user-entered custom field (`Ideal Stop-Loss`) across the whole in-scope bucket (`src/lib/pairLabMath.ts:660-665, 694`). Two structural issues:
+
+1. **It's the same value at every point on the causal chart.** `estimateBucket` computes one median over `rows`, so the "ideal" line doesn't evolve as trades accumulate — no walk-forward property.
+2. **The SL-drift verdict compares planned vs. ideal medians only.** It ignores whether the ideal SL would actually have *survived* the realized MAE distribution — so "aligned" can still bleed at −1R on the tail.
+
+Proposed upgrade (kept behind the existing custom-field path, no schema changes):
+
+- **Rolling / expanding-window ideal SL.** For each trade `i` in causal order, recompute `idealSL_i` from trades `[0..i−1]` (expanding) or the last `W` (rolling, default 20). Render as a second series on the "Expectancy over time" chart so drift is visible.
+- **MAE-quantile anchor as the objective.** The best-supported causal rule is: pick the smallest SL that keeps the winners' MAE inside the stop. Formally `SL* = quantile(MAE_winners, q)` with `q ∈ {0.85, 0.90, 0.95}`, then sanity-check by replaying at that SL and picking the `q` that maximises out-of-sample `E[R]`. This is exactly the formula already documented under the panel (`SL = p90(winners' MAE) × 1.10`) but the number rendered isn't computed that way — it just reads the user field. I'll wire the real computation.
+- **Confidence gating.** Suppress the "ideal SL" pill when the winners' MAE sample `< 8` (current sweep already needs 10; matching thresholds).
+- **Keep the user's custom-field value as a manual override**, shown as a third dotted reference when present, so your journaled judgement stays visible next to the data-driven number.
+
+## Scope of changes
+
+1. `shared/quant/symbolMapping.ts` — extend index regex + per-symbol tick defaults; add tests in `src/lib/__tests__/`.
+2. `src/lib/pairLabMath.ts` — add walk-forward `idealSlSeries` (expanding + rolling) and MAE-quantile-based `idealSlDataDriven` alongside the existing custom-field median; both surfaced on `BucketStats`.
+3. `src/components/pair-lab/QuantNotePanel.tsx` — show data-driven ideal SL as primary, journaled value as secondary reference; add a small series to the expectancy chart.
+4. Tests: symbol classification, MAE-quantile ideal-SL determinism, and a fixture proving the SP500 bug is fixed (`11.6-point stop → ~46 ticks`, not 116000).
 
 ## Out of scope
 
-- No DB migrations, no changes to Journal, no new features.
-- Deferred (would need product decisions beyond the audit): unifying Journal ↔ Pair Lab timezone semantics; replacing `TP1_STAR_MIN_HIT_RATE` with Wilson-CI lower bound; deriving per-asset-class trail-capture priors.
-
-## Technical notes
-
-- All math changes get unit-test additions alongside the existing `pairLabRobust.test.ts` and `serverReplayParity.test.ts` suites.
-- Grand total: 11 confirmed bugs + 4 UX bugs fixed; 5 verification items resolved (either fixed or explicitly kept); 10 of 16 "needs your call" items resolved with defaults above (6 semantic ones deferred as out-of-scope); 4 dead-code deletions.
-- Verification: run `bunx vitest run` after each part; if any assertion around composite ordering / walk-forward expectancy changes, update snapshots deliberately, not blindly.
+- No DB migrations, no changes to how the `Ideal Stop-Loss` custom field is captured.
+- No Journal changes.
+- No changes to the sweep / replay math beyond consuming the new ideal-SL value.
