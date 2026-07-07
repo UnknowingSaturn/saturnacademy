@@ -293,7 +293,8 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
       return true;
     };
     const scopedTrades = trades.filter(matchesScope);
-    const closedTrades = scopedTrades;
+    // (Audit §3.5) removed unused `closedTrades` alias — was == scopedTrades.
+
 
     const symbols = Array.from(new Set(perRow.map((r) => r.key.symbol))).sort();
     const sessions = Array.from(new Set(perCell.map((c) => c.key.session))).sort(
