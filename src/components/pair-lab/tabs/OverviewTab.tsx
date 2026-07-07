@@ -317,9 +317,9 @@ export function OverviewTab({
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Info className="w-3.5 h-3.5 text-amber-500" />
             <span>
-              {data.partialFillFlag.trades} trades in{" "}
-              {data.partialFillFlag.groups} groups may be partial-fill
-              duplicates.
+              {data.partialFillFlag.trades} trade
+              {data.partialFillFlag.trades === 1 ? "" : "s"} may be
+              partial-fill duplicates.
             </span>
             <Tooltip>
               <TooltipTrigger className="underline decoration-dotted">
