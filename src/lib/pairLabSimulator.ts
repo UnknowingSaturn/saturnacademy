@@ -429,6 +429,11 @@ function replayOneTrade(
   let remainingFrac = 1;
   let anyFilled = false;
   let lastFilledAtR = 0;
+  /** PR-5 · B1 — running sum of partial-TP fills, tracked separately from the
+   *  runner's contribution so the SL-first bridge alternative can book the
+   *  filled partials at their TPs plus a stop on the *runner only*, instead
+   *  of over-penalising by zeroing the whole position. */
+  let filledBooked = 0;
   /** First partial whose TP was breached by MFE. Drives the bridge probability
    *  when the stop was ALSO breached — that's the ambiguous ordering case. */
   let firstBreachedTpR: number | null = null;
@@ -436,7 +441,9 @@ function replayOneTrade(
     const needOrigR = p.atR * slScale;
     if (proof.reachedR >= needOrigR) {
       const take = Math.min(p.fraction, remainingFrac);
-      booked += p.atR * take;
+      const leg = p.atR * take;
+      booked += leg;
+      filledBooked += leg;
       remainingFrac -= take;
       anyFilled = true;
       lastFilledAtR = p.atR;
@@ -485,10 +492,14 @@ function replayOneTrade(
         if (anyFilled) {
           booked += lastFilledAtR * remainingFrac;
         } else {
-          // No partial filled and trade didn't stop — book proven-reached R
-          // in new-R units, capped at the last-partial target (rule would
-          // have exited there at the latest).
-          booked += Math.min(reachedNewR, maxTargetAtR) * remainingFrac;
+          // PR-5 · H4 — under this rule with no fill and no stop, we have
+          // NO observable exit. Booking `min(reachedNewR, maxTargetAtR)` was
+          // asymmetric with the stopped-branch above (which books `-slScale`)
+          // and silently inflated expectancy on trades that neither hit the
+          // last partial nor stopped. Conservative accounting: book the stop
+          // — matches the "would have held to target-or-stop" semantics of
+          // the rule and eliminates the survivor-friendly bias.
+          booked += -slScale * remainingFrac;
         }
       } else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
@@ -503,13 +514,21 @@ function replayOneTrade(
   //
   // When a partial's TP AND the counterfactual SL BOTH breached, the code
   // above assumed TP-first (the legacy behaviour). That inflated WR on early-
-  // TP presets. Blend `booked` (TP-first realisation) with a full-stop
-  // realisation (-slScale on the whole position) using the classical
-  // first-passage probability of a symmetric random walk between two barriers.
+  // TP presets. Blend `booked` (TP-first realisation) with a bounded SL-first
+  // realisation using the classical first-passage probability of a symmetric
+  // random walk between two barriers.
   //
-  // Ambiguity only exists when at least one partial's TP was breached AND the
-  // trade also breached the new SL. Deterministic branches (only TP breached,
-  // only SL breached, neither) pass through unchanged (pStopFirst = 0).
+  // PR-5 · B1 — the SL-first alternative previously booked `-slScale` on the
+  // WHOLE position, which overwrote already-filled partials. Correct SL-first
+  // counterfactual: keep the partials at their TPs (they filled before the
+  // stop by construction of "SL-first" here means the runner side; the
+  // partial-first branch is exactly this bridge's `pTpFirst` mass) — no,
+  // subtler: `pStopFirst` mass = "stop breached before ANY partial." So the
+  // SL-first branch books a whole-position stop only when NO partial filled.
+  // When partials filled AND we're in the bridge, `pStopFirst` is the
+  // probability the runner's stop hit before the *next* unfilled leg, so the
+  // SL-first realisation books the already-filled partials at their TPs plus
+  // `-slScale × remainingFrac` on the runner.
   if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
     const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
     const mfeInNewR = mfeForBridge / slScale;
@@ -518,8 +537,9 @@ function replayOneTrade(
     const pTpFirst = resolveTpFirstProb(pTpFirstRaw, ctx.replayMode);
     const pStopFirst = 1 - pTpFirst;
     if (pStopFirst > 0) {
-      // SL-first alternative: whole position stops, no partial ever books.
-      const bookedSlFirst = -slScale;
+      // SL-first alternative: filled partials still book at their TPs; only
+      // the remaining (runner) fraction takes the stop.
+      const bookedSlFirst = filledBooked + (-slScale) * remainingFrac;
       booked = pTpFirst * booked + pStopFirst * bookedSlFirst;
     }
   }
