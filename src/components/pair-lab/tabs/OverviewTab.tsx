@@ -493,12 +493,13 @@ export function OverviewTab({
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
-                  These trades have <code>entry_time</code> without a timezone
-                  (no <code>Z</code> or <code>±HH:MM</code>). Pair Lab parses
-                  them deterministically via the account's broker-DST profile,
-                  but TZ-qualified imports are safer. Set the account's broker
-                  DST profile in Settings → Account, or re-ingest with
-                  ISO 8601 + offset.
+                  Counted across <strong>all your trades</strong> (not just the
+                  current in-scope window). These rows have <code>entry_time</code>{" "}
+                  without a timezone (no <code>Z</code> or <code>±HH:MM</code>).
+                  Pair Lab parses them deterministically via the account's
+                  broker-DST profile, but TZ-qualified imports are safer. Set
+                  the account's broker DST profile in Settings → Account, or
+                  re-ingest with ISO 8601 + offset.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
