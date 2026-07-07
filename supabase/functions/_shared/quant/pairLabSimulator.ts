@@ -366,6 +366,10 @@ export interface PresetReplayResult {
   currentExpectancyROnIntersection: number | null;
   /** True when the eligible sample is < 70% of the total trades — `delta_vs_current` is biased. */
   biasWarning: boolean;
+  /** PR-5 · M7 parity — median applied SL distance in pips (post-scale) across eligible trades. */
+  appliedSlPipsMedian: number | null;
+  /** PR-5 · M7 parity — median applied SL scale (1.0 = original, <1 tighter, >1 wider). */
+  appliedSlScaleMedian: number | null;
 }
 
 export function replayAllPresets(
