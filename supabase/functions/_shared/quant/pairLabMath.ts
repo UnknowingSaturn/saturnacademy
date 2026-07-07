@@ -621,7 +621,16 @@ export function computeBucket(
   const worstStreak = longestLossStreak(rows);
   let suggestedRiskPctPropFirm: number | null = null;
   if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null && propFirm.dailyLossDollars > 0) {
-    const streak = Math.max(MIN_STREAK_FLOOR, worstStreak || 0);
+    // PR-5 · H3 parity — observed worst streak on a small sample is a max-of-
+    // empirical (unstable). Blend with the theoretical expected worst run
+    // from win-rate and N so a lucky-clean sample doesn't produce over-
+    // aggressive sizing. Mirrors client `src/lib/pairLabMath.ts`.
+    const q = Math.max(0.01, Math.min(0.99, 1 - winRate));
+    const nForStreak = Math.max(1, n);
+    const expectedRun = Math.log(nForStreak * q) / Math.log(1 / q);
+    const streakStd = expectedRun > 0 ? Math.sqrt(expectedRun) : 1;
+    const distributionalStreak = Math.ceil(Math.max(1, expectedRun + streakStd));
+    const streak = Math.max(MIN_STREAK_FLOOR, worstStreak || 0, distributionalStreak);
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
     const ddCappedPct = dailyBudgetPct / streak;
     const hardCap = propFirm.hardCapPct > 0 ? propFirm.hardCapPct : 2;
