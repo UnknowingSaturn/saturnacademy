@@ -35,7 +35,7 @@ export function useSimulatorProfile() {
       const { data, error } = await supabase
         .from("user_settings")
         .select(
-          "sim_balance, sim_prop_firm, sim_risk_per_trade_pct, sim_hard_cap_pct, sim_source",
+          "sim_balance, sim_prop_firm, sim_risk_per_trade_pct, sim_hard_cap_pct, sim_source, ranker_comfort_dd_pct",
         )
         .eq("user_id", user.id)
         .maybeSingle();
@@ -52,6 +52,10 @@ export function useSimulatorProfile() {
         ),
         sim_source:
           (data.sim_source as SimulatorSource) ?? DEFAULT_SIM_PROFILE.sim_source,
+        ranker_comfort_dd_pct: Number(
+          (data as { ranker_comfort_dd_pct?: number | null }).ranker_comfort_dd_pct ??
+            DEFAULT_SIM_PROFILE.ranker_comfort_dd_pct,
+        ),
       };
     },
     enabled: !!user?.id,
