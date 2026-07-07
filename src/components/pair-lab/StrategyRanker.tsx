@@ -892,6 +892,24 @@ export function StrategyRanker({
                           {CONFIDENCE_LABEL[conf]}
                         </Badge>
                       </td>
+                      {/* Suggested risk */}
+                      <td className="py-2 px-2 text-right font-mono-numbers">
+                        <SuggestedRiskCell
+                          mc={riskMc}
+                          strategyId={r.strategy.id}
+                          currentRiskPct={riskPct}
+                          insufficient={insufficient}
+                        />
+                      </td>
+                      {/* Verdict */}
+                      <td className="py-2 pl-2">
+                        <VerdictCell
+                          mc={riskMc}
+                          strategyId={r.strategy.id}
+                          currentRiskPct={riskPct}
+                          insufficient={insufficient}
+                        />
+                      </td>
                       <td className="py-2 pl-2">
                         {r.propFirmVerdict === "n/a" || insufficient ? (
                           <span className="text-xs text-muted-foreground">—</span>
@@ -908,8 +926,13 @@ export function StrategyRanker({
                     </tr>
                     {isOpen && (
                       <tr className="bg-muted/20 border-b border-border/30">
-                        <td colSpan={10} className="py-3 px-3">
-                          <StrategyDetailPanel result={r} riskPctOverride={riskPct} />
+                        <td colSpan={12} className="py-3 px-3">
+                          <StrategyDetailPanel
+                            result={r}
+                            riskPctOverride={riskPct}
+                            riskSweep={riskMc.results[r.strategy.id] ?? null}
+                            comfortDdPct={localComfortDd}
+                          />
                         </td>
                       </tr>
                     )}
