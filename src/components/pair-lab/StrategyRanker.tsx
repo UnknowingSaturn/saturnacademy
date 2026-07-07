@@ -812,6 +812,8 @@ export function StrategyRanker({
             (MAE p75, MFE percentiles, trail capture) are re-estimated on prior blocks only, then scored
             on the next block. Numbers above are the concatenated out-of-sample tape. BCa bootstrap
             gives the 95% CI on expectancy. Composite score = lower-CI × drawdown-penalty × sample-penalty.
+            {" "}Win %, Max-DD, and Total $ are properties of the strict-eligible replay only —
+            use the Overview tab for whole-book metrics.
           </span>
         </p>
       </Card>
