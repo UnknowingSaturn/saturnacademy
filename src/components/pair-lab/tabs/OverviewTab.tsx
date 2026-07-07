@@ -160,28 +160,33 @@ export function OverviewTab({
             />
           </div>
           <TooltipProvider delayDuration={150}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-1.5 cursor-help">
-                  <Label htmlFor="orphan-mode" className="text-xs cursor-pointer">
+            <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-1.5">
+              {/* U-B6: cursor-help lives on the Label/Tooltip trigger only —
+                  the outer wrapper no longer intercepts pointer / focus,
+                  so the <Switch> is fully keyboard + click reachable. */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Label
+                    htmlFor="orphan-mode"
+                    className="text-xs cursor-help"
+                  >
                     Include orphan trades
                   </Label>
-                  <Switch
-                    id="orphan-mode"
-                    checked={includeUnassigned}
-                    onCheckedChange={setIncludeUnassigned}
-                    aria-label="Include trades with no account assigned"
-                  />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
-                When off, only trades attached to the selected account are
-                bucketed. When on, trades whose <code>account_id</code> is NULL
-                (legacy CSV imports, advisory closes) are also included. Off by
-                default in Pair Lab so cross-account orphan rows can't pollute
-                expectancy.
-              </TooltipContent>
-            </Tooltip>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  When off, only trades attached to the selected account are
+                  bucketed. When on, trades whose <code>account_id</code> is NULL
+                  (legacy CSV imports, advisory closes) are also included.
+                  Defaults ON in Pair Lab to match the Journal.
+                </TooltipContent>
+              </Tooltip>
+              <Switch
+                id="orphan-mode"
+                checked={includeUnassigned}
+                onCheckedChange={setIncludeUnassigned}
+                aria-label="Include trades with no account assigned"
+              />
+            </div>
           </TooltipProvider>
 
           <Select value={profile} onValueChange={setProfile}>
