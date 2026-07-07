@@ -394,6 +394,39 @@ export function StrategyRanker({
     });
   }, [rows]);
 
+  // Risk sweep — per strategy, Monte-Carlo an R-outcome sample across a
+  // risk-% grid with compounding on. Non-blocking (worker); populates the
+  // "Suggested risk" and "Verdict" columns once ready.
+  const riskInputs = useMemo(() => {
+    return ranked
+      .filter((r) => r.result.eligibleCount >= MIN_PROVEN_SAMPLE)
+      .map((r) => ({
+        strategyId: r.result.strategy.id,
+        rSample: r.result.perTrade.map((p) => p.resultR),
+        currentRiskPct: riskPct,
+      }));
+  }, [ranked, riskPct]);
+
+  const riskMc = useRankerRiskMC({
+    strategies: riskInputs,
+    accountSize: balance,
+    comfortDdPct: localComfortDd,
+    hardCapPct,
+    propFirm: propFirm
+      ? {
+          dailyLossPct:
+            propFirm.dailyLossDollars != null && propFirm.balance > 0
+              ? propFirm.dailyLossDollars / propFirm.balance
+              : null,
+          maxLossPct:
+            propFirm.maxDrawdownDollars != null && propFirm.balance > 0
+              ? propFirm.maxDrawdownDollars / propFirm.balance
+              : null,
+        }
+      : null,
+    enabled: balance > 0,
+  });
+
   if (trades.length === 0) {
     return (
       <Card className="p-6 text-sm text-muted-foreground text-center">
