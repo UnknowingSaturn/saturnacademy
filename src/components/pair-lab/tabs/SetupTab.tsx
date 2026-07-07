@@ -12,11 +12,14 @@ import type { usePairLab } from "@/hooks/usePairLab";
 
 interface Props {
   data: ReturnType<typeof usePairLab>;
+  /** Audit U-B5: URL-persisted sub-tab so the choice survives reloads / shares. */
+  setupTab?: string;
+  setSetupTab?: (v: string) => void;
 }
 
-export function SetupTab({ data }: Props) {
+export function SetupTab({ data, setupTab = "simulator", setSetupTab }: Props) {
   return (
-    <Tabs defaultValue="simulator">
+    <Tabs value={setupTab} onValueChange={(v) => setSetupTab?.(v)}>
       <TabsList>
         <TabsTrigger value="simulator">Simulator profile</TabsTrigger>
         <TabsTrigger value="groups">Symbol groups</TabsTrigger>
