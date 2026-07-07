@@ -609,7 +609,14 @@ function computeBucket(
     .filter((v): v is number => v != null && Number.isFinite(v) && v < 0)
     .map((v) => Math.abs(v));
 
-  const mfes = rows.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
+  // V2 fix: MFE/MAE/idealSL distributions must be computed over `closed`
+  // trades only. Using `rows` (which includes unrealized ideas / paper /
+  // missed / dismissed / zero-PnL rows when `includeUnrealized=true`) let
+  // interim excursion values from open ideas bleed into the TP grid /
+  // quantiles that drive the SL recommendation. `mfeRPairsForTp1` below
+  // already correctly filters unrealized rows — this brings the raw
+  // distribution accessors into line.
+  const mfes = closed.map((t) => numericCf(t as any, keys.mfe)).filter((v): v is number => v != null);
   // Paired (mfeR, rActual) used by computeTp1Star for empirical miss-cost.
   // B-fix: drop unrealized rows (idea / paper / missed / dismissed / zero-PnL
   // no-mod) so `includeUnrealized=true` doesn't lower the hit-rate denominator
@@ -636,7 +643,7 @@ function computeBucket(
   /** Per-trade tuples used by the SL sweep — needs MAE-pips, planned SL-pips, and actual R. */
   const sweepRows: Array<{ maePips: number; slPips: number; rActual: number }> = [];
   const maesTicks: number[] = [];
-  for (const t of rows) {
+  for (const t of closed) {
     const maeTicks = numericCf(t as any, keys.mae);
     if (maeTicks == null) continue;
     maesTicks.push(Math.abs(maeTicks));
@@ -667,8 +674,9 @@ function computeBucket(
   }
 
   // Ideal SL is stored in TICKS. Convert to pips for the SL recommendation.
+  // V2 fix: iterate over `closed`, not `rows` (see MFE note above).
   const idealSls: number[] = [];
-  for (const t of rows) {
+  for (const t of closed) {
     const idealTicks = numericCf(t as any, keys.idealStopLoss);
     if (idealTicks == null || !t.symbol) continue;
     idealSls.push(Math.abs(ticksToPips(t.symbol, idealTicks)));
@@ -1060,10 +1068,8 @@ export function runWalkForward(
   const oosPairs = collectMfeRPairs(oosRows, keys);
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
 
-  // Walk-forward must not estimate trailCapture on the OOS slice. We no
-  // longer pass `trail` into `scoreTp`/`pickBestTp` (dead parameter removed),
-  // but `pickBestTp`'s signature still accepts it as `_trail` for API
-  // stability — passing 0 is a no-op.
+  // C1 cleanup: prior comment claimed `pickBestTp` still accepted `_trail`
+  // for API stability — it does not; the signature is `(pairs)` only.
   const isPick = pickBestTp(isPairs);
   if (!isPick) return null;
   const inSampleE = isPick.expectancy;

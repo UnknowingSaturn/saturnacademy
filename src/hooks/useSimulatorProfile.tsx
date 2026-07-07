@@ -158,6 +158,13 @@ export function useUpdatePairLabPrefs() {
     };
   }, []);
 
+  // V6 fix: capture the pre-optimistic snapshot on a ref so rapid successive
+  // edits share the *first* snapshot for revert instead of each capturing
+  // "prev + previous optimistic patch". Previously, two edits within the
+  // 300 ms debounce window meant a failed flush would only roll back the
+  // last patch, leaving the earlier optimistic write in cache but never on
+  // disk — silent drift from DB truth until the next refetch.
+  const revertSnapshot = useRef<SimulatorProfile | null>(null);
   return useCallback(
     (patch: PairLabPrefs) => {
       if (!user?.id) return;
@@ -166,6 +173,11 @@ export function useUpdatePairLabPrefs() {
       // Optimistic cache update so a same-tick re-read sees the new value.
       const key = ["simulator_profile", user.id];
       const prev = qc.getQueryData<SimulatorProfile>(key);
+      // Only replace snapshot if there's no in-flight timer — otherwise keep
+      // the earlier "true" pre-optimistic state.
+      if (!timer.current) {
+        revertSnapshot.current = prev ?? null;
+      }
       if (prev) {
         qc.setQueryData<SimulatorProfile>(key, {
           ...prev,
@@ -175,8 +187,11 @@ export function useUpdatePairLabPrefs() {
 
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(async () => {
+        timer.current = null;
         const flush = pending.current;
         pending.current = {};
+        const snapshot = revertSnapshot.current;
+        revertSnapshot.current = null;
         const current = qc.getQueryData<SimulatorProfile>(key);
         const merged = { ...(current?.pair_lab_prefs ?? {}), ...flush };
         try {
@@ -199,8 +214,9 @@ export function useUpdatePairLabPrefs() {
           }
         } catch (e) {
           console.warn("[pair_lab_prefs] save failed", e);
-          // Revert optimistic patch on failure so the UI reflects DB truth.
-          if (prev) qc.setQueryData<SimulatorProfile>(key, prev);
+          // Revert to the pre-optimistic snapshot (captured before *any* of
+          // the coalesced patches optimistically updated the cache).
+          if (snapshot) qc.setQueryData<SimulatorProfile>(key, snapshot);
         }
       }, 300);
     },
