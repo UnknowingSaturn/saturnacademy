@@ -393,7 +393,7 @@ export default function Journal() {
       <DriftTray />
       <PageIntroBanner
         routeKey="journal"
-        title="Trade journal — defaults to the current month"
+        title="Trade journal — shows all trades by default"
         body="Mix executed trades with hypothetical ideas, attach up to 5 labelled screenshots per trade, and use the Settings cog to tweak sessions and custom properties. Stuck on an open trade that's actually closed? Open it and use Dismiss as closed."
       />
       <div className="flex items-center justify-between">
