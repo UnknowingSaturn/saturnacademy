@@ -136,6 +136,10 @@ export const MIN_STREAK_FLOOR = 3;
  * simulator (`TRAIL_CAPTURE_FRAC`), the edge simulator
  * (`DEFAULT_TRAIL_CAPTURE_FRAC`) and the bucket-local fallback in
  * `pairLabMath.ts`. Edit here, not at the call site.
+ *
+ * TODO(empirical): derive per-asset-class priors once we have ≥1k winners per
+ * class. Current 0.7 is a conservative FX default and is likely low for
+ * fast-tape indices and high for slow-drift metals.
  */
 export const TRAIL_CAPTURE_FALLBACK = 0.7;
 
