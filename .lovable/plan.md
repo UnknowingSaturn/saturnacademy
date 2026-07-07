@@ -1,89 +1,82 @@
-# Risk-aware Strategy Ranker — plain-English version
 
-## The one-line goal
+# Pair Lab — Persistence + Honest Audit
 
-For every strategy, answer: **"At what risk % would this have grown my account fastest without a scary drawdown?"** — and compare that to what you're doing now.
+Two workstreams. I want to do the audit **before** rewriting math — the safe way to "not make things worse" is to first document what actually exists (with file:line refs), diff it against Journal semantics, and only then patch. Any fix I propose without that step would be a guess.
 
-## What you'll see
+## Part A — Persist filter state per user (root-cause fix)
 
-Same Ranker table you have today, plus **two new columns** and **one verdict chip**. No new charts, no sliders in your face, no new vocabulary.
+**Problem (verified in code).** `src/pages/PairLab.tsx` reads every filter from `useSearchParams`. If the URL has no query string (fresh navigation from the sidebar, new tab, bookmark to `/pair-lab`), every toggle falls back to its hard-coded default (`profile=any`, `pf=on`, `unreal=off`, `orphans=on`, `scope=all`, `lens=all`, `asOf=now`, `tab=overview`). Nothing is written to the database or `localStorage`, so it looks like the app "forgets" your setup on every reload.
 
-```text
-Strategy              Result at your risk (1.5%)      Suggested risk   Verdict
-                      +$/trade   Worst drop           
-Runner                +$12       -$180 (-1.8%)        0.9%  ↓          Too risky — cut to 0.9%
-Scale-out 50/50       +$9        -$90  (-0.9%)        1.5%  =          You're already dialed in
-All-out @2R           +$14       -$260 (-2.6%)        1.1%  ↓          Slightly too hot
-Quick-flip @1R        +$6        -$60  (-0.6%)        2.4%  ↑          You could risk more safely
-Widen SL → 2R         +$8        -$310 (-3.1%)        —              Too fat-tailed for a safe risk
-```
+**Fix.** Store last-used Pair Lab filters per user and hydrate them on mount when the URL doesn't already specify them. URL still wins when present (shared links, deep links from Coach/Journal keep working).
 
-**Columns explained (in the UI, right next to the header, as a small "?" tooltip):**
+Concretely:
+1. Add a JSONB column `pair_lab_prefs` to `public.simulator_profile` (same row that already owns `ranker_comfort_dd_pct`, `sim_hard_cap_pct`, etc. — one round-trip, one RLS policy already in place). Migration includes the standard GRANT block; existing RLS untouched.
+2. Shape (small, forward-compatible):
+   ```ts
+   {
+     profile?: string;              // "any" | tag
+     propFirmMode?: boolean;
+     includeUnrealized?: boolean;
+     includeUnassigned?: boolean;
+     scope?: string;                // "all" | "grp:<id>"
+     tab?: "overview"|"grid"|"windows"|"strategy"|"setup";
+     lens?: "all"|"90d"|"30d";
+     distanceUnit?: "pips"|"ticks";
+   }
+   ```
+3. Extend `useSimulatorProfile` with a debounced `updatePairLabPrefs(partial)` mutation (300 ms debounce, optimistic cache update, no toast).
+4. In `PairLab.tsx`:
+   - On first mount, if a given URL param is absent, seed from `pair_lab_prefs`; if present, URL wins.
+   - Every existing `setX` callback also fires `updatePairLabPrefs({ x })`.
+   - `asOf` and per-cell `symbol`/`session` selection are **not** persisted (session-scoped; would confuse across sessions).
+5. `distanceUnit` today uses `useDistanceUnit` (localStorage). Move source of truth into the same server prefs so it survives across devices; keep a localStorage fallback for unauth'd renders.
 
-- **Suggested risk** — The risk % that would have made you the most money over your sample without your worst losing streak going past your comfort zone. Arrow shows if it's higher (↑), lower (↓), or the same (=) as what you're using.
-- **Verdict** — Plain-English one-liner. Green = "you're fine", amber = "consider adjusting", red = "this strategy is dangerous at your current risk".
+**Acceptance.** Reload `/pair-lab` in a fresh tab with no query string → prop-firm toggle, unrealized, orphans, scope, profile, lens, tab, distance unit are restored to whatever the user last set. A shared URL with `?pf=0&lens=90d` still overrides.
 
-That's it. No probability numbers, no ratios, no charts by default.
+## Part B — Thorough Pair Lab audit (deliverable = report, not code)
 
-## The one setting you control
+You explicitly asked me not to hallucinate. The only way I can honestly deliver a "heavy and thorough analysis of all pages, code, math, methodologies, data accuracy vs. journal" is to first produce a written audit doc you can read and approve/reject item by item. I will not silently rewrite math in the same PR.
 
-A single question at the top of the Ranker (not a slider, just a dropdown), because "comfort zone" has to come from you:
+Scope of the audit (fixed, nothing else touched):
 
-```text
-Biggest drawdown you'd stay calm through:   [ -5% ▼ ]  ( -3% / -5% / -10% / -15% )
-```
-
-Default: **-10%** for personal accounts, **auto-matches your prop-firm cap** when prop-firm mode is on. Saved per user so you set it once.
-
-## What we hide (but keep available)
-
-Click "Show details" on a row → reveals the pro view:
-
-- The risk-vs-growth curve chart
-- Bust probability at each risk level
-- The exact numbers behind the verdict
-- Note: "This is based on N=X trades. Fewer trades = less reliable suggestion."
-
-Casual users never see it. Detail-oriented users can dig in.
-
-## The verdict logic (kept simple)
-
-| Condition | Verdict | Color |
+| Area | Files audited | What I check |
 |---|---|---|
-| Suggested risk within ±15% of your current | "You're already dialed in" | green |
-| Suggested risk > your current × 1.15 | "You could risk more safely" | blue |
-| Suggested risk < your current × 0.7 | "Slightly too hot — consider {X}%" | amber |
-| Suggested risk < your current × 0.5 | "Too risky at your current % — cut to {X}%" | red |
-| No risk % keeps drawdown within your comfort zone | "Too fat-tailed for a safe risk" | grey |
+| Data ingress vs. Journal | `usePairLab.tsx`, `useTrades.tsx`, `shared/quant/stats.ts` (`isUnrealized`, `ensureUtcMs`, `countNaiveEntryTimes`), `hooks/useOosSplit.ts` | Does the trade universe Pair Lab bucketizes exactly match what Journal shows? Account filter, orphans, archived, open, unrealized, TZ handling, walk-forward window edges. Cross-check by row count and by a sampled trade ID list. |
+| Bucketing & baselines | `lib/pairLabMath.ts` (1285 lines) — `buildBuckets`, `resolvePairLabFieldKeys`, `detectAmbiguousFieldKeys`, `estimateTrailCapture`, quantile / expectancy / recommendation code | Quantile method (interpolation vs. nearest), R-fallback branch (sign-inferred R), MFE/MAE unit conversion via tick overrides, ¼-Kelly formula, recommendation guardrails, empty-sample and single-sample behaviour, NaN propagation. |
+| Simulator / prop-firm math | `lib/pairLabSimulator.ts` (1225 lines), `lib/propFirmMonteCarlo.ts`, `useSimulatorProfile.tsx` | Balance source resolution (`manual` vs `active_account`), rule → dollars conversion (percentage flag), hard-cap application order, compounding vs. fixed risk, RNG seeding, path count, DD tolerance semantics. |
+| Ranker + risk-MC | `StrategyRanker.tsx`, `useRankerRiskMC.ts`, `workers/rankerRiskMC.worker.ts`, `useStrategyLabSweep.ts` | Sort key (BCa lower bound of R), risk grid clipping to `sim_hard_cap_pct`, ruin-prob ceiling, comfort-DD flow, worker payload contract, verdict thresholds. |
+| Presets & Strategy Lab | `lib/pairLabPresets.ts`, `StrategyLab.tsx`, `tabs/StrategyTab.tsx` | Preset R sample derivation, deterministic replay, out-of-sample split (`useOosSplit`), whether preset simulations still respect walk-forward and profile scope. |
+| Ideal windows & grid | `IdealWindowHeatmap.tsx`, `BucketGrid.tsx`, `lib/idealWindowMath.ts`, `lib/hourSetup.ts` | Timezone of hour-buckets vs. session definitions, min-sample gating, colour-scale saturation, drift-signal window `recentN`. |
+| Symbol layer | `lib/symbolMapping.ts`, `lib/symbolAliasing.ts`, `useSymbolGroups.tsx`, `useSymbolAliases.tsx`, `SymbolGroupManager.tsx`, `SymbolAliasManager.tsx` | Tick-size override precedence, classify vs. normalize order, group scope override interaction with aliases, the J4 side-effect subscription. |
+| UI shell & context | `pages/PairLab.tsx`, `contexts/PairLabWalkForwardContext.tsx`, `WalkForwardControls.tsx`, `usePairLabTradeBounds.ts` | URL ↔ state contract, memoization boundaries, tabs that re-mount and lose local state, effect deps that miss inputs. |
+| Server parity | `supabase/functions/pair-lab-report/*` and `serverReplayParity.test.ts` | Any server surface must produce the same numbers as the client for the same inputs. Divergences get logged, not silently normalized. |
+| Dead code / drift | Entire `src/components/pair-lab` and `src/lib/pairLab*.ts` | Unreferenced exports, superseded helpers, legacy field-key branches, TODO/FIXME density, tests pinning obsolete behaviour. |
 
-## Technical (unchanged from the pro plan, just hidden from the UI)
+**Method (no guessing).**
+- Three parallel `spawn_agent` explorations (data-plumbing, math-core, UI/UX+dead-code), each producing a section of the report with `file:line` citations.
+- Cross-check ~20 randomly sampled trade IDs against Journal's own hook to confirm identical inclusion decisions.
+- Where the code deviates from its docstring/comment → finding.
+- Where two surfaces (Overview baseline vs. Ranker vs. server report) can produce different numbers for the same window → finding.
 
-Under the hood this is still Monte Carlo simulation with compounding, over the strategy's R-outcome sample, at horizon = your eligible trade count, sweeping a fixed risk grid, picking the risk % with the highest median terminal equity **subject to peak drawdown ≤ your comfort setting**.
+**Deliverable.** A single markdown file `.lovable/pair-lab-audit.md` with:
+1. Executive summary — count of findings by severity (blocker / correctness / perf / UX / dead-code).
+2. One entry per finding: title, `file:line`, current behaviour (quoted), expected behaviour, evidence, suggested fix, risk of fixing.
+3. An explicit "unresolved / needs your call" list — e.g. "Ranker sort key is BCa lower bound of R, ignoring compounding. Intended?" I will not silently change these.
 
-- Reuse `runMonteCarlo` in `src/lib/propFirmMonteCarlo.ts`.
-- New worker `src/workers/rankerRiskMC.worker.ts` (pattern from `strategyLabMC.worker.ts`).
-- Grid: `[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3]%` clipped to `sim_hard_cap_pct`, 2000 paths per rung, fixed seed per `(strategyId, riskPct)` for stable output.
-- Ruin-probability ceiling internal-only, fixed at 5% (not user-facing — the drawdown comfort setting is easier to reason about).
-- Expose `rSample: number[]` on `RankerRow` if not already there.
-- Sort order of the table doesn't change — still ranked by BCa lower bound of expectancy R.
+**Then and only then** you pick which findings to actually fix, and I open a follow-up plan with the concrete diff set. This is the only way to genuinely not make things worse.
 
-**Persistence**
-```sql
-ALTER TABLE public.user_settings
-  ADD COLUMN IF NOT EXISTS ranker_comfort_dd_pct numeric DEFAULT 10;
-```
-(`user_settings` already granted.)
+## Out of scope for this plan
+- Rewriting any math or UI in Pair Lab before the audit report is reviewed.
+- Journal, Copier, Coach, Playbooks, Reports, Strategy Lab preset library changes.
+- Adding new features (new metrics, new presets, new charts).
 
-**Server parity** — mirror in `supabase/functions/_shared/quant/pairLabSimulator.ts`, extend `serverReplayParity.test.ts` with fixed-seed MC parity.
+## Technical notes
+- Migration is additive (JSONB column with default `'{}'::jsonb`). No backfill required — absence means "no saved prefs, use current defaults".
+- Prefs write is fire-and-forget with optimistic cache update; a failed write logs a console warning and doesn't block the UI.
+- `TanStack Query` cache key already keyed by `user.id`; adding one field doesn't invalidate other consumers.
+- Audit produces a doc committed under `.lovable/` — no runtime impact.
 
-**Tests** (`pairLabRobust.test.ts`)
-- Suggested risk on a linear (constant expectancy) sample = highest feasible grid rung.
-- Suggested risk on a fat-tailed sample < hard cap.
-- No feasible rung → verdict is "Too fat-tailed", suggested = null.
-- Verdict thresholds fire at correct multipliers.
-
-## Out of scope
-
-- Strategy Lab (already does risk sweeps) — untouched.
-- Preset list, SL rules, per-symbol ideal-SL table — untouched.
-- Any new terminology like "Kelly", "ruin probability", "Sharpe" in the default view.
+## Order of execution
+1. Ship Part A (small, isolated, verifiable in one reload).
+2. Produce Part B report.
+3. You review the report → we open a third plan for the concrete fixes you approve.
