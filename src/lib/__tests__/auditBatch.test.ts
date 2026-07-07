@@ -4,6 +4,7 @@ import {
   WINNERS_MAE_SL_BUFFER,
   MAE_P75_WIDEN_BUFFER,
 } from "../../../shared/quant/config";
+import { runMonteCarlo } from "../propFirmMonteCarlo";
 
 /**
  * Regression tests for the Batch-1 math correctness fixes surfaced in the
