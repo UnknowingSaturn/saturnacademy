@@ -363,6 +363,9 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
     profileQuery.data,
     profileQuery.isLoading,
     rulesQuery.data,
+    rulesQuery.isLoading,
+    accountQuery.isLoading,
+    groupsQuery.isLoading,
     // J4 — re-run when overrides install/change so MAE / Ideal-SL scaling
     // matches the canonical tick map. The hook itself doesn't read groupsQuery
     // directly; the effect inside useSymbolGroups writes the overrides into
