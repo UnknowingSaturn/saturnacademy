@@ -192,3 +192,50 @@ describe("PR-5 · H4 — all_out_at_last_partial no-fill no-stop books stop, not
   });
 });
 
+describe("computeAppliedSlBySymbol — per-symbol native-unit breakdown", () => {
+  it("keeps FX pips and index points in separate rows with correct units", () => {
+    const items = [
+      ...Array.from({ length: 5 }, () => ({ symbol: "EURUSD", slPips: 20, slScale: 0.5 })),
+      ...Array.from({ length: 4 }, () => ({ symbol: "NAS100", slPips: 40, slScale: 0.3 })),
+    ];
+    const rows = computeAppliedSlBySymbol(items);
+    expect(rows).not.toBeNull();
+    expect(rows!).toHaveLength(2);
+    const eu = rows!.find((r) => r.symbol === "EURUSD")!;
+    const nas = rows!.find((r) => r.symbol === "NAS100")!;
+    expect(eu.unit).toBe("pips");
+    expect(nas.unit).toBe("points");
+    expect(eu.medianNative).toBeCloseTo(20, 2);
+    expect(nas.medianNative).toBeCloseTo(40, 2);
+    expect(eu.medianScale).toBeCloseTo(0.5, 2);
+  });
+
+  it("drops symbols with fewer than 3 trades and returns null when nothing clears the floor", () => {
+    const items = [
+      { symbol: "EURUSD", slPips: 20, slScale: 1 },
+      { symbol: "GBPUSD", slPips: 15, slScale: 1 },
+    ];
+    expect(computeAppliedSlBySymbol(items)).toBeNull();
+  });
+
+  it("robust median is unaffected by a single 20x outlier", () => {
+    const base = Array.from({ length: 9 }, () => ({ symbol: "EURUSD", slPips: 10, slScale: 0.5 }));
+    const withOutlier = [...base, { symbol: "EURUSD", slPips: 200, slScale: 0.5 }];
+    const rows = computeAppliedSlBySymbol(withOutlier)!;
+    expect(rows[0].medianNative).toBeCloseTo(10, 2);
+  });
+
+  it("collapses tail beyond maxSymbols into an 'Other' row", () => {
+    const items: Array<{ symbol: string; slPips: number; slScale: number }> = [];
+    for (let i = 0; i < 10; i++) {
+      const sym = `SYM${i.toString().padStart(2, "0")}`;
+      for (let j = 0; j < 3; j++) items.push({ symbol: sym, slPips: 10 + i, slScale: 0.5 });
+    }
+    const rows = computeAppliedSlBySymbol(items, 3)!;
+    expect(rows).toHaveLength(4);
+    expect(rows[rows.length - 1].symbol.startsWith("Other (")).toBe(true);
+    expect(Number.isNaN(rows[rows.length - 1].medianNative)).toBe(true);
+  });
+});
+
+
