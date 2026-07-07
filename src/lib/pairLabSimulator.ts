@@ -592,9 +592,12 @@ function replayOneTrade(
   // (An earlier PR-5 draft mistakenly preserved filled partials in the SL-
   // first branch, but by construction the filled partials only exist on the
   // `pTpFirst` mass — preserving them on both branches double-counts.)
-  if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
-    const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
-    const mfeInNewR = mfeForBridge / slScale;
+  // Audit M-B4: only take the Brownian-bridge branch when we have a *logged*
+  // MFE. Using `proof.reachedR` as an MFE proxy underestimates the excursion
+  // when reachedR was itself inferred from r_multiple_actual sign, biasing
+  // early-TP presets toward SL-first.
+  if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null && proof.loggedMfe != null) {
+    const mfeInNewR = proof.loggedMfe / slScale;
     const maeInNewR = proof.loggedMae / slScale;
     const pTpFirstRaw = pathProbTpFirst(firstBreachedTpR, 1, mfeInNewR, maeInNewR);
     const pTpFirst = resolveTpFirstProb(pTpFirstRaw, ctx.replayMode);
