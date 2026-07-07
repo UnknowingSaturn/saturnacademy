@@ -26,6 +26,7 @@ import type { Trade } from "@/types/trading";
 import type { PairLabFieldKeys, PropFirmContext } from "@/lib/pairLabMath";
 import { bootstrapMeanCi, quantile, stddev, downsideStddev } from "@/lib/pairLabMath";
 import { bootstrapMeanCiBCa, pathProbTpFirst, resolveTpFirstProb, ensureUtcMs, isUnrealized, type ReplayMode } from "../../shared/quant/stats";
+import type { SharedAppliedSlSymbolStat } from "../../shared/quant/types";
 export type { ReplayMode } from "../../shared/quant/stats";
 import { pipSizeForSymbol, ticksToPips, pipLabelForSymbol } from "@/lib/symbolMapping";
 import {
