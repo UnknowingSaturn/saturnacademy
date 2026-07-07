@@ -56,12 +56,17 @@ export function useSimulatorProfile() {
       const { data, error } = await supabase
         .from("user_settings")
         .select(
-          "sim_balance, sim_prop_firm, sim_risk_per_trade_pct, sim_hard_cap_pct, sim_source, ranker_comfort_dd_pct",
+          "sim_balance, sim_prop_firm, sim_risk_per_trade_pct, sim_hard_cap_pct, sim_source, ranker_comfort_dd_pct, pair_lab_prefs",
         )
         .eq("user_id", user.id)
         .maybeSingle();
       if (error) throw error;
       if (!data) return DEFAULT_SIM_PROFILE;
+      const rawPrefs = (data as { pair_lab_prefs?: unknown }).pair_lab_prefs;
+      const pair_lab_prefs: PairLabPrefs =
+        rawPrefs && typeof rawPrefs === "object" && !Array.isArray(rawPrefs)
+          ? (rawPrefs as PairLabPrefs)
+          : {};
       return {
         sim_balance: Number(data.sim_balance ?? DEFAULT_SIM_PROFILE.sim_balance),
         sim_prop_firm: (data.sim_prop_firm as string | null) ?? null,
@@ -77,6 +82,7 @@ export function useSimulatorProfile() {
           (data as { ranker_comfort_dd_pct?: number | null }).ranker_comfort_dd_pct ??
             DEFAULT_SIM_PROFILE.ranker_comfort_dd_pct,
         ),
+        pair_lab_prefs,
       };
     },
     enabled: !!user?.id,
