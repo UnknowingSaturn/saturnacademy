@@ -124,3 +124,31 @@ Runtime overrides it via `resolvePartialAtR`; unresolved → ineligible. Either 
 ## Not in scope
 
 No new features. No changes to preset library semantics beyond L4/L5 hygiene. No schema changes. No changes to `usePairLab`'s filter contract.
+
+---
+
+## PR-5 execution record
+
+Merged:
+- **H4** (both twins) + test — asymmetric no-fill/no-stop branch on `all_out_at_last_partial` now books `-slScale × remainingFrac` symmetrically with the stopped branch.
+- **H1 + L1** — QuantNote payload sends canonical `*Pips` names; deprecated `idealSlMedian` / `slInitialMedian` type fields, writes, and read fallbacks removed across `pairLabMath.ts`, `QuantNotePanel.tsx`.
+- **H2a** — server `pickBestTp` now applies BCa-style √log(k+1) post-selection widening (parity with client).
+- **H2b** — server Kelly CI switched to `bootstrapKellyCiBCa` (added to import list).
+- **H2c** — server `computeTp1Star` uses `globalMedian` of `rActual` as neutral prior for miss-cost when a candidate TP has <5 misses.
+- **H3** — server prop-firm streak formula ports client's `log(N·q)/log(1/q) + σ` distributional upper bound.
+- **M2** — `StrategyTab` passes `scopedTrades` to `OutOfSamplePanel` and updates the section blurb; gate switched from `data.totalTrades` to `scopedTrades.length`.
+- **M3** — OOS tooltip copy updated to "≥10 trades each side" (matches worker gate).
+- **M5** — defensive `is_open` guards in `idealWindowMath` `bucketTrades` and `bucketRs`.
+- **M7** — server `ReplayOutcome` now returns `{ r, slPips, slScale, slProxy }`; `PresetReplayResult` gains `appliedSlPipsMedian` / `appliedSlScaleMedian`.
+- **L5** — server "current" preset `partials: []` (matches client; AI note no longer describes ghost 100%@1R partial).
+
+Withdrawn:
+- **B1** — the audit's claim that the SL-first branch should preserve filled partials is incorrect. `pStopFirst` = P(stop before ANY partial), so under the SL-first realisation no partial ever fills; preserving them would double-count on the `pTpFirst` mass. Original `bookedSlFirst = -slScale` is correct. Two `serverReplayParity.test.ts` cases confirmed the semantics — an inline B1 test I had added was replaced by a note in `pairLabRobust.test.ts`.
+
+Deferred (not-changed):
+- **M1, M6, M4, M8, M9, M10, L2, L3, L4, L6, L7, P1-P3** — either low priority, defensive-only (already safe today via caller-side gates), or larger refactors that belong in a separate PR. Documented for the next pass.
+
+Verification:
+- `tsgo --noEmit`: clean.
+- `bunx vitest run`: 25/25 green (`pathProb`, `pairLabRobust`, `serverReplayParity`).
+- Edge-function deploy of `pair-lab-report` blocked by pre-existing bundler config not resolving `../../../../shared/quant/*` — unrelated to these edits. Server code parity is verified against client via the vitest `serverReplayParity` suite.
