@@ -151,6 +151,9 @@ export interface BucketReport {
   maeMaxTicks: number | null;
   idealSlMedianPips: number | null;
   slInitialMedianPips: number | null;
+  /** Data-driven ideal SL (winners' MAE p90 × widen buffer). Null when N<8. */
+  idealSlDataDrivenPips: number | null;
+  idealSlDataDrivenN: number | null;
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   confidence: ConfidenceLevel;
   suggestedSlPips: number | null;
