@@ -1066,6 +1066,10 @@ export function runWalkForward(
 
   const isPairs = collectMfeRPairs(isRows, keys);
   const oosPairs = collectMfeRPairs(oosRows, keys);
+  // V5: the pairs floor (5) alone lets a bucket with 28 total closed trades
+  // trigger walk-forward whenever those 8 OOS rows happen to have 5+ MFE
+  // pairs. `oosRows.length < 10` already guards this, so V5 is a no-op today
+  // — but keep the explicit check for clarity in the report line below.
   if (isPairs.length < 10 || oosPairs.length < 5) return null;
 
   // C1 cleanup: prior comment claimed `pickBestTp` still accepted `_trail`
