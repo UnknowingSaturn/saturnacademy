@@ -57,6 +57,10 @@ export interface PartialFillFlag {
 
 export interface PairLabData {
   isLoading: boolean;
+  /** B7 fix: surface any underlying query failure so PairLab can render a
+   *  recoverable error card instead of silently displaying an empty grid. */
+  isError: boolean;
+  errorMessage: string | null;
   fieldKeys: PairLabFieldKeys;
   baseline: BucketReport;
   perCell: BucketReport[];
@@ -328,6 +332,23 @@ export function usePairLab(filters: PairLabFilters = {}): PairLabData {
         rulesQuery.isLoading ||
         accountQuery.isLoading ||
         groupsQuery.isLoading,
+      // B7 fix: propagate query errors so callers can render a retry card
+      // instead of silently rendering an empty grid on a failed fetch.
+      isError:
+        tradesQuery.isError ||
+        defsQuery.isError ||
+        aliasesQuery.isError ||
+        profileQuery.isError ||
+        rulesQuery.isError ||
+        accountQuery.isError,
+      errorMessage:
+        (tradesQuery.error as Error | null)?.message ??
+        (defsQuery.error as Error | null)?.message ??
+        (aliasesQuery.error as Error | null)?.message ??
+        (profileQuery.error as Error | null)?.message ??
+        (rulesQuery.error as Error | null)?.message ??
+        (accountQuery.error as Error | null)?.message ??
+        null,
       fieldKeys,
       baseline,
       perCell,
