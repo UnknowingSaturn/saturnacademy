@@ -260,11 +260,21 @@ export default function Journal() {
   }, [periodType, currentDate, periodRange, customFrom, customTo]);
 
   const navigatePeriod = (direction: -1 | 1) => {
-    if (periodType === "week") {
-      setCurrentDate(prev => direction === 1 ? addWeeks(prev, 1) : subWeeks(prev, 1));
-    } else if (periodType === "month") {
-      setCurrentDate(prev => direction === 1 ? addMonths(prev, 1) : subMonths(prev, 1));
-    }
+    // B8 fix: `addWeeks` / `addMonths` walk in *local* tz, so on DST boundaries
+    // the display label drifts a day from the UTC filter window (which was
+    // moved to `Date.UTC` in B2). Derive the next anchor from UTC parts too.
+    setCurrentDate(prev => {
+      const y = prev.getUTCFullYear();
+      const m = prev.getUTCMonth();
+      const d = prev.getUTCDate();
+      if (periodType === "week") {
+        return new Date(Date.UTC(y, m, d + 7 * direction));
+      }
+      if (periodType === "month") {
+        return new Date(Date.UTC(y, m + direction, d));
+      }
+      return prev;
+    });
   };
 
   // Apply all filters

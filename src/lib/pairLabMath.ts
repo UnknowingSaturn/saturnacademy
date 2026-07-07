@@ -624,6 +624,10 @@ function computeBucket(
   const mfeRPairsForTp1: Array<{ mfeR: number; rActual: number | null }> = [];
   for (const t of rows) {
     if (isUnrealized(t as any)) continue;
+    // P4 fix: open live positions have no rActual — including them puts a
+    // permanent { mfeR, rActual: null } row in the TP1* denominator (never a
+    // hit), systematically biasing the recommendation toward lower R targets.
+    if (t.is_open) continue;
     const m = numericCf(t as any, keys.mfe);
     if (m == null) continue;
     mfeRPairsForTp1.push({ mfeR: m, rActual: t.r_multiple_actual ?? null });
@@ -683,7 +687,11 @@ function computeBucket(
   }
 
   const slInitials: number[] = [];
-  for (const t of rows) {
+  // P3 fix: iterate `closed` (like every sibling accumulator: `mfes`, `maesR`,
+  // `idealSls`). Iterating raw `rows` with `closedOnly:false` made `slDrift` an
+  // apples-to-oranges ratio (denominator counted open trades the numerator
+  // excluded), producing spurious "too_wide" / "too_tight" flags.
+  for (const t of closed) {
     if (t.sl_initial == null || t.entry_price == null || !t.symbol) continue;
     const pip = pipSizeForSymbol(t.symbol);
     if (!(pip > 0)) continue;

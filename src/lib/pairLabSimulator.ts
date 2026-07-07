@@ -680,7 +680,14 @@ function buildResult(
     const dd = equity - peak;
     if (dd < maxDD) maxDD = dd;
     underwater.push({ i: underwater.length, underwater: dd });
-    const day = (trade.entry_time ?? "").slice(0, 10) || "unknown";
+    // B6 fix: raw ISO prefix returns the *local-tz* calendar date for
+    // offset-bearing timestamps (e.g. "2024-01-31T09:30:00+05:30" → "2024-01-31"
+    // even though the UTC date is Jan 31 → wrong). Normalize via ensureUtcMs so
+    // the daily-cap verdict uses the same broker-day the rest of the app uses.
+    const ms = ensureUtcMs(trade.entry_time);
+    const day = Number.isFinite(ms)
+      ? new Date(ms).toISOString().slice(0, 10)
+      : "unknown";
     dailyDollars.set(day, (dailyDollars.get(day) ?? 0) + dollars);
     perTrade.push({
       tradeId: trade.id,
@@ -897,6 +904,10 @@ function hasNumericCf(t: Trade, key: string | null): boolean {
 /** Strict eligibility: trade is closed, has P&L, and carries MFE + MAE + SL + entry. */
 export function isRankerEligible(t: Trade, keys: PairLabFieldKeys): boolean {
   if (t.is_open || t.is_archived) return false;
+  // B5 fix: mirror the `preparedTrades` guard (M-B1). Idea / paper / missed /
+  // manual-dismiss / zero-PnL-untouched rows can carry MFE + MAE + SL custom
+  // fields and would otherwise inflate `ExclusionBreakdown.eligible`.
+  if (isUnrealized(t as any)) return false;
   if (t.net_pnl == null) return false;
   if (t.sl_initial == null || t.entry_price == null) return false;
   if (!hasNumericCf(t, keys.mfe)) return false;

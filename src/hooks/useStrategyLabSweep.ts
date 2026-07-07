@@ -36,8 +36,16 @@ export function useStrategyLabSweep(
     let sampleKey: string | null = null;
     if (Array.isArray(rSample) && rSample.length > 0) {
       let sum = 0;
-      for (let i = 0; i < rSample.length; i++) sum += rSample[i];
-      sampleKey = `${rSample.length}|${rSample[0]}|${rSample[rSample.length - 1]}|${sum.toFixed(6)}`;
+      // E4 fix (mirror of E1 in useRankerRiskMC): append Σ(r²) so two samples
+      // with identical (n, first, last, Σr) but different mid-values don't
+      // collide and skip a legitimate MC re-run.
+      let sumSq = 0;
+      for (let i = 0; i < rSample.length; i++) {
+        const v = rSample[i];
+        sum += v;
+        sumSq += v * v;
+      }
+      sampleKey = `${rSample.length}|${rSample[0]}|${rSample[rSample.length - 1]}|${sum.toFixed(6)}|${sumSq.toFixed(6)}`;
     } else if (Array.isArray(rSample)) {
       sampleKey = "0";
     }
