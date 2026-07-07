@@ -16,6 +16,7 @@ import {
   type PairLabFieldKeys,
   type PropFirmContext,
 } from "@/lib/pairLabMath";
+import { ensureUtcMs } from "../../shared/quant/stats";
 import type { Trade } from "@/types/trading";
 
 export interface OosSplitRequest {
@@ -74,7 +75,13 @@ self.onmessage = (e: MessageEvent<{ id: number; params: OosSplitRequest }>) => {
     // exactly `splitIso` would land in both train and test halves, leaking IS
     // signal into OOS. Shift the test window's lower bound by +1 ms so the
     // boundary trade is counted once (in train).
-    const testFromIso = new Date(Date.parse(params.splitIso) + 1).toISOString();
+    // M5 fix: route through ensureUtcMs (not Date.parse) — naive ISO strings
+    // are engine-defined (Chrome=local, Node/Safari=UTC), which would shift
+    // the split boundary by the browser's UTC offset for CSV-imported rows.
+    const splitMs = ensureUtcMs(params.splitIso);
+    const testFromIso = Number.isFinite(splitMs)
+      ? new Date(splitMs + 1).toISOString()
+      : params.splitIso;
 
     const trainRes = buildBuckets(params.trades, params.fieldKeys, {
       symbolResolver: resolver,

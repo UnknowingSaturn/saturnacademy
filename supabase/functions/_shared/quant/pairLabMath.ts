@@ -282,11 +282,14 @@ function resolveSlAtMaePrice(t: any): number | null {
   let effectiveSl: number | null = null;
   const mods = t.trade_modifications;
   if (Array.isArray(mods) && mods.length > 0 && t.exit_time) {
-    const exitMs = Date.parse(String(t.exit_time));
+    // M6 fix: use ensureUtcMs so naive DB timestamps are parsed as UTC
+    // consistently across Deno engine versions (raw Date.parse is engine-
+    // defined for naive strings).
+    const exitMs = ensureUtcMs(t.exit_time);
     let bestMs = -Infinity;
     for (const m of mods) {
       if (!m || m.field !== "sl" || m.new_value == null) continue;
-      const ms = Date.parse(String(m.occurred_at));
+      const ms = ensureUtcMs(m.occurred_at);
       if (Number.isFinite(ms) && ms <= exitMs && ms > bestMs) {
         bestMs = ms;
         effectiveSl = Number(m.new_value);
@@ -708,8 +711,10 @@ export function computeBucket(
         return { idealSlDataDrivenPips: null, idealSlDataDrivenN: null };
       }
       const q = quantile(winnersMaePips, WINNERS_MAE_SL_QUANTILE);
+      // M4 parity fix: use WINNERS_MAE_SL_BUFFER (1.10) to match client and
+      // the recommendation pipeline (line ~539 above).
       return {
-        idealSlDataDrivenPips: q != null ? q * MAE_P75_WIDEN_BUFFER : null,
+        idealSlDataDrivenPips: q != null ? q * WINNERS_MAE_SL_BUFFER : null,
         idealSlDataDrivenN: winnersMaePips.length,
       };
     })(),
@@ -795,6 +800,9 @@ export function buildBuckets(
   const includeUnrealized = opts.includeUnrealized === true;
   const dateFrom = opts.dateFrom ?? null;
   const dateTo = opts.dateTo ?? null;
+  // M2 parity fix: forward opts.recentN so edge reports match client drift
+  // window instead of silently defaulting to 10 inside computeBucket.
+  const recentN = opts.recentN;
 
   let unrealizedExcluded = 0;
   const closed: any[] = [];
@@ -822,7 +830,7 @@ export function buildBuckets(
     if (!includeUnrealized && isUnrealized(t)) { unrealizedExcluded += 1; continue; }
     closed.push(t);
   }
-  const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm, []);
+  const baseline = computeBucket({ symbol: "All", session: "All sessions" }, closed, keys, propFirm, [], recentN);
   const cellMap = new Map<string, any[]>();
   const rawSymbolsByKey = new Map<string, Set<string>>();
   for (const t of closed) {
@@ -839,7 +847,7 @@ export function buildBuckets(
   cellMap.forEach((rows, k) => {
     const [symbol, session] = k.split("__");
     const raws = Array.from(rawSymbolsByKey.get(k) ?? []).sort();
-    perCell.push(computeBucket({ symbol, session }, rows, keys, propFirm, raws));
+    perCell.push(computeBucket({ symbol, session }, rows, keys, propFirm, raws, recentN));
   });
   perCell.sort((a, b) => (b.n - a.n) || a.key.symbol.localeCompare(b.key.symbol));
   return { perCell, baseline, unrealizedExcluded };

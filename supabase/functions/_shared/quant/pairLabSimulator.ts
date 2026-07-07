@@ -322,9 +322,12 @@ function replayOneTrade(
   // client `src/lib/pairLabSimulator.ts`. `pStopFirst` = P(stop breached
   // before ANY partial) — under SL-first, no partial ever fills, so the
   // whole position takes `-slScale`.
-  if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
-    const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
-    const mfeInNewR = mfeForBridge / slScale;
+  // M1 parity fix: only take the Brownian-bridge branch when we have a
+  // *logged* MFE. Using `proof.reachedR` as an MFE proxy underestimates the
+  // excursion when reachedR was inferred from r_multiple_actual sign,
+  // biasing early-TP presets toward SL-first.
+  if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null && proof.loggedMfe != null) {
+    const mfeInNewR = proof.loggedMfe / slScale;
     const maeInNewR = proof.loggedMae / slScale;
     const pTpFirstRaw = pathProbTpFirst(firstBreachedTpR, 1, mfeInNewR, maeInNewR);
     const pTpFirst = resolveTpFirstProb(pTpFirstRaw, replayMode);

@@ -97,7 +97,10 @@ export function makeSeededRng(seedBase: number): () => number {
     seed ^= seed << 13;
     seed ^= seed >>> 17;
     seed ^= seed << 5;
-    return ((seed >>> 0) % 1_000_000) / 1_000_000;
+    // M7 fix: divide by 2^32 (power of two) instead of `% 1_000_000`, which
+    // introduced ~0.023% modulo bias because 2^32 is not divisible by 1e6.
+    // Affects every bootstrap CI, Kelly BCa, and positive-p bootstrap.
+    return (seed >>> 0) / 0x1_0000_0000;
   };
 }
 

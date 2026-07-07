@@ -830,8 +830,12 @@ function computeBucket(
         return { idealSlDataDrivenPips: null, idealSlDataDrivenN: null };
       }
       const q = quantile(winnersMaePips, WINNERS_MAE_SL_QUANTILE);
+      // M4 fix: use WINNERS_MAE_SL_BUFFER (1.10) so the *displayed* data-
+      // driven ideal SL matches what the recommendation pipeline actually
+      // suggests for the same population (see line ~1114 below). Previously
+      // 1.15 produced a phantom 5% "drift" signal in QuantNotePanel.
       return {
-        idealSlDataDrivenPips: q != null ? q * MAE_P75_WIDEN_BUFFER : null,
+        idealSlDataDrivenPips: q != null ? q * WINNERS_MAE_SL_BUFFER : null,
         idealSlDataDrivenN: winnersMaePips.length,
       };
     })(),
