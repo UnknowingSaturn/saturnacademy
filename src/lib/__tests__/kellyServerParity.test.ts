@@ -50,3 +50,39 @@ describe("shared config constants — no silent drift", () => {
     expect(KELLY_CEILING_PCT).toBe(1.5);
   });
 });
+
+// Extended coverage (post-audit): rawQuarterKellyPct is imported by both the
+// client (`src/lib/pairLabMath.ts`) and the edge twin
+// (`supabase/functions/_shared/quant/pairLabMath.ts`) from the *same*
+// `shared/quant/stats.ts` module. Any silent copy-paste divergence in the
+// Kelly path would immediately break the identities below.
+describe("rawQuarterKellyPct — edge cases + identity properties", () => {
+  it("scales linearly with KELLY_SCALE (¼-Kelly identity)", () => {
+    // If we un-scale by KELLY_SCALE, we should recover the classic Kelly
+    // formula: f* = (bp − q) / b for symmetric payoffs.
+    const p = 0.55, b = 1.5;
+    const quarter = rawQuarterKellyPct(p, b * 1, 1 * 1)!;
+    const full = quarter / KELLY_SCALE / 100; // back to a fraction
+    const expected = (b * p - (1 - p)) / b;
+    expect(full).toBeCloseTo(expected, 8);
+  });
+
+  it("returns null for b=0 (avoids divide-by-zero, no silent NaN)", () => {
+    // avgWinR=0 is degenerate — must not return a NaN percentage.
+    const out = rawQuarterKellyPct(0.6, 0, 1);
+    expect(out).toBeNull();
+  });
+
+  it("is monotonic in win-rate at fixed payoff (higher p ⇒ larger stake)", () => {
+    const lo = rawQuarterKellyPct(0.55, 1.5, 1)!;
+    const hi = rawQuarterKellyPct(0.65, 1.5, 1)!;
+    expect(hi).toBeGreaterThan(lo);
+  });
+
+  it("is monotonic in payoff at fixed win-rate (larger b ⇒ larger stake)", () => {
+    const lo = rawQuarterKellyPct(0.55, 1.2, 1)!;
+    const hi = rawQuarterKellyPct(0.55, 2.0, 1)!;
+    expect(hi).toBeGreaterThan(lo);
+  });
+});
+

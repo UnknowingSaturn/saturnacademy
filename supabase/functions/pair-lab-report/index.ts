@@ -10,7 +10,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, corsPreflight, jsonResponse } from "../_shared/cors.ts";
-import { setTickSizeOverrides } from "../_shared/quant/symbolMapping.ts";
+// E6: tick-size overrides intentionally NOT imported. This handler only
+// consumes a pre-computed bucket; it never calls `buildBuckets`. Restore the
+// import when (and only when) a direct `buildBuckets` call is added here.
 
 // Pinned Lovable AI Gateway model id. Keep in one place so a model swap is
 // a one-line change. If the gateway returns 404 we surface the model id in
@@ -98,10 +100,10 @@ interface RequestBody {
   propFirm?: PropFirmInput | null;
   /**
    * Per-symbol tick-size overrides mirrored from the client's symbol_groups
-   * config. Currently unused (this handler only consumes a pre-computed
-   * bucket) but installed for the request lifetime so any future direct
-   * buildBuckets() call inside this function matches client output for
-   * crypto/exotic-index symbols. Reset in finally to keep Deno isolates clean.
+   * config. Accepted for forward-compat but currently ignored — this handler
+   * only consumes a pre-computed bucket and never calls `buildBuckets`.
+   * TODO: install via `setTickSizeOverrides` if/when a direct buildBuckets()
+   * call is added below.
    */
   tickSizeOverrides?: Record<string, number> | null;
 }
@@ -130,13 +132,10 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return jsonResponse({ error: "LOVABLE_API_KEY not configured" }, 500);
 
-    // Install per-request tick-size overrides so any future direct
-    // buildBuckets() call inside this handler matches client output. Reset in
-    // the outer finally to keep Deno isolates clean across invocations.
-    const overrides = body.tickSizeOverrides ?? null;
-    if (overrides && typeof overrides === "object") {
-      setTickSizeOverrides(overrides);
-    }
+    // E6: no tick-override install — this handler consumes a pre-computed
+    // bucket and never calls `buildBuckets`, so the previous install/clear
+    // pair was dead work every request. Re-enable (import + install + finally
+    // clear) if a direct buildBuckets() call is added below.
 
     const b = body.bucket;
     const base = body.baseline;
@@ -326,10 +325,8 @@ Rules:
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
-  } finally {
-    // Always clear overrides so a follow-up request on the same isolate
-    // starts from defaults (no cross-request bleed).
-    setTickSizeOverrides({});
   }
+  // E6: no `finally` block — nothing per-request to reset now that tick-size
+  // overrides are no longer installed.
 });
 

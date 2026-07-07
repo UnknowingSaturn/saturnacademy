@@ -75,7 +75,15 @@ export function getAllCloseFills(trade: Trade): CloseFill[] {
     }
   }
 
-  return partials.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  // B4 fix: use ensureUtcMs — legacy `partial_closes[*].time` strings are naive
+  // (no TZ), and `new Date(naive).getTime()` interprets them in the host's local
+  // tz. On CSV-imported trades that flipped the sort → wrong VWAP exit price and
+  // wrong per-fill P&L split in the equity curve.
+  return partials.sort((a, b) => {
+    const at = ensureUtcMs(a.time);
+    const bt = ensureUtcMs(b.time);
+    return (Number.isFinite(at) ? at : 0) - (Number.isFinite(bt) ? bt : 0);
+  });
 }
 
 export function getWeightedAvgExitPrice(trade: Trade): number | null {

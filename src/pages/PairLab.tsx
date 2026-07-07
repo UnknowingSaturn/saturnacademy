@@ -301,6 +301,29 @@ export default function PairLab() {
     );
   }
 
+  // B7 fix: previously query failures presented as an empty grid with no
+  // hint. Surface a recoverable error card so the user can retry instead of
+  // assuming they have no data.
+  if (data.isError && data.totalTrades === 0) {
+    return (
+      <div className="p-6">
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-6 space-y-3 max-w-2xl">
+          <h2 className="text-lg font-semibold text-destructive">Pair Lab couldn't load your trades</h2>
+          <p className="text-sm text-muted-foreground">
+            {data.errorMessage ?? "One of the underlying queries failed."}
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="text-xs px-3 py-1.5 rounded-md border border-border/60 hover:bg-muted/20"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 p-6 animate-fade-in">
       <PageIntroBanner
@@ -361,6 +384,12 @@ export default function PairLab() {
               setIncludeUnrealized={setIncludeUnrealized}
               includeUnassigned={includeUnassigned}
               setIncludeUnassigned={setIncludeUnassigned}
+              // U9 fix: the toggle is a no-op in "All accounts" mode because
+              // `usePairLab` passes accountFilter=undefined then (the SQL
+              // query already returns every account's trades — orphans
+              // included). Disable it visually so users don't think it's
+              // silently dropping rows.
+              includeUnassignedDisabled={data.isAllAccounts}
               scope={scope}
               setScope={setScope}
               groups={groups}

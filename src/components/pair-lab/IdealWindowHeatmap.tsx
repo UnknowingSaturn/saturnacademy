@@ -9,7 +9,7 @@
 //   - Cells with n < minN render greyed (directional only).
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -217,10 +217,18 @@ export function IdealWindowHeatmap({ trades, symbolResolver, allSymbols }: Props
     };
   }, [pair, hours, regime, direction, minN, dateFrom, dateTo]);
 
+  // E5 mitigation: `bucketTrades` runs synchronously in a useMemo over
+  // `trades.length × 24 × 2` and blocks the main thread on filter changes.
+  // A full worker offload isn't feasible because `symbolResolver` is a
+  // non-serializable function. `useDeferredValue` lets React de-prioritize
+  // the recompute so slider / chip interactions stay responsive; the last
+  // frame shows a subtly stale grid while the new one is being built.
+  const deferredFilters = useDeferredValue(filters);
+  const deferredTrades = useDeferredValue(trades);
   const result = useMemo(() => {
-    if (!filters) return null;
-    return bucketTrades({ trades, filters, symbolResolver: effectiveResolver, timezone: tz });
-  }, [filters, trades, effectiveResolver, tz]);
+    if (!deferredFilters) return null;
+    return bucketTrades({ trades: deferredTrades, filters: deferredFilters, symbolResolver: effectiveResolver, timezone: tz });
+  }, [deferredFilters, deferredTrades, effectiveResolver, tz]);
 
   const subGrid = useMemo(() => {
     if (!filters || !selectedCell) return null;

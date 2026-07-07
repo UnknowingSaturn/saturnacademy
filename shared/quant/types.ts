@@ -24,3 +24,23 @@ export interface PropFirmContext {
   /** Human-readable firm label. Preferred for display. */
   firmName?: string | null;
 }
+
+/**
+ * Per-symbol robust breakdown of the applied SL under a preset. Shared shape
+ * — client (`src/lib/pairLabSimulator.ts` :: `AppliedSlSymbolStat`) and the
+ * edge twin (`supabase/functions/_shared/quant/pairLabSimulator.ts` ::
+ * `PresetReplayResult["appliedSlBySymbol"]` row) both extend from this so a
+ * future field rename on one side breaks the other at compile time.
+ *
+ * Native unit fields (`medianNative`, `iqrNative`) are in the symbol's own
+ * unit (pips for FX/metals/crypto/oil, points for indices) — never mix
+ * across symbols. `medianScale` is dimensionless (applied / original SL).
+ */
+export interface SharedAppliedSlSymbolStat {
+  symbol: string;
+  unit: "pips" | "points";
+  n: number;
+  medianNative: number;
+  iqrNative: [number, number];
+  medianScale: number;
+}

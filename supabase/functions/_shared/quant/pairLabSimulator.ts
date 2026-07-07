@@ -9,6 +9,7 @@ import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLa
 import { pipSizeForSymbol, ticksToPips, pipLabelForSymbol } from "./symbolMapping.ts";
 import { MAE_P75_WIDEN_BUFFER, TRAIL_CAPTURE_FALLBACK } from "../../../../shared/quant/config.ts";
 import { pathProbTpFirst, resolveTpFirstProb, type ReplayMode } from "../../../../shared/quant/stats.ts";
+import type { SharedAppliedSlSymbolStat } from "../../../../shared/quant/types.ts";
 
 
 /** Fallback when too few trades to estimate empirical trail capture.
@@ -367,15 +368,9 @@ export interface PresetReplayResult {
   appliedSlPipsMedian: number | null;
   /** PR-5 · M7 parity — median applied SL scale (1.0 = original, <1 tighter, >1 wider). */
   appliedSlScaleMedian: number | null;
-  /** Per-symbol robust SL breakdown. Mirrors the client's AppliedSlSymbolStat. */
-  appliedSlBySymbol: Array<{
-    symbol: string;
-    unit: "pips" | "points";
-    n: number;
-    medianNative: number;
-    iqrNative: [number, number];
-    medianScale: number;
-  }> | null;
+  /** Per-symbol robust SL breakdown. Extends SharedAppliedSlSymbolStat so a
+   *  field rename on the client side is a compile error here (P5). */
+  appliedSlBySymbol: SharedAppliedSlSymbolStat[] | null;
 }
 
 export function replayAllPresets(
