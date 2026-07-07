@@ -545,12 +545,18 @@ export function StrategyRanker({
               <div className="font-medium text-sm text-amber-700 dark:text-amber-400">
                 Provisional ranking — no "best" yet
               </div>
-              <div className="text-muted-foreground mt-1">
-                {mode === "full"
-                  ? `Only ${exclusion.eligible} trade${exclusion.eligible === 1 ? "" : "s"} have MFE + MAE logged — need 15+ for a walk-forward split. Numbers below are directional.`
-                  : nCommon < 15
-                    ? `Presets scored on different sub-samples (common intersection: ${nCommon} trade${nCommon === 1 ? "" : "s"}). No preset dominates on the shared pool — numbers below are directional, not a recommendation.`
-                    : `Top preset's BCa 95% CI hasn't ruled out zero edge, or its sample is under 20. Numbers below are directional.`}
+              <div className="text-muted-foreground mt-1 space-y-1">
+                <div>
+                  {mode === "full"
+                    ? `Only ${exclusion.eligible} of ${exclusion.total} trades have MFE + MAE logged — need 15+ for a walk-forward split. Numbers below are directional.`
+                    : nCommon < 15
+                      ? `Presets scored on different sub-samples (common intersection: ${nCommon} trade${nCommon === 1 ? "" : "s"}). No preset dominates on the shared pool — numbers below are directional, not a recommendation.`
+                      : `Top preset's BCa 95% CI hasn't ruled out zero edge, or its sample is under 20. Numbers below are directional.`}
+                </div>
+                <div className="text-[11px]">
+                  If those {exclusion.eligible} trades are mostly winners in your journal, every preset that doesn't
+                  stop earlier than reality will show ~100% WR and ~$0 DD — that's a sample artifact, not evidence of edge.
+                </div>
               </div>
 
             </div>
