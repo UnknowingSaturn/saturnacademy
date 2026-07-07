@@ -166,3 +166,54 @@ describe("PR-4 · Fix 7 — adaptive-TP bucket-N guard", () => {
     expect(result.eligibleCount).toBe(25);
   });
 });
+
+describe("PR-5 · B1 — bridge SL-first branch preserves filled partials", () => {
+  // Scale-out preset with a widen-SL rule so tightening does not enter play.
+  // 50% @1R + 50% @2R, trail runner (so we can attribute booked R deterministically).
+  const scaleOutBridge: Strategy = {
+    id: "scale-out-bridge",
+    label: "Scale-out bridge",
+    riskPct: 1,
+    slRule: "original",
+    exitRule: {
+      partials: [{ atR: 1, fraction: 0.5 }, { atR: 2, fraction: 0.5 }],
+      runner: "be_after_first_tp",
+    },
+  };
+
+  it("filled partial + stop with both breached does not zero the filled leg", () => {
+    // MFE=1.2R (fills TP1 at 1R), MAE=1.05R (stops under original SL). Bridge
+    // fires because both barriers breached and TP1 hit. Pre-B1: SL-first
+    // branch overwrote booked with `-slScale = -1` on the whole position,
+    // pulling final booked well below +0.5. Post-B1: SL-first branch books
+    // `0.5 (filled TP1) + (-1) × 0.5 (runner) = 0`; TP-first branch books
+    // 0.5 (TP1) + 0 (BE runner) = 0.5; final blend is between 0 and 0.5.
+    const trades = [mk("1", { mfeR: 1.2, maeR: 1.05, rActual: 0.5 })];
+    const result = replayBucket(trades, keys, scaleOutBridge, opts);
+    expect(result.eligibleCount).toBe(1);
+    // Must be strictly greater than 0 (filled leg survives) and less than 0.5
+    // (SL-first mass drags the runner into a stop).
+    expect(result.expectancyR).toBeGreaterThan(0);
+    expect(result.expectancyR).toBeLessThan(0.5);
+  });
+});
+
+describe("PR-5 · H4 — all_out_at_last_partial no-fill no-stop books stop, not MFE", () => {
+  const allOut2R: Strategy = {
+    id: "all-out-2r",
+    label: "All-out @2R",
+    riskPct: 1,
+    slRule: "original",
+    exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" },
+  };
+
+  it("MFE below target and MAE below stop books -1R (conservative), not +MFE", () => {
+    // MFE=1.2R (below 2R target), MAE=0.4R (below stop). No fill, no stop.
+    // Pre-H4: booked min(1.2, 2) = 1.2R (survivor bias). Post-H4: -1R.
+    const trades = [mk("1", { mfeR: 1.2, maeR: 0.4, rActual: 0.0 })];
+    const result = replayBucket(trades, keys, allOut2R, opts);
+    expect(result.eligibleCount).toBe(1);
+    expect(result.expectancyR).toBeCloseTo(-1, 2);
+  });
+});
+
