@@ -72,7 +72,7 @@ export function OutOfSamplePanel({
     let lo = Number.POSITIVE_INFINITY;
     let hi = Number.NEGATIVE_INFINITY;
     for (const t of trades) {
-      const ms = t.entry_time ? new Date(t.entry_time).getTime() : NaN;
+      const ms = ensureUtcMs(t.entry_time);
       if (!Number.isFinite(ms)) continue;
       if (ms < lo) lo = ms;
       if (ms > hi) hi = ms;
