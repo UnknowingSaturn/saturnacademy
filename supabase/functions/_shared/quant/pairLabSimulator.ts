@@ -364,6 +364,15 @@ export interface PresetReplayResult {
   appliedSlPipsMedian: number | null;
   /** PR-5 · M7 parity — median applied SL scale (1.0 = original, <1 tighter, >1 wider). */
   appliedSlScaleMedian: number | null;
+  /** Per-symbol robust SL breakdown. Mirrors the client's AppliedSlSymbolStat. */
+  appliedSlBySymbol: Array<{
+    symbol: string;
+    unit: "pips" | "points";
+    n: number;
+    medianNative: number;
+    iqrNative: [number, number];
+    medianScale: number;
+  }> | null;
 }
 
 export function replayAllPresets(
