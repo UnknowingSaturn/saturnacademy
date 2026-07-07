@@ -30,7 +30,6 @@ import { FilterCondition } from "@/types/settings";
 import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, CheckCircle, ChevronLeft, ChevronRight, CalendarIcon } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
-  addMonths, subMonths, addWeeks, subWeeks,
   format,
 } from "date-fns";
 import { cn } from "@/lib/utils";
