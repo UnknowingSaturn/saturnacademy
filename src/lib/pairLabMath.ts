@@ -1065,7 +1065,7 @@ function buildRecommendation(
   let slSourceN: number | null = null;
 
   const IDEAL_SL_MIN_N = 5;
-  const idealMed = s.idealSlMedianPips ?? s.idealSlMedian ?? null;
+  const idealMed = s.idealSlMedianPips ?? null;
   if (
     idealMed != null &&
     idealMed > 0 &&
