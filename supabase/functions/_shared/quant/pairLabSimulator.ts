@@ -6,7 +6,7 @@
 //     `expectancyROnIntersection` for the report pipeline's bias-aware deltas.
 
 import { PairLabFieldKeys, numericCf, quantile, bootstrapMeanCi } from "./pairLabMath.ts";
-import { pipSizeForSymbol, ticksToPips } from "./symbolMapping.ts";
+import { pipSizeForSymbol, ticksToPips, pipLabelForSymbol } from "./symbolMapping.ts";
 import { MAE_P75_WIDEN_BUFFER, TRAIL_CAPTURE_FALLBACK } from "../../../../shared/quant/config.ts";
 import { pathProbTpFirst, resolveTpFirstProb, type ReplayMode } from "../../../../shared/quant/stats.ts";
 
