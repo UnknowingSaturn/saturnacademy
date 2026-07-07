@@ -143,4 +143,86 @@ return expLower * ddPenalty * samplePenalty;
 
 ## 3. UI shell + dead code
 
-*Pending — background task in progress.*
+_Files audited: `src/pages/PairLab.tsx`, `src/components/pair-lab/tabs/*`, `src/components/pair-lab/*`, `src/contexts/PairLabWalkForwardContext.tsx`._
+
+### 3.1 URL ↔ state contract
+
+| Param | Read | Written | Refresh-safe | Notes |
+|---|---|---|---|---|
+| `profile`, `pf`, `unreal`, `orphans`, `scope`, `tab` | ✅ | ✅ | ✅ | |
+| `symbol`, `session` | ✅ | ✅ | ✅ | |
+| `lens`, `asOf` | ✅ | ✅ via `setWf` | ✅ | |
+| `heatmapPair` | ⚠️ bypasses React Router | ⚠️ bypasses React Router | ❌ | Bug U-B1 |
+| Setup sub-tab | n/a | ❌ not written | ❌ | Bug U-B5 |
+
+**`patchParams` stale-closure race** (`PairLab.tsx:66-73`) — two writes in the same tick both snapshot the same `searchParams`; second write silently discards the first. Low risk today, higher if callers ever compose. Fix: use `setSearchParams(prev => …)` functional form.
+
+### 3.2 Re-mount / lost-state issues
+
+- **`QuantNotePanel` stale note** (`PairGridTab.tsx:107`) — no `key` prop. When the user clicks a different cell, `bucket` changes but the component's `note` / `loading` / `error` state carries over from the previous cell → user sees the wrong AI analysis. Add `key={selectedBucket.key.symbol + ":" + selectedBucket.key.session}`.
+- **`IdealWindowHeatmap` drill-down persists across scope changes** (`IdealWindowHeatmap.tsx:142`) — reset effect depends only on `wf.lens` / `wf.asOfMs`; missing `scope`. Add it to the dep array.
+- **`SetupTab` inner tabs uncontrolled** (`SetupTab.tsx:19`) — `defaultValue="simulator"` resets on every visit even if user was on Aliases.
+
+### 3.3 Memoization boundaries
+
+- **`patchParams` identity chain** — every URL write invalidates all six child callbacks. By design (S1.7 comment), but confirms the pattern.
+- **`IdealWindowHeatmap.setScope` inline** (`IdealWindowHeatmap.tsx:126-134`) — plain arrow, new reference every render.
+- **Context M1 fix incomplete** (`PairLabWalkForwardContext.tsx:47-63`) — `merged` memo lists `value.groups` as a dep. If `useSymbolGroups` returns a new array reference each render, the context value churns regardless. Needs verification of the hook's return stability (also called out in §1.3).
+- **`StrategyTab.scopedTrades`** (`StrategyTab.tsx:68-79`) deps include `data.symbolResolver` — inline function inside `usePairLab`'s memo. Safe today but fragile: any query refetch recreates it.
+
+### 3.4 Accessibility
+
+- Lens `<button>`s in `WalkForwardControls.tsx:65` have `aria-pressed` but no visible focus ring beyond `transition-colors`.
+- Lens group has no `role="group"` / `aria-label` (`WalkForwardControls.tsx:60`).
+- Distance-unit toggle wrapper `<div>` at `OverviewTab.tsx:541` has `cursor-help` from a `TooltipTrigger` — keyboard focus lands on the tooltip wrapper, not the inner buttons.
+- `QuantNotePanel` generate button lacks `aria-busy` when `loading=true`.
+- `PairGridTab.tsx:83` sticky header: Escape-driven selection changes aren't announced (`aria-live` missing, focus not moved).
+
+### 3.5 Dead code / drift
+
+- **`useOptionalPairLabWalkForward`** (`PairLabWalkForwardContext.tsx:74`) — zero consumers (verified with `rg`). Safe to delete.
+- **`WINDOW_PRESETS`** (`StrategyLab.tsx:46`) — the comment says the local toggle was removed; the constant is now unreferenced.
+- **`closedTrades` alias** (`usePairLab.tsx:294`) — `const closedTrades = scopedTrades;` with no filtering. Misleading, no behavioural cost.
+- Double blank lines at `PairLab.tsx:119` and `:184` — vestigial.
+
+### 3.6 Bugs / findings
+
+| # | File:line | Current | Fix | Risk |
+|---|---|---|---|---|
+| **U-B1** | `IdealWindowHeatmap.tsx:128-133` | `heatmapPair` written via `window.history.replaceState` — bypasses React Router; back-navigation drops it. | Thread `setSearchParams` in and mutate the param through it. | Medium UX — programmatic navigation + back button desync. |
+| **U-B2** | `PairGridTab.tsx:107` | `QuantNotePanel` renders with stale note/loading/error on cell switch. | Add `key` prop derived from the selected cell. | **High UX** — user sees another cell's AI analysis. |
+| **U-B3** | `PairGridTab.tsx:44-50` | Escape effect suppresses `setSelected` from deps; safe today only because `patchParams` stabilises between interactions. | Add `setSelected` to deps, or wrap it in a `useEvent`-style ref. | Low. |
+| **U-B4** | `IdealWindowHeatmap.tsx:142` | Drill-down stays open after `scope` change. | Add `scope` to the reset effect deps. | Cosmetic. |
+| **U-B5** | `SetupTab.tsx:19` | Setup sub-tab is not URL-persisted; deep-link / share impossible. | Migrate to a `?setupTab=` param. | Low. |
+| **U-B6** | `OverviewTab.tsx:165` | Orphan-mode `<Switch>` sits inside a `cursor-help` wrapper — visual affordance is broken and can suppress hit-test on some browsers. | Move `cursor-help` onto the `<Label>` only. | Low UX. |
+
+### 3.7 Needs your call
+
+1. Migrate `heatmapPair` to `useSearchParams` (lift scope up to `PairLab.tsx` like `selected` is)?
+2. URL-persist Setup sub-tab (`?setupTab=simulator|groups|aliases`)?
+3. Delete `useOptionalPairLabWalkForward`, or is it reserved for a component that may render outside the provider?
+4. `QuantNotePanel` key fix (U-B2) — intentional to preserve note across cell hops, or a bug to fix? (Almost certainly a bug.)
+5. Migrate `patchParams` to `setSearchParams(prev => …)` to eliminate the same-tick race?
+6. Remove `WINDOW_PRESETS` and `closedTrades` alias as part of the next cleanup pass?
+
+---
+
+## Summary — counts by severity
+
+| Severity | Data | Math | UI | Total |
+|---|---|---|---|---|
+| Confirmed correctness bug | 3 | 5 | 3 (U-B1, U-B2, U-B4) | 11 |
+| UX / cosmetic bug | 1 | 0 | 3 (U-B3, U-B5, U-B6) | 4 |
+| Needs verification | 1 | 3 | 1 | 5 |
+| Semantic "needs your call" | 4 | 6 | 6 | 16 |
+| Dead code | 0 | 0 | 4 | 4 |
+
+**Highest-priority items to fix next (my recommendation, for your review):**
+1. **U-B2** — `QuantNotePanel` shows the wrong cell's AI note. Highest user-visible severity.
+2. **M-B1** — `walkForwardEvaluate` includes unrealized trades → distorted IS/OOS expectancy.
+3. **Bug A** (data §1) — Orphan-default mismatch between Journal and Pair Lab; row-count discrepancy erodes trust.
+4. **Bug C** (data §1) — `usePairLab.isLoading` misses `rulesQuery` / `accountQuery` / `groupsQuery` → transient wrong prop-firm constraints on initial mount.
+5. **U-B1** — `heatmapPair` desync with React Router.
+
+Nothing else is fixed automatically — pick what to tackle and I'll open a targeted plan.
+
