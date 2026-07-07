@@ -248,7 +248,7 @@ export function OutOfSamplePanel({
           </table>
           {deltas.length > 12 && (
             <div className="text-[10px] text-muted-foreground pt-1.5">
-              Showing first 12 of {deltas.length} eligible cells (≥5 trades on each side).
+              Showing first 12 of {deltas.length} eligible cells (≥10 trades on each side).
             </div>
           )}
         </div>

@@ -139,11 +139,7 @@ export interface BucketStats {
   maeMaxTicks: number | null;
   idealSlMedianPips: number | null;   // pips (S2.2: was `idealSlMedian`; unified with edge)
   slInitialMedianPips: number | null; // pips (S2.2: was `slInitialMedian`)
-  /** @deprecated S2.2 — use `idealSlMedianPips`. Kept as a read-only alias for callers
-   *  still on the old name; populated by `computeBucket`. */
-  idealSlMedian?: number | null;
-  /** @deprecated S2.2 — use `slInitialMedianPips`. */
-  slInitialMedian?: number | null;
+
   slDrift: "too_wide" | "too_tight" | "aligned" | null;
   confidence: ConfidenceLevel;
   // Two-sided bootstrap CI on expectedR — null when n < 5.
@@ -808,10 +804,7 @@ function computeBucket(
     maeMaxTicks: maesTicks.length > 0 ? maesTicks.reduce((a, b) => (a > b ? a : b)) : null,
     idealSlMedianPips: idealMed,
     slInitialMedianPips: slInitMed,
-    // Deprecated aliases — kept populated so any consumer still reading the
-    // old names sees the same number until they upgrade. Will be removed.
-    idealSlMedian: idealMed,
-    slInitialMedian: slInitMed,
+
     slDrift,
     confidence: confidenceFor(n),
     expectedRCi: bootstrapMeanCi(rActuals),
@@ -1072,7 +1065,7 @@ function buildRecommendation(
   let slSourceN: number | null = null;
 
   const IDEAL_SL_MIN_N = 5;
-  const idealMed = s.idealSlMedianPips ?? s.idealSlMedian ?? null;
+  const idealMed = s.idealSlMedianPips ?? null;
   if (
     idealMed != null &&
     idealMed > 0 &&

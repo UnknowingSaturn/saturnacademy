@@ -88,6 +88,7 @@ import {
   rawQuarterKellyPct,
   quarterKellyPct,
   bootstrapKellyCi,
+  bootstrapKellyCiBCa,
   normalizeSession,
   getCf,
   numericCf,
@@ -236,9 +237,16 @@ function computeTp1Star(
   const candidates = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
   let best: Tp1Star | null = null;
   const fallbackMiss = -Math.abs(avgLossR);
-  // Empirical miss cost: when MFE < r, use the conditional mean r_actual of
-  // missing trades (BE / partial / full stop) rather than the worst-case
-  // avgLossR. Falls back to −avgLossR when fewer than 5 misses with rActual.
+  // PR-5 · H2c parity — client uses the global median of rActual (which
+  // includes early-exit winners, BE moves, partial fills) as the neutral
+  // prior when a candidate TP has fewer than 5 misses with rActual. Server
+  // previously fell straight back to −avgLossR (worst-case), biasing the
+  // argmax toward conservative TPs by treating near-miss trades as full
+  // stops.
+  const allRs = pairs
+    .map((p) => p.rActual)
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  const globalMedian = allRs.length >= 5 ? median(allRs) : null;
   for (const r of candidates) {
     let hits = 0;
     const missRs: number[] = [];
@@ -250,7 +258,7 @@ function computeTp1Star(
     if (hitRate < TP1_STAR_MIN_HIT_RATE) continue;
     const missMean = missRs.length >= 5
       ? missRs.reduce((s, v) => s + v, 0) / missRs.length
-      : fallbackMiss;
+      : (globalMedian ?? fallbackMiss);
     const expectancyR = hitRate * r + (1 - hitRate) * missMean;
     if (!best || expectancyR > best.expectancyR) {
       best = { r, hitRate, hitRateCi: wilsonCi(hits, pairs.length), expectancyR };
@@ -375,7 +383,19 @@ function pickBestTp(
     samples[i] = scoreTp(best.tp, buf);
   }
   samples.sort((a, b) => a - b);
-  const ci: [number, number] = [percentileFromSorted(samples, 0.025), percentileFromSorted(samples, 0.975)];
+  // PR-5 · H2a parity — post-selection inference correction. `best.tp` won
+  // the argmax over `scored.length` candidates; a vanilla percentile CI
+  // under-covers by roughly √log(k). Widen symmetrically around the observed
+  // expectancy (matches client `src/lib/pairLabMath.ts` pickBestTp).
+  const rawLo = percentileFromSorted(samples, 0.025);
+  const rawHi = percentileFromSorted(samples, 0.975);
+  const halfWidth = (rawHi - rawLo) / 2;
+  const centre = (rawHi + rawLo) / 2;
+  const kAdjust = Math.sqrt(Math.log(Math.max(2, scored.length) + 1));
+  const ci: [number, number] = [
+    centre - halfWidth * kAdjust,
+    centre + halfWidth * kAdjust,
+  ];
   const ladder = Array.from(
     new Set([...scored].filter((c) => c.e > 0).sort((a, b) => b.e - a.e).slice(0, 3).map((c) => c.tp)),
   ).sort((a, b) => a - b);
@@ -579,7 +599,10 @@ export function computeBucket(
     : null;
   const suggestedRiskPct = rawKelly != null ? Math.min(KELLY_CEILING_PCT, rawKelly) : null;
   const riskBelowFloor = rawKelly != null && rawKelly < KELLY_FLOOR_PCT;
-  const suggestedRiskPctCi = n >= 10 ? bootstrapKellyCi(winR, lossR) : null;
+  // PR-5 · H2b parity — BCa at small n (< 30) where percentile bootstrap
+  // under-covers by 5–10%. Falls back to percentile CI on jackknife
+  // degeneracy inside `bootstrapKellyCiBCa`.
+  const suggestedRiskPctCi = n >= 10 ? bootstrapKellyCiBCa(winR, lossR) : null;
   const rCoverageWarning = n >= 10 && rSubsampleN / n < 0.5;
   const tp1Star = computeTp1Star(tp1StarPairs, avgLossR || 1);
 
@@ -598,7 +621,16 @@ export function computeBucket(
   const worstStreak = longestLossStreak(rows);
   let suggestedRiskPctPropFirm: number | null = null;
   if (propFirm && propFirm.balance > 0 && propFirm.dailyLossDollars != null && propFirm.dailyLossDollars > 0) {
-    const streak = Math.max(MIN_STREAK_FLOOR, worstStreak || 0);
+    // PR-5 · H3 parity — observed worst streak on a small sample is a max-of-
+    // empirical (unstable). Blend with the theoretical expected worst run
+    // from win-rate and N so a lucky-clean sample doesn't produce over-
+    // aggressive sizing. Mirrors client `src/lib/pairLabMath.ts`.
+    const q = Math.max(0.01, Math.min(0.99, 1 - winRate));
+    const nForStreak = Math.max(1, n);
+    const expectedRun = Math.log(nForStreak * q) / Math.log(1 / q);
+    const streakStd = expectedRun > 0 ? Math.sqrt(expectedRun) : 1;
+    const distributionalStreak = Math.ceil(Math.max(1, expectedRun + streakStd));
+    const streak = Math.max(MIN_STREAK_FLOOR, worstStreak || 0, distributionalStreak);
     const dailyBudgetPct = (propFirm.dailyLossDollars / propFirm.balance) * 100;
     const ddCappedPct = dailyBudgetPct / streak;
     const hardCap = propFirm.hardCapPct > 0 ? propFirm.hardCapPct : 2;

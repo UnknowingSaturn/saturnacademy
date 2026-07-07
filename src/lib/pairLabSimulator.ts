@@ -460,8 +460,6 @@ function replayOneTrade(
       } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
         // S4.6: when a partial filled and the price then stopped under the
         // NEW SL, the runner exited at the stop — not at the previous TP.
-        // Booking `lastFilledAtR * remainingFrac` overstated expectancy by
-        // `(lastFilledAtR + slScale) × remainingFrac` on every such trade.
         booked += -slScale * remainingFrac;
       } else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
@@ -473,22 +471,20 @@ function replayOneTrade(
       const reachedNewR = proof.reachedR / slScale;
       if (strategy.exitRule.runner === "be_after_first_tp") {
         // PR-4 · Fix 3 — cap-MFE Bayesian floor. Previously booked exactly 0
-        // for any non-stopped, non-filled trade. That "conservative zero"
-        // silently discarded real proven excursion (a 1.5R MFE trade under a
-        // 2R BE preset was booked as 0). Half-credit the proven-reached R up
-        // to the ladder cap: matches how trail runners already handle the
-        // same situation, and matches what a disciplined manual exit near
-        // the ladder would have produced on average.
+        // for any non-stopped, non-filled trade. Half-credit the proven
+        // excursion up to the ladder cap.
         booked += 0.5 * Math.min(reachedNewR, maxTargetAtR) * remainingFrac;
 
       } else if (strategy.exitRule.runner === "all_out_at_last_partial") {
         if (anyFilled) {
           booked += lastFilledAtR * remainingFrac;
         } else {
-          // No partial filled and trade didn't stop — book proven-reached R
-          // in new-R units, capped at the last-partial target (rule would
-          // have exited there at the latest).
-          booked += Math.min(reachedNewR, maxTargetAtR) * remainingFrac;
+          // PR-5 · H4 — no fill AND no stop under this rule has no observable
+          // exit. Symmetric conservative accounting with the stopped-branch
+          // above (`-slScale × remainingFrac`) — booking `min(reachedNewR,
+          // maxTargetAtR)` silently inflated expectancy on trades that
+          // neither hit the last partial nor stopped.
+          booked += -slScale * remainingFrac;
         }
       } else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
@@ -503,13 +499,15 @@ function replayOneTrade(
   //
   // When a partial's TP AND the counterfactual SL BOTH breached, the code
   // above assumed TP-first (the legacy behaviour). That inflated WR on early-
-  // TP presets. Blend `booked` (TP-first realisation) with a full-stop
-  // realisation (-slScale on the whole position) using the classical
-  // first-passage probability of a symmetric random walk between two barriers.
+  // TP presets. Blend `booked` (TP-first realisation) with the SL-first
+  // realisation using the classical first-passage probability of a symmetric
+  // random walk between two barriers.
   //
-  // Ambiguity only exists when at least one partial's TP was breached AND the
-  // trade also breached the new SL. Deterministic branches (only TP breached,
-  // only SL breached, neither) pass through unchanged (pStopFirst = 0).
+  // Semantic note: `pStopFirst` = P(stop breached before ANY partial). Under
+  // "SL-first," no partial ever fills, so the whole position takes `-slScale`.
+  // (An earlier PR-5 draft mistakenly preserved filled partials in the SL-
+  // first branch, but by construction the filled partials only exist on the
+  // `pTpFirst` mass — preserving them on both branches double-counts.)
   if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
     const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
     const mfeInNewR = mfeForBridge / slScale;
@@ -518,7 +516,6 @@ function replayOneTrade(
     const pTpFirst = resolveTpFirstProb(pTpFirstRaw, ctx.replayMode);
     const pStopFirst = 1 - pTpFirst;
     if (pStopFirst > 0) {
-      // SL-first alternative: whole position stops, no partial ever books.
       const bookedSlFirst = -slScale;
       booked = pTpFirst * booked + pStopFirst * bookedSlFirst;
     }

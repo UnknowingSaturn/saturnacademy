@@ -166,3 +166,29 @@ describe("PR-4 · Fix 7 — adaptive-TP bucket-N guard", () => {
     expect(result.eligibleCount).toBe(25);
   });
 });
+
+// PR-5 · B1 was withdrawn — the original SL-first branch semantics
+// (`bookedSlFirst = -slScale`) are correct given `pStopFirst` = P(stop before
+// ANY partial). Preserving filled partials in the SL-first branch would
+// double-count them (they exist only on the pTpFirst mass by construction).
+
+
+describe("PR-5 · H4 — all_out_at_last_partial no-fill no-stop books stop, not MFE", () => {
+  const allOut2R: Strategy = {
+    id: "all-out-2r",
+    label: "All-out @2R",
+    riskPct: 1,
+    slRule: "original",
+    exitRule: { partials: [{ atR: 2, fraction: 1 }], runner: "all_out_at_last_partial" },
+  };
+
+  it("MFE below target and MAE below stop books -1R (conservative), not +MFE", () => {
+    // MFE=1.2R (below 2R target), MAE=0.4R (below stop). No fill, no stop.
+    // Pre-H4: booked min(1.2, 2) = 1.2R (survivor bias). Post-H4: -1R.
+    const trades = [mk("1", { mfeR: 1.2, maeR: 0.4, rActual: 0.0 })];
+    const result = replayBucket(trades, keys, allOut2R, opts);
+    expect(result.eligibleCount).toBe(1);
+    expect(result.expectancyR).toBeCloseTo(-1, 2);
+  });
+});
+

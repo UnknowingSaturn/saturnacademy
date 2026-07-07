@@ -40,8 +40,11 @@ export interface Strategy {
 }
 
 export const STRATEGY_PRESETS: Strategy[] = [
+  // PR-5 · L5 — "current" uses actual recorded outcome; partials array must
+  // be empty to match the client, otherwise downstream describers (AI note
+  // builder) list a ghost 100%@1R partial for the baseline.
   { id: "current", label: "Your current behavior", riskPct: 1, slRule: "original",
-    exitRule: { partials: [{ atR: 1, fraction: 1 }], runner: "be_after_first_tp" }, useActualOutcome: true },
+    exitRule: { partials: [], runner: "be_after_first_tp" }, useActualOutcome: true },
   { id: "quick-flip", label: "Quick-flip · 100% @1R", riskPct: 1, slRule: "original",
     exitRule: { partials: [{ atR: 1, fraction: 1 }], runner: "all_out_at_last_partial" } },
   { id: "scale-out", label: "Scale-out · 50% @1R + 50% @2R", riskPct: 1, slRule: "original",
@@ -121,7 +124,9 @@ function extractProof(trade: any, keys: PairLabFieldKeys): TradeProof {
   return { reachedR, hasReachProof: proofs.length > 0, stoppedOut, loggedMfe, loggedMae, hasActualR, rActual: rActual ?? 0, idealSlScale };
 }
 
-type ReplayOutcome = { r: number; slProxy: boolean } | { ineligible: string };
+type ReplayOutcome =
+  | { r: number; slPips: number | null; slScale: number; slProxy: boolean }
+  | { ineligible: string };
 interface BucketConstants {
   maeP75: number | null;
   mfeP50: number | null;
@@ -199,7 +204,9 @@ function replayOneTrade(
   replayMode: ReplayMode = "expected",
 ): ReplayOutcome {
   if (strategy.useActualOutcome) {
-    return proof.hasActualR ? { r: proof.rActual, slProxy: false } : { ineligible: "no recorded r_actual" };
+    return proof.hasActualR
+      ? { r: proof.rActual, slPips: slDistancePips(trade), slScale: 1, slProxy: false }
+      : { ineligible: "no recorded r_actual" };
   }
   // Pure-trail (no partials, trail_to_mfe) is allowed; BE-after-TP without a partial is not.
   if (strategy.exitRule.runner === "be_after_first_tp" && strategy.exitRule.partials.length === 0) {
@@ -267,10 +274,7 @@ function replayOneTrade(
       if (firstBreachedTpR == null) firstBreachedTpR = p.atR;
     }
     // P0-A parity: do NOT drop the trade here. Fall into the runner block
-    // below so the honest outcome is booked from proven-reached R. Previously
-    // an early `ineligible: "unproven target"` return caused survivorship
-    // bias on multi-TP presets — only trades that hit every rung survived,
-    // inflating WR and expectancy in the server-generated AI quant note.
+    // below so the honest outcome is booked from proven-reached R.
   }
 
   const maxTargetAtR = resolved.length ? resolved[resolved.length - 1].atR : 0;
@@ -301,7 +305,10 @@ function replayOneTrade(
         if (anyFilled) {
           booked += lastFilledAtR * remainingFrac;
         } else {
-          booked += Math.min(reachedNewR, maxTargetAtR) * remainingFrac;
+          // PR-5 · H4 parity — no fill AND no stop under this rule has no
+          // observable exit. Symmetric conservative accounting with the
+          // stopped-branch above (`-slScale × remainingFrac`).
+          booked += -slScale * remainingFrac;
         }
       } else {
         if (proof.loggedMfe == null) return { ineligible: "no MFE for trail runner" };
@@ -311,10 +318,10 @@ function replayOneTrade(
     }
   }
 
-  // P0-B — PR-1 Brownian-bridge / gambler's-ruin ordering mixture.
-  // Ambiguity only exists when at least one partial's TP was breached AND the
-  // trade also breached the new SL. Deterministic branches pass through
-  // unchanged (pStopFirst = 0). Mirrors client `src/lib/pairLabSimulator.ts`.
+  // P0-B — PR-1 Brownian-bridge / gambler's-ruin ordering mixture. Mirrors
+  // client `src/lib/pairLabSimulator.ts`. `pStopFirst` = P(stop breached
+  // before ANY partial) — under SL-first, no partial ever fills, so the
+  // whole position takes `-slScale`.
   if (stoppedUnderNewSl && firstBreachedTpR != null && proof.loggedMae != null) {
     const mfeForBridge = proof.loggedMfe ?? proof.reachedR;
     const mfeInNewR = mfeForBridge / slScale;
@@ -328,7 +335,9 @@ function replayOneTrade(
     }
   }
 
-  return { r: booked, slProxy };
+  const baseSlPips = slDistancePips(trade);
+  const slPipsApplied = baseSlPips != null ? baseSlPips * slScale : null;
+  return { r: booked, slPips: slPipsApplied, slScale, slProxy };
 }
 
 
@@ -351,6 +360,10 @@ export interface PresetReplayResult {
   currentExpectancyROnIntersection: number | null;
   /** True when the eligible sample is < 70% of the total trades — `delta_vs_current` is biased. */
   biasWarning: boolean;
+  /** PR-5 · M7 parity — median applied SL distance in pips (post-scale) across eligible trades. */
+  appliedSlPipsMedian: number | null;
+  /** PR-5 · M7 parity — median applied SL scale (1.0 = original, <1 tighter, >1 wider). */
+  appliedSlScaleMedian: number | null;
 }
 
 export function replayAllPresets(
@@ -367,11 +380,15 @@ export function replayAllPresets(
     const outcomes = new Map<string, number>();
     const reasons: Record<string, number> = {};
     let reachedSum = 0, reachedCount = 0;
+    const slPipsSamples: number[] = [];
+    const slScaleSamples: number[] = [];
     for (const t of all) {
       const proof = extractProof(t, keys);
       const out = replayOneTrade(strategy, t, proof, bucket, replayMode);
       if ("r" in out) {
         outcomes.set(t.id, out.r);
+        if (out.slPips != null && Number.isFinite(out.slPips)) slPipsSamples.push(out.slPips);
+        if (Number.isFinite(out.slScale)) slScaleSamples.push(out.slScale);
         if (Number.isFinite(proof.reachedR)) {
           reachedSum += proof.reachedR;
           reachedCount += 1;
@@ -380,13 +397,13 @@ export function replayAllPresets(
         reasons[out.ineligible] = (reasons[out.ineligible] ?? 0) + 1;
       }
     }
-    return { strategy, outcomes, reasons, reachedSum, reachedCount };
+    return { strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples };
   });
 
   const currentRow = perPreset.find((p) => p.strategy.id === "current");
   const currentOutcomes = currentRow?.outcomes ?? new Map<string, number>();
 
-  return perPreset.map(({ strategy, outcomes, reasons, reachedSum, reachedCount }) => {
+  return perPreset.map(({ strategy, outcomes, reasons, reachedSum, reachedCount, slPipsSamples, slScaleSamples }) => {
     const rs = Array.from(outcomes.values());
     const n = rs.length;
     const totalR = rs.reduce((s, v) => s + v, 0);
@@ -428,6 +445,8 @@ export function replayAllPresets(
       expectancyROnIntersection: intersectionN > 0 ? intersectionSumPreset / intersectionN : null,
       currentExpectancyROnIntersection: intersectionN > 0 ? intersectionSumCurrent / intersectionN : null,
       biasWarning,
+      appliedSlPipsMedian: slPipsSamples.length ? quantile(slPipsSamples, 0.5) : null,
+      appliedSlScaleMedian: slScaleSamples.length ? quantile(slScaleSamples, 0.5) : null,
     };
   });
 }
