@@ -55,3 +55,73 @@ describe("M4 · idealSl buffer constants", () => {
     expect(WINNERS_MAE_SL_BUFFER).toBeLessThan(MAE_P75_WIDEN_BUFFER);
   });
 });
+
+describe("M3 · runMonteCarlo invariants", () => {
+  const baseParams = {
+    riskPerTradeFrac: 0.01,
+    numAccounts: 1,
+    accountSize: 100_000,
+    dailyLossPct: 0.05,
+    maxLossPct: 0.1,
+    targetPct: 0.08,
+    tradesPerDay: 5,
+    maxDays: 30,
+    rotationModel: "one_only" as const,
+    paths: 500,
+    seed: 12345,
+    maxLossMode: "trailing" as const,
+  };
+
+  it("pass + fail + inconclusive probabilities sum to ~1", () => {
+    const r = runMonteCarlo({
+      ...baseParams,
+      rSample: [2, -1, -1, 3, -1, 1.5, -1, 2, -1, -1],
+    });
+    const total = r.passProb + r.failProb + r.inconclusiveProb;
+    expect(total).toBeGreaterThan(0.99);
+    expect(total).toBeLessThan(1.01);
+  });
+
+  it("all-loss sample never passes and always busts", () => {
+    const r = runMonteCarlo({
+      ...baseParams,
+      rSample: [-1, -1, -1, -1, -1],
+    });
+    expect(r.passProb).toBe(0);
+    expect(r.failProb).toBeGreaterThan(0.9);
+  });
+
+  it("all-win sample always passes and never busts", () => {
+    const r = runMonteCarlo({
+      ...baseParams,
+      rSample: [2, 2, 2, 2, 2],
+    });
+    expect(r.passProb).toBe(1);
+    expect(r.failProb).toBe(0);
+  });
+});
+
+describe("B2 · Journal period range UTC parity (regression)", () => {
+  // Journal.tsx builds periodRange from UTC calendar boundaries so a trade
+  // stored at `2024-01-31T23:00:00Z` (ensureUtcMs → Jan 31 UTC) lands in
+  // January's month bucket regardless of the browser timezone. Replicate
+  // the boundary math here to freeze it.
+  function utcMonthRange(iso: string): { start: number; end: number } {
+    const d = new Date(iso);
+    const y = d.getUTCFullYear(), m = d.getUTCMonth();
+    return { start: Date.UTC(y, m, 1), end: Date.UTC(y, m + 1, 1) - 1 };
+  }
+
+  it("includes a 23:00 UTC trade on the last day of the month", () => {
+    const { start, end } = utcMonthRange("2024-01-15T00:00:00Z");
+    const tradeMs = Date.UTC(2024, 0, 31, 23, 0, 0);
+    expect(tradeMs).toBeGreaterThanOrEqual(start);
+    expect(tradeMs).toBeLessThanOrEqual(end);
+  });
+
+  it("excludes a next-month trade", () => {
+    const { end } = utcMonthRange("2024-01-15T00:00:00Z");
+    const tradeMs = Date.UTC(2024, 1, 1, 0, 0, 1); // Feb 1
+    expect(tradeMs).toBeGreaterThan(end);
+  });
+});
