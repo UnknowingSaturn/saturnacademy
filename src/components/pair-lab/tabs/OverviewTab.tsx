@@ -163,7 +163,10 @@ export function OverviewTab({
             />
           </div>
           <TooltipProvider delayDuration={150}>
-            <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-1.5">
+            <div className={cn(
+              "flex items-center gap-2 rounded-md border border-border/60 px-3 py-1.5",
+              includeUnassignedDisabled && "opacity-60",
+            )}>
               {/* U-B6: cursor-help lives on the Label/Tooltip trigger only —
                   the outer wrapper no longer intercepts pointer / focus,
                   so the <Switch> is fully keyboard + click reachable. */}
@@ -177,16 +180,16 @@ export function OverviewTab({
                   </Label>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
-                  When off, only trades attached to the selected account are
-                  bucketed. When on, trades whose <code>account_id</code> is NULL
-                  (legacy CSV imports, advisory closes) are also included.
-                  Defaults ON in Pair Lab to match the Journal.
+                  {includeUnassignedDisabled
+                    ? "Applies only when a specific account is selected. In \"All accounts\" mode, every trade (orphan or not) is already included."
+                    : <>When off, only trades attached to the selected account are bucketed. When on, trades whose <code>account_id</code> is NULL (legacy CSV imports, advisory closes) are also included. Defaults ON in Pair Lab to match the Journal.</>}
                 </TooltipContent>
               </Tooltip>
               <Switch
                 id="orphan-mode"
                 checked={includeUnassigned}
                 onCheckedChange={setIncludeUnassigned}
+                disabled={includeUnassignedDisabled}
                 aria-label="Include trades with no account assigned"
               />
             </div>
