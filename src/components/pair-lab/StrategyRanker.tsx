@@ -417,6 +417,11 @@ export function StrategyRanker({
               trail capture) are re-estimated on each fold's training slice only. Sort is by BCa lower-CI expectancy,
               penalised for drawdown and small samples.
             </p>
+            <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+              <span className="text-foreground font-medium">Note:</span> Win %, Max-DD, and Total $ below reflect only
+              the strict-eligible replay sample ({exclusion.eligible}/{exclusion.total} here). They will not match your
+              journal totals — use the Overview tab for whole-book metrics.
+            </p>
             <p className="text-[10px] text-muted-foreground mt-0.5 font-mono-numbers">{trailLabel}</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
