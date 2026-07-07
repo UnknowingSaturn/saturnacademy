@@ -68,6 +68,10 @@ export default function PairLab() {
   const scope = searchParams.get("scope") ?? "all";
   const tabParam = searchParams.get("tab") ?? "overview";
   const tab = VALID_TABS.has(tabParam) ? tabParam : "overview";
+  // Audit U-B5: Setup sub-tab persists in the URL as ?setupTab=…
+  const VALID_SETUP_TABS = new Set(["simulator", "groups", "aliases"]);
+  const setupTabParam = searchParams.get("setupTab") ?? "simulator";
+  const setupTab = VALID_SETUP_TABS.has(setupTabParam) ? setupTabParam : "simulator";
   const selected: Selected = (() => {
     const symbol = searchParams.get("symbol");
     const session = searchParams.get("session");
