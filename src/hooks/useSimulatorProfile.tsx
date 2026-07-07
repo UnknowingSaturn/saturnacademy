@@ -95,23 +95,15 @@ export function useUpdateSimulatorProfile() {
   return useMutation({
     mutationFn: async (updates: Partial<SimulatorProfile>) => {
       if (!user?.id) throw new Error("Not authenticated");
-      const { data: existing } = await supabase
+      // E2 fix: single-round-trip upsert (user_settings has UNIQUE(user_id))
+      // in place of the prior SELECT-then-INSERT/UPDATE pattern.
+      const { error } = await supabase
         .from("user_settings")
-        .select("id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (existing) {
-        const { error } = await supabase
-          .from("user_settings")
-          .update(updates as any)
-          .eq("user_id", user.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from("user_settings")
-          .insert({ user_id: user.id, ...(updates as any) });
-        if (error) throw error;
-      }
+        .upsert(
+          { user_id: user.id, ...(updates as any) },
+          { onConflict: "user_id" },
+        );
+      if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["simulator_profile"] });
