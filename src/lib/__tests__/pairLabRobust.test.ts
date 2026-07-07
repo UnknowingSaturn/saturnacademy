@@ -13,7 +13,7 @@
 //           refuse to fit when the bucket has fewer than 20 MFE samples.
 
 import { describe, it, expect } from "vitest";
-import { replayBucket, type Strategy } from "@/lib/pairLabSimulator";
+import { replayBucket, computeAppliedSlBySymbol, type Strategy } from "@/lib/pairLabSimulator";
 import type { PairLabFieldKeys } from "@/lib/pairLabMath";
 
 const keys: PairLabFieldKeys = {
