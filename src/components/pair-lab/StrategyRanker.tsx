@@ -41,7 +41,8 @@ import {
   useDistanceUnit,
   formatDistance,
 } from "@/hooks/useDistanceUnit";
-import { useRankerRiskMC } from "@/hooks/useRankerRiskMC";
+import { useRankerRiskMC, type UseRankerRiskMCState } from "@/hooks/useRankerRiskMC";
+import type { StrategyRiskResult } from "@/workers/rankerRiskMC.worker";
 import { useUpdateSimulatorProfile } from "@/hooks/useSimulatorProfile";
 
 import type { Trade } from "@/types/trading";
@@ -127,8 +128,6 @@ function topReasons(reasons: Record<string, number>, k = 3): Array<[string, numb
 // Suggested-risk + Verdict cells (risk-Monte-Carlo consumers)
 // ---------------------------------------------------------------------------
 
-import type { StrategyRiskResult } from "@/workers/rankerRiskMC.worker";
-import type { UseRankerRiskMCState } from "@/hooks/useRankerRiskMC";
 
 interface RiskCellProps {
   mc: UseRankerRiskMCState;
