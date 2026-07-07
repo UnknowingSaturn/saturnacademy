@@ -138,3 +138,72 @@ export function usePropFirms() {
     },
   });
 }
+
+/**
+ * Fire-and-forget writer for Pair Lab filter prefs. Debounced (300 ms) so
+ * rapid toggle flips coalesce into one round-trip. Optimistic update patches
+ * the cached SimulatorProfile immediately; a failed write logs and reverts
+ * the cache silently — no toast, since this is a background preference save
+ * the user didn't ask for.
+ */
+export function useUpdatePairLabPrefs() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const pending = useRef<PairLabPrefs>({});
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  return useCallback(
+    (patch: PairLabPrefs) => {
+      if (!user?.id) return;
+      pending.current = { ...pending.current, ...patch };
+
+      // Optimistic cache update so a same-tick re-read sees the new value.
+      const key = ["simulator_profile", user.id];
+      const prev = qc.getQueryData<SimulatorProfile>(key);
+      if (prev) {
+        qc.setQueryData<SimulatorProfile>(key, {
+          ...prev,
+          pair_lab_prefs: { ...prev.pair_lab_prefs, ...patch },
+        });
+      }
+
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(async () => {
+        const flush = pending.current;
+        pending.current = {};
+        const current = qc.getQueryData<SimulatorProfile>(key);
+        const merged = { ...(current?.pair_lab_prefs ?? {}), ...flush };
+        try {
+          const { data: existing } = await supabase
+            .from("user_settings")
+            .select("id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (existing) {
+            const { error } = await supabase
+              .from("user_settings")
+              .update({ pair_lab_prefs: merged } as any)
+              .eq("user_id", user.id);
+            if (error) throw error;
+          } else {
+            const { error } = await supabase
+              .from("user_settings")
+              .insert({ user_id: user.id, pair_lab_prefs: merged } as any);
+            if (error) throw error;
+          }
+        } catch (e) {
+          console.warn("[pair_lab_prefs] save failed", e);
+          // Revert optimistic patch on failure so the UI reflects DB truth.
+          if (prev) qc.setQueryData<SimulatorProfile>(key, prev);
+        }
+      }, 300);
+    },
+    [qc, user?.id],
+  );
+}
