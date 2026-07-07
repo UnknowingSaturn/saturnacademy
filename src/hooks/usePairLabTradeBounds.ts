@@ -15,10 +15,17 @@ export interface TradeBounds {
   ready: boolean;
 }
 
-export function usePairLabTradeBounds(): TradeBounds {
+export function usePairLabTradeBounds(
+  opts?: { includeUnassigned?: boolean },
+): TradeBounds {
   const { selectedAccountId } = useAccountFilter();
   const isAll = !selectedAccountId || selectedAccountId === "all";
-  const q = useTrades(isAll ? undefined : { accountId: selectedAccountId });
+  // Audit §1.4: default TRUE so slider bounds match the analytics window
+  // (Pair Lab now also defaults orphans in). Explicit `false` opts out.
+  const includeUnassigned = opts?.includeUnassigned !== false;
+  const q = useTrades(
+    isAll ? undefined : { accountId: selectedAccountId, includeUnassigned },
+  );
 
   return useMemo(() => {
     const trades = q.data ?? [];
