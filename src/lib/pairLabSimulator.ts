@@ -804,7 +804,10 @@ function buildResult(
 
 function preparedTrades(trades: Trade[]): Trade[] {
   return trades
-    .filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null)
+    // Audit M-B1: exclude unrealized (idea / paper / missed / manual-dismiss /
+    // zero-PnL untouched) rows so walk-forward IS/OOS expectancy matches the
+    // `rankerEligibleTrades` universe.
+    .filter((t) => !t.is_open && !t.is_archived && t.net_pnl != null && !isUnrealized(t as any))
     .sort((a, b) => ensureUtcMs(a.entry_time) - ensureUtcMs(b.entry_time));
 }
 
