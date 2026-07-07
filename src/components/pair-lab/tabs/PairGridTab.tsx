@@ -46,8 +46,9 @@ export function PairGridTab({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.symbol, selected?.session]);
+    // Audit U-B3: `setSelected` is stable (useCallback in PairLab.tsx) so
+    // including it in deps is safe and eliminates the exhaustive-deps disable.
+  }, [selected?.symbol, selected?.session, selected, setSelected]);
 
   const selectedBucket = useMemo(() => {
     if (!selected) return null;
