@@ -237,6 +237,7 @@ export function bucketTrades({
 
   for (const t of trades) {
     if (t.is_archived) continue;
+    if (t.is_open) continue; // PR-5 · M5 — defensive; live positions must not enter closed-only stats.
     if (!t.symbol) continue;
     // F3 fix: exclude ideas/paper/missed/zero-PnL-no-mod from the heatmap.
     // Tagged ideas inflate the failed-rate (they never executed) and pull
@@ -380,6 +381,7 @@ export function subGridFifteenMin({
 
   for (const t of trades) {
     if (t.is_archived || !t.symbol) continue;
+    if (t.is_open) continue; // PR-5 · M5 — defensive; live positions must not enter closed-only stats.
     if (isUnrealized(t as any)) continue; // O2 fix: drop ideas/paper/missed
     if (symbolResolver(t.symbol) !== filters.pair) continue;
     if (filters.direction && t.direction !== filters.direction) continue;
