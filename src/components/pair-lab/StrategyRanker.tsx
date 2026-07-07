@@ -391,6 +391,69 @@ function StrategyDetailPanel({
           </div>
         </div>
       </div>
+      {/* Risk sweep — the pro view behind "Suggested risk". */}
+      {riskSweep && riskSweep.grid.length > 0 && (
+        <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2 text-[11px] space-y-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              Risk sweep
+            </div>
+            {comfortDdPct != null && (
+              <span className="text-[10px] text-muted-foreground">
+                Comfort limit: -{comfortDdPct}% peak DD · based on {result.eligibleCount} trades
+              </span>
+            )}
+          </div>
+          <table className="w-full text-[11px] font-mono-numbers">
+            <thead className="text-muted-foreground/70">
+              <tr>
+                <th className="text-left font-normal pr-2">Risk %</th>
+                <th className="text-right font-normal pr-2">Median growth</th>
+                <th className="text-right font-normal pr-2">Mean peak DD</th>
+                <th className="text-right font-normal pr-2">Ruin prob</th>
+                <th className="text-left font-normal pl-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {riskSweep.grid.map((rung) => {
+                const isSuggested =
+                  riskSweep.suggested != null && rung.riskPct === riskSweep.suggested.riskPct;
+                return (
+                  <tr key={rung.riskPct} className={isSuggested ? "text-foreground font-semibold" : ""}>
+                    <td className="pr-2">{rung.riskPct.toFixed(2)}%</td>
+                    <td className={`pr-2 text-right ${rung.medianTerminalPct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                      {rung.medianTerminalPct >= 0 ? "+" : ""}
+                      {rung.medianTerminalPct.toFixed(1)}%
+                    </td>
+                    <td className="pr-2 text-right text-muted-foreground">
+                      -{rung.meanPeakDdPct.toFixed(1)}%
+                    </td>
+                    <td className="pr-2 text-right text-muted-foreground">
+                      {(rung.ruinProb * 100).toFixed(1)}%
+                    </td>
+                    <td className="pl-2">
+                      {isSuggested ? (
+                        <span className="text-primary">← suggested</span>
+                      ) : rung.violatesComfort ? (
+                        <span className="text-destructive">exceeds comfort</span>
+                      ) : (
+                        <span className="text-muted-foreground">ok</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="text-[10px] text-muted-foreground/80 not-italic leading-relaxed">
+            Each row is a Monte-Carlo simulation of this strategy's per-trade R outcomes with compounding.
+            Ruin prob = chance the account hits its worst-case bust point.
+            {result.eligibleCount < 20 && (
+              <span> Based on only {result.eligibleCount} trades — treat as directional.</span>
+            )}
+          </div>
+        </div>
+      )}
       {result.ineligibleCount > 0 && (
         <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2 text-[11px] space-y-1">
           <div className="text-muted-foreground">
