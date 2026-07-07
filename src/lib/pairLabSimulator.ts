@@ -94,19 +94,11 @@ export interface AppliedTpLeg {
   source: AtRSource;
 }
 
-export interface AppliedSlSymbolStat {
+// P5: extends the shared row shape so a rename on either side breaks the
+// other at compile time. Client + edge both extend `SharedAppliedSlSymbolStat`.
+export interface AppliedSlSymbolStat extends SharedAppliedSlSymbolStat {
   /** Canonical symbol (uppercased) or "Other (k symbols)" for the collapsed remainder row. */
   symbol: string;
-  /** "pips" for FX/metals/crypto/oil, "points" for indices/crypto. Same rule as pipLabelForSymbol. */
-  unit: "pips" | "points";
-  /** Number of eligible trades in this symbol under the preset. */
-  n: number;
-  /** Median applied SL distance in `unit`. NaN on the "Other" collapse row. */
-  medianNative: number;
-  /** IQR (25th, 75th) of applied SL in `unit`. Both NaN on the "Other" collapse row. */
-  iqrNative: [number, number];
-  /** Median of applied_SL / original_SL. 1.0 = original, <1 tighter, >1 wider. Dimensionless. */
-  medianScale: number;
 }
 
 export interface ReplayResult {
