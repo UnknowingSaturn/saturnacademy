@@ -523,6 +523,38 @@ export function StrategyRanker({
                 className="w-40"
               />
             </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2 text-xs cursor-help">
+                  <Label htmlFor="rank-comfort" className="text-xs whitespace-nowrap inline-flex items-center gap-1">
+                    Biggest drop you'd stay calm through
+                    <Info className="w-3 h-3 text-muted-foreground" />
+                  </Label>
+                  <Select
+                    value={String(localComfortDd)}
+                    onValueChange={(v) => {
+                      const num = Number(v);
+                      setLocalComfortDd(num);
+                      updateProfile.mutate({ ranker_comfort_dd_pct: num });
+                    }}
+                  >
+                    <SelectTrigger id="rank-comfort" className="h-7 w-[80px] text-xs font-mono-numbers">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="3">-3%</SelectItem>
+                      <SelectItem value="5">-5%</SelectItem>
+                      <SelectItem value="10">-10%</SelectItem>
+                      <SelectItem value="15">-15%</SelectItem>
+                      <SelectItem value="20">-20%</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs leading-relaxed">
+                We simulate each strategy at different risk levels and only suggest one whose worst simulated drawdown stays within this limit. Lower = more conservative suggestion.
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
 
