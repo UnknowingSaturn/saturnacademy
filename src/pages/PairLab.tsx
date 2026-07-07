@@ -384,7 +384,7 @@ export default function PairLab() {
           </TabsContent>
 
           <TabsContent value="setup" className="mt-4">
-            <SetupTab data={data} />
+            <SetupTab data={data} setupTab={setupTab} setSetupTab={setSetupTab} />
           </TabsContent>
         </Tabs>
       </PairLabWalkForwardProvider>
