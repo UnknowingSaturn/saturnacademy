@@ -92,34 +92,51 @@ export default function PairLab() {
   );
 
   const setProfile = useCallback(
-    (v: string) => patchParams((p) => (v === "any" ? p.delete("profile") : p.set("profile", v))),
-    [patchParams],
+    (v: string) => {
+      patchParams((p) => (v === "any" ? p.delete("profile") : p.set("profile", v)));
+      savePrefs({ profile: v });
+    },
+    [patchParams, savePrefs],
   );
   const setPropFirmMode = useCallback(
-    (v: boolean) => patchParams((p) => (v ? p.delete("pf") : p.set("pf", "0"))),
-    [patchParams],
+    (v: boolean) => {
+      patchParams((p) => (v ? p.delete("pf") : p.set("pf", "0")));
+      savePrefs({ propFirmMode: v });
+    },
+    [patchParams, savePrefs],
   );
   const setIncludeUnrealized = useCallback(
-    (v: boolean) => patchParams((p) => (v ? p.set("unreal", "1") : p.delete("unreal"))),
-    [patchParams],
+    (v: boolean) => {
+      patchParams((p) => (v ? p.set("unreal", "1") : p.delete("unreal")));
+      savePrefs({ includeUnrealized: v });
+    },
+    [patchParams, savePrefs],
   );
   const setIncludeUnassigned = useCallback(
-    (v: boolean) => patchParams((p) => (v ? p.delete("orphans") : p.set("orphans", "0"))),
-    [patchParams],
+    (v: boolean) => {
+      patchParams((p) => (v ? p.delete("orphans") : p.set("orphans", "0")));
+      savePrefs({ includeUnassigned: v });
+    },
+    [patchParams, savePrefs],
   );
   const setScope = useCallback(
-    (v: string) =>
+    (v: string) => {
       patchParams((p) => {
         if (v === "all") p.delete("scope");
         else p.set("scope", v);
         p.delete("symbol");
         p.delete("session");
-      }),
-    [patchParams],
+      });
+      savePrefs({ scope: v });
+    },
+    [patchParams, savePrefs],
   );
   const setTab = useCallback(
-    (v: string) => patchParams((p) => (v === "overview" ? p.delete("tab") : p.set("tab", v))),
-    [patchParams],
+    (v: string) => {
+      patchParams((p) => (v === "overview" ? p.delete("tab") : p.set("tab", v)));
+      if (VALID_TABS.has(v)) savePrefs({ tab: v as PairLabPrefs["tab"] });
+    },
+    [patchParams, savePrefs],
   );
   const setSelected = useCallback(
     (cell: Selected) =>
