@@ -279,8 +279,8 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
           tradeAccount?.balance_start ??
           null;
         const accountPct =
-          trade.net_pnl != null && equityBase && Number(equityBase) > 0
-            ? (Number(trade.net_pnl) / Number(equityBase)) * 100
+          agg.net_pnl != null && equityBase && Number(equityBase) > 0
+            ? (Number(agg.net_pnl) / Number(equityBase)) * 100
             : null;
         return (
           <PropertyRow key="r_multiple_actual" icon={<Target className="w-3.5 h-3.5" />} label={labelFor('r_multiple_actual', '% of Account')}>
