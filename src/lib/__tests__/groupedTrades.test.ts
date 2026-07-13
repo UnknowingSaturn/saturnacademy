@@ -101,11 +101,8 @@ describe("groupTrades", () => {
       (4.35 * 1.34 + 4.35 * 1.35 + 4.34 * 1.36) / (4.35 + 4.35 + 4.34),
       6,
     );
-    // R weighted by lots.
-    expect(g.r_multiple_actual).toBeCloseTo(
-      (1 * 4.35 + 2 * 4.35 + 3 * 4.34) / (4.35 + 4.35 + 4.34),
-      6,
-    );
+    // R = SUM of leg Rs (cumulative). 1 + 2 + 3 = 6.
+    expect(g.r_multiple_actual).toBeCloseTo(6, 6);
     expect(g.is_open).toBe(false);
     expect(g.exit_time).toBe("2026-07-13T13:00:00Z"); // latest close
   });
@@ -146,6 +143,20 @@ describe("groupTrades", () => {
     expect(g.legs_be).toBe(0);
     expect(g.outcome_mix).toBe("mixed");
     expect(g.net_pnl).toBeCloseTo(60);
+  });
+
+  it("sums R-multiples across legs for mixed groups (cumulative R)", () => {
+    const key = "rsum";
+    const legs = [
+      makeTrade({ id: "tp1", group_key: key, group_role: "leader",
+        is_open: false, net_pnl: 100, exit_price: 1.1, original_lots: 1, r_multiple_actual: 1 }),
+      makeTrade({ id: "tp2", group_key: key, group_role: "leg",
+        is_open: false, net_pnl: 200, exit_price: 1.2, original_lots: 1, r_multiple_actual: 2 }),
+      makeTrade({ id: "sl", group_key: key, group_role: "leg",
+        is_open: false, net_pnl: -100, exit_price: 0.9, original_lots: 1, r_multiple_actual: -1 }),
+    ];
+    const [g] = groupTrades(legs);
+    expect(g.r_multiple_actual).toBeCloseTo(2, 6); // 1 + 2 - 1
   });
 
   it("standalone trade populates leg tallies for the totals bar", () => {
