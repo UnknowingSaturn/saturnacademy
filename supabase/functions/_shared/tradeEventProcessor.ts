@@ -136,12 +136,15 @@ export async function processEvent(
     ? originalPayload.original_event_type
     : originalPayload.event_type;
 
+  // J1 fix: use maybeSingle so "no existing trade" is a plain null instead of
+  // throwing PGRST116. The entry / orphan-exit branches below already handle
+  // `existingTrade == null`; single() was masking that intended flow.
   const { data: existingTrade } = await supabase
     .from("trades")
     .select("*")
     .eq("ticket", ticket)
     .eq("account_id", account_id)
-    .single();
+    .maybeSingle();
 
   const sessions = await loadSessions(supabase, userId);
   const session = classifySession(event.event_timestamp, sessions);
@@ -150,37 +153,48 @@ export async function processEvent(
     .from("accounts")
     .select("balance_start, equity_current")
     .eq("id", account_id)
-    .single();
+    .maybeSingle();
 
   const currentEquity = accountData?.equity_current || accountData?.balance_start || 0;
 
   // ===== MODIFY =====
   if (effectiveEventType === "modify" || event_type === "modify") {
     if (existingTrade) {
-      const updateData: Record<string, unknown> = {};
-      if (event.sl) updateData.sl_final = event.sl;
-      if (event.tp) updateData.tp_final = event.tp;
+      // J10 fix: an incoming sl/tp of 0 is a *removal* (broker convention),
+      // not a "no change". Distinguish undefined (field absent from payload)
+      // from a literal 0 so users who clear their SL/TP see it reflected in
+      // the journal and mod history.
+      const slProvided = event.sl !== undefined && event.sl !== null;
+      const tpProvided = event.tp !== undefined && event.tp !== null;
+      const newSl = slProvided ? (Number(event.sl) === 0 ? null : Number(event.sl)) : undefined;
+      const newTp = tpProvided ? (Number(event.tp) === 0 ? null : Number(event.tp)) : undefined;
 
-      await supabase.from("trades").update(updateData).eq("id", existingTrade.id);
+      const updateData: Record<string, unknown> = {};
+      if (newSl !== undefined) updateData.sl_final = newSl;
+      if (newTp !== undefined) updateData.tp_final = newTp;
+
+      if (Object.keys(updateData).length > 0) {
+        await supabase.from("trades").update(updateData).eq("id", existingTrade.id);
+      }
 
       const mods: Array<Record<string, unknown>> = [];
-      if (event.sl && Number(event.sl) !== Number(existingTrade.sl_final ?? NaN)) {
+      if (newSl !== undefined && newSl !== (existingTrade.sl_final == null ? null : Number(existingTrade.sl_final))) {
         mods.push({
           user_id: userId,
           trade_id: existingTrade.id,
           field: "sl",
           old_value: existingTrade.sl_final ?? null,
-          new_value: event.sl,
+          new_value: newSl,
           occurred_at: event.event_timestamp,
         });
       }
-      if (event.tp && Number(event.tp) !== Number(existingTrade.tp_final ?? NaN)) {
+      if (newTp !== undefined && newTp !== (existingTrade.tp_final == null ? null : Number(existingTrade.tp_final))) {
         mods.push({
           user_id: userId,
           trade_id: existingTrade.id,
           field: "tp",
           old_value: existingTrade.tp_final ?? null,
-          new_value: event.tp,
+          new_value: newTp,
           occurred_at: event.event_timestamp,
         });
       }
@@ -192,13 +206,9 @@ export async function processEvent(
         "Processed SL/TP modify for position:",
         ticket,
         "SL:",
-        event.sl,
+        newSl === null ? "REMOVED" : newSl,
         "TP:",
-        event.tp,
-        "previous_sl:",
-        originalPayload.raw_payload?.previous_sl,
-        "previous_tp:",
-        originalPayload.raw_payload?.previous_tp,
+        newTp === null ? "REMOVED" : newTp,
       );
     } else {
       console.log("Modify event for unknown position:", ticket, "- ignoring");
@@ -206,6 +216,7 @@ export async function processEvent(
     await supabase.from("events").update({ processed: true }).eq("id", event.id);
     return;
   }
+
 
   // ===== ENTRY =====
   if (effectiveEventType === "entry" || event_type === "open") {
@@ -239,6 +250,52 @@ export async function processEvent(
     } else {
       const equityAtEntry = originalPayload.equity_at_entry || currentEquity;
 
+      // Multi-TP sibling grouping (2026-07-13). Position sizers open one
+      // broker position per TP leg — same account/symbol/direction, same
+      // second, ~same price. Detect any sibling opened within the last 30s
+      // at a price within 5 bps and share their group_key so downstream
+      // views can present the legs as one logical idea. No merging: the
+      // rows stay separate for per-leg TP/SL, PnL, and audit fidelity.
+      const priceEps = Math.max(Number(event.price) * 0.0005, 0.0001);
+      const priceLo = Number(event.price) - priceEps;
+      const priceHi = Number(event.price) + priceEps;
+      const windowStart = new Date(new Date(event.event_timestamp).getTime() - 30_000).toISOString();
+      const { data: siblings } = await supabase
+        .from("trades")
+        .select("id, group_key, group_role, entry_price, entry_time")
+        .eq("user_id", userId)
+        .eq("account_id", account_id)
+        .eq("symbol", event.symbol)
+        .eq("direction", event.direction)
+        .gte("entry_time", windowStart)
+        .lte("entry_time", event.event_timestamp)
+        .gte("entry_price", priceLo)
+        .lte("entry_price", priceHi)
+        .order("entry_time", { ascending: true })
+        .limit(4);
+
+      let groupKey: string | null = null;
+      let groupRole: "leader" | "leg" | null = null;
+      const validSiblings = (siblings || []).filter((s: any) =>
+        Math.abs(Number(s.entry_price) - Number(event.price)) <= priceEps
+      );
+      if (validSiblings.length > 0) {
+        // Reuse existing group_key if any sibling already has one; otherwise
+        // promote the earliest sibling to 'leader' and use its id as the key.
+        const withKey = validSiblings.find((s: any) => s.group_key);
+        if (withKey) {
+          groupKey = withKey.group_key;
+        } else {
+          const leader = validSiblings[0];
+          groupKey = leader.id;
+          await supabase
+            .from("trades")
+            .update({ group_key: groupKey, group_role: "leader" })
+            .eq("id", leader.id);
+        }
+        groupRole = "leg";
+      }
+
       await supabase.from("trades").insert({
         user_id: userId,
         account_id: account_id,
@@ -261,8 +318,16 @@ export async function processEvent(
         is_open: true,
         balance_at_entry: currentEquity,
         equity_at_entry: equityAtEntry,
+        group_key: groupKey,
+        group_role: groupRole,
       });
-      console.log("Created new trade for position:", ticket, "equity_at_entry:", equityAtEntry);
+      console.log(
+        "Created new trade for position:",
+        ticket,
+        "equity_at_entry:", equityAtEntry,
+        "group_key:", groupKey ?? "(standalone)",
+        "group_role:", groupRole ?? "(none)",
+      );
     }
   }
   // ===== EXIT (full / partial / orphan / repair) =====
@@ -276,16 +341,31 @@ export async function processEvent(
         return;
       }
 
-      // ORPHAN EXIT: create a closed trade from exit event data
+      // ORPHAN EXIT: create a closed trade from exit event data.
+      // J2 fix: previously we synthesised entry_price = exit_price whenever
+      // the payload lacked a true entry_price, producing rows that reported
+      // a real net_pnl over a fake 0-move — MAE-R, VWAP, R-multiple all
+      // silently wrong. Now we only accept an entry price when the EA sent
+      // one explicitly (raw_payload.entry_price or originalPayload.entry_price).
+      // Otherwise the row is inserted as `repair_state='needs_entry'` with
+      // NULL entry_price + NULL R-multiple, so downstream stats can drop it
+      // and the Journal can prompt for manual review.
       console.log("Orphan exit event - creating closed trade for position:", ticket);
 
       const rawPayload = event.raw_payload || {};
-      const entryPrice = rawPayload.entry_price || originalPayload.entry_price || event.price;
-      const entryTime = rawPayload.entry_time || originalPayload.entry_time || event.event_timestamp;
+      const hasRealEntry = rawPayload.entry_price != null || originalPayload.entry_price != null;
+      const entryPrice: number | null = hasRealEntry
+        ? Number(rawPayload.entry_price ?? originalPayload.entry_price)
+        : null;
+      const entryTime: string | null = hasRealEntry
+        ? (rawPayload.entry_time || originalPayload.entry_time || event.event_timestamp)
+        : event.event_timestamp; // stamp exit time so the row still sorts; entry_time is fine
 
-      const entryDate = new Date(entryTime);
-      const exitDate = new Date(event.event_timestamp);
-      const duration = Math.floor((exitDate.getTime() - entryDate.getTime()) / 1000);
+      const duration = hasRealEntry && entryTime
+        ? Math.floor(
+            (new Date(event.event_timestamp).getTime() - new Date(entryTime).getTime()) / 1000,
+          )
+        : null;
 
       const grossPnl = event.profit || 0;
       const commission = event.commission || 0;
@@ -293,17 +373,19 @@ export async function processEvent(
       const netPnl = computeNetPnl(grossPnl, commission, swap);
 
       const equityAtEntry = rawPayload.equity_at_entry || originalPayload.equity_at_entry || currentEquity;
-      const rMultiple = computeRMultiple({
-        entryPrice,
-        exitPrice: event.price,
-        slPrice: event.sl,
-        lots: lot_size,
-        grossPnl,
-        netPnl,
-        symbol: event.symbol,
-        equityAtEntry,
-        direction: event.direction,
-      });
+      const rMultiple = hasRealEntry
+        ? computeRMultiple({
+            entryPrice: entryPrice!,
+            exitPrice: event.price,
+            slPrice: event.sl,
+            lots: lot_size,
+            grossPnl,
+            netPnl,
+            symbol: event.symbol,
+            equityAtEntry,
+            direction: event.direction,
+          })
+        : null;
 
       await supabase.from("trades").insert({
         user_id: userId,
@@ -331,17 +413,24 @@ export async function processEvent(
         swap: swap,
         net_pnl: netPnl,
         r_multiple_actual: rMultiple,
-        duration_seconds: duration > 0 ? duration : null,
+        duration_seconds: duration != null && duration > 0 ? duration : null,
         session: session,
         is_open: false,
         balance_at_entry: currentEquity,
         equity_at_entry: equityAtEntry,
+        repair_state: hasRealEntry ? null : "needs_entry",
       });
 
-      console.log("Created closed trade from orphan exit:", ticket, "PnL:", netPnl);
+      // `repair_state='needs_entry'` on the trade row is the durable signal
+      // the UI reads to prompt for manual review; no separate repair_events
+      // insert (trade_repair_events.action CHECK doesn't include this case,
+      // and the row itself is already discoverable via the state filter).
+
+      console.log("Created closed trade from orphan exit:", ticket, "PnL:", netPnl, "hasRealEntry:", hasRealEntry);
       await supabase.from("events").update({ processed: true }).eq("id", event.id);
       return;
     }
+
 
     const isRepair = await isSnapshotClosed(supabase, existingTrade.id, existingTrade.is_open);
     if (isRepair) {

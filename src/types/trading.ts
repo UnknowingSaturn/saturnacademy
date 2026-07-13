@@ -158,10 +158,20 @@ export interface Trade {
   custom_fields?: Record<string, unknown> | null;
   // Repair state — populated by ingest's gap-sync; 'advisory_closed' means we inferred the close
   // from a snapshot rather than seeing the actual DEAL_ENTRY_OUT event.
-  repair_state?: 'none' | 'advisory_closed' | 'reconciled' | null;
+  // 'needs_entry' — orphan-exit row where the original entry event was never observed
+  // (no synthesized entry_price; skip R-multiple and treat as review-needed).
+  repair_state?: 'none' | 'advisory_closed' | 'reconciled' | 'needs_entry' | null;
   // Additive Phase D fields — resolved by trade_view at read time
   install_id?: string | null;
   broker_login?: string | null;
+  // Multi-TP sibling grouping — see useGroupedTrades / migrations 2026-07-13.
+  // `group_key` links sibling broker positions that are the same idea split
+  // across multiple TPs by an MT5 position sizer. `group_role`:
+  //   'leader' → canonical row for that group (earliest entry_time)
+  //   'leg'    → subsequent sibling; still fully editable and audit-preserved
+  //   null     → standalone trade (no siblings within 30s / 5 bps)
+  group_key?: string | null;
+  group_role?: 'leader' | 'leg' | null;
   // Joined data
   review?: TradeReview;
   account?: Account;

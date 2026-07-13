@@ -1,58 +1,51 @@
-## Verification Sweep: Confirm This Week's Pair Lab + Journal Fixes Landed Correctly
+# Journal audit + multi-TP grouping — implementation log
 
-Goal: audit every fix shipped this week (B1–B8, P1/P3/P4/P5, E1–E6, U9/U10, M/J series, test additions) and confirm each is intact, correct, and not silently regressed. No new features — verification only, with targeted repairs if a gap is found.
+## Shipped this pass
 
-### Scope (files touched this week)
-- `src/lib/tradeMath.ts`, `src/lib/pairLabMath.ts`, `src/lib/pairLabSimulator.ts`, `src/lib/propFirmMonteCarlo.ts`
-- `src/hooks/useRankerRiskMC.ts`, `src/hooks/useStrategyLabSweep.ts`, `src/hooks/useSimulatorProfile.tsx`, `src/hooks/usePairLab.tsx`
-- `src/pages/Journal.tsx`, `src/pages/PairLab.tsx`
-- `src/components/pair-lab/OutOfSamplePanel.tsx`, `IdealWindowHeatmap.tsx`, `StrategyLab.tsx`, `tabs/OverviewTab.tsx`
-- `src/contexts/PairLabWalkForwardContext.tsx`, `src/workers/oosSplit.worker.ts`
-- `shared/quant/stats.ts`, `shared/quant/symbolMapping.ts`, `shared/quant/types.ts`
-- `supabase/functions/_shared/quant/pairLabMath.ts`, `pairLabSimulator.ts`, `supabase/functions/pair-lab-report/index.ts`
-- All new/edited tests under `src/lib/__tests__/`
+### Schema (2 migrations, approved & applied)
+- `trades.group_key text` + `trades.group_role text` (`'leader' | 'leg' | NULL`)
+- Partial index `trades_group_key_idx (user_id, group_key) WHERE group_key IS NOT NULL`
+- Backfill: 7 existing sibling groups (2 triples + 5 pairs = 16 rows) tagged; 456 standalone trades left untouched.
 
-### Verification checklist (per fix)
+### Ingest (`supabase/functions/_shared/tradeEventProcessor.ts`)
+- **J1** — `existingTrade` lookup switched from `.single()` to `.maybeSingle()` (also on accountData lookup).
+- **Multi-TP grouping** — on ENTRY, look up siblings in the last 30 s on same `(user, account, symbol, direction)` at price ± 5 bps. Promote earliest to `'leader'`, tag new row as `'leg'`, share `group_key`. Non-destructive; per-leg TP/SL/PnL stay intact.
+- **J2** — orphan-exit no longer synthesises `entry_price = exit_price`. If no `raw_payload.entry_price` present: entry_price stays NULL, R-multiple stays NULL, `repair_state = 'needs_entry'`.
+- **J10** — modify branch treats `sl === 0` and `tp === 0` as "removed" (writes NULL), distinguishes from "field absent from payload" via `!== undefined`, logs `REMOVED` for clarity.
 
-**Correctness (B-series + P1)**
-- B1 OOS trade timestamps → `ensureUtcMs` present in `OutOfSamplePanel.tsx`
-- B2 Journal week/month/custom → all boundaries via `Date.UTC()`
-- B3 `useRankerRiskMC` → `onerror` + `onmessageerror` clear loading state
-- B4 `getAllCloseFills` → uses `ensureUtcMs`, no `new Date(...)` sort
-- B5 `isRankerEligible` → `isUnrealized` guard present
-- B6 daily-loss grouping → normalized via `ensureUtcMs` → UTC date slice
-- B7 `usePairLab` → `isError` surfaced; PairLab renders error card
-- B8 Journal `addWeeks`/`addMonths` → UTC-derived
-- P1 simulator ineligibility reason distinguishes null vs ambiguous MAE
+### Frontend audit fixes
+- **J3** — `Journal.tsx` `setCurrentDate` formats via UTC parts, no more tz drift.
+- **J6** — `useOpenTrades` poll cut from 30 s foreground+background to 5 min foreground-only; realtime already handles all writes.
+- **J9** — `tradeTransform.ts` dropped dead `row.accounts` fallback.
 
-**Parity (P3/P4/P5 + edge twins)**
-- P3 `slInitials` iterates `closed`
-- P4 `mfeRPairsForTp1` skips `is_open`
-- P5 `SharedAppliedSlSymbolStat` in `shared/quant/types.ts`, consumed on both sides
-- Diff `src/lib/pairLabSimulator.ts` vs `supabase/functions/_shared/quant/pairLabSimulator.ts` for drift
-- Diff `src/lib/pairLabMath.ts` vs edge twin
+### New grouping selector
+- `src/hooks/useGroupedTrades.ts` — pure `groupTrades()` + hook wrapper. Aggregates lots (VWAP), entry/exit price (lot-weighted), PnL (summed), R-multiple (lot-weighted), latest exit_time, is_open (any-leg-open). Standalone trades pass through.
+- Wired into `src/pages/Journal.tsx` behind localStorage flag `journal:group_multi_tp` (default ON). Journal filtering + display now operates on grouped rows.
+- `src/lib/__tests__/groupedTrades.test.ts` — 4 tests: standalone passthrough, closed-triple VWAP + weighted-R, mixed open-leg group, sort order.
 
-**Efficiency (E-series)**
-- E1 `useRankerRiskMC` cache key includes Σr²
-- E2 `useSimulatorProfile` uses `upsert` on user_id
-- E4 `useStrategyLabSweep` cache key includes Σr²
-- E5 `IdealWindowHeatmap` uses `useDeferredValue` (or worker); no main-thread stall
-- E6 `pair-lab-report` dead `setTickSizeOverrides` block removed
+### Types
+- Extended `Trade.repair_state` to include `'needs_entry'`.
+- Added `Trade.group_key` and `Trade.group_role`.
 
-**UX (U9/U10)**
-- U9 "Include unassigned/orphan accounts" disabled with tooltip when All accounts
-- U10 `IdealWindowHeatmap` hour axis shows timezone label
+## Verification
+- `bunx tsgo --noEmit` — clean.
+- `bunx vitest run` — 96/96 passing (92 existing + 4 new grouping tests).
 
-**Tests**
-- Run full vitest suite; expect prior 92 tests green
-- Confirm files exist: `auditBatch.test.ts`, `propFirmMonteCarloBreach.test.ts`, `appliedSlBySymbol.test.ts`, `kellyServerParity.test.ts` (extended), `symbolClassification.test.ts`
-- Spot-check each asserts the invariant it was written for (not just a smoke test)
+## Deliberately deferred (staged next pass)
+- **Pair Lab / Prop Firm / Dashboard grouping** — these read via `useTrades` and their stats (Kelly, OOS, walk-forward, MC breach) would silently change if grouping were applied without re-validating parity tests. Left per-leg for now; opt-in wiring behind the same setting is the next PR.
+- **Setting UI toggle** — grouping is on by default; the localStorage flag `journal:group_multi_tp` exists but isn't yet surfaced in JournalSettingsDialog. Add checkbox in the next UI pass.
+- **Journal expand-legs UI** — the aggregated row shows correct totals, but there's no explicit "3 legs" badge / expand-to-see-legs affordance yet. `.legs` is populated on every group so the panel can consume it.
+- **J4** — per-symbol epsilon for partial-vs-full close threshold. Current `0.001` is fine at your current lot sizes; will revisit when we add per-symbol contract specs.
+- **J5** — R-multiple recompute at close correctly uses `sl_initial` (planned R); documented via existing comments — no code change required.
 
-### Method
-1. Parallel-read all touched files + edge twins.
-2. Grep for regression markers (`new Date(`, `addWeeks(`, `addMonths(`, `setTickSizeOverrides`, raw ISO slice on entry_time, missing `isUnrealized` in eligibility paths).
-3. Run `bunx vitest run` and `tsgo` for type parity.
-4. Produce a pass/fail table per item. For any FAIL, apply the minimum targeted patch in build mode (not now) and re-run tests.
-
-### Deliverable
-A per-item PASS/FAIL report. If everything passes, no code changes. If gaps exist, a short follow-up patch list scoped strictly to the regressed item — no new refactors, no scope creep.
+## Files changed
+- created supabase migration (group_key/group_role columns + backfill)
+- created supabase migration (backfill correction)
+- created src/hooks/useGroupedTrades.ts
+- created src/lib/__tests__/groupedTrades.test.ts
+- edited src/types/trading.ts
+- edited src/lib/tradeTransform.ts
+- edited src/hooks/useOpenTrades.tsx
+- edited src/pages/Journal.tsx
+- edited supabase/functions/_shared/tradeEventProcessor.ts
+- edited .lovable/plan.md (this file)
