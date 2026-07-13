@@ -136,12 +136,15 @@ export async function processEvent(
     ? originalPayload.original_event_type
     : originalPayload.event_type;
 
+  // J1 fix: use maybeSingle so "no existing trade" is a plain null instead of
+  // throwing PGRST116. The entry / orphan-exit branches below already handle
+  // `existingTrade == null`; single() was masking that intended flow.
   const { data: existingTrade } = await supabase
     .from("trades")
     .select("*")
     .eq("ticket", ticket)
     .eq("account_id", account_id)
-    .single();
+    .maybeSingle();
 
   const sessions = await loadSessions(supabase, userId);
   const session = classifySession(event.event_timestamp, sessions);
@@ -150,7 +153,7 @@ export async function processEvent(
     .from("accounts")
     .select("balance_start, equity_current")
     .eq("id", account_id)
-    .single();
+    .maybeSingle();
 
   const currentEquity = accountData?.equity_current || accountData?.balance_start || 0;
 
