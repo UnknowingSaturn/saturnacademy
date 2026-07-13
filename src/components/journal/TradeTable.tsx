@@ -86,6 +86,15 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Multi-TP group expand state — inline reveal per group id.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   // Fetch property options (active only — soft-deleted ones don't appear in dropdowns)
   const { options: sessionOptions } = useSessionLookup();
