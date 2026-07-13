@@ -341,16 +341,31 @@ export async function processEvent(
         return;
       }
 
-      // ORPHAN EXIT: create a closed trade from exit event data
+      // ORPHAN EXIT: create a closed trade from exit event data.
+      // J2 fix: previously we synthesised entry_price = exit_price whenever
+      // the payload lacked a true entry_price, producing rows that reported
+      // a real net_pnl over a fake 0-move — MAE-R, VWAP, R-multiple all
+      // silently wrong. Now we only accept an entry price when the EA sent
+      // one explicitly (raw_payload.entry_price or originalPayload.entry_price).
+      // Otherwise the row is inserted as `repair_state='needs_entry'` with
+      // NULL entry_price + NULL R-multiple, so downstream stats can drop it
+      // and the Journal can prompt for manual review.
       console.log("Orphan exit event - creating closed trade for position:", ticket);
 
       const rawPayload = event.raw_payload || {};
-      const entryPrice = rawPayload.entry_price || originalPayload.entry_price || event.price;
-      const entryTime = rawPayload.entry_time || originalPayload.entry_time || event.event_timestamp;
+      const hasRealEntry = rawPayload.entry_price != null || originalPayload.entry_price != null;
+      const entryPrice: number | null = hasRealEntry
+        ? Number(rawPayload.entry_price ?? originalPayload.entry_price)
+        : null;
+      const entryTime: string | null = hasRealEntry
+        ? (rawPayload.entry_time || originalPayload.entry_time || event.event_timestamp)
+        : event.event_timestamp; // stamp exit time so the row still sorts; entry_time is fine
 
-      const entryDate = new Date(entryTime);
-      const exitDate = new Date(event.event_timestamp);
-      const duration = Math.floor((exitDate.getTime() - entryDate.getTime()) / 1000);
+      const duration = hasRealEntry && entryTime
+        ? Math.floor(
+            (new Date(event.event_timestamp).getTime() - new Date(entryTime).getTime()) / 1000,
+          )
+        : null;
 
       const grossPnl = event.profit || 0;
       const commission = event.commission || 0;
@@ -358,17 +373,19 @@ export async function processEvent(
       const netPnl = computeNetPnl(grossPnl, commission, swap);
 
       const equityAtEntry = rawPayload.equity_at_entry || originalPayload.equity_at_entry || currentEquity;
-      const rMultiple = computeRMultiple({
-        entryPrice,
-        exitPrice: event.price,
-        slPrice: event.sl,
-        lots: lot_size,
-        grossPnl,
-        netPnl,
-        symbol: event.symbol,
-        equityAtEntry,
-        direction: event.direction,
-      });
+      const rMultiple = hasRealEntry
+        ? computeRMultiple({
+            entryPrice: entryPrice!,
+            exitPrice: event.price,
+            slPrice: event.sl,
+            lots: lot_size,
+            grossPnl,
+            netPnl,
+            symbol: event.symbol,
+            equityAtEntry,
+            direction: event.direction,
+          })
+        : null;
 
       await supabase.from("trades").insert({
         user_id: userId,
@@ -396,17 +413,29 @@ export async function processEvent(
         swap: swap,
         net_pnl: netPnl,
         r_multiple_actual: rMultiple,
-        duration_seconds: duration > 0 ? duration : null,
+        duration_seconds: duration != null && duration > 0 ? duration : null,
         session: session,
         is_open: false,
         balance_at_entry: currentEquity,
         equity_at_entry: equityAtEntry,
+        repair_state: hasRealEntry ? null : "needs_entry",
       });
 
-      console.log("Created closed trade from orphan exit:", ticket, "PnL:", netPnl);
+      if (!hasRealEntry) {
+        await insertRepairEvent(supabase, {
+          userId,
+          tradeId: null as any,
+          action: "orphan_needs_entry",
+          source: "ingest_orphan_exit",
+          metadata: { ticket, net_pnl: netPnl, note: "Orphan exit ingested with no entry_price — user review required" },
+        }).catch(() => {/* non-fatal */});
+      }
+
+      console.log("Created closed trade from orphan exit:", ticket, "PnL:", netPnl, "hasRealEntry:", hasRealEntry);
       await supabase.from("events").update({ processed: true }).eq("id", event.id);
       return;
     }
+
 
     const isRepair = await isSnapshotClosed(supabase, existingTrade.id, existingTrade.is_open);
     if (isRepair) {
