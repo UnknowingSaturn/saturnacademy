@@ -160,9 +160,12 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
     return { label: "Partial", variant: "outline" as const, tone: "breakeven" };
   }, [trade.playbook_id, trade.actual_playbook_id, trade.profile, trade.actual_profile, trade.review?.regime, trade.actual_regime]);
 
-  const pnl = trade.net_pnl || 0;
+  // Headline P&L uses the group aggregate so multi-leg positions show
+  // cumulative net_pnl, not just the leader's slice.
+  const pnl = agg.net_pnl || 0;
   const isWin = pnl > 0;
   const isLoss = pnl < 0;
+  const totalLotsAgg = agg.original_lots ?? agg.total_lots ?? trade.original_lots ?? trade.total_lots;
 
   // Memoize partial-close fills: every consumer (Closes block, Lots row, Avg Exit) reads from this.
   const fills = useMemo(() => getAllCloseFills(trade), [
