@@ -131,4 +131,28 @@ describe("groupTrades", () => {
     const g = groupTrades(trades);
     expect(g.map((x) => x.id)).toEqual(["new", "old"]);
   });
+
+  it("tallies mixed outcome group (TP win + SL loss) at leg granularity", () => {
+    const key = "mix";
+    const legs = [
+      makeTrade({ id: "w", group_key: key, group_role: "leader",
+        is_open: false, net_pnl: 100, exit_price: 1.1, original_lots: 1 }),
+      makeTrade({ id: "l", group_key: key, group_role: "leg",
+        is_open: false, net_pnl: -40, exit_price: 0.99, original_lots: 1 }),
+    ];
+    const [g] = groupTrades(legs);
+    expect(g.legs_win).toBe(1);
+    expect(g.legs_loss).toBe(1);
+    expect(g.legs_be).toBe(0);
+    expect(g.outcome_mix).toBe("mixed");
+    expect(g.net_pnl).toBeCloseTo(60);
+  });
+
+  it("standalone trade populates leg tallies for the totals bar", () => {
+    const t = makeTrade({ id: "solo", is_open: false, net_pnl: 25, exit_price: 1.1 });
+    const [g] = groupTrades([t]);
+    expect(g.leg_count).toBe(1);
+    expect(g.legs_win).toBe(1);
+    expect(g.outcome_mix).toBe("all_win");
+  });
 });

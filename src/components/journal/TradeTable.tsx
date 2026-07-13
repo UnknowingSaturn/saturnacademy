@@ -15,7 +15,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ChevronRight, Lightbulb, FileText, Clock, GripVertical, Wrench, RefreshCw } from "lucide-react";
+import { ChevronRight, Lightbulb, FileText, Clock, GripVertical, Wrench, RefreshCw, ChevronDown, Layers } from "lucide-react";
 import { DEFAULT_COLUMNS, ColumnDefinition, buildColumnRegistry } from "@/types/settings";
 import {
   DndContext,
@@ -86,6 +86,15 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Multi-TP group expand state — inline reveal per group id.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   // Fetch property options (active only — soft-deleted ones don't appear in dropdowns)
   const { options: sessionOptions } = useSessionLookup();
@@ -384,14 +393,22 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   const getResultBadge = (trade: Trade) => {
     const pnl = trade.net_pnl || 0;
     const isNonExecuted = trade.trade_type && trade.trade_type !== 'executed';
+    const g = trade as any;
 
     if (trade.is_open) return { label: "Open", color: "muted" };
     if (isAwaitingRepair(trade)) return { label: "Awaiting repair", color: "muted" };
     if (isNonExecuted) {
-      // For non-executed trades, show hypothetical result
       if (pnl > 0) return { label: "Would Win", color: "profit" };
       if (pnl < 0) return { label: "Would Lose", color: "loss" };
       return { label: "Hypothetical", color: "muted" };
+    }
+    // Mixed multi-TP group — show a compact W/L split. Uses the leg-level
+    // tallies added by useGroupedTrades so callers see both outcomes on one row.
+    if (g.outcome_mix === "mixed") {
+      const parts = [`${g.legs_win}W`, `${g.legs_loss}L`];
+      if (g.legs_be > 0) parts.push(`${g.legs_be}BE`);
+      const tone = pnl > 0 ? "profit" : pnl < 0 ? "loss" : "breakeven";
+      return { label: parts.join(" / "), color: tone };
     }
     if (pnl > 0) return { label: "Win", color: "profit" };
     if (pnl < 0) return { label: "Loss", color: "loss" };
@@ -480,10 +497,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
             const isSelected = selectedIds.has(trade.id);
             const tradeTypeInfo = getTradeTypeIcon(trade.trade_type);
             const isNonExecuted = trade.trade_type && trade.trade_type !== 'executed';
+            const g = trade as any;
+            const isGroup = g.isGrouped === true;
+            const legs: Trade[] = g.legs ?? [];
+            const isExpanded = isGroup && expandedGroups.has(trade.id);
 
             return (
+              <div key={trade.id}>
               <div
-                key={trade.id}
                 className={cn(
                   "grid gap-2 px-4 py-2 items-center",
                   "hover:bg-accent/30 transition-colors group cursor-pointer",
@@ -557,6 +578,24 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                     return (
                       <div key={key} className="flex items-center gap-2">
                         <span className={cn("font-semibold text-sm", isNonExecuted && "italic text-muted-foreground")}>{trade.symbol}</span>
+                        {isGroup && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/30 whitespace-nowrap cursor-pointer"
+                                  onClick={(e) => { e.stopPropagation(); toggleExpand(trade.id); }}
+                                >
+                                  <Layers className="w-3 h-3" />
+                                  {legs.length} legs
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="text-xs">
+                                Multi-TP position: {legs.length} broker positions from the position sizer, grouped as one trade. Click to view legs.
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                         {tradeTypeInfo && (
                           <TooltipProvider>
                             <Tooltip>
@@ -923,10 +962,65 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                   );
                 })}
 
-                {/* Expand arrow */}
-                <div className="flex justify-center">
-                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                {/* Expand arrow — toggles per-leg breakdown when grouped */}
+                <div className="flex justify-center" onClick={(e) => {
+                  if (isGroup) { e.stopPropagation(); toggleExpand(trade.id); }
+                }}>
+                  {isGroup ? (
+                    isExpanded
+                      ? <ChevronDown className="w-4 h-4 text-muted-foreground hover:text-foreground transition-colors" />
+                      : <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-foreground transition-colors" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                  )}
                 </div>
+              </div>
+              {isExpanded && (
+                <div className="bg-muted/20 border-l-2 border-l-primary/40 px-8 py-2 space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+                    Legs ({legs.length}) — each row is a separate broker position from the position sizer
+                  </div>
+                  {legs.map((leg, i) => {
+                    const p = leg.net_pnl;
+                    const r = leg.r_multiple_actual;
+                    return (
+                      <div
+                        key={leg.id}
+                        className="grid grid-cols-[24px_120px_1fr_1fr_1fr_1fr_1fr] gap-2 text-xs items-center py-1 hover:bg-accent/20 rounded cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); onTradeClick(leg); }}
+                      >
+                        <span className="text-muted-foreground text-center">#{i + 1}</span>
+                        <span className="text-muted-foreground font-mono-numbers">{formatTimeET(leg.entry_time)}</span>
+                        <span className="font-mono-numbers">
+                          Entry <span className="text-foreground">{leg.entry_price?.toFixed(5) ?? "—"}</span>
+                        </span>
+                        <span className="font-mono-numbers">
+                          Exit <span className="text-foreground">{leg.exit_price?.toFixed(5) ?? (leg.is_open ? "open" : "—")}</span>
+                        </span>
+                        <span className="font-mono-numbers text-muted-foreground">
+                          {(leg.original_lots ?? leg.total_lots ?? 0).toFixed(2)} lots
+                        </span>
+                        <span className={cn(
+                          "font-mono-numbers text-right",
+                          p != null && p > 0 && "text-profit",
+                          p != null && p < 0 && "text-loss",
+                          (p == null) && "text-muted-foreground"
+                        )}>
+                          {p != null ? `${p >= 0 ? "+" : ""}$${p.toFixed(2)}` : "—"}
+                        </span>
+                        <span className={cn(
+                          "font-mono-numbers text-right",
+                          r != null && r > 0 && "text-profit",
+                          r != null && r < 0 && "text-loss",
+                          (r == null) && "text-muted-foreground"
+                        )}>
+                          {r != null ? `${r >= 0 ? "+" : ""}${r.toFixed(2)}R` : "—"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               </div>
             );
           })}

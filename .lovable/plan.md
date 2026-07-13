@@ -1,51 +1,60 @@
-# Journal audit + multi-TP grouping — implementation log
+## Current state
 
-## Shipped this pass
+Grouping is working at the data layer:
+- 7 groups already tagged in DB (2–3 legs each) via `group_key` + `group_role`.
+- `useGroupedTrades` collapses siblings into one leader-shaped row with aggregated fields (lot-weighted VWAP entry/exit, summed net P&L, summed gross P&L, summed commission/swap, weighted R-multiple, latest exit_time, aggregate is_open).
+- `Journal.tsx` feeds grouped rows to the table by default.
 
-### Schema (2 migrations, approved & applied)
-- `trades.group_key text` + `trades.group_role text` (`'leader' | 'leg' | NULL`)
-- Partial index `trades_group_key_idx (user_id, group_key) WHERE group_key IS NOT NULL`
-- Backfill: 7 existing sibling groups (2 triples + 5 pairs = 16 rows) tagged; 456 standalone trades left untouched.
+What's missing (why it doesn't *look* grouped and why totals feel incomplete):
+1. `TradeTable` has no awareness of `legs` / `isGrouped` — no badge, no expand chevron, no per-leg breakdown. A 3-leg group renders as a single row that silently *hides* its own legs.
+2. There is no cumulative totals row on the Journal page (net P&L, gross, R, wins/losses, commission, avg R) for the filtered set.
+3. Aggregation counts a mixed-outcome group (e.g. TP1 win + BE + SL loss) as one row — so win/loss chips undercount actual leg outcomes. The user wants both leg outcomes visible on the group.
+4. Pair Lab / Prop Firm / Dashboard still consume raw per-leg rows, so metrics diverge between Journal and the rest of the app.
 
-### Ingest (`supabase/functions/_shared/tradeEventProcessor.ts`)
-- **J1** — `existingTrade` lookup switched from `.single()` to `.maybeSingle()` (also on accountData lookup).
-- **Multi-TP grouping** — on ENTRY, look up siblings in the last 30 s on same `(user, account, symbol, direction)` at price ± 5 bps. Promote earliest to `'leader'`, tag new row as `'leg'`, share `group_key`. Non-destructive; per-leg TP/SL/PnL stay intact.
-- **J2** — orphan-exit no longer synthesises `entry_price = exit_price`. If no `raw_payload.entry_price` present: entry_price stays NULL, R-multiple stays NULL, `repair_state = 'needs_entry'`.
-- **J10** — modify branch treats `sl === 0` and `tp === 0` as "removed" (writes NULL), distinguishes from "field absent from payload" via `!== undefined`, logs `REMOVED` for clarity.
+## Plan
 
-### Frontend audit fixes
-- **J3** — `Journal.tsx` `setCurrentDate` formats via UTC parts, no more tz drift.
-- **J6** — `useOpenTrades` poll cut from 30 s foreground+background to 5 min foreground-only; realtime already handles all writes.
-- **J9** — `tradeTransform.ts` dropped dead `row.accounts` fallback.
+### 1. Make the group row show "both outcomes"
+- In `useGroupedTrades.aggregate()` add derived fields on the aggregate row:
+  - `leg_count`, `legs_win`, `legs_loss`, `legs_be`, `legs_open`
+  - `outcome_mix`: `'all_win' | 'all_loss' | 'mixed' | 'open'`
+  - Keep summed `net_pnl` as the single "group result" number (that already sums TP1 + SL etc. correctly — verified against the aggregation logic).
 
-### New grouping selector
-- `src/hooks/useGroupedTrades.ts` — pure `groupTrades()` + hook wrapper. Aggregates lots (VWAP), entry/exit price (lot-weighted), PnL (summed), R-multiple (lot-weighted), latest exit_time, is_open (any-leg-open). Standalone trades pass through.
-- Wired into `src/pages/Journal.tsx` behind localStorage flag `journal:group_multi_tp` (default ON). Journal filtering + display now operates on grouped rows.
-- `src/lib/__tests__/groupedTrades.test.ts` — 4 tests: standalone passthrough, closed-triple VWAP + weighted-R, mixed open-leg group, sort order.
+### 2. TradeTable: visible grouping + expand
+- Detect `row.isGrouped` and render:
+  - A small `"3 legs"` badge next to symbol.
+  - A chevron that expands an inline sub-table of legs (`row.legs`), each showing its own entry/exit/lots/net P&L/R.
+  - Result column shows a compact mix badge when `outcome_mix === 'mixed'` (e.g. `2W / 1L`) instead of a single win/loss dot.
+- P&L column keeps the summed number; hover tooltip lists per-leg P&Ls.
+- No schema change. `legs` is already attached by the hook.
 
-### Types
-- Extended `Trade.repair_state` to include `'needs_entry'`.
-- Added `Trade.group_key` and `Trade.group_role`.
+### 3. Cumulative totals bar on Journal
+- Add a sticky summary strip above `TradeTable` reading from `filteredTrades`:
+  - Trades (groups) · Legs (sum of leg_count) · Net P&L · Gross P&L · Commission · Swap · Total R · Avg R · Wins · Losses · Break-even · Open
+  - Wins/Losses are computed **at leg granularity** so a mixed group contributes correctly (a TP1 win and an SL loss show up as +1 win, +1 loss). This is the "cumulative of both outcomes" the user asked for.
+- Respects all current filters (period, symbol, session, result, model, advanced filters).
 
-## Verification
-- `bunx tsgo --noEmit` — clean.
-- `bunx vitest run` — 96/96 passing (92 existing + 4 new grouping tests).
+### 4. Result filter: interpret at leg level
+- Today `resultFilter = 'win'` filters on `net_pnl > 0` of the aggregate, which hides mixed groups. Change to: include a group if **any leg** matches (win/loss/open). Prevents mixed groups from disappearing when the user clicks "Wins".
 
-## Deliberately deferred (staged next pass)
-- **Pair Lab / Prop Firm / Dashboard grouping** — these read via `useTrades` and their stats (Kelly, OOS, walk-forward, MC breach) would silently change if grouping were applied without re-validating parity tests. Left per-leg for now; opt-in wiring behind the same setting is the next PR.
-- **Setting UI toggle** — grouping is on by default; the localStorage flag `journal:group_multi_tp` exists but isn't yet surfaced in JournalSettingsDialog. Add checkbox in the next UI pass.
-- **Journal expand-legs UI** — the aggregated row shows correct totals, but there's no explicit "3 legs" badge / expand-to-see-legs affordance yet. `.legs` is populated on every group so the panel can consume it.
-- **J4** — per-symbol epsilon for partial-vs-full close threshold. Current `0.001` is fine at your current lot sizes; will revisit when we add per-symbol contract specs.
-- **J5** — R-multiple recompute at close correctly uses `sl_initial` (planned R); documented via existing comments — no code change required.
+### 5. Consistency with rest of app (opt-in, no behaviour change yet)
+- Export `groupTrades` for reuse. Add a shared `useJournalTrades({ grouped })` wrapper so Pair Lab / Prop Firm / Dashboard can opt in later without duplicating logic.
+- **Not** switching those pages in this pass — call it out in the summary so the user can decide when to flip them. Their current per-leg math is still numerically correct; only the row count and per-trade averages differ.
 
-## Files changed
-- created supabase migration (group_key/group_role columns + backfill)
-- created supabase migration (backfill correction)
-- created src/hooks/useGroupedTrades.ts
-- created src/lib/__tests__/groupedTrades.test.ts
-- edited src/types/trading.ts
-- edited src/lib/tradeTransform.ts
-- edited src/hooks/useOpenTrades.tsx
-- edited src/pages/Journal.tsx
-- edited supabase/functions/_shared/tradeEventProcessor.ts
-- edited .lovable/plan.md (this file)
+### 6. Verification
+- New unit tests in `groupedTrades.test.ts`:
+  - Mixed outcome group returns `legs_win=1, legs_loss=1, outcome_mix='mixed'` and summed P&L equals leg sum.
+  - All-open group returns aggregate `is_open=true`, `net_pnl=null`.
+  - Standalone rows: `leg_count=1`, `outcome_mix` matches the trade's own result.
+- Manual: open Journal on `/journal`, confirm the 2-leg + 3-leg groups render as one row with badge + expand, and the totals bar reconciles with `SELECT sum(net_pnl)` on the filtered window.
+
+## Explicit non-goals
+- No changes to ingest, `group_key` derivation, or backfill logic — grouping data is already correct.
+- No merging or destructive edits to leg rows; each leg remains individually editable.
+- No changes to Pair Lab / Prop Firm / Dashboard math in this pass.
+- No new columns on `trades`; all new fields are derived client-side.
+
+## Technical notes
+- `outcome_mix` is derived per group from `legs.filter(l => l.trade_type === 'executed')`; idea/paper legs are excluded from win/loss counts but still show in the expanded view.
+- Break-even threshold reuses the existing per-symbol epsilon from J4 (`|net_pnl| < epsilon` → BE).
+- Totals bar uses `useMemo` keyed on `filteredTrades` — O(n) over already-filtered set, safe for thousands of rows.
+- Expand state lives in `TradeTable` local state keyed by group row id; no URL persistence to avoid noisy history.

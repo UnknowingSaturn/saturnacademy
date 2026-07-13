@@ -12,6 +12,7 @@ import { TradeTable } from "@/components/journal/TradeTable";
 import { DriftTray } from "@/components/journal/DriftTray";
 
 import { TradeDetailPanel } from "@/components/journal/TradeDetailPanel";
+import { JournalTotalsBar } from "@/components/journal/JournalTotalsBar";
 import { ManualTradeForm } from "@/components/journal/ManualTradeForm";
 import { JournalSettingsDialog } from "@/components/journal/JournalSettingsDialog";
 import { JournalCalendarView } from "@/components/journal/JournalCalendarView";
@@ -334,11 +335,14 @@ export default function Journal() {
       result = result.filter(trade => trade.session === sessionFilter);
     }
 
-    // Result filter
+    // Result filter — interpreted at leg granularity for grouped rows so a
+    // mixed group (e.g. TP1 win + SL loss) shows up under both "Wins" and
+    // "Losses" instead of vanishing. Singleton rows still work because their
+    // legs_* counters are populated by `passthrough()`.
     if (resultFilter === "win") {
-      result = result.filter(trade => (trade.net_pnl || 0) > 0 && trade.trade_type === 'executed');
+      result = result.filter(trade => ((trade as any).legs_win ?? 0) > 0 && trade.trade_type === 'executed');
     } else if (resultFilter === "loss") {
-      result = result.filter(trade => (trade.net_pnl || 0) < 0 && trade.trade_type === 'executed');
+      result = result.filter(trade => ((trade as any).legs_loss ?? 0) > 0 && trade.trade_type === 'executed');
     } else if (resultFilter === "open") {
       result = result.filter(trade => trade.is_open);
     }
@@ -616,15 +620,20 @@ export default function Journal() {
                 <p className="text-sm">Try a different period or adjust your filters</p>
               </div>
             ) : (
-            <TradeTable 
-              trades={filteredTrades}
-              onTradeClick={(trade) => setSelectedTradeId(trade.id)}
-              visibleColumns={settings?.visible_columns}
-              columnOrder={settings?.column_order}
-              deletedFields={settings?.deleted_system_fields}
-              onEditProperty={handleEditProperty}
-              accounts={accounts}
-            />
+            <>
+              {groupingEnabled && (
+                <JournalTotalsBar trades={filteredTrades as any} />
+              )}
+              <TradeTable 
+                trades={filteredTrades}
+                onTradeClick={(trade) => setSelectedTradeId(trade.id)}
+                visibleColumns={settings?.visible_columns}
+                columnOrder={settings?.column_order}
+                deletedFields={settings?.deleted_system_fields}
+                onEditProperty={handleEditProperty}
+                accounts={accounts}
+              />
+            </>
             )
           ) : (
             <JournalCalendarView 
