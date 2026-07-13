@@ -145,6 +145,20 @@ describe("groupTrades", () => {
     expect(g.net_pnl).toBeCloseTo(60);
   });
 
+  it("sums R-multiples across legs for mixed groups (cumulative R)", () => {
+    const key = "rsum";
+    const legs = [
+      makeTrade({ id: "tp1", group_key: key, group_role: "leader",
+        is_open: false, net_pnl: 100, exit_price: 1.1, original_lots: 1, r_multiple_actual: 1 }),
+      makeTrade({ id: "tp2", group_key: key, group_role: "leg",
+        is_open: false, net_pnl: 200, exit_price: 1.2, original_lots: 1, r_multiple_actual: 2 }),
+      makeTrade({ id: "sl", group_key: key, group_role: "leg",
+        is_open: false, net_pnl: -100, exit_price: 0.9, original_lots: 1, r_multiple_actual: -1 }),
+    ];
+    const [g] = groupTrades(legs);
+    expect(g.r_multiple_actual).toBeCloseTo(2, 6); // 1 + 2 - 1
+  });
+
   it("standalone trade populates leg tallies for the totals bar", () => {
     const t = makeTrade({ id: "solo", is_open: false, net_pnl: 25, exit_price: 1.1 });
     const [g] = groupTrades([t]);
