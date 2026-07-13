@@ -47,8 +47,33 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const isGroup = !!legs && legs.length > 1;
   const legList = legs && legs.length > 0 ? legs : [trade];
   const agg = aggregate ?? trade;
-  const updateTrade = useUpdateTrade();
-  const upsertReview = useUpsertTradeReview();
+  const updateTradeMut = useUpdateTrade();
+  const upsertReviewMut = useUpsertTradeReview();
+
+  // Wrap the base mutations so any qualitative edit made against the leader
+  // row automatically fans out to every leg in the group. Numeric/price
+  // fields are only rendered as read-only in this component, so all edit
+  // sites here are safe to propagate.
+  const legIds = useMemo(() => legList.map((l) => l.id), [legList]);
+  const updateTrade = useMemo(() => ({
+    mutateAsync: async (args: { id: string } & Partial<Trade>) => {
+      const { id, ...patch } = args;
+      if (isGroup && id === trade.id) {
+        return Promise.all(legIds.map((lid) => updateTradeMut.mutateAsync({ id: lid, ...patch } as Partial<Trade> & { id: string })));
+      }
+      return updateTradeMut.mutateAsync(args);
+    },
+  }), [updateTradeMut, isGroup, legIds, trade.id]);
+  const upsertReview = useMemo(() => ({
+    mutateAsync: async (args: { review: Partial<import("@/types/trading").TradeReview> & { trade_id: string }; silent?: boolean }) => {
+      const { review, silent } = args;
+      if (isGroup && review.trade_id === trade.id) {
+        return Promise.all(legIds.map((lid) => upsertReviewMut.mutateAsync({ review: { ...review, trade_id: lid }, silent })));
+      }
+      return upsertReviewMut.mutateAsync(args);
+    },
+  }), [upsertReviewMut, isGroup, legIds, trade.id]);
+
   const { data: playbooks } = usePlaybooks();
   const { data: accounts } = useAccounts();
   const { data: settings } = useUserSettings();
