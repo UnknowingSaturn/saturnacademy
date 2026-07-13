@@ -109,18 +109,18 @@ function aggregate(legs: Trade[]): GroupedTrade {
   const commission = safeSum(legs.map((l) => l.commission ?? 0));
   const swap = safeSum(legs.map((l) => l.swap ?? 0));
 
-  // R-multiple: weighted by per-leg original_lots to reflect that each leg
-  // carried its own share of risk. Skip legs with null R.
-  let rNum = 0;
-  let rDen = 0;
+  // R-multiple for a grouped row = SUM of leg Rs. Each leg carried its own
+  // risk budget (the position sizer opens N independent positions, each
+  // sized to its own SL). Summing reflects the true cumulative R outcome:
+  // e.g. TP1 +1R, TP2 +2R, SL -1R -> +2R for the whole idea.
+  let rSum = 0;
+  let rCount = 0;
   for (const l of legs) {
-    if (l.r_multiple_actual == null) continue;
-    const w = l.original_lots ?? l.total_lots ?? 0;
-    if (!(w > 0)) continue;
-    rNum += l.r_multiple_actual * w;
-    rDen += w;
+    if (l.r_multiple_actual == null || !Number.isFinite(l.r_multiple_actual)) continue;
+    rSum += l.r_multiple_actual;
+    rCount += 1;
   }
-  const rMultiple = !anyOpen && rDen > 0 ? rNum / rDen : anyOpen ? null : leader.r_multiple_actual;
+  const rMultiple = anyOpen ? null : rCount > 0 ? rSum : leader.r_multiple_actual;
 
   // Duration: from earliest entry to latest exit (closed groups only).
   let duration: number | null = null;
