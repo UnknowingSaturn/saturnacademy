@@ -89,7 +89,10 @@ function getInitialReviewData(review?: TradeReview): ReviewData {
 }
 
 export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelProps) {
-  const { data: trade, isLoading: isLoadingTrade } = useTrade(tradeId ?? undefined);
+  const { data: group, isLoading: isLoadingTrade } = useTradeGroup(tradeId ?? undefined);
+  const trade = group?.leader ?? null;
+  const legs = group?.legs ?? (trade ? [trade] : []);
+  const aggregate = group?.aggregate ?? trade;
   
   const { data: playbooks } = usePlaybooks();
   const upsertReview = useUpsertTradeReview();
