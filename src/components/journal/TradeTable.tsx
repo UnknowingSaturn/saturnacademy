@@ -393,14 +393,22 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   const getResultBadge = (trade: Trade) => {
     const pnl = trade.net_pnl || 0;
     const isNonExecuted = trade.trade_type && trade.trade_type !== 'executed';
+    const g = trade as any;
 
     if (trade.is_open) return { label: "Open", color: "muted" };
     if (isAwaitingRepair(trade)) return { label: "Awaiting repair", color: "muted" };
     if (isNonExecuted) {
-      // For non-executed trades, show hypothetical result
       if (pnl > 0) return { label: "Would Win", color: "profit" };
       if (pnl < 0) return { label: "Would Lose", color: "loss" };
       return { label: "Hypothetical", color: "muted" };
+    }
+    // Mixed multi-TP group — show a compact W/L split. Uses the leg-level
+    // tallies added by useGroupedTrades so callers see both outcomes on one row.
+    if (g.outcome_mix === "mixed") {
+      const parts = [`${g.legs_win}W`, `${g.legs_loss}L`];
+      if (g.legs_be > 0) parts.push(`${g.legs_be}BE`);
+      const tone = pnl > 0 ? "profit" : pnl < 0 ? "loss" : "breakeven";
+      return { label: parts.join(" / "), color: tone };
     }
     if (pnl > 0) return { label: "Win", color: "profit" };
     if (pnl < 0) return { label: "Loss", color: "loss" };
