@@ -16,11 +16,31 @@
 import { useMemo } from "react";
 import type { Trade } from "@/types/trading";
 
+export type OutcomeMix = "all_win" | "all_loss" | "all_be" | "mixed" | "open";
+
 export interface GroupedTrade extends Trade {
   /** All broker rows in this group, ordered by entry_time. Includes the leader. */
   legs: Trade[];
   /** True if the trade is a real group (≥ 2 legs). False for standalone rows. */
   isGrouped: boolean;
+  /** Number of executed legs in this group (idea/paper/missed excluded). */
+  leg_count: number;
+  legs_win: number;
+  legs_loss: number;
+  legs_be: number;
+  legs_open: number;
+  outcome_mix: OutcomeMix;
+}
+
+/** Classify an executed leg's outcome. Uses a tiny epsilon so exact-zero and
+ *  sub-cent P&L both round to break-even. Open legs return "open". */
+function classifyLeg(t: Trade): "win" | "loss" | "be" | "open" {
+  if (t.is_open) return "open";
+  const p = t.net_pnl;
+  if (p == null || !Number.isFinite(p)) return "be";
+  if (p > 0.005) return "win";
+  if (p < -0.005) return "loss";
+  return "be";
 }
 
 function safeSum(xs: Array<number | null | undefined>): number {
