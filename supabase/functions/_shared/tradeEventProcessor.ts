@@ -160,30 +160,41 @@ export async function processEvent(
   // ===== MODIFY =====
   if (effectiveEventType === "modify" || event_type === "modify") {
     if (existingTrade) {
-      const updateData: Record<string, unknown> = {};
-      if (event.sl) updateData.sl_final = event.sl;
-      if (event.tp) updateData.tp_final = event.tp;
+      // J10 fix: an incoming sl/tp of 0 is a *removal* (broker convention),
+      // not a "no change". Distinguish undefined (field absent from payload)
+      // from a literal 0 so users who clear their SL/TP see it reflected in
+      // the journal and mod history.
+      const slProvided = event.sl !== undefined && event.sl !== null;
+      const tpProvided = event.tp !== undefined && event.tp !== null;
+      const newSl = slProvided ? (Number(event.sl) === 0 ? null : Number(event.sl)) : undefined;
+      const newTp = tpProvided ? (Number(event.tp) === 0 ? null : Number(event.tp)) : undefined;
 
-      await supabase.from("trades").update(updateData).eq("id", existingTrade.id);
+      const updateData: Record<string, unknown> = {};
+      if (newSl !== undefined) updateData.sl_final = newSl;
+      if (newTp !== undefined) updateData.tp_final = newTp;
+
+      if (Object.keys(updateData).length > 0) {
+        await supabase.from("trades").update(updateData).eq("id", existingTrade.id);
+      }
 
       const mods: Array<Record<string, unknown>> = [];
-      if (event.sl && Number(event.sl) !== Number(existingTrade.sl_final ?? NaN)) {
+      if (newSl !== undefined && newSl !== (existingTrade.sl_final == null ? null : Number(existingTrade.sl_final))) {
         mods.push({
           user_id: userId,
           trade_id: existingTrade.id,
           field: "sl",
           old_value: existingTrade.sl_final ?? null,
-          new_value: event.sl,
+          new_value: newSl,
           occurred_at: event.event_timestamp,
         });
       }
-      if (event.tp && Number(event.tp) !== Number(existingTrade.tp_final ?? NaN)) {
+      if (newTp !== undefined && newTp !== (existingTrade.tp_final == null ? null : Number(existingTrade.tp_final))) {
         mods.push({
           user_id: userId,
           trade_id: existingTrade.id,
           field: "tp",
           old_value: existingTrade.tp_final ?? null,
-          new_value: event.tp,
+          new_value: newTp,
           occurred_at: event.event_timestamp,
         });
       }
@@ -195,13 +206,9 @@ export async function processEvent(
         "Processed SL/TP modify for position:",
         ticket,
         "SL:",
-        event.sl,
+        newSl === null ? "REMOVED" : newSl,
         "TP:",
-        event.tp,
-        "previous_sl:",
-        originalPayload.raw_payload?.previous_sl,
-        "previous_tp:",
-        originalPayload.raw_payload?.previous_tp,
+        newTp === null ? "REMOVED" : newTp,
       );
     } else {
       console.log("Modify event for unknown position:", ticket, "- ignoring");
@@ -209,6 +216,7 @@ export async function processEvent(
     await supabase.from("events").update({ processed: true }).eq("id", event.id);
     return;
   }
+
 
   // ===== ENTRY =====
   if (effectiveEventType === "entry" || event_type === "open") {
