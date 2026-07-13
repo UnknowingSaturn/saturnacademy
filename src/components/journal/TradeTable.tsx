@@ -497,10 +497,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
             const isSelected = selectedIds.has(trade.id);
             const tradeTypeInfo = getTradeTypeIcon(trade.trade_type);
             const isNonExecuted = trade.trade_type && trade.trade_type !== 'executed';
+            const g = trade as any;
+            const isGroup = g.isGrouped === true;
+            const legs: Trade[] = g.legs ?? [];
+            const isExpanded = isGroup && expandedGroups.has(trade.id);
 
             return (
+              <div key={trade.id}>
               <div
-                key={trade.id}
                 className={cn(
                   "grid gap-2 px-4 py-2 items-center",
                   "hover:bg-accent/30 transition-colors group cursor-pointer",
