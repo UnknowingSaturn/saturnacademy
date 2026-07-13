@@ -577,14 +577,28 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
 
                   if (key === 'symbol') {
                     return (
-                      <div key={key} className="flex items-center gap-2">
-                        <span className={cn("font-semibold text-sm", isNonExecuted && "italic text-muted-foreground")}>{trade.symbol}</span>
+                      <div key={key} className="flex flex-col gap-0.5 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={cn("font-semibold text-sm truncate", isNonExecuted && "italic text-muted-foreground")}>{trade.symbol}</span>
+                          {tradeTypeInfo && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className={cn("shrink-0", tradeTypeInfo.color)}>{tradeTypeInfo.icon}</span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{tradeTypeInfo.label}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                        </div>
                         {isGroup && (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/30 whitespace-nowrap cursor-pointer"
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/30 whitespace-nowrap cursor-pointer self-start"
                                   onClick={(e) => { e.stopPropagation(); toggleExpand(trade.id); }}
                                 >
                                   <Layers className="w-3 h-3" />
@@ -593,18 +607,6 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                               </TooltipTrigger>
                               <TooltipContent className="text-xs">
                                 Multi-TP position: {legs.length} broker positions from the position sizer, grouped as one trade. Click to view legs.
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                        {tradeTypeInfo && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className={tradeTypeInfo.color}>{tradeTypeInfo.icon}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{tradeTypeInfo.label}</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
