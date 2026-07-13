@@ -1,60 +1,40 @@
-## Current state
+## Goal
+Make each grouped (multi-TP) row in the Journal fully self-contained and cumulative, and remove the sticky totals bar above the table.
 
-Grouping is working at the data layer:
-- 7 groups already tagged in DB (2–3 legs each) via `group_key` + `group_role`.
-- `useGroupedTrades` collapses siblings into one leader-shaped row with aggregated fields (lot-weighted VWAP entry/exit, summed net P&L, summed gross P&L, summed commission/swap, weighted R-multiple, latest exit_time, aggregate is_open).
-- `Journal.tsx` feeds grouped rows to the table by default.
+## Changes
 
-What's missing (why it doesn't *look* grouped and why totals feel incomplete):
-1. `TradeTable` has no awareness of `legs` / `isGrouped` — no badge, no expand chevron, no per-leg breakdown. A 3-leg group renders as a single row that silently *hides* its own legs.
-2. There is no cumulative totals row on the Journal page (net P&L, gross, R, wins/losses, commission, avg R) for the filtered set.
-3. Aggregation counts a mixed-outcome group (e.g. TP1 win + BE + SL loss) as one row — so win/loss chips undercount actual leg outcomes. The user wants both leg outcomes visible on the group.
-4. Pair Lab / Prop Firm / Dashboard still consume raw per-leg rows, so metrics diverge between Journal and the rest of the app.
+### 1. Remove the sticky totals bar
+- Delete `JournalTotalsBar` import and render in `src/pages/Journal.tsx`.
+- Delete the file `src/components/journal/JournalTotalsBar.tsx`.
 
-## Plan
+### 2. Cumulative R on grouped rows (`useGroupedTrades.ts`)
+- Replace the lot-weighted R calculation with a **sum of leg R-multiples** for grouped rows:
+  - Example: TP1 +1R, TP2 +2R, SL −1R → row shows `+2.00R`.
+- Single-leg rows: unchanged (still their own R).
+- Open groups: still `null` (no R until legs close).
+- Update unit tests in `groupedTrades.test.ts`:
+  - Change the 3-leg aggregation expectation from weighted mean to `1 + 2 + 3 = 6R`.
+  - Add a mixed-outcome test asserting summed R across win + loss legs.
 
-### 1. Make the group row show "both outcomes"
-- In `useGroupedTrades.aggregate()` add derived fields on the aggregate row:
-  - `leg_count`, `legs_win`, `legs_loss`, `legs_be`, `legs_open`
-  - `outcome_mix`: `'all_win' | 'all_loss' | 'mixed' | 'open'`
-  - Keep summed `net_pnl` as the single "group result" number (that already sums TP1 + SL etc. correctly — verified against the aggregation logic).
+### 3. Result cell: W/L split + net $ (`TradeTable.tsx`)
+- In `getResultBadge`, for `outcome_mix === "mixed"`:
+  - Label becomes `"{W}W / {L}L · {±$net}"`, e.g. `"1W / 1L · +$60.00"`.
+  - Include BE count only when present: `"1W / 1L / 1BE · −$12.34"`.
+  - Tone still driven by net P&L sign (profit / loss / breakeven).
+- Non-mixed grouped rows keep the existing Win / Loss / BE label but continue to render summed P&L (already correct via `useGroupedTrades`).
 
-### 2. TradeTable: visible grouping + expand
-- Detect `row.isGrouped` and render:
-  - A small `"3 legs"` badge next to symbol.
-  - A chevron that expands an inline sub-table of legs (`row.legs`), each showing its own entry/exit/lots/net P&L/R.
-  - Result column shows a compact mix badge when `outcome_mix === 'mixed'` (e.g. `2W / 1L`) instead of a single win/loss dot.
-- P&L column keeps the summed number; hover tooltip lists per-leg P&Ls.
-- No schema change. `legs` is already attached by the hook.
+### 4. Fix the "N legs" badge overlap (`TradeTable.tsx`)
+- In the Pair cell for grouped rows, the `"N legs"` chip currently renders on top of the BUY/SELL badge (visible in the screenshot as `BUYegs` / `SELLegs`).
+- Restructure to a horizontal flex row: `[SYMBOL] [BUY/SELL] [N legs]` with `gap-1.5` and `whitespace-nowrap` on the chip so nothing overlaps.
 
-### 3. Cumulative totals bar on Journal
-- Add a sticky summary strip above `TradeTable` reading from `filteredTrades`:
-  - Trades (groups) · Legs (sum of leg_count) · Net P&L · Gross P&L · Commission · Swap · Total R · Avg R · Wins · Losses · Break-even · Open
-  - Wins/Losses are computed **at leg granularity** so a mixed group contributes correctly (a TP1 win and an SL loss show up as +1 win, +1 loss). This is the "cumulative of both outcomes" the user asked for.
-- Respects all current filters (period, symbol, session, result, model, advanced filters).
+### 5. Journal result filter (`Journal.tsx`)
+- No behavior change needed — the existing "Win"/"Loss" filter already uses `legs_win`/`legs_loss`, so mixed groups keep appearing under both.
 
-### 4. Result filter: interpret at leg level
-- Today `resultFilter = 'win'` filters on `net_pnl > 0` of the aggregate, which hides mixed groups. Change to: include a group if **any leg** matches (win/loss/open). Prevents mixed groups from disappearing when the user clicks "Wins".
+## Out of scope
+- No changes to ingest, grouping keys, or the backfill migration.
+- Pair Lab / Prop Firm / Dashboard continue to consume per-leg rows (unchanged).
+- No new columns or DB writes.
 
-### 5. Consistency with rest of app (opt-in, no behaviour change yet)
-- Export `groupTrades` for reuse. Add a shared `useJournalTrades({ grouped })` wrapper so Pair Lab / Prop Firm / Dashboard can opt in later without duplicating logic.
-- **Not** switching those pages in this pass — call it out in the summary so the user can decide when to flip them. Their current per-leg math is still numerically correct; only the row count and per-trade averages differ.
-
-### 6. Verification
-- New unit tests in `groupedTrades.test.ts`:
-  - Mixed outcome group returns `legs_win=1, legs_loss=1, outcome_mix='mixed'` and summed P&L equals leg sum.
-  - All-open group returns aggregate `is_open=true`, `net_pnl=null`.
-  - Standalone rows: `leg_count=1`, `outcome_mix` matches the trade's own result.
-- Manual: open Journal on `/journal`, confirm the 2-leg + 3-leg groups render as one row with badge + expand, and the totals bar reconciles with `SELECT sum(net_pnl)` on the filtered window.
-
-## Explicit non-goals
-- No changes to ingest, `group_key` derivation, or backfill logic — grouping data is already correct.
-- No merging or destructive edits to leg rows; each leg remains individually editable.
-- No changes to Pair Lab / Prop Firm / Dashboard math in this pass.
-- No new columns on `trades`; all new fields are derived client-side.
-
-## Technical notes
-- `outcome_mix` is derived per group from `legs.filter(l => l.trade_type === 'executed')`; idea/paper legs are excluded from win/loss counts but still show in the expanded view.
-- Break-even threshold reuses the existing per-symbol epsilon from J4 (`|net_pnl| < epsilon` → BE).
-- Totals bar uses `useMemo` keyed on `filteredTrades` — O(n) over already-filtered set, safe for thousands of rows.
-- Expand state lives in `TradeTable` local state keyed by group row id; no URL persistence to avoid noisy history.
+## Verification
+- `bunx vitest run src/lib/__tests__/groupedTrades.test.ts` — updated + new mixed-R test passes.
+- Manual on `/journal`: confirm (a) totals bar gone, (b) grouped rows show `"2 legs"` next to BUY/SELL without overlap, (c) mixed groups show `"1W / 1L · +$X"`, (d) RR column on a 2-leg TP1+SL group equals the arithmetic sum of the two leg Rs.
