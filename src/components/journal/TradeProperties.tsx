@@ -26,6 +26,12 @@ import { Input } from "@/components/ui/input";
 
 interface TradePropertiesProps {
   trade: Trade;
+  /** Every leg in the group. When length > 1 headline metrics show cumulative
+   *  values and edits to qualitative fields fan out to all legs. */
+  legs?: Trade[];
+  /** Pre-aggregated group view (sum P&L, sum lots, VWAP prices). Provided by
+   *  useTradeGroup; falls back to `trade` for single-leg trades. */
+  aggregate?: Trade;
 }
 
 // Hour-setup landscape options live in a shared module so the journal table,
@@ -37,7 +43,10 @@ function toBadgeOptions(rows?: { value: string; label: string; color: string }[]
   return rows.map(r => ({ value: r.value, label: r.label, customColor: r.color, color: "primary" }));
 }
 
-export function TradeProperties({ trade }: TradePropertiesProps) {
+export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps) {
+  const isGroup = !!legs && legs.length > 1;
+  const legList = legs && legs.length > 0 ? legs : [trade];
+  const agg = aggregate ?? trade;
   const updateTrade = useUpdateTrade();
   const upsertReview = useUpsertTradeReview();
   const { data: playbooks } = usePlaybooks();
