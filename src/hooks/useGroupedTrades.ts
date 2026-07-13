@@ -132,6 +132,25 @@ function aggregate(legs: Trade[]): GroupedTrade {
     }
   }
 
+  // Outcome tally at leg granularity. Idea/paper/missed legs excluded from
+  // win/loss counts (they aren't real outcomes) but still counted in leg_count
+  // so the badge total matches what the user sees expanded.
+  let wins = 0, losses = 0, be = 0, opens = 0;
+  for (const l of legs) {
+    if (l.trade_type && l.trade_type !== "executed") continue;
+    const c = classifyLeg(l);
+    if (c === "win") wins++;
+    else if (c === "loss") losses++;
+    else if (c === "be") be++;
+    else opens++;
+  }
+  let mix: OutcomeMix;
+  if (opens > 0 && wins === 0 && losses === 0 && be === 0) mix = "open";
+  else if (wins > 0 && losses === 0 && be === 0 && opens === 0) mix = "all_win";
+  else if (losses > 0 && wins === 0 && be === 0 && opens === 0) mix = "all_loss";
+  else if (be > 0 && wins === 0 && losses === 0 && opens === 0) mix = "all_be";
+  else mix = "mixed";
+
   return {
     ...leader,
     // Aggregate fields — override leader's per-leg values.
@@ -151,16 +170,36 @@ function aggregate(legs: Trade[]): GroupedTrade {
       (a, b) => new Date(a.entry_time).getTime() - new Date(b.entry_time).getTime(),
     ),
     isGrouped: legs.length > 1,
+    leg_count: legs.length,
+    legs_win: wins,
+    legs_loss: losses,
+    legs_be: be,
+    legs_open: opens,
+    outcome_mix: mix,
+  };
+}
+
+/** Wrap a standalone (non-grouped) trade so it matches the GroupedTrade shape. */
+function passthrough(t: Trade): GroupedTrade {
+  const c = classifyLeg(t);
+  const isExec = !t.trade_type || t.trade_type === "executed";
+  return {
+    ...t,
+    legs: [t],
+    isGrouped: false,
+    leg_count: 1,
+    legs_win: isExec && c === "win" ? 1 : 0,
+    legs_loss: isExec && c === "loss" ? 1 : 0,
+    legs_be: isExec && c === "be" ? 1 : 0,
+    legs_open: c === "open" ? 1 : 0,
+    outcome_mix:
+      c === "open" ? "open" : c === "win" ? "all_win" : c === "loss" ? "all_loss" : "all_be",
   };
 }
 
 /**
  * Group broker sibling positions by `group_key`. Rows without a group_key
  * (standalone trades) pass through as single-leg groups.
- *
- * Ordering: preserves the incoming order by using each group's leader
- * entry_time as its sort key (falls back to the row's own entry_time for
- * standalones). Caller may still re-sort afterwards.
  */
 export function useGroupedTrades(trades: Trade[] | undefined): GroupedTrade[] {
   return useMemo(() => groupTrades(trades ?? []), [trades]);
@@ -182,19 +221,12 @@ export function groupTrades(trades: Trade[]): GroupedTrade[] {
 
   const groups: GroupedTrade[] = [];
   for (const legs of byKey.values()) {
-    // Singleton groups (only one row with a given key — should be rare, but
-    // handle it) collapse to a passthrough.
-    if (legs.length === 1) {
-      groups.push({ ...legs[0], legs: [legs[0]], isGrouped: false });
-    } else {
-      groups.push(aggregate(legs));
-    }
+    if (legs.length === 1) groups.push(passthrough(legs[0]));
+    else groups.push(aggregate(legs));
   }
-  for (const t of singletons) {
-    groups.push({ ...t, legs: [t], isGrouped: false });
-  }
+  for (const t of singletons) groups.push(passthrough(t));
 
-  // Preserve DESC-by-entry-time (matches useTrades default sort).
   groups.sort((a, b) => new Date(b.entry_time).getTime() - new Date(a.entry_time).getTime());
   return groups;
 }
+
