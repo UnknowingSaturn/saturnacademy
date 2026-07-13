@@ -154,8 +154,15 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       reviewed_at: new Date().toISOString(),
     };
 
-    await upsertReview.mutateAsync({ review: reviewPayload, silent: true });
-  }, [trade, upsertReview]);
+    // Fan out review saves to every leg in a grouped trade so filters and
+    // stats stay consistent across the whole position.
+    const targetIds = legs.length > 1 ? legs.map((l) => l.id) : [trade.id];
+    await Promise.all(
+      targetIds.map((id) =>
+        upsertReview.mutateAsync({ review: { ...reviewPayload, trade_id: id }, silent: true }),
+      ),
+    );
+  }, [trade, legs, upsertReview]);
 
   const { status: saveStatus, flush, hasUnsavedChanges, hasDraft, restoreDraft } = useAutoSave(
     reviewData,
