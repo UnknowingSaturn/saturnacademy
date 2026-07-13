@@ -101,11 +101,8 @@ describe("groupTrades", () => {
       (4.35 * 1.34 + 4.35 * 1.35 + 4.34 * 1.36) / (4.35 + 4.35 + 4.34),
       6,
     );
-    // R weighted by lots.
-    expect(g.r_multiple_actual).toBeCloseTo(
-      (1 * 4.35 + 2 * 4.35 + 3 * 4.34) / (4.35 + 4.35 + 4.34),
-      6,
-    );
+    // R = SUM of leg Rs (cumulative). 1 + 2 + 3 = 6.
+    expect(g.r_multiple_actual).toBeCloseTo(6, 6);
     expect(g.is_open).toBe(false);
     expect(g.exit_time).toBe("2026-07-13T13:00:00Z"); // latest close
   });
