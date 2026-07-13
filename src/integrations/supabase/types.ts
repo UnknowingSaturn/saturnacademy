@@ -2096,6 +2096,8 @@ export type Database = {
           exit_price: number | null
           exit_time: string | null
           gross_pnl: number | null
+          group_key: string | null
+          group_role: string | null
           id: string
           install_id: string | null
           is_archived: boolean | null
@@ -2146,6 +2148,8 @@ export type Database = {
           exit_price?: number | null
           exit_time?: string | null
           gross_pnl?: number | null
+          group_key?: string | null
+          group_role?: string | null
           id?: string
           install_id?: string | null
           is_archived?: boolean | null
@@ -2196,6 +2200,8 @@ export type Database = {
           exit_price?: number | null
           exit_time?: string | null
           gross_pnl?: number | null
+          group_key?: string | null
+          group_role?: string | null
           id?: string
           install_id?: string | null
           is_archived?: boolean | null
