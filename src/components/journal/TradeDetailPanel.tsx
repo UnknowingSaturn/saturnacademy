@@ -324,7 +324,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     );
   }
 
-  const pnl = trade.net_pnl || 0;
+  const pnl = (aggregate?.net_pnl ?? trade.net_pnl) || 0;
 
   return (
     <Sheet open={isOpen} onOpenChange={() => handleClose()}>
