@@ -578,6 +578,24 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                     return (
                       <div key={key} className="flex items-center gap-2">
                         <span className={cn("font-semibold text-sm", isNonExecuted && "italic text-muted-foreground")}>{trade.symbol}</span>
+                        {isGroup && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/30 whitespace-nowrap cursor-pointer"
+                                  onClick={(e) => { e.stopPropagation(); toggleExpand(trade.id); }}
+                                >
+                                  <Layers className="w-3 h-3" />
+                                  {legs.length} legs
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="text-xs">
+                                Multi-TP position: {legs.length} broker positions from the position sizer, grouped as one trade. Click to view legs.
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                         {tradeTypeInfo && (
                           <TooltipProvider>
                             <Tooltip>
