@@ -621,9 +621,6 @@ export default function Journal() {
               </div>
             ) : (
             <>
-              {groupingEnabled && (
-                <JournalTotalsBar trades={filteredTrades as any} />
-              )}
               <TradeTable 
                 trades={filteredTrades}
                 onTradeClick={(trade) => setSelectedTradeId(trade.id)}
