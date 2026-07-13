@@ -601,7 +601,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
             {showProperties && (
               <div className="w-64 border-l border-border bg-muted/20 flex-shrink-0 overflow-auto">
                 <div className="p-4">
-                  <TradeProperties trade={trade} />
+                  <TradeProperties trade={trade} legs={legs} aggregate={aggregate ?? undefined} />
                 </div>
               </div>
             )}
