@@ -12,6 +12,7 @@ import { TradeTable } from "@/components/journal/TradeTable";
 import { DriftTray } from "@/components/journal/DriftTray";
 
 import { TradeDetailPanel } from "@/components/journal/TradeDetailPanel";
+import { JournalTotalsBar } from "@/components/journal/JournalTotalsBar";
 import { ManualTradeForm } from "@/components/journal/ManualTradeForm";
 import { JournalSettingsDialog } from "@/components/journal/JournalSettingsDialog";
 import { JournalCalendarView } from "@/components/journal/JournalCalendarView";
