@@ -334,11 +334,14 @@ export default function Journal() {
       result = result.filter(trade => trade.session === sessionFilter);
     }
 
-    // Result filter
+    // Result filter — interpreted at leg granularity for grouped rows so a
+    // mixed group (e.g. TP1 win + SL loss) shows up under both "Wins" and
+    // "Losses" instead of vanishing. Singleton rows still work because their
+    // legs_* counters are populated by `passthrough()`.
     if (resultFilter === "win") {
-      result = result.filter(trade => (trade.net_pnl || 0) > 0 && trade.trade_type === 'executed');
+      result = result.filter(trade => ((trade as any).legs_win ?? 0) > 0 && trade.trade_type === 'executed');
     } else if (resultFilter === "loss") {
-      result = result.filter(trade => (trade.net_pnl || 0) < 0 && trade.trade_type === 'executed');
+      result = result.filter(trade => ((trade as any).legs_loss ?? 0) > 0 && trade.trade_type === 'executed');
     } else if (resultFilter === "open") {
       result = result.filter(trade => trade.is_open);
     }
