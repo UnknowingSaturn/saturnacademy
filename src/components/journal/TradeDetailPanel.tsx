@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep, TradeScreenshot } from "@/types/trading";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
-import { useUpsertTradeReview, useTrade } from "@/hooks/useTrades";
+import { useUpsertTradeReview } from "@/hooks/useTrades";
+import { useTradeGroup } from "@/hooks/useTradeGroup";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import {
@@ -88,7 +89,10 @@ function getInitialReviewData(review?: TradeReview): ReviewData {
 }
 
 export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelProps) {
-  const { data: trade, isLoading: isLoadingTrade } = useTrade(tradeId ?? undefined);
+  const { data: group, isLoading: isLoadingTrade } = useTradeGroup(tradeId ?? undefined);
+  const trade = group?.leader ?? null;
+  const legs = group?.legs ?? (trade ? [trade] : []);
+  const aggregate = group?.aggregate ?? trade;
   
   const { data: playbooks } = usePlaybooks();
   const upsertReview = useUpsertTradeReview();
@@ -150,8 +154,15 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       reviewed_at: new Date().toISOString(),
     };
 
-    await upsertReview.mutateAsync({ review: reviewPayload, silent: true });
-  }, [trade, upsertReview]);
+    // Fan out review saves to every leg in a grouped trade so filters and
+    // stats stay consistent across the whole position.
+    const targetIds = legs.length > 1 ? legs.map((l) => l.id) : [trade.id];
+    await Promise.all(
+      targetIds.map((id) =>
+        upsertReview.mutateAsync({ review: { ...reviewPayload, trade_id: id }, silent: true }),
+      ),
+    );
+  }, [trade, legs, upsertReview]);
 
   const { status: saveStatus, flush, hasUnsavedChanges, hasDraft, restoreDraft } = useAutoSave(
     reviewData,
@@ -313,7 +324,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     );
   }
 
-  const pnl = trade.net_pnl || 0;
+  const pnl = (aggregate?.net_pnl ?? trade.net_pnl) || 0;
 
   return (
     <Sheet open={isOpen} onOpenChange={() => handleClose()}>
@@ -590,7 +601,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
             {showProperties && (
               <div className="w-64 border-l border-border bg-muted/20 flex-shrink-0 overflow-auto">
                 <div className="p-4">
-                  <TradeProperties trade={trade} />
+                  <TradeProperties trade={trade} legs={legs} aggregate={aggregate ?? undefined} />
                 </div>
               </div>
             )}
