@@ -402,13 +402,14 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
       if (pnl < 0) return { label: "Would Lose", color: "loss" };
       return { label: "Hypothetical", color: "muted" };
     }
-    // Mixed multi-TP group — show a compact W/L split. Uses the leg-level
-    // tallies added by useGroupedTrades so callers see both outcomes on one row.
+    // Mixed multi-TP group — show W/L split AND the net $ so the row is
+    // self-contained: user sees both outcomes and the cumulative result.
     if (g.outcome_mix === "mixed") {
       const parts = [`${g.legs_win}W`, `${g.legs_loss}L`];
       if (g.legs_be > 0) parts.push(`${g.legs_be}BE`);
+      const money = `${pnl >= 0 ? "+" : "\u2212"}$${Math.abs(pnl).toFixed(2)}`;
       const tone = pnl > 0 ? "profit" : pnl < 0 ? "loss" : "breakeven";
-      return { label: parts.join(" / "), color: tone };
+      return { label: `${parts.join(" / ")} \u00b7 ${money}`, color: tone };
     }
     if (pnl > 0) return { label: "Win", color: "profit" };
     if (pnl < 0) return { label: "Loss", color: "loss" };
