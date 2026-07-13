@@ -944,10 +944,65 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                   );
                 })}
 
-                {/* Expand arrow */}
-                <div className="flex justify-center">
-                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                {/* Expand arrow — toggles per-leg breakdown when grouped */}
+                <div className="flex justify-center" onClick={(e) => {
+                  if (isGroup) { e.stopPropagation(); toggleExpand(trade.id); }
+                }}>
+                  {isGroup ? (
+                    isExpanded
+                      ? <ChevronDown className="w-4 h-4 text-muted-foreground hover:text-foreground transition-colors" />
+                      : <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-foreground transition-colors" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                  )}
                 </div>
+              </div>
+              {isExpanded && (
+                <div className="bg-muted/20 border-l-2 border-l-primary/40 px-8 py-2 space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+                    Legs ({legs.length}) — each row is a separate broker position from the position sizer
+                  </div>
+                  {legs.map((leg, i) => {
+                    const p = leg.net_pnl;
+                    const r = leg.r_multiple_actual;
+                    return (
+                      <div
+                        key={leg.id}
+                        className="grid grid-cols-[24px_120px_1fr_1fr_1fr_1fr_1fr] gap-2 text-xs items-center py-1 hover:bg-accent/20 rounded cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); onTradeClick(leg); }}
+                      >
+                        <span className="text-muted-foreground text-center">#{i + 1}</span>
+                        <span className="text-muted-foreground font-mono-numbers">{formatTimeET(leg.entry_time)}</span>
+                        <span className="font-mono-numbers">
+                          Entry <span className="text-foreground">{leg.entry_price?.toFixed(5) ?? "—"}</span>
+                        </span>
+                        <span className="font-mono-numbers">
+                          Exit <span className="text-foreground">{leg.exit_price?.toFixed(5) ?? (leg.is_open ? "open" : "—")}</span>
+                        </span>
+                        <span className="font-mono-numbers text-muted-foreground">
+                          {(leg.original_lots ?? leg.total_lots ?? 0).toFixed(2)} lots
+                        </span>
+                        <span className={cn(
+                          "font-mono-numbers text-right",
+                          p != null && p > 0 && "text-profit",
+                          p != null && p < 0 && "text-loss",
+                          (p == null) && "text-muted-foreground"
+                        )}>
+                          {p != null ? `${p >= 0 ? "+" : ""}$${p.toFixed(2)}` : "—"}
+                        </span>
+                        <span className={cn(
+                          "font-mono-numbers text-right",
+                          r != null && r > 0 && "text-profit",
+                          r != null && r < 0 && "text-loss",
+                          (r == null) && "text-muted-foreground"
+                        )}>
+                          {r != null ? `${r >= 0 ? "+" : ""}${r.toFixed(2)}R` : "—"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               </div>
             );
           })}
