@@ -620,15 +620,20 @@ export default function Journal() {
                 <p className="text-sm">Try a different period or adjust your filters</p>
               </div>
             ) : (
-            <TradeTable 
-              trades={filteredTrades}
-              onTradeClick={(trade) => setSelectedTradeId(trade.id)}
-              visibleColumns={settings?.visible_columns}
-              columnOrder={settings?.column_order}
-              deletedFields={settings?.deleted_system_fields}
-              onEditProperty={handleEditProperty}
-              accounts={accounts}
-            />
+            <>
+              {groupingEnabled && (
+                <JournalTotalsBar trades={filteredTrades as any} />
+              )}
+              <TradeTable 
+                trades={filteredTrades}
+                onTradeClick={(trade) => setSelectedTradeId(trade.id)}
+                visibleColumns={settings?.visible_columns}
+                columnOrder={settings?.column_order}
+                deletedFields={settings?.deleted_system_fields}
+                onEditProperty={handleEditProperty}
+                accounts={accounts}
+              />
+            </>
             )
           ) : (
             <JournalCalendarView 
