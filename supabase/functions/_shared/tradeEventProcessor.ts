@@ -421,15 +421,10 @@ export async function processEvent(
         repair_state: hasRealEntry ? null : "needs_entry",
       });
 
-      if (!hasRealEntry) {
-        await insertRepairEvent(supabase, {
-          userId,
-          tradeId: null as any,
-          action: "orphan_needs_entry",
-          source: "ingest_orphan_exit",
-          metadata: { ticket, net_pnl: netPnl, note: "Orphan exit ingested with no entry_price — user review required" },
-        }).catch(() => {/* non-fatal */});
-      }
+      // `repair_state='needs_entry'` on the trade row is the durable signal
+      // the UI reads to prompt for manual review; no separate repair_events
+      // insert (trade_repair_events.action CHECK doesn't include this case,
+      // and the row itself is already discoverable via the state filter).
 
       console.log("Created closed trade from orphan exit:", ticket, "PnL:", netPnl, "hasRealEntry:", hasRealEntry);
       await supabase.from("events").update({ processed: true }).eq("id", event.id);
