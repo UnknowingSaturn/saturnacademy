@@ -6,6 +6,7 @@ import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { useSymbolAliases } from "@/hooks/useSymbolAliases";
 import { buildSymbolResolver } from "@/lib/symbolAliasing";
 import { ensureUtcMs } from "../../shared/quant/stats";
+import { useGroupedTrades } from "@/hooks/useGroupedTrades";
 
 import { TradeTable } from "@/components/journal/TradeTable";
 import { DriftTray } from "@/components/journal/DriftTray";
@@ -188,11 +189,20 @@ export default function Journal() {
   // trade and trimming client-side. Mirrors Pair Lab; orphan rows
   // (account_id IS NULL) stay included by default to preserve historical
   // Journal behaviour.
-  const { data: trades, isLoading } = useTrades(
+  const { data: rawTrades, isLoading } = useTrades(
     selectedAccountId && selectedAccountId !== "all"
       ? { accountId: selectedAccountId, includeUnassigned: true }
       : undefined,
   );
+  // Multi-TP grouping — collapses sibling broker positions opened by a
+  // position sizer into one logical trade row (see useGroupedTrades). Legs
+  // remain on `.legs` for the detail panel. Toggle via localStorage; default
+  // ON because grouping matches how users think about the trade.
+  const groupingEnabled = typeof window === "undefined"
+    ? true
+    : window.localStorage.getItem("journal:group_multi_tp") !== "false";
+  const groupedTrades = useGroupedTrades(rawTrades);
+  const trades = groupingEnabled ? groupedTrades : rawTrades;
   const { data: settings } = useUserSettings();
   const { data: aliases } = useSymbolAliases();
 
