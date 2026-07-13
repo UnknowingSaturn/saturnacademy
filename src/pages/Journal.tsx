@@ -130,7 +130,12 @@ export default function Journal() {
   const setCurrentDate = useCallback(
     (d: Date | ((prev: Date) => Date)) => {
       const next = typeof d === "function" ? d(currentDate) : d;
-      setParam(URL_KEYS.date, format(next, "yyyy-MM-dd"));
+      // Format via UTC parts so the URL string round-trips through ensureUtcMs
+      // without a local-tz off-by-one for users west of UTC.
+      const yyyy = next.getUTCFullYear();
+      const mm = String(next.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(next.getUTCDate()).padStart(2, "0");
+      setParam(URL_KEYS.date, `${yyyy}-${mm}-${dd}`);
     },
     [setParam, currentDate],
   );

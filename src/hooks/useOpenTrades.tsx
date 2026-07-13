@@ -119,10 +119,12 @@ export function useOpenTrades() {
         };
       });
     },
-    // Realtime subscription above invalidates the query on writes; the 30s
-    // refetch is a safety net for stale-trade detection when the EA goes
-    // briefly offline (no realtime event arrives in that case).
-    refetchInterval: 30000,
+    // Realtime subscription above already invalidates on any trade write, so
+    // we no longer need a 30s poll. Keep an infrequent safety net (5m) that
+    // only fires when the tab is focused — costs 12 hits/hour, catches EA
+    // realtime dropouts without hammering PostgREST on busy accounts.
+    refetchInterval: 5 * 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 

@@ -111,6 +111,6 @@ export function transformTrade(row: any): Trade {
     review: latestReview ? transformReview(latestReview) : undefined,
     playbook: row.playbook || undefined,
     ai_review: row.ai_reviews?.[0] || undefined,
-    account: row.accounts || row.account || undefined,
+    account: row.account || undefined,
   };
 }
