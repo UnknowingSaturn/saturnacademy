@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { TradeReview, EmotionalState, RegimeType, NewsRisk, ActionableStep, TradeScreenshot } from "@/types/trading";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
-import { useUpsertTradeReview, useTrade } from "@/hooks/useTrades";
+import { useUpsertTradeReview } from "@/hooks/useTrades";
+import { useTradeGroup } from "@/hooks/useTradeGroup";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import {
