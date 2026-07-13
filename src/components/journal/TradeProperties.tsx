@@ -479,16 +479,20 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
 
       <Separator />
 
-      {/* Trade Details — always shown (raw price/lots data) */}
+      {/* Trade Details — always shown (raw price/lots data).
+          In a grouped trade these are the LEADER leg's values; aggregate
+          totals live above (P&L, % of Account, Lots). */}
       <div className="space-y-2 text-xs">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Entry Price</span>
+          <span className="text-muted-foreground">
+            Entry Price{isGroup ? " (leader leg)" : ""}
+          </span>
           <span className="font-mono-numbers">{trade.entry_price}</span>
         </div>
         {trade.exit_price && (
           <>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Exit Price{hasMultiple ? " (final)" : ""}</span>
+              <span className="text-muted-foreground">Exit Price{hasMultiple ? " (final)" : isGroup ? " (leader leg)" : ""}</span>
               <span className="font-mono-numbers">{trade.exit_price}</span>
             </div>
             {hasMultiple && avgExit != null && (
@@ -501,13 +505,13 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
         )}
         {trade.sl_initial && (
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Stop Loss</span>
+            <span className="text-muted-foreground">Stop Loss{isGroup ? " (leader leg)" : ""}</span>
             <span className="font-mono-numbers text-loss">{trade.sl_initial}</span>
           </div>
         )}
         {trade.tp_initial && (
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Take Profit</span>
+            <span className="text-muted-foreground">Take Profit{isGroup ? " (leader leg)" : ""}</span>
             <span className="font-mono-numbers text-profit">{trade.tp_initial}</span>
           </div>
         )}
@@ -515,6 +519,9 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
           <span className="text-muted-foreground">Lots</span>
           <span className="font-mono-numbers">
             {(() => {
+              if (isGroup) {
+                return `${Number(totalLotsAgg ?? 0).toFixed(2)} (${legList.length} legs)`;
+              }
               const orig = trade.original_lots;
               const partials = fills.filter(f => !f.isFinal).length;
               if (!trade.is_open && orig && partials > 0) return `${orig} (${fills.length} fills)`;
@@ -524,6 +531,79 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
           </span>
         </div>
       </div>
+
+      {isGroup && (
+        <>
+          <Separator />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Legs
+              </div>
+              <span className="text-[10px] text-muted-foreground">
+                {legList.length} positions in this idea
+              </span>
+            </div>
+            <div className="rounded-md border border-border/50 divide-y divide-border/50 overflow-hidden">
+              <div className="grid grid-cols-[24px_1fr_60px_80px_60px] gap-2 px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wide bg-muted/30">
+                <span>#</span>
+                <span>Exit</span>
+                <span className="text-right">Lots</span>
+                <span className="text-right">P&L</span>
+                <span className="text-right">R</span>
+              </div>
+              {[...legList]
+                .sort((a, b) => {
+                  const ta = a.exit_time ? new Date(a.exit_time).getTime() : Number(a.is_open ? Infinity : 0);
+                  const tb = b.exit_time ? new Date(b.exit_time).getTime() : Number(b.is_open ? Infinity : 0);
+                  return ta - tb;
+                })
+                .map((leg, i) => {
+                  const legPnl = leg.net_pnl ?? 0;
+                  const legR = leg.r_multiple_actual;
+                  return (
+                    <div
+                      key={leg.id}
+                      className="grid grid-cols-[24px_1fr_60px_80px_60px] gap-2 px-2 py-1.5 text-xs items-center"
+                    >
+                      <span className="text-muted-foreground">{i + 1}</span>
+                      <span className="font-mono-numbers truncate">
+                        {leg.is_open ? (
+                          <span className="text-muted-foreground italic">open</span>
+                        ) : leg.exit_price != null ? (
+                          leg.exit_price
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </span>
+                      <span className="font-mono-numbers text-right">
+                        {(leg.original_lots ?? leg.total_lots)?.toString() ?? "—"}
+                      </span>
+                      <span
+                        className={cn(
+                          "font-mono-numbers font-semibold text-right",
+                          legPnl > 0 && "text-profit",
+                          legPnl < 0 && "text-loss",
+                        )}
+                      >
+                        {leg.is_open ? "—" : `${legPnl >= 0 ? "+" : ""}$${legPnl.toFixed(2)}`}
+                      </span>
+                      <span
+                        className={cn(
+                          "font-mono-numbers text-right",
+                          legR != null && legR >= 0 && "text-profit",
+                          legR != null && legR < 0 && "text-loss",
+                        )}
+                      >
+                        {legR != null ? `${legR >= 0 ? "+" : ""}${legR.toFixed(2)}R` : "—"}
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
