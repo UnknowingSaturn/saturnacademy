@@ -932,6 +932,63 @@ export type Database = {
         }
         Relationships: []
       }
+      note_embeddings: {
+        Row: {
+          content_hash: string
+          content_preview: string | null
+          embedding: string
+          field: string
+          label: string | null
+          model_version: string
+          note_key: string
+          source: string
+          trade_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content_hash: string
+          content_preview?: string | null
+          embedding: string
+          field: string
+          label?: string | null
+          model_version: string
+          note_key: string
+          source: string
+          trade_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content_hash?: string
+          content_preview?: string | null
+          embedding?: string
+          field?: string
+          label?: string | null
+          model_version?: string
+          note_key?: string
+          source?: string
+          trade_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "note_embeddings_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trade_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "note_embeddings_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notebook_entries: {
         Row: {
           content: string | null
@@ -1712,51 +1769,6 @@ export type Database = {
           },
         ]
       }
-      trade_embeddings: {
-        Row: {
-          content_hash: string
-          content_preview: string | null
-          embedding: string
-          model_version: string
-          trade_id: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          content_hash: string
-          content_preview?: string | null
-          embedding: string
-          model_version?: string
-          trade_id: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          content_hash?: string
-          content_preview?: string | null
-          embedding?: string
-          model_version?: string
-          trade_id?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "trade_embeddings_trade_id_fkey"
-            columns: ["trade_id"]
-            isOneToOne: true
-            referencedRelation: "trade_view"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trade_embeddings_trade_id_fkey"
-            columns: ["trade_id"]
-            isOneToOne: true
-            referencedRelation: "trades"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       trade_features: {
         Row: {
           computed_at: string | null
@@ -2346,6 +2358,19 @@ export type Database = {
       }
     }
     Views: {
+      journal_notes: {
+        Row: {
+          body: string | null
+          field: string | null
+          label: string | null
+          note_key: string | null
+          occurred_at: string | null
+          source: string | null
+          trade_id: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
       terminal_accounts: {
         Row: {
           account_id: string | null
@@ -2576,20 +2601,57 @@ export type Database = {
         Args: { p_report_id: string }
         Returns: undefined
       }
-      mark_dormant_accounts: { Args: never; Returns: undefined }
-      match_user_trades: {
-        Args: { match_count?: number; query_embedding: string }
+      journal_cohort_stats: {
+        Args: { _trade_ids: string[]; _user_id: string }
         Returns: {
-          content_preview: string
-          similarity: number
-          trade_id: string
+          avg_pnl: number
+          avg_r: number
+          best_r: number
+          closed_n: number
+          expectancy_r: number
+          losses: number
+          median_r: number
+          n: number
+          total_pnl: number
+          win_rate: number
+          wins: number
+          worst_r: number
         }[]
       }
+      jsonb_prose: { Args: { v: Json }; Returns: string }
+      mark_dormant_accounts: { Args: never; Returns: undefined }
       prune_monitoring_snapshots: { Args: never; Returns: undefined }
       regroup_trades: {
         Args: { _from?: string; _user_id?: string }
         Returns: number
       }
+      search_journal: {
+        Args: {
+          _from?: string
+          _k?: number
+          _query?: string
+          _query_embedding?: string
+          _source?: string
+          _symbol?: string
+          _timeframe?: string
+          _to?: string
+          _user_id: string
+        }
+        Returns: {
+          body: string
+          field: string
+          kw_rank: number
+          label: string
+          note_key: string
+          occurred_at: string
+          score: number
+          source: string
+          trade_id: string
+          vec_rank: number
+        }[]
+      }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       account_live_state: "live" | "dormant" | "verifying" | "stale"

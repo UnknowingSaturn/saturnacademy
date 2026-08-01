@@ -129,7 +129,7 @@ export const COACH_TOOL_SCHEMAS = [
     function: {
       name: "searchTrades",
       description:
-        "Filter trades by structured criteria. Returns up to 50 compact rows plus a rollup (sample, win rate, expectancy R). Use for numeric/factual queries; use recallSimilarTrades for fuzzy prose queries.",
+        "Filter trades by structured criteria. Returns up to 50 compact rows plus a rollup (sample, win rate, expectancy R). Use for numeric/factual queries; use searchJournal for anything written in prose or on chart screenshots.",
       parameters: {
         type: "object",
         properties: {
@@ -217,20 +217,48 @@ export const COACH_TOOL_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "recallSimilarTrades",
+      name: "searchJournal",
       description:
-        "Semantic recall over the user's journal prose (reviews, mistakes, psychology notes). Use for fuzzy questions like 'when I felt FOMO' or 'trades I entered late'. Returns top-K trade previews with similarity scores.",
+        "Hybrid keyword + semantic search over EVERY piece of written journal prose: trade review mistakes/did-well/to-improve/thoughts/psychology, CHART SCREENSHOT CAPTIONS (with their timeframe), trade comments, and AI review sections. Use this for any style, concept or phrasing question ('reaction from HVN', 'fading ranges', 'continuation entries', 'felt FOMO') — these are notes, not playbooks, so never claim a style cannot be isolated before calling this.",
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Natural-language description of the pattern to find." },
-          k: { type: "integer", minimum: 1, maximum: 10, default: 5 },
+          query: { type: "string", description: "Phrase or concept to find, e.g. 'reaction from HVN'." },
+          source: { type: "string", enum: ["review", "screenshot", "comment", "ai_review"], description: "Restrict to one note source." },
+          timeframe: { type: "string", description: "Screenshot timeframe filter, e.g. 4H, 15m." },
+          symbol: { type: "string" },
+          dateFrom: { type: "string", description: "ISO date (YYYY-MM-DD)" },
+          dateTo: { type: "string", description: "ISO date (YYYY-MM-DD)" },
+          k: { type: "integer", minimum: 1, maximum: 40, default: 12 },
         },
         required: ["query"],
         additionalProperties: false,
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "analyzeCohort",
+      description:
+        "Compute sample size, win rate, expectancy R, average/median R and P&L for a set of trades — either trade_ids returned by searchJournal, or a query it should search first. Use this instead of eyeballing individual trades whenever the user asks whether a style/pattern works.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Used when trade_ids is not supplied." },
+          trade_ids: { type: "array", items: { type: "string" }, description: "Trade ids from searchJournal." },
+          groupBy: { type: "string", enum: ["symbol", "session", "weekday", "direction", "playbook"] },
+          source: { type: "string", enum: ["review", "screenshot", "comment", "ai_review"] },
+          timeframe: { type: "string" },
+          symbol: { type: "string" },
+          dateFrom: { type: "string" },
+          dateTo: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+
 ] as const;
 
 // ---------- Executors ----------
@@ -450,62 +478,135 @@ async function tool_getOpenTrades(ctx: ToolExecCtx): Promise<ToolResult> {
   return { ok: true, data: { count: rows.length, trades: rows } };
 }
 
-async function tool_recallSimilarTrades(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
-  const query = String(args.query ?? "").trim();
-  if (!query) return { ok: false, error: "query is required" };
-  const k = Math.min(Math.max(Number(args.k ?? 5), 1), 10);
+// ---------- Journal prose retrieval (hybrid keyword + vector) ----------
 
-  const { count } = await ctx.admin
-    .from("trade_embeddings").select("trade_id", { count: "exact", head: true })
+/** Runs the search_journal RPC. Vector arm is optional: if the note index is
+ * empty or embedding fails, keyword + trigram still answers. */
+async function runJournalSearch(ctx: ToolExecCtx, args: any) {
+  const query = String(args.query ?? "").trim();
+  const k = Math.min(Math.max(Number(args.k ?? 12), 1), 40);
+
+  let embedding: number[] | null = null;
+  const { count: indexed } = await ctx.admin
+    .from("note_embeddings").select("note_key", { count: "exact", head: true })
     .eq("user_id", ctx.userId);
-  if (!count) {
-    // Be honest: no silent "here are recent trades" fallback — that hid a
-    // permanently-broken embedding pipeline for weeks.
+  if (indexed && query) {
+    try {
+      embedding = await embedQuery(query, ctx.lovableApiKey);
+    } catch {
+      embedding = null; // keyword arm still works — never fail the whole search
+    }
+  }
+
+  const { data, error } = await ctx.admin.rpc("search_journal", {
+    _user_id: ctx.userId,
+    _query: query || null,
+    _query_embedding: embedding as any,
+    _k: k,
+    _source: args.source ? String(args.source) : null,
+    _timeframe: args.timeframe ? String(args.timeframe) : null,
+    _symbol: args.symbol ? String(args.symbol) : null,
+    _from: args.dateFrom ? new Date(args.dateFrom).toISOString() : null,
+    _to: args.dateTo ? new Date(`${args.dateTo}T23:59:59Z`).toISOString() : null,
+  });
+  if (error) throw new Error(`search_journal failed: ${error.message}`);
+  return { notes: (data ?? []) as any[], indexed: indexed ?? 0, vector_used: !!embedding };
+}
+
+async function tool_searchJournal(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
+  if (!String(args.query ?? "").trim()) return { ok: false, error: "query is required" };
+  const { notes, indexed, vector_used } = await runJournalSearch(ctx, args);
+  if (notes.length === 0) {
     return {
       ok: true,
-      data: {
-        indexed: 0,
-        matches: [],
-        note: "Semantic recall is not indexed yet for this journal. Say so explicitly and use searchTrades instead.",
-      },
+      data: { indexed_notes: indexed, vector_used, matches: [], trade_count: 0,
+        note: "No journal note matched. Say so plainly — do not substitute a guess." },
     };
   }
 
-  const vec = await embedQuery(query, ctx.lovableApiKey);
-
-  // Service-role bypasses RLS so auth.uid() is null inside match_user_trades;
-  // score in JS against this user's rows instead.
-  const { data: rows } = await ctx.admin
-    .from("trade_embeddings")
-    .select("trade_id, content_preview, embedding")
-    .eq("user_id", ctx.userId)
-    .limit(1000);
-  if (!rows || rows.length === 0) return { ok: true, data: { indexed: count, matches: [] } };
-
-  const dot = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i], 0);
-  const norm = (a: number[]) => Math.sqrt(a.reduce((s, x) => s + x * x, 0));
-  const qn = norm(vec);
-  const scored = (rows as any[]).map((r) => {
-    const e = typeof r.embedding === "string" ? JSON.parse(r.embedding) : r.embedding;
-    return {
-      trade_id: r.trade_id,
-      similarity: dot(vec, e) / (qn * norm(e) || 1),
-      preview: r.content_preview,
-    };
-  }).sort((a, b) => b.similarity - a.similarity).slice(0, k);
-
-  const ids = scored.map((m) => m.trade_id);
+  const ids = Array.from(new Set(notes.map((n) => n.trade_id)));
   const { data: trades } = await ctx.admin
     .from("trades").select(TRADE_SELECT).in("id", ids).eq("user_id", ctx.userId);
   const tById = new Map<string, any>((trades ?? []).map((t: any) => [t.id, normalizeTrade(t)]));
-  const out = scored.filter((m) => tById.has(m.trade_id)).map((m) => ({
-    trade_id: m.trade_id,
-    similarity: Number(m.similarity.toFixed(3)),
-    preview: m.preview,
-    trade: tById.get(m.trade_id),
+
+  const matches = notes.map((n) => ({
+    trade_id: n.trade_id,
+    source: n.source,
+    field: n.field,
+    timeframe: n.source === "screenshot" ? n.label : null,
+    snippet: String(n.body ?? "").slice(0, 400),
+    score: n.score != null ? Number(Number(n.score).toFixed(4)) : null,
+    matched_by: n.kw_rank != null && n.vec_rank != null ? "both" : n.kw_rank != null ? "keyword" : "semantic",
+    trade: tById.get(n.trade_id) ?? null,
   }));
-  return { ok: true, data: { indexed: count, matches: out } };
+
+  return {
+    ok: true,
+    data: {
+      indexed_notes: indexed,
+      vector_used,
+      trade_count: ids.length,
+      trade_ids: ids,
+      matches,
+      note: "These matches are the top-k for display only. For any statistic call analyzeCohort with the SAME query (not these trade_ids) so the cohort is not truncated by k.",
+    },
+  };
 }
+
+async function tool_analyzeCohort(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
+  let ids: string[] = Array.isArray(args.trade_ids) ? args.trade_ids.map(String) : [];
+  let via = "trade_ids";
+  if (ids.length === 0) {
+    if (!String(args.query ?? "").trim()) return { ok: false, error: "Provide trade_ids or query" };
+    // Cohorts must not be truncated by the display-oriented k of searchJournal.
+    const { notes } = await runJournalSearch(ctx, { ...args, k: 200 });
+    ids = Array.from(new Set(notes.map((n) => n.trade_id)));
+    via = "query";
+  }
+  if (ids.length === 0) return { ok: true, data: { via, sample: 0, note: "Empty cohort — no statistic can be quoted." } };
+
+  const { data, error } = await ctx.admin.rpc("journal_cohort_stats", {
+    _user_id: ctx.userId,
+    _trade_ids: ids,
+  });
+  if (error) return { ok: false, error: error.message };
+  const stats = Array.isArray(data) ? data[0] : data;
+
+  let groups: any[] | undefined;
+  if (args.groupBy) {
+    const { data: rows } = await ctx.admin
+      .from("trades").select(TRADE_SELECT).in("id", ids).eq("user_id", ctx.userId);
+    const buckets: Record<string, any[]> = {};
+    for (const raw of (rows ?? []) as any[]) {
+      const t = normalizeTrade(raw);
+      const d = t.date ? new Date(t.date) : null;
+      const key = args.groupBy === "symbol" ? (t.symbol ?? "?")
+        : args.groupBy === "session" ? (t.session ?? "unassigned")
+        : args.groupBy === "direction" ? (t.side ?? "?")
+        : args.groupBy === "playbook" ? (t.playbook ?? "no playbook")
+        : args.groupBy === "weekday" ? (d ? WEEKDAYS[d.getUTCDay()] : "?")
+        : "?";
+      (buckets[key] ??= []).push(t);
+    }
+    groups = Object.entries(buckets).map(([key, list]) => ({ key, ...summarize(list) }))
+      .sort((a, b) => (b.expectancyR ?? -99) - (a.expectancyR ?? -99));
+  }
+
+  return {
+    ok: true,
+    data: {
+      via,
+      sample: ids.length,
+      trade_ids: ids.slice(0, 100),
+      stats: stats ?? null,
+      groups,
+      low_confidence: ids.length < 20,
+      anecdotal: ids.length < 5,
+      note: "Always state the sample size (n) with any win rate or expectancy from this cohort.",
+    },
+  };
+}
+
 
 // ---------- Dispatcher ----------
 export async function executeTool(
@@ -522,7 +623,8 @@ export async function executeTool(
       case "getPlaybookStats": return await tool_getPlaybookStats(ctx, args ?? {});
       case "getBreakdown": return await tool_getBreakdown(ctx, args ?? {});
       case "getOpenTrades": return await tool_getOpenTrades(ctx);
-      case "recallSimilarTrades": return await tool_recallSimilarTrades(ctx, args ?? {});
+      case "searchJournal": return await tool_searchJournal(ctx, args ?? {});
+      case "analyzeCohort": return await tool_analyzeCohort(ctx, args ?? {});
       default: return { ok: false, error: `Unknown tool: ${name}` };
     }
   } catch (e) {
