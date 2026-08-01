@@ -558,7 +558,8 @@ async function tool_analyzeCohort(ctx: ToolExecCtx, args: any): Promise<ToolResu
   let via = "trade_ids";
   if (ids.length === 0) {
     if (!String(args.query ?? "").trim()) return { ok: false, error: "Provide trade_ids or query" };
-    const { notes } = await runJournalSearch(ctx, { ...args, k: Math.min(Number(args.k ?? 40), 40) });
+    // Cohorts must not be truncated by the display-oriented k of searchJournal.
+    const { notes } = await runJournalSearch(ctx, { ...args, k: 200 });
     ids = Array.from(new Set(notes.map((n) => n.trade_id)));
     via = "query";
   }
