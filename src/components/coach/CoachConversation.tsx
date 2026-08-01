@@ -28,6 +28,10 @@ function stripContextPrefix(text: string): { context: string | null; body: strin
   return { context: m[0].replace(/^\[Context:\s*/, "").replace(/\]\n\n?$/, ""), body: text.slice(m[0].length) };
 }
 
+const UUID_SPLIT = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+const UUID_TEST = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+
 function relTime(iso: string): string {
   const d = Date.now() - new Date(iso).getTime();
   if (!Number.isFinite(d)) return "";
