@@ -79,8 +79,8 @@ function SectionCard({ title, tag, body }: { title: string; tag?: string; body: 
 }
 
 const TRADE_RE =
-  /^\*\*([A-Z0-9._#]{2,14})\s+(Buy|Sell|Long|Short)\s*\(([^)]+)\):?\*\*:?\s*(.*)$/i;
-const SCREENSHOT_RE = /^\*\*(Screenshot\s+\d+)\s*(?:[—:-]\s*)?(?:\(([^)]*)\))?\s*:?\*\*:?\s*(.*)$/i;
+  /^(?:[-*+]\s+)?\*\*([A-Z0-9._#]{2,14})\s+(Buy|Sell|Long|Short)\s*\(([^)]+)\):?\*\*:?\s*(.*)$/i;
+const SCREENSHOT_RE = /^(?:[-*+]\s+)?\*\*(Screenshot\s+\d+)\s*(?:[—:-]\s*)?(?:\(([^)]*)\))?\s*:?\*\*:?\s*(.*)$/i;
 const R_RE = /(-?\d+(?:\.\d+)?)\s*R\b/;
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
