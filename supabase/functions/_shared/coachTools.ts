@@ -1,6 +1,11 @@
 // Tool definitions + executors for the Trading Coach.
 // Each tool receives an admin client already scoped to a user_id at the caller
 // (we always filter by user_id inside the tool — never trust the model's args).
+//
+// SINGLE SOURCE OF TRUTH: every tool projects trades through TRADE_SELECT +
+// normalizeTrade(). The original bug in this file was the same (wrong) column
+// list copy-pasted into six places — `outcome` and `r_multiple` do not exist on
+// public.trades. Add columns here, never inline in a tool.
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { embedQuery } from "./coachEmbed.ts";
 
@@ -13,7 +18,99 @@ export interface ToolExecCtx {
 export interface ToolResult {
   ok: boolean;
   data?: unknown;
+  /** Image URLs the chat loop should feed to the vision model this turn. */
+  images?: string[];
   error?: string;
+}
+
+// ---------- Canonical trade projection ----------
+
+export const TRADE_SELECT =
+  "id, trade_number, symbol, direction, net_pnl, gross_pnl, commission, swap, " +
+  "r_multiple_actual, r_multiple_planned, risk_percent, total_lots, " +
+  "entry_price, exit_price, entry_time, exit_time, sl_initial, tp_initial, sl_final, tp_final, " +
+  "session, duration_seconds, is_open, trade_type, profile, place, " +
+  "playbook:playbooks!trades_playbook_id_fkey(name)";
+
+export type Outcome = "win" | "loss" | "breakeven";
+
+export function outcomeOf(netPnl: unknown): Outcome | null {
+  if (netPnl == null) return null;
+  const n = Number(netPnl);
+  if (!Number.isFinite(n)) return null;
+  if (n > 0) return "win";
+  if (n < 0) return "loss";
+  return "breakeven";
+}
+
+export function rOf(row: any): number | null {
+  const r = row?.r_multiple_actual ?? row?.r_multiple_planned;
+  return r == null ? null : Number(r);
+}
+
+export function normalizeTrade(row: any) {
+  return {
+    id: row.id,
+    n: row.trade_number ?? null,
+    date: row.entry_time,
+    exit: row.exit_time ?? null,
+    symbol: row.symbol,
+    side: row.direction,
+    outcome: outcomeOf(row.net_pnl),
+    r: rOf(row),
+    pnl: row.net_pnl != null ? Number(row.net_pnl) : null,
+    lots: row.total_lots != null ? Number(row.total_lots) : null,
+    risk_pct: row.risk_percent != null ? Number(row.risk_percent) : null,
+    session: row.session ?? null,
+    is_open: !!row.is_open,
+    trade_type: row.trade_type ?? "executed",
+    playbook: row.playbook?.name ?? null,
+    entry_price: row.entry_price != null ? Number(row.entry_price) : null,
+    exit_price: row.exit_price != null ? Number(row.exit_price) : null,
+    sl: row.sl_final ?? row.sl_initial ?? null,
+    tp: row.tp_final ?? row.tp_initial ?? null,
+    duration_min: row.duration_seconds != null ? Math.round(row.duration_seconds / 60) : null,
+  };
+}
+
+function summarize(rows: any[]) {
+  const withR = rows.filter((t) => t.r != null);
+  const n = rows.length;
+  const wins = rows.filter((t) => t.outcome === "win").length;
+  const losses = rows.filter((t) => t.outcome === "loss").length;
+  const rs = withR.map((t) => Number(t.r));
+  const grossR = rs.reduce((a, b) => a + b, 0);
+  const pnl = rows.reduce((a, t) => a + (t.pnl ?? 0), 0);
+  return {
+    sample: n,
+    r_sample: rs.length,
+    winRate: n ? Number((wins / n).toFixed(3)) : null,
+    wins,
+    losses,
+    expectancyR: rs.length ? Number((grossR / rs.length).toFixed(3)) : null,
+    grossR: Number(grossR.toFixed(2)),
+    netPnl: Number(pnl.toFixed(2)),
+    bestR: rs.length ? Number(Math.max(...rs).toFixed(2)) : null,
+    worstR: rs.length ? Number(Math.min(...rs).toFixed(2)) : null,
+    low_confidence: n < 20,
+  };
+}
+
+function collectScreenshots(v: unknown): string[] {
+  const out: string[] = [];
+  const push = (x: unknown) => {
+    if (typeof x === "string" && /^https?:\/\//.test(x)) out.push(x);
+    else if (x && typeof x === "object") {
+      const u = (x as any).url ?? (x as any).src ?? (x as any).public_url;
+      if (typeof u === "string" && /^https?:\/\//.test(u)) out.push(u);
+    }
+  };
+  if (Array.isArray(v)) v.forEach(push);
+  else if (v && typeof v === "object") Object.values(v as any).forEach((entry) => {
+    if (Array.isArray(entry)) entry.forEach(push); else push(entry);
+  });
+  else push(v);
+  return Array.from(new Set(out));
 }
 
 // ---------- Public JSON schema (OpenAI function-calling shape) ----------
@@ -23,7 +120,7 @@ export const COACH_TOOL_SCHEMAS = [
     function: {
       name: "getUserContext",
       description:
-        "Get the user's timezone, base currency, session definitions, and playbook names. Call this FIRST if you need to reason about time-of-day, currency, or reference a playbook by name.",
+        "Get the user's display timezone, session definitions, playbook names, and trade counts. Call this FIRST if you need to reason about time-of-day or reference a playbook by name.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -32,17 +129,19 @@ export const COACH_TOOL_SCHEMAS = [
     function: {
       name: "searchTrades",
       description:
-        "Filter closed trades by structured criteria. Returns up to 25 compact rows (id, date, symbol, side, outcome, R, session, playbook). Use for numeric/factual queries; use recallSimilarTrades for fuzzy prose queries.",
+        "Filter trades by structured criteria. Returns up to 50 compact rows plus a rollup (sample, win rate, expectancy R). Use for numeric/factual queries; use recallSimilarTrades for fuzzy prose queries.",
       parameters: {
         type: "object",
         properties: {
           symbol: { type: "string", description: "Exact symbol match, e.g. GBPUSD" },
-          side: { type: "string", enum: ["long", "short"] },
+          side: { type: "string", enum: ["buy", "sell"] },
           outcome: { type: "string", enum: ["win", "loss", "breakeven"] },
           dateFrom: { type: "string", description: "ISO date (YYYY-MM-DD)" },
           dateTo: { type: "string", description: "ISO date (YYYY-MM-DD)" },
+          session: { type: "string" },
           playbookName: { type: "string" },
-          limit: { type: "integer", minimum: 1, maximum: 25, default: 25 },
+          includeOpen: { type: "boolean", default: false },
+          limit: { type: "integer", minimum: 1, maximum: 50, default: 50 },
         },
         additionalProperties: false,
       },
@@ -52,7 +151,8 @@ export const COACH_TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "getTradeDetail",
-      description: "Full detail for one trade including modifications, reviews, comments, and screenshot URLs.",
+      description:
+        "Full detail for one trade: prices, SL/TP modifications, the user's own review prose (mistakes, did well, to improve, psychology), AI review, comments, and chart screenshots. Screenshots are shown to you as images — describe what is actually on them.",
       parameters: {
         type: "object",
         properties: { trade_id: { type: "string" } },
@@ -66,10 +166,10 @@ export const COACH_TOOL_SCHEMAS = [
     function: {
       name: "getRecentPerformance",
       description:
-        "Rollup of closed trades over the last N days: count, win rate, expectancy (mean R), gross R, best/worst R, top symbols.",
+        "Rollup of closed trades over the last N days: count, win rate, expectancy (mean R), gross R, best/worst R, per-symbol breakdown.",
       parameters: {
         type: "object",
-        properties: { days: { type: "integer", minimum: 1, maximum: 365, default: 30 } },
+        properties: { days: { type: "integer", minimum: 1, maximum: 730, default: 30 } },
         additionalProperties: false,
       },
     },
@@ -84,6 +184,34 @@ export const COACH_TOOL_SCHEMAS = [
         properties: { playbookName: { type: "string", description: "Optional filter to one playbook." } },
         additionalProperties: false,
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "getBreakdown",
+      description:
+        "Expectancy / win rate / sample grouped by one dimension across closed trades. Use this instead of pulling raw trades when the question is 'which X performs best'.",
+      parameters: {
+        type: "object",
+        properties: {
+          dimension: {
+            type: "string",
+            enum: ["symbol", "session", "weekday", "hour", "direction", "playbook", "emotion_before", "regime"],
+          },
+          days: { type: "integer", minimum: 1, maximum: 730, description: "Optional lookback window." },
+        },
+        required: ["dimension"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "getOpenTrades",
+      description: "Currently open positions with entry, SL/TP, planned R and risk %. Use when the user asks about what they are in right now.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
   {
@@ -109,79 +237,66 @@ export const COACH_TOOL_SCHEMAS = [
 
 async function tool_getUserContext(ctx: ToolExecCtx): Promise<ToolResult> {
   const { data: profile } = await ctx.admin
-    .from("profiles")
-    .select("display_name, email")
-    .eq("id", ctx.userId)
-    .maybeSingle();
+    .from("profiles").select("display_name, email").eq("id", ctx.userId).maybeSingle();
   const { data: settings } = await ctx.admin
-    .from("user_settings")
-    .select("*")
-    .eq("user_id", ctx.userId)
-    .maybeSingle();
+    .from("user_settings").select("display_timezone").eq("user_id", ctx.userId).maybeSingle();
   const { data: sessions } = await ctx.admin
     .from("session_definitions")
-    .select("name, start_hour, end_hour, timezone, days")
-    .eq("user_id", ctx.userId);
-  const { data: playbooks } = await ctx.admin
-    .from("playbooks")
-    .select("name, description")
+    .select("name, key, start_hour, start_minute, end_hour, end_minute, timezone")
     .eq("user_id", ctx.userId)
-    .eq("archived", false)
-    .limit(50);
-  const { count: tradeCount } = await ctx.admin
-    .from("trades")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", ctx.userId);
+    .eq("is_active", true);
+  const { data: playbooks } = await ctx.admin
+    .from("playbooks").select("name, description").eq("user_id", ctx.userId).eq("is_active", true).limit(50);
+  const { count: closedCount } = await ctx.admin
+    .from("trades").select("id", { count: "exact", head: true })
+    .eq("user_id", ctx.userId).eq("is_open", false);
+  const { count: openCount } = await ctx.admin
+    .from("trades").select("id", { count: "exact", head: true })
+    .eq("user_id", ctx.userId).eq("is_open", true);
+  const { data: firstTrade } = await ctx.admin
+    .from("trades").select("entry_time").eq("user_id", ctx.userId)
+    .order("entry_time", { ascending: true }).limit(1).maybeSingle();
 
   return {
     ok: true,
     data: {
       profile,
-      timezone: (settings as any)?.timezone ?? "America/New_York",
-      base_currency: (settings as any)?.base_currency ?? "USD",
+      timezone: (settings as any)?.display_timezone ?? "UTC",
       sessions: sessions ?? [],
       playbooks: playbooks ?? [],
-      total_trades: tradeCount ?? 0,
+      closed_trades: closedCount ?? 0,
+      open_trades: openCount ?? 0,
+      journal_since: (firstTrade as any)?.entry_time ?? null,
+      today: new Date().toISOString(),
     },
   };
 }
 
 async function tool_searchTrades(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
-  const limit = Math.min(Math.max(Number(args.limit ?? 25), 1), 25);
+  const limit = Math.min(Math.max(Number(args.limit ?? 50), 1), 50);
   let q = ctx.admin
-    .from("trades")
-    .select(
-      "id, symbol, direction, outcome, r_multiple, net_pnl, entry_time, exit_time, session, playbook:playbooks!trades_playbook_id_fkey(name)",
-    )
+    .from("trades").select(TRADE_SELECT)
     .eq("user_id", ctx.userId)
-    .eq("is_open", false)
     .order("entry_time", { ascending: false })
     .limit(limit);
+  if (!args.includeOpen) q = q.eq("is_open", false);
   if (args.symbol) q = q.ilike("symbol", args.symbol);
   if (args.side) q = q.eq("direction", args.side);
-  if (args.outcome) q = q.eq("outcome", args.outcome);
+  if (args.session) q = q.ilike("session", args.session);
   if (args.dateFrom) q = q.gte("entry_time", args.dateFrom);
   if (args.dateTo) q = q.lte("entry_time", `${args.dateTo}T23:59:59Z`);
   if (args.playbookName) {
     const { data: pb } = await ctx.admin
       .from("playbooks").select("id").eq("user_id", ctx.userId)
-      .ilike("name", args.playbookName).maybeSingle();
+      .ilike("name", args.playbookName).limit(1).maybeSingle();
     if ((pb as any)?.id) q = q.eq("playbook_id", (pb as any).id);
+    else return { ok: true, data: { count: 0, note: `No playbook named "${args.playbookName}".`, trades: [] } };
   }
   const { data, error } = await q;
   if (error) return { ok: false, error: error.message };
-  const rows = (data ?? []).map((r: any) => ({
-    id: r.id,
-    date: r.entry_time,
-    symbol: r.symbol,
-    side: r.direction,
-    outcome: r.outcome,
-    r: r.r_multiple != null ? Number(r.r_multiple) : null,
-    pnl: r.net_pnl != null ? Number(r.net_pnl) : null,
-    session: r.session,
-    playbook: r.playbook?.name ?? null,
-  }));
-  return { ok: true, data: { count: rows.length, trades: rows } };
+  let rows = (data ?? []).map(normalizeTrade);
+  if (args.outcome) rows = rows.filter((r) => r.outcome === args.outcome);
+  return { ok: true, data: { count: rows.length, rollup: summarize(rows), trades: rows } };
 }
 
 async function tool_getTradeDetail(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
@@ -189,105 +304,146 @@ async function tool_getTradeDetail(ctx: ToolExecCtx, args: any): Promise<ToolRes
   const { data, error } = await ctx.admin
     .from("trades")
     .select(`
-      *,
-      playbook:playbooks!trades_playbook_id_fkey(name),
-      trade_reviews(*),
-      ai_reviews(summary, strengths, weaknesses, recommendations),
+      ${TRADE_SELECT},
+      account_id, ticket, group_key, group_role, custom_fields, alignment, entry_timeframes,
+      trade_reviews(score, regime, news_risk, emotional_state_before, emotional_state_after,
+                    psychology_notes, mistakes, did_well, to_improve, actionable_steps, thoughts,
+                    checklist_answers, screenshots, reviewed_at),
+      ai_reviews(confidence, setup_compliance_score, rule_violations, context_alignment_score,
+                 technical_review, mistake_attribution, psychology_analysis, comparison_to_past,
+                 actionable_guidance, thesis_evaluation, visual_analysis, strategy_refinement),
       trade_modifications(field, old_value, new_value, occurred_at),
-      trade_comments(body, created_at)
+      trade_comments(content, screenshot_url, created_at)
     `)
     .eq("id", args.trade_id)
     .eq("user_id", ctx.userId)
     .maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!data) return { ok: false, error: "Trade not found or not owned by you." };
-  return { ok: true, data };
-}
 
-async function tool_getRecentPerformance(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
-  const days = Math.min(Math.max(Number(args.days ?? 30), 1), 365);
-  const since = new Date(Date.now() - days * 86400_000).toISOString();
-  const { data, error } = await ctx.admin
-    .from("trades")
-    .select("symbol, outcome, r_multiple, net_pnl, entry_time")
-    .eq("user_id", ctx.userId)
-    .eq("is_open", false)
-    .gte("entry_time", since)
-    .limit(5000);
-  if (error) return { ok: false, error: error.message };
-  const rows = (data ?? []).filter((r: any) => r.r_multiple != null);
-  const count = rows.length;
-  if (count === 0) return { ok: true, data: { days, count: 0, message: "No closed trades in this window." } };
-  const wins = rows.filter((r: any) => r.outcome === "win").length;
-  const rs = rows.map((r: any) => Number(r.r_multiple));
-  const meanR = rs.reduce((a, b) => a + b, 0) / count;
-  const grossR = rs.reduce((a, b) => a + b, 0);
-  const bestR = Math.max(...rs);
-  const worstR = Math.min(...rs);
-  const bySymbol: Record<string, { n: number; grossR: number }> = {};
-  for (const r of rows) {
-    const s = (r as any).symbol ?? "?";
-    if (!bySymbol[s]) bySymbol[s] = { n: 0, grossR: 0 };
-    bySymbol[s].n += 1;
-    bySymbol[s].grossR += Number(r.r_multiple);
-  }
-  const topSymbols = Object.entries(bySymbol)
-    .sort((a, b) => b[1].grossR - a[1].grossR)
-    .slice(0, 8)
-    .map(([s, v]) => ({ symbol: s, trades: v.n, grossR: Number(v.grossR.toFixed(2)) }));
+  const row: any = data;
+  const reviews: any[] = Array.isArray(row.trade_reviews) ? row.trade_reviews : row.trade_reviews ? [row.trade_reviews] : [];
+  const comments: any[] = Array.isArray(row.trade_comments) ? row.trade_comments : [];
+  const images = [
+    ...reviews.flatMap((r) => collectScreenshots(r.screenshots)),
+    ...comments.map((c) => c.screenshot_url).filter((u: unknown) => typeof u === "string" && /^https?:\/\//.test(u as string)),
+  ].slice(0, 4);
+
   return {
     ok: true,
+    images,
     data: {
-      days, count,
-      winRate: count ? wins / count : 0,
-      expectancyR: Number(meanR.toFixed(3)),
-      grossR: Number(grossR.toFixed(2)),
-      bestR: Number(bestR.toFixed(2)),
-      worstR: Number(worstR.toFixed(2)),
-      topSymbols,
+      ...normalizeTrade(row),
+      ticket: row.ticket ?? null,
+      group_key: row.group_key ?? null,
+      custom_fields: row.custom_fields ?? {},
+      alignment: row.alignment ?? null,
+      entry_timeframes: row.entry_timeframes ?? null,
+      reviews,
+      ai_reviews: row.ai_reviews ?? [],
+      modifications: row.trade_modifications ?? [],
+      comments,
+      screenshots_attached: images.length,
     },
   };
 }
 
+async function tool_getRecentPerformance(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
+  const days = Math.min(Math.max(Number(args.days ?? 30), 1), 730);
+  const since = new Date(Date.now() - days * 86400_000).toISOString();
+  const { data, error } = await ctx.admin
+    .from("trades").select(TRADE_SELECT)
+    .eq("user_id", ctx.userId).eq("is_open", false)
+    .gte("entry_time", since)
+    .limit(5000);
+  if (error) return { ok: false, error: error.message };
+  const rows = (data ?? []).map(normalizeTrade);
+  if (rows.length === 0) return { ok: true, data: { days, sample: 0, message: "No closed trades in this window." } };
+
+  const bySymbol: Record<string, any[]> = {};
+  for (const t of rows) (bySymbol[t.symbol ?? "?"] ??= []).push(t);
+  const symbols = Object.entries(bySymbol)
+    .map(([symbol, list]) => ({ symbol, ...summarize(list) }))
+    .sort((a, b) => (b.grossR ?? 0) - (a.grossR ?? 0))
+    .slice(0, 10);
+
+  return { ok: true, data: { days, ...summarize(rows), symbols } };
+}
+
 async function tool_getPlaybookStats(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
   const { data: playbooks } = await ctx.admin
-    .from("playbooks").select("id, name").eq("user_id", ctx.userId).eq("archived", false);
+    .from("playbooks").select("id, name").eq("user_id", ctx.userId).eq("is_active", true);
   if (!playbooks || playbooks.length === 0) return { ok: true, data: { playbooks: [] } };
-  const target = args.playbookName ? playbooks.find((p: any) => p.name.toLowerCase() === String(args.playbookName).toLowerCase()) : null;
-  const ids = target ? [(target as any).id] : (playbooks as any[]).map((p) => p.id);
+  const target = args.playbookName
+    ? (playbooks as any[]).find((p) => p.name.toLowerCase() === String(args.playbookName).toLowerCase())
+    : null;
+  const ids = target ? [target.id] : (playbooks as any[]).map((p) => p.id);
 
   const { data: trades, error } = await ctx.admin
-    .from("trades")
-    .select("playbook_id, outcome, r_multiple")
-    .eq("user_id", ctx.userId)
-    .eq("is_open", false)
-    .in("playbook_id", ids);
+    .from("trades").select(`playbook_id, ${TRADE_SELECT}`)
+    .eq("user_id", ctx.userId).eq("is_open", false).in("playbook_id", ids).limit(5000);
   if (error) return { ok: false, error: error.message };
 
-  const stats: Record<string, { name: string; n: number; wins: number; grossR: number; bestR: number; worstR: number }> = {};
-  for (const p of playbooks as any[]) if (ids.includes(p.id)) stats[p.id] = { name: p.name, n: 0, wins: 0, grossR: 0, bestR: -Infinity, worstR: Infinity };
-  for (const t of (trades ?? []) as any[]) {
-    if (t.r_multiple == null || !stats[t.playbook_id]) continue;
-    const r = Number(t.r_multiple);
-    const s = stats[t.playbook_id];
-    s.n += 1;
-    if (t.outcome === "win") s.wins += 1;
-    s.grossR += r;
-    if (r > s.bestR) s.bestR = r;
-    if (r < s.worstR) s.worstR = r;
-  }
-  const out = Object.values(stats)
-    .filter((s) => s.n > 0)
-    .map((s) => ({
-      name: s.name, sample: s.n,
-      winRate: Number((s.wins / s.n).toFixed(3)),
-      expectancyR: Number((s.grossR / s.n).toFixed(3)),
-      grossR: Number(s.grossR.toFixed(2)),
-      bestR: Number(s.bestR.toFixed(2)),
-      worstR: Number(s.worstR.toFixed(2)),
-    }))
-    .sort((a, b) => b.expectancyR - a.expectancyR);
+  const byId: Record<string, any[]> = {};
+  for (const t of (trades ?? []) as any[]) (byId[t.playbook_id] ??= []).push(normalizeTrade(t));
+  const out = (playbooks as any[])
+    .filter((p) => ids.includes(p.id) && (byId[p.id]?.length ?? 0) > 0)
+    .map((p) => ({ name: p.name, ...summarize(byId[p.id]) }))
+    .sort((a, b) => (b.expectancyR ?? -99) - (a.expectancyR ?? -99));
   return { ok: true, data: { playbooks: out } };
+}
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+async function tool_getBreakdown(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
+  const dim = String(args.dimension ?? "");
+  const needsReview = dim === "emotion_before" || dim === "regime";
+  const select = needsReview
+    ? `${TRADE_SELECT}, trade_reviews(emotional_state_before, regime)`
+    : TRADE_SELECT;
+  let q = ctx.admin.from("trades").select(select)
+    .eq("user_id", ctx.userId).eq("is_open", false).limit(5000);
+  if (args.days) {
+    const since = new Date(Date.now() - Math.min(Number(args.days), 730) * 86400_000).toISOString();
+    q = q.gte("entry_time", since);
+  }
+  const { data, error } = await q;
+  if (error) return { ok: false, error: error.message };
+
+  const groups: Record<string, any[]> = {};
+  for (const raw of (data ?? []) as any[]) {
+    const t = normalizeTrade(raw);
+    const rv = Array.isArray(raw.trade_reviews) ? raw.trade_reviews[0] : raw.trade_reviews;
+    const d = t.date ? new Date(t.date) : null;
+    let key: string;
+    switch (dim) {
+      case "symbol": key = t.symbol ?? "?"; break;
+      case "session": key = t.session ?? "unassigned"; break;
+      case "weekday": key = d ? WEEKDAYS[d.getUTCDay()] : "?"; break;
+      case "hour": key = d ? `${String(d.getUTCHours()).padStart(2, "0")}:00 UTC` : "?"; break;
+      case "direction": key = t.side ?? "?"; break;
+      case "playbook": key = t.playbook ?? "no playbook"; break;
+      case "emotion_before": key = rv?.emotional_state_before ?? "not logged"; break;
+      case "regime": key = rv?.regime ?? "not logged"; break;
+      default: return { ok: false, error: `Unsupported dimension: ${dim}` };
+    }
+    (groups[key] ??= []).push(t);
+  }
+
+  const rows = Object.entries(groups)
+    .map(([key, list]) => ({ key, ...summarize(list) }))
+    .sort((a, b) => (b.expectancyR ?? -99) - (a.expectancyR ?? -99));
+  return { ok: true, data: { dimension: dim, groups: rows, note: "Groups with sample < 20 are flagged low_confidence." } };
+}
+
+async function tool_getOpenTrades(ctx: ToolExecCtx): Promise<ToolResult> {
+  const { data, error } = await ctx.admin
+    .from("trades").select(TRADE_SELECT)
+    .eq("user_id", ctx.userId).eq("is_open", true)
+    .order("entry_time", { ascending: false }).limit(50);
+  if (error) return { ok: false, error: error.message };
+  const rows = (data ?? []).map(normalizeTrade);
+  return { ok: true, data: { count: rows.length, trades: rows } };
 }
 
 async function tool_recallSimilarTrades(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
@@ -295,77 +451,56 @@ async function tool_recallSimilarTrades(ctx: ToolExecCtx, args: any): Promise<To
   if (!query) return { ok: false, error: "query is required" };
   const k = Math.min(Math.max(Number(args.k ?? 5), 1), 10);
 
-  // Ensure embeddings exist at all — if not, fall back to a plain trade list.
   const { count } = await ctx.admin
     .from("trade_embeddings").select("trade_id", { count: "exact", head: true })
     .eq("user_id", ctx.userId);
   if (!count) {
-    const { data } = await ctx.admin
-      .from("trades")
-      .select("id, symbol, direction, outcome, r_multiple, entry_time")
-      .eq("user_id", ctx.userId).eq("is_open", false)
-      .order("entry_time", { ascending: false }).limit(k);
+    // Be honest: no silent "here are recent trades" fallback — that hid a
+    // permanently-broken embedding pipeline for weeks.
     return {
       ok: true,
       data: {
-        fallback: true,
-        note: "Semantic recall not indexed yet — showing recent trades instead.",
-        trades: data ?? [],
+        indexed: 0,
+        matches: [],
+        note: "Semantic recall is not indexed yet for this journal. Say so explicitly and use searchTrades instead.",
       },
     };
   }
 
   const vec = await embedQuery(query, ctx.lovableApiKey);
 
-  // The RPC uses auth.uid() internally, but we're on the service-role client.
-  // Query directly via the table with the same math, filtered to this user.
-  const { data, error } = await ctx.admin.rpc("match_user_trades" as any, {
-    query_embedding: vec as any,
-    match_count: k,
-  });
-  // Service-role bypasses RLS so auth.uid() is null inside the RPC. Instead,
-  // do the query directly for reliability.
-  let matches: any[] = Array.isArray(data) ? data : [];
-  if (!data || matches.length === 0 || error) {
-    const { data: rows } = await ctx.admin
-      .from("trade_embeddings")
-      .select("trade_id, content_preview, embedding")
-      .eq("user_id", ctx.userId)
-      .limit(500);
-    if (!rows || rows.length === 0) return { ok: true, data: { matches: [] } };
-    // Compute cosine similarity in JS (small N — up to 500).
-    const q = vec;
-    const dot = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i], 0);
-    const norm = (a: number[]) => Math.sqrt(a.reduce((s, x) => s + x * x, 0));
-    const qn = norm(q);
-    const scored = rows.map((r: any) => {
-      const e = r.embedding as any;
-      const arr = typeof e === "string" ? JSON.parse(e) : e;
-      const sim = dot(q, arr) / (qn * norm(arr) || 1);
-      return { trade_id: r.trade_id, similarity: sim, content_preview: r.content_preview };
-    });
-    scored.sort((a, b) => b.similarity - a.similarity);
-    matches = scored.slice(0, k);
-  }
+  // Service-role bypasses RLS so auth.uid() is null inside match_user_trades;
+  // score in JS against this user's rows instead.
+  const { data: rows } = await ctx.admin
+    .from("trade_embeddings")
+    .select("trade_id, content_preview, embedding")
+    .eq("user_id", ctx.userId)
+    .limit(1000);
+  if (!rows || rows.length === 0) return { ok: true, data: { indexed: count, matches: [] } };
 
-  // Hydrate lightweight trade info for each match.
-  const ids = matches.map((m) => m.trade_id);
-  if (ids.length === 0) return { ok: true, data: { matches: [] } };
+  const dot = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i], 0);
+  const norm = (a: number[]) => Math.sqrt(a.reduce((s, x) => s + x * x, 0));
+  const qn = norm(vec);
+  const scored = (rows as any[]).map((r) => {
+    const e = typeof r.embedding === "string" ? JSON.parse(r.embedding) : r.embedding;
+    return {
+      trade_id: r.trade_id,
+      similarity: dot(vec, e) / (qn * norm(e) || 1),
+      preview: r.content_preview,
+    };
+  }).sort((a, b) => b.similarity - a.similarity).slice(0, k);
+
+  const ids = scored.map((m) => m.trade_id);
   const { data: trades } = await ctx.admin
-    .from("trades")
-    .select("id, symbol, direction, outcome, r_multiple, entry_time")
-    .in("id", ids)
-    .eq("user_id", ctx.userId);
-  const tById = new Map<string, any>((trades ?? []).map((t: any) => [t.id, t]));
-  const out = matches
-    .filter((m) => tById.has(m.trade_id))
-    .map((m) => ({
-      trade_id: m.trade_id,
-      similarity: Number(Number(m.similarity).toFixed(3)),
-      preview: m.content_preview,
-      trade: tById.get(m.trade_id),
-    }));
-  return { ok: true, data: { matches: out } };
+    .from("trades").select(TRADE_SELECT).in("id", ids).eq("user_id", ctx.userId);
+  const tById = new Map<string, any>((trades ?? []).map((t: any) => [t.id, normalizeTrade(t)]));
+  const out = scored.filter((m) => tById.has(m.trade_id)).map((m) => ({
+    trade_id: m.trade_id,
+    similarity: Number(m.similarity.toFixed(3)),
+    preview: m.preview,
+    trade: tById.get(m.trade_id),
+  }));
+  return { ok: true, data: { indexed: count, matches: out } };
 }
 
 // ---------- Dispatcher ----------
@@ -381,6 +516,8 @@ export async function executeTool(
       case "getTradeDetail": return await tool_getTradeDetail(ctx, args ?? {});
       case "getRecentPerformance": return await tool_getRecentPerformance(ctx, args ?? {});
       case "getPlaybookStats": return await tool_getPlaybookStats(ctx, args ?? {});
+      case "getBreakdown": return await tool_getBreakdown(ctx, args ?? {});
+      case "getOpenTrades": return await tool_getOpenTrades(ctx);
       case "recallSimilarTrades": return await tool_recallSimilarTrades(ctx, args ?? {});
       default: return { ok: false, error: `Unknown tool: ${name}` };
     }
@@ -388,3 +525,6 @@ export async function executeTool(
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+/** Names of every executor — used by the smoke test so a schema rename fails loudly. */
+export const COACH_TOOL_NAMES = COACH_TOOL_SCHEMAS.map((t) => t.function.name);
