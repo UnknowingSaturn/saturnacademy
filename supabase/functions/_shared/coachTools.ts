@@ -129,7 +129,7 @@ export const COACH_TOOL_SCHEMAS = [
     function: {
       name: "searchTrades",
       description:
-        "Filter trades by structured criteria. Returns up to 50 compact rows plus a rollup (sample, win rate, expectancy R). Use for numeric/factual queries; use recallSimilarTrades for fuzzy prose queries.",
+        "Filter trades by structured criteria. Returns up to 50 compact rows plus a rollup (sample, win rate, expectancy R). Use for numeric/factual queries; use searchJournal for anything written in prose or on chart screenshots.",
       parameters: {
         type: "object",
         properties: {
