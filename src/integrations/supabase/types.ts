@@ -1769,51 +1769,6 @@ export type Database = {
           },
         ]
       }
-      trade_embeddings: {
-        Row: {
-          content_hash: string
-          content_preview: string | null
-          embedding: string
-          model_version: string
-          trade_id: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          content_hash: string
-          content_preview?: string | null
-          embedding: string
-          model_version?: string
-          trade_id: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          content_hash?: string
-          content_preview?: string | null
-          embedding?: string
-          model_version?: string
-          trade_id?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "trade_embeddings_trade_id_fkey"
-            columns: ["trade_id"]
-            isOneToOne: true
-            referencedRelation: "trade_view"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trade_embeddings_trade_id_fkey"
-            columns: ["trade_id"]
-            isOneToOne: true
-            referencedRelation: "trades"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       trade_features: {
         Row: {
           computed_at: string | null
@@ -2665,14 +2620,6 @@ export type Database = {
       }
       jsonb_prose: { Args: { v: Json }; Returns: string }
       mark_dormant_accounts: { Args: never; Returns: undefined }
-      match_user_trades: {
-        Args: { match_count?: number; query_embedding: string }
-        Returns: {
-          content_preview: string
-          similarity: number
-          trade_id: string
-        }[]
-      }
       prune_monitoring_snapshots: { Args: never; Returns: undefined }
       regroup_trades: {
         Args: { _from?: string; _user_id?: string }
