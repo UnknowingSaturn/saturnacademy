@@ -16,7 +16,7 @@ import {
   KELLY_CEILING_PCT,
   BOOTSTRAP_ITERATIONS,
   BH_FDR_ALPHA,
-} from "./config";
+} from "./config.ts";
 
 // ---------------------------------------------------------------------------
 // Quantiles / central tendency
