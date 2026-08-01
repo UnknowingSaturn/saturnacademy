@@ -29,7 +29,7 @@ import {
   BH_FDR_ALPHA,
   MIN_STREAK_FLOOR,
   TRAIL_CAPTURE_FALLBACK,
-} from "../../../../shared/quant/config.ts";
+} from "./vendor/config.ts";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
@@ -45,8 +45,8 @@ interface CustomFieldDef { key: string; label: string }
 
 // Canonical PropFirmContext shape lives in shared/quant/types so the React
 // client and Supabase edge functions can never drift.
-export type { PropFirmContext } from "../../../../shared/quant/types.ts";
-import type { PropFirmContext } from "../../../../shared/quant/types.ts";
+export type { PropFirmContext } from "./vendor/types.ts";
+import type { PropFirmContext } from "./vendor/types.ts";
 
 const LABEL_MAP: Array<{ alias: keyof PairLabFieldKeys; labels: string[]; prefixes: string[] }> = [
   { alias: "mfe",              labels: ["mfe (rr)", "mfe", "max favourable excursion", "max favorable excursion"], prefixes: ["cf_mfe"] },
@@ -96,7 +96,7 @@ import {
   isUnrealized,
   wilsonCi,
   ensureUtcMs,
-} from "../../../../shared/quant/stats.ts";
+} from "./vendor/stats.ts";
 export {
   quantile,
   median,
