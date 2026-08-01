@@ -106,11 +106,15 @@ export function CoachConversation({ messages, streaming, onSuggestion }: Props) 
                     </span>
                   )}
                   {m.attachments && m.attachments.length > 0 && (
-                    <div className="grid grid-cols-2 gap-1.5">
+                    <div className="flex flex-wrap justify-end gap-1.5">
                       {m.attachments.map((a, i) =>
                         a.signed_url ? (
-                          <a key={i} href={a.signed_url} target="_blank" rel="noreferrer">
-                            <img src={a.signed_url} alt="" className="rounded-lg border border-border max-h-48 object-cover" />
+                          <a key={i} href={a.signed_url} target="_blank" rel="noreferrer" className="group">
+                            <img
+                              src={a.signed_url}
+                              alt=""
+                              className="h-20 w-28 rounded-lg border border-border object-cover transition-transform group-hover:scale-[1.03]"
+                            />
                           </a>
                         ) : null,
                       )}
@@ -118,12 +122,18 @@ export function CoachConversation({ messages, streaming, onSuggestion }: Props) 
                   )}
                   {body.trim() && (
                     <div className="rounded-2xl rounded-tr-md bg-primary text-primary-foreground px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">
-                      {body}
+                      {body.split(UUID_SPLIT).map((seg, i) =>
+                        UUID_TEST.test(seg) ? (
+                          <span key={i} className="font-mono text-xs bg-primary-foreground/15 px-1 rounded">
+                            {seg.slice(0, 8)}…
+                          </span>
+                        ) : (
+                          <React.Fragment key={i}>{seg}</React.Fragment>
+                        ),
+                      )}
                     </div>
                   )}
-                </div>
-                <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
-                  <User className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="text-[10px] text-muted-foreground/70 px-1">{relTime(m.created_at)}</span>
                 </div>
               </div>
             );
@@ -132,15 +142,14 @@ export function CoachConversation({ messages, streaming, onSuggestion }: Props) 
           // Assistant — no bubble, text on surface.
           return (
             <div key={m.id} className="flex gap-3">
-              <CoachMark size={28} className="mt-0.5" />
+              <CoachMark size={28} className="mt-0.5 shrink-0" />
               <div className="min-w-0 flex-1">
-                <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-pre:my-2 prose-headings:mt-3 prose-headings:mb-2">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{body || " "}</ReactMarkdown>
-                </div>
+                <AssistantBody text={body || " "} />
                 <ToolCallStrip tools={m.tool_calls} />
               </div>
             </div>
           );
+
         })}
 
         {streaming && (
