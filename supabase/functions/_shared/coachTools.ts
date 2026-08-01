@@ -217,20 +217,48 @@ export const COACH_TOOL_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "recallSimilarTrades",
+      name: "searchJournal",
       description:
-        "Semantic recall over the user's journal prose (reviews, mistakes, psychology notes). Use for fuzzy questions like 'when I felt FOMO' or 'trades I entered late'. Returns top-K trade previews with similarity scores.",
+        "Hybrid keyword + semantic search over EVERY piece of written journal prose: trade review mistakes/did-well/to-improve/thoughts/psychology, CHART SCREENSHOT CAPTIONS (with their timeframe), trade comments, and AI review sections. Use this for any style, concept or phrasing question ('reaction from HVN', 'fading ranges', 'continuation entries', 'felt FOMO') — these are notes, not playbooks, so never claim a style cannot be isolated before calling this.",
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Natural-language description of the pattern to find." },
-          k: { type: "integer", minimum: 1, maximum: 10, default: 5 },
+          query: { type: "string", description: "Phrase or concept to find, e.g. 'reaction from HVN'." },
+          source: { type: "string", enum: ["review", "screenshot", "comment", "ai_review"], description: "Restrict to one note source." },
+          timeframe: { type: "string", description: "Screenshot timeframe filter, e.g. 4H, 15m." },
+          symbol: { type: "string" },
+          dateFrom: { type: "string", description: "ISO date (YYYY-MM-DD)" },
+          dateTo: { type: "string", description: "ISO date (YYYY-MM-DD)" },
+          k: { type: "integer", minimum: 1, maximum: 40, default: 12 },
         },
         required: ["query"],
         additionalProperties: false,
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "analyzeCohort",
+      description:
+        "Compute sample size, win rate, expectancy R, average/median R and P&L for a set of trades — either trade_ids returned by searchJournal, or a query it should search first. Use this instead of eyeballing individual trades whenever the user asks whether a style/pattern works.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Used when trade_ids is not supplied." },
+          trade_ids: { type: "array", items: { type: "string" }, description: "Trade ids from searchJournal." },
+          groupBy: { type: "string", enum: ["symbol", "session", "weekday", "direction", "playbook"] },
+          source: { type: "string", enum: ["review", "screenshot", "comment", "ai_review"] },
+          timeframe: { type: "string" },
+          symbol: { type: "string" },
+          dateFrom: { type: "string" },
+          dateTo: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+
 ] as const;
 
 // ---------- Executors ----------
