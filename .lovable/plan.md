@@ -1,64 +1,58 @@
+# Coach: fix the broken data layer first
 
-## Root cause
+## Diagnosis (verified against the live schema, not inferred)
 
-The previous plan treated this as "maybe a stale deploy". Looking again at the evidence, the deeper problem is architectural, and it explains the symptom without needing that guess.
+The Coach isn't limited by design — its tools query **columns that don't exist**, so PostgREST errors and the model answers from thin air.
 
-Verified facts:
-- `trades`: 503 rows, **16 tagged**, newest tagged `entry_time = 2026-07-13 14:31` — exactly the set written by the backfill migration. **Live ingest has never produced a single grouped row.**
-- The untagged pairs are textbook siblings: EURUSD 2026-07-27 13:15:47, tickets 9270991/9270992, both `entry_price = 1.13833`, same account/direction; EURUSD 2026-07-22 11:26:39, 1.14031 / 1.14030. `events` shows both as `event_type = open`, `source = live_event`, ingested 0.9 s apart.
-- Grouping lives in exactly one place: `supabase/functions/_shared/tradeEventProcessor.ts:253-297`, inside the `entry` branch, as a **read-then-write in application code**.
+| Coach queries | Real column |
+|---|---|
+| `trades.outcome` | absent — derive from `net_pnl` |
+| `trades.r_multiple` | `r_multiple_actual` |
+| `playbooks.archived` | `is_active` |
+| `session_definitions.days` | absent |
+| `trade_comments.body` | `content` |
+| `ai_reviews.summary/strengths/weaknesses/recommendations` | `technical_review`, `mistake_attribution`, `psychology_analysis`, `actionable_guidance` |
+| `user_settings.timezone` / `base_currency` | `display_timezone` / absent |
 
-That single placement is the root cause, in three compounding ways:
+That breaks `getUserContext`, `searchTrades`, `getTradeDetail`, `getRecentPerformance`, `getPlaybookStats` — i.e. every factual tool.
 
-1. **It only covers one of several insert paths.** Any row inserted into `trades` outside that branch — history import, `trade-rebuild`, `trade-repair`, snapshot repair, manually created idea/paper trades — is born ungrouped and stays ungrouped forever. Nothing reconciles it later.
-2. **It's a race, not a transaction.** Leg B's sibling `SELECT` and leg A's `INSERT` are separate statements from separate function invocations 0.9 s apart. If either the read is stale or the query errors, grouping is silently skipped — the code discards the query's `error` and just falls through to `groupKey = null`.
-3. **It's deploy-coupled.** Grouping correctness depends on a specific edge bundle being live. A redeploy that lags a code change silently disables it, with no signal anywhere. That's precisely the failure shape we're seeing: correct-looking code, zero results in production.
+Same bug in `_shared/coachEmbed.ts`, which is why `trade_embeddings` has **0 rows** while `coach_embed_queue` holds **66** pending jobs: every drain fails, so `recallSimilarTrades` silently falls back to "here are your last 5 trades". That fallback is also why the failure was invisible.
 
-So: patching the epsilon or redeploying may or may not help today, and would leave all three weaknesses in place.
+Screenshots: 159 reviews have them, but `getTradeDetail` returns them as URLs inside a JSON blob. The model is vision-capable only for images you attach in chat, so it never actually looks at trade charts.
 
-## Redesign: grouping becomes a database invariant
+## The fix — three changes, no new architecture
 
-Move sibling grouping out of the edge function and into the database, where it runs for **every** insert path, inside the inserting transaction, with no deploy coupling.
+**1. One shared trade projection, used everywhere.**
+Add a single `TRADE_SELECT` + `normalizeTrade()` in `coachTools.ts` (real columns, `outcome` derived from `net_pnl`, `r` = `r_multiple_actual ?? r_multiple_planned`) and use it in all five tools *and* `coachEmbed.ts`. Today the same wrong column list is copy-pasted in six places — that duplication is the actual root cause, not the individual typos. Fix the shape once and the drift can't recur per-tool.
 
-**1. `public.assign_trade_group()` — BEFORE INSERT trigger on `trades`**
+**2. Stop swallowing failures.**
+- Tools return the error; the chat loop appends a one-line "tools that failed" note to the reply when any call errored. A broken tool must be visible, not degrade into vagueness.
+- Delete the "no embeddings → show recent trades" fallback in `recallSimilarTrades`; return an honest `not indexed yet` so the model says so instead of pretending it recalled something.
 
-For each new executed row with an `account_id`:
-- Take `pg_advisory_xact_lock(hashtext('trade_group:' || user_id || account_id || symbol || direction))` so concurrent leg inserts serialize instead of racing.
-- Find the newest sibling: same `user_id`, `account_id`, `symbol`, `direction`, `entry_time` within ±30 s, `abs(entry_price - NEW.entry_price) <= greatest(NEW.entry_price * 0.0005, 0.0001)`.
-- If a sibling has a `group_key`, adopt it. If it has none, stamp that sibling `group_key = sibling.id::text, group_role = 'leader'` and set `NEW.group_key` to it with `group_role = 'leg'`. If no sibling, leave both NULL (standalone).
-- Skip when `trade_type <> 'executed'` (ideas/paper/missed never group) or when `group_key` is already supplied (so the backfill and any explicit regroup stay authoritative).
+**3. Let it see the charts.**
+`getTradeDetail` returns screenshot URLs; the chat loop injects them as `image_url` blocks (cap 4/turn, `trade-screenshots` is already a public bucket). Include the review prose the user actually writes — `thoughts`, `mistakes`, `did_well`, `to_improve`, `psychology_notes`, comments — which is currently fetched but unusable because the joins error out.
 
-Uses the existing partial index `trades (user_id, group_key)`; add a supporting index on `(user_id, account_id, symbol, direction, entry_time)` so the sibling probe is an index scan, not a seq scan on 500+ (and growing) rows.
+## Then, and only then: two tools that add real quant capability
 
-**2. `public.regroup_trades(_user_id uuid, _from timestamptz)` — idempotent reconciler**
+Deliberately not seven. Everything else (equity curve, drawdown, session/day-of-week breakdowns) is derivable by the model from `searchTrades` once it returns correct rows — adding pre-baked tools for each is surface area, not capability.
 
-Same predicate expressed set-wise (the corrected partitioned-window logic from `20260713165753`), operating only on `group_key IS NULL` rows. This is one function used for three jobs: the historical backfill, a safety net after bulk imports (`trade-rebuild` calls it for the affected window), and a manual repair lever. Running it twice is a no-op.
+- **`getBreakdown(dimension)`** — expectancy / win-rate / sample grouped by symbol, session, weekday, hour, direction or emotional state. One tool, one parameter, replaces five hypothetical ones and guarantees the aggregation math is consistent.
+- **`getOpenTrades()`** — live positions with SL/TP and R at risk. Not derivable from `searchTrades` (which filters `is_open = false`), so it's genuinely missing.
 
-**3. Strip the logic from the edge function**
+Skipping for now: Pair Lab, reports, notebook. Each is a separate data model and worth adding once you've seen the Coach work correctly with the journal — bolting them on before the base layer is verified repeats the mistake that got us here.
 
-Delete the sibling block from `tradeEventProcessor.ts` and stop passing `group_key`/`group_role` on insert — the trigger owns it. Net effect per entry event: **one fewer round-trip and one fewer conditional UPDATE**, and the processor's entry path gets simpler, not more complex. Keep the log line, reading the values back from the insert's `returning`.
+## Prompt changes (minimal)
 
-**4. Backfill and verify**
-- Run `regroup_trades` over all history to catch everything since 13 Jul (the 21–27 Jul EURUSD / NASUSD / XAGUSD / GBPUSD pairs) without touching the 16 already-tagged rows.
-- Verify: tagged count jumps and each known pair shares one `group_key` with exactly one `leader`.
-- Verify in the app: those rows collapse in the Journal with the `N legs` badge and cumulative R, and the detail panel headline aggregates.
-- Insert a synthetic sibling pair directly into `trades` (bypassing ingest entirely) to prove the trigger fires on non-ingest paths, then delete the pair.
-- Existing `groupedTrades` unit tests stay green; add a test asserting the client-side epsilon/window constants match the SQL ones so the two can't drift again.
+Add to the system prompt: always state sample size with any stat, flag N < 20 as low-confidence, cite trade date + symbol. Raise `MAX_TOOL_STEPS` 8 → 12 so a multi-tool answer doesn't truncate. Nothing else — the existing prompt is good.
 
-## Why this is more efficient, not just different
+## Verification
 
-- One code path instead of N insert paths each needing its own copy of the rule.
-- Grouping is atomic with the insert — the 0.9 s race disappears structurally rather than being narrowed.
-- One less network round-trip per entry event in the hot ingest path.
-- No silent-failure mode: a trigger can't be "not deployed", and a failing predicate raises instead of falling through to NULL.
+- Deno test in `supabase/functions/coach-chat/` that runs every executor against a real user and asserts `ok: true`. This is the guard that would have caught the original bug, and it's ~40 lines.
+- Drain the 66 queued embeddings and confirm `trade_embeddings` is non-zero and recall returns real matches.
+- One live chat asking for a stat, a specific trade with a screenshot, and a fuzzy recall — check `tool_calls` in the reply show `ok: true`.
 
 ## Technical notes
 
-- Window 30 s and epsilon `max(price * 0.0005, 0.0001)` are carried over unchanged, so trigger, reconciler, backfill and the client aggregator all agree.
-- `group_key` stays the leader row's `id::text`; no schema change beyond the new supporting index — column, check constraint and partial index already exist.
-- Rows remain unmerged: per-leg ticket, SL/TP, PnL and audit trail are untouched; grouping stays a presentation rollup in `useGroupedTrades` / `useTradeGroup`.
-- Trigger is `SECURITY DEFINER` with `SET search_path = public`, and touches only `public.trades`.
-
-## Out of scope
-
-Ingest dedup and `awaiting_exit`/repair semantics, and how Pair Lab counts grouped legs (still one row per leg there) — unchanged by this plan.
+- All tools stay service-role with hard `user_id` filtering; model args never determine ownership.
+- Read-only. No migrations, no schema changes.
+- `coach-uploads` keeps signed URLs; `trade-screenshots` is public so its URLs pass straight through.
