@@ -548,7 +548,7 @@ async function tool_searchJournal(ctx: ToolExecCtx, args: any): Promise<ToolResu
       trade_count: ids.length,
       trade_ids: ids,
       matches,
-      note: "Pass trade_ids (or the same query) to analyzeCohort before making any statistical claim.",
+      note: "These matches are the top-k for display only. For any statistic call analyzeCohort with the SAME query (not these trade_ids) so the cohort is not truncated by k.",
     },
   };
 }
