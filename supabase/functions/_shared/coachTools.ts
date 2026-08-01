@@ -285,6 +285,11 @@ async function tool_searchTrades(ctx: ToolExecCtx, args: any): Promise<ToolResul
   if (args.session) q = q.ilike("session", args.session);
   if (args.dateFrom) q = q.gte("entry_time", args.dateFrom);
   if (args.dateTo) q = q.lte("entry_time", `${args.dateTo}T23:59:59Z`);
+  // Outcome must filter in SQL, not after LIMIT — post-filtering silently
+  // returns "the most recent loss" from only the last N rows.
+  if (args.outcome === "win") q = q.gt("net_pnl", 0);
+  else if (args.outcome === "loss") q = q.lt("net_pnl", 0);
+  else if (args.outcome === "breakeven") q = q.eq("net_pnl", 0);
   if (args.playbookName) {
     const { data: pb } = await ctx.admin
       .from("playbooks").select("id").eq("user_id", ctx.userId)
@@ -294,8 +299,7 @@ async function tool_searchTrades(ctx: ToolExecCtx, args: any): Promise<ToolResul
   }
   const { data, error } = await q;
   if (error) return { ok: false, error: error.message };
-  let rows = (data ?? []).map(normalizeTrade);
-  if (args.outcome) rows = rows.filter((r) => r.outcome === args.outcome);
+  const rows = (data ?? []).map(normalizeTrade);
   return { ok: true, data: { count: rows.length, rollup: summarize(rows), trades: rows } };
 }
 
