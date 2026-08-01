@@ -1,3 +1,6 @@
+// GENERATED FILE — DO NOT EDIT.
+// Vendored copy of shared/quant/stats.ts for the Deno edge bundler.
+// Edit the canonical file at shared/quant/ and run `npm run quant:sync`.
 // ============================================================================
 // Shared quant statistics — primitive helpers used by both src/lib/pairLabMath
 // and supabase/functions/_shared/quant/pairLabMath. Dependency-free so the

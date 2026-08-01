@@ -250,53 +250,13 @@ export async function processEvent(
     } else {
       const equityAtEntry = originalPayload.equity_at_entry || currentEquity;
 
-      // Multi-TP sibling grouping (2026-07-13). Position sizers open one
-      // broker position per TP leg — same account/symbol/direction, same
-      // second, ~same price. Detect any sibling opened within the last 30s
-      // at a price within 5 bps and share their group_key so downstream
-      // views can present the legs as one logical idea. No merging: the
-      // rows stay separate for per-leg TP/SL, PnL, and audit fidelity.
-      const priceEps = Math.max(Number(event.price) * 0.0005, 0.0001);
-      const priceLo = Number(event.price) - priceEps;
-      const priceHi = Number(event.price) + priceEps;
-      const windowStart = new Date(new Date(event.event_timestamp).getTime() - 30_000).toISOString();
-      const { data: siblings } = await supabase
-        .from("trades")
-        .select("id, group_key, group_role, entry_price, entry_time")
-        .eq("user_id", userId)
-        .eq("account_id", account_id)
-        .eq("symbol", event.symbol)
-        .eq("direction", event.direction)
-        .gte("entry_time", windowStart)
-        .lte("entry_time", event.event_timestamp)
-        .gte("entry_price", priceLo)
-        .lte("entry_price", priceHi)
-        .order("entry_time", { ascending: true })
-        .limit(4);
-
-      let groupKey: string | null = null;
-      let groupRole: "leader" | "leg" | null = null;
-      const validSiblings = (siblings || []).filter((s: any) =>
-        Math.abs(Number(s.entry_price) - Number(event.price)) <= priceEps
-      );
-      if (validSiblings.length > 0) {
-        // Reuse existing group_key if any sibling already has one; otherwise
-        // promote the earliest sibling to 'leader' and use its id as the key.
-        const withKey = validSiblings.find((s: any) => s.group_key);
-        if (withKey) {
-          groupKey = withKey.group_key;
-        } else {
-          const leader = validSiblings[0];
-          groupKey = leader.id;
-          await supabase
-            .from("trades")
-            .update({ group_key: groupKey, group_role: "leader" })
-            .eq("id", leader.id);
-        }
-        groupRole = "leg";
-      }
-
-      await supabase.from("trades").insert({
+      // Multi-TP sibling grouping is a DATABASE invariant since 2026-08-01:
+      // the BEFORE INSERT trigger `trades_assign_group` (public.assign_trade_group)
+      // stamps group_key/group_role atomically for every insert path — live
+      // ingest, history import, rebuild, repair, manual trades. Do NOT
+      // reintroduce read-then-write grouping here: it raced across invocations
+      // and silently skipped whenever this bundle lagged a deploy.
+      const { data: inserted, error: insertError } = await supabase.from("trades").insert({
         user_id: userId,
         account_id: account_id,
         terminal_id: event.terminal_id,
@@ -318,16 +278,21 @@ export async function processEvent(
         is_open: true,
         balance_at_entry: currentEquity,
         equity_at_entry: equityAtEntry,
-        group_key: groupKey,
-        group_role: groupRole,
-      });
+      }).select("id, group_key, group_role").maybeSingle();
+
+      if (insertError) {
+        console.error("Failed to create trade for position:", ticket, insertError.message);
+        throw insertError;
+      }
+
       console.log(
         "Created new trade for position:",
         ticket,
         "equity_at_entry:", equityAtEntry,
-        "group_key:", groupKey ?? "(standalone)",
-        "group_role:", groupRole ?? "(none)",
+        "group_key:", inserted?.group_key ?? "(standalone)",
+        "group_role:", inserted?.group_role ?? "(none)",
       );
+
     }
   }
   // ===== EXIT (full / partial / orphan / repair) =====

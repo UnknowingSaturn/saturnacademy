@@ -2586,6 +2586,10 @@ export type Database = {
         }[]
       }
       prune_monitoring_snapshots: { Args: never; Returns: undefined }
+      regroup_trades: {
+        Args: { _from?: string; _user_id?: string }
+        Returns: number
+      }
     }
     Enums: {
       account_live_state: "live" | "dormant" | "verifying" | "stale"

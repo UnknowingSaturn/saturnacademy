@@ -10,5 +10,5 @@ export {
   ticksToPips,
   setTickSizeOverrides,
   getTickSizeOverrides,
-} from "../../../../shared/quant/symbolMapping.ts";
-export type { SymbolClass } from "../../../../shared/quant/symbolMapping.ts";
+} from "./vendor/symbolMapping.ts";
+export type { SymbolClass } from "./vendor/symbolMapping.ts";
