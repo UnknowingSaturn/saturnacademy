@@ -154,7 +154,7 @@ export const CoachComposer = forwardRef<CoachComposerHandle, Props>(function Coa
           disabled={disabled}
         />
         <div className="flex items-center justify-between gap-2 px-2 pb-2">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <input
               ref={fileRef}
               type="file"
@@ -163,22 +163,20 @@ export const CoachComposer = forwardRef<CoachComposerHandle, Props>(function Coa
               hidden
               onChange={(e) => handleFiles(e.target.files)}
             />
-            <Button
+            <button
               type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-muted-foreground hover:text-foreground"
               onClick={() => fileRef.current?.click()}
               disabled={disabled || uploading || attachments.length >= MAX_ATTACHMENTS}
               aria-label="Attach image"
-              title="Attach image"
+              title="Attach chart screenshots"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition disabled:opacity-50"
             >
-              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
-            </Button>
-            <span className="text-[10px] text-muted-foreground/70 hidden sm:inline">
-              {attachments.length}/{MAX_ATTACHMENTS} · drop or paste images
-            </span>
+              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
+              {attachments.length}/{MAX_ATTACHMENTS} charts
+            </button>
+            <span className="text-[10px] text-muted-foreground/60 hidden sm:inline">drop or paste images</span>
           </div>
+
           <Button
             type="button"
             size="icon"
