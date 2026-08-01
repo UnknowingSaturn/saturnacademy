@@ -522,7 +522,8 @@ export async function executeTool(
       case "getPlaybookStats": return await tool_getPlaybookStats(ctx, args ?? {});
       case "getBreakdown": return await tool_getBreakdown(ctx, args ?? {});
       case "getOpenTrades": return await tool_getOpenTrades(ctx);
-      case "recallSimilarTrades": return await tool_recallSimilarTrades(ctx, args ?? {});
+      case "searchJournal": return await tool_searchJournal(ctx, args ?? {});
+      case "analyzeCohort": return await tool_analyzeCohort(ctx, args ?? {});
       default: return { ok: false, error: `Unknown tool: ${name}` };
     }
   } catch (e) {
