@@ -27,15 +27,17 @@ export async function buildTradeContent(
   admin: SupabaseClient,
   tradeId: string,
 ): Promise<{ content: string; preview: string } | null> {
+  // Columns must match public.trades / trade_reviews / ai_reviews exactly —
+  // a bad column here fails the whole select and silently kills recall.
   const { data: trade } = await admin
     .from("trades")
     .select(`
-      id, symbol, direction, outcome, r_multiple, net_pnl, entry_time, exit_time,
-      thoughts, mistakes, notes,
+      id, symbol, direction, net_pnl, r_multiple_actual, r_multiple_planned, entry_time, exit_time, session,
       playbook:playbooks!trades_playbook_id_fkey(name),
-      trade_reviews(mistakes, did_well, to_improve, notes, psychology_notes, general_notes, thoughts),
-      ai_reviews(summary, strengths, weaknesses, recommendations),
-      trade_comments(body)
+      trade_reviews(mistakes, did_well, to_improve, actionable_steps, thoughts, psychology_notes,
+                    emotional_state_before, emotional_state_after, regime, news_risk),
+      ai_reviews(technical_review, mistake_attribution, psychology_analysis, actionable_guidance, raw_analysis),
+      trade_comments(content)
     `)
     .eq("id", tradeId)
     .maybeSingle();
@@ -46,34 +48,56 @@ export async function buildTradeContent(
   const ai: any[] = Array.isArray(t.ai_reviews) ? t.ai_reviews : t.ai_reviews ? [t.ai_reviews] : [];
   const comments: any[] = Array.isArray(t.trade_comments) ? t.trade_comments : [];
 
+  const jsonProse = (v: unknown): string => {
+    if (!v) return "";
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) return v.map((x) => jsonProse(x)).filter(Boolean).join(" | ");
+    if (typeof v === "object") {
+      return Object.entries(v as Record<string, unknown>)
+        .map(([k, val]) => {
+          const s = jsonProse(val);
+          return s ? `${k}: ${s}` : "";
+        })
+        .filter(Boolean).join("; ");
+    }
+    return String(v);
+  };
+
   const proseParts: string[] = [];
-  if (t.thoughts) proseParts.push(`thoughts: ${t.thoughts}`);
-  if (t.notes) proseParts.push(`notes: ${t.notes}`);
-  if (t.mistakes) proseParts.push(`mistakes: ${joinArr(t.mistakes)}`);
   for (const r of reviews) {
-    if (r.mistakes?.length) proseParts.push(`review mistakes: ${joinArr(r.mistakes)}`);
-    if (r.did_well?.length) proseParts.push(`review did well: ${joinArr(r.did_well)}`);
-    if (r.to_improve?.length) proseParts.push(`review to improve: ${joinArr(r.to_improve)}`);
+    if (r.mistakes) proseParts.push(`mistakes: ${jsonProse(r.mistakes)}`);
+    if (r.did_well) proseParts.push(`did well: ${jsonProse(r.did_well)}`);
+    if (r.to_improve) proseParts.push(`to improve: ${jsonProse(r.to_improve)}`);
+    if (r.actionable_steps) proseParts.push(`actions: ${jsonProse(r.actionable_steps)}`);
+    if (r.thoughts) proseParts.push(`thoughts: ${r.thoughts}`);
     if (r.psychology_notes) proseParts.push(`psychology: ${r.psychology_notes}`);
-    if (r.general_notes) proseParts.push(`review notes: ${r.general_notes}`);
-    if (r.thoughts) proseParts.push(`review thoughts: ${r.thoughts}`);
-    if (r.notes) proseParts.push(`review body: ${r.notes}`);
+    if (r.emotional_state_before) proseParts.push(`felt before: ${r.emotional_state_before}`);
+    if (r.emotional_state_after) proseParts.push(`felt after: ${r.emotional_state_after}`);
+    if (r.regime) proseParts.push(`regime: ${r.regime}`);
+    if (r.news_risk && r.news_risk !== "none") proseParts.push(`news risk: ${r.news_risk}`);
   }
   for (const a of ai) {
-    if (a.summary) proseParts.push(`ai summary: ${a.summary}`);
-    if (a.strengths) proseParts.push(`ai strengths: ${joinArr(a.strengths)}`);
-    if (a.weaknesses) proseParts.push(`ai weaknesses: ${joinArr(a.weaknesses)}`);
-    if (a.recommendations) proseParts.push(`ai recs: ${joinArr(a.recommendations)}`);
+    const bits = [
+      jsonProse(a.technical_review),
+      jsonProse(a.mistake_attribution),
+      jsonProse(a.psychology_analysis),
+      jsonProse(a.actionable_guidance),
+    ].filter(Boolean);
+    if (bits.length) proseParts.push(`ai review: ${bits.join(" ")}`);
+    else if (a.raw_analysis) proseParts.push(`ai review: ${String(a.raw_analysis).slice(0, 1500)}`);
   }
-  for (const c of comments) if (c.body) proseParts.push(`comment: ${c.body}`);
+  for (const c of comments) if (c.content) proseParts.push(`comment: ${c.content}`);
 
   if (proseParts.length === 0) return null;
 
+  const r = t.r_multiple_actual ?? t.r_multiple_planned;
+  const netPnl = t.net_pnl == null ? null : Number(t.net_pnl);
   const header = [
     t.symbol,
     t.direction,
-    t.outcome ?? "unknown",
-    t.r_multiple != null ? `${Number(t.r_multiple).toFixed(2)}R` : null,
+    netPnl == null ? "unknown" : netPnl > 0 ? "win" : netPnl < 0 ? "loss" : "breakeven",
+    r != null ? `${Number(r).toFixed(2)}R` : null,
+    t.session ? `session: ${t.session}` : null,
     t.entry_time ? new Date(t.entry_time).toISOString().slice(0, 10) : null,
     t.playbook?.name ? `playbook: ${t.playbook.name}` : null,
   ].filter(Boolean).join(" | ");
