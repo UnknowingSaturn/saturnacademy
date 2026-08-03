@@ -101,7 +101,7 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const renderField = (key: string) => {
     const field = allFieldMap.get(key) || getFieldDef(key);
     if (!field) return null;
-    const label = resolveFieldLabel(key, field.label, overrides);
+    const label = resolveFieldLabel(key, overrides);
     return (
       <PropertyRow key={key} label={label}>
         <FieldCell
