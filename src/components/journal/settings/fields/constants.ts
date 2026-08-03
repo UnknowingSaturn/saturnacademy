@@ -33,11 +33,9 @@ import type { CustomFieldDefinition } from "@/types/settings";
 
 export type FieldRow = {
   key: string;
-  defaultLabel: string;
+  label: string;
   category: "core" | "system" | "custom";
   description?: string;
   optionsPropertyName?: string;
   customDef?: CustomFieldDefinition;
-  isInTable: boolean;
-  isInDetail: boolean;
 };
