@@ -81,6 +81,45 @@ interface TradeTableProps {
   accounts?: Account[];
 }
 
+function toColumnDefinition(
+  field: FieldDef | undefined,
+  key: string,
+  override?: { label?: string; width?: string }
+): ColumnDefinition {
+  if (!field) {
+    return {
+      key,
+      label: override?.label || key,
+      type: 'text',
+      sortable: true,
+      filterable: true,
+      hideable: true,
+      width: override?.width || 'minmax(80px, 1fr)',
+      category: 'calculated',
+    };
+  }
+
+  const type: ColumnDefinition['type'] =
+    field.valueType === 'select' ? 'select' :
+    field.valueType === 'multi_select' ? 'multi-select' :
+    field.valueType === 'number' || field.valueType === 'money' || field.valueType === 'percent' ? 'number' :
+    field.valueType === 'date' ? 'date' :
+    field.valueType === 'badge' ? 'badge' : 'text';
+
+  return {
+    key,
+    label: override?.label || field.label,
+    type,
+    sortable: true,
+    filterable: true,
+    hideable: field.group !== 'core',
+    width: override?.width || field.width || 'minmax(80px, 1fr)',
+    propertyName: field.optionsProperty,
+    category: field.valueType === 'readonly' || field.valueType === 'date' || field.valueType === 'computed' ? 'calculated' : 'editable',
+  };
+}
+
+
 export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, deletedFields, onEditProperty, accounts }: TradeTableProps) {
   const updateTrade = useUpdateTrade();
   const upsertReview = useUpsertTradeReview();
