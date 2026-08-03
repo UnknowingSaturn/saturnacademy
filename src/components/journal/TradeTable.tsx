@@ -297,33 +297,47 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
           >
             <SortableContext items={activeColumns} strategy={horizontalListSortingStrategy}>
               {activeColumns.map(key => {
-                const column = getColumn(key);
-                if (!column) return null;
+                const field = getField(key);
+                if (!field) return null;
+                const label = resolveFieldLabel(key, labels);
 
                 return (
                   <SortableHeader
                     key={key}
                     columnKey={key}
-                    className={cn(key === 'r_multiple_actual' && 'justify-end text-right', key === 'result' && 'justify-center text-center')}
+                    className={cn(field.alignRight && 'justify-end text-right', field.alignCenter && 'justify-center text-center')}
                   >
-                    <ColumnHeaderMenu
-                      column={column}
+                    <FieldHeaderMenu
+                      field={field}
+                      label={label}
+                      hasLabelOverride={!!labels[key]}
                       sortColumn={sortColumn}
                       sortDirection={sortDirection}
                       onSort={handleSort}
-                      onFilter={() => {}}
-                      onHide={() => handleHideColumn(key)}
                       onEditProperty={onEditProperty}
-                    >
-                      {column.label}
-                    </ColumnHeaderMenu>
+                      onRequestRemove={setRemoveTarget}
+                    />
                   </SortableHeader>
                 );
               })}
             </SortableContext>
           </DndContext>
-          <div></div>
+          <div className="flex items-center justify-center">
+            <AddFieldPopover
+              surface="table"
+              align="end"
+              trigger={
+                <button
+                  className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                  aria-label="Add column"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              }
+            />
+          </div>
         </div>
+
 
         {/* Rows */}
         <div className="divide-y divide-border">
