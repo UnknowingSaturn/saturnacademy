@@ -425,6 +425,8 @@ function SpecialCell({
   switch (renderKey) {
     case "symbol":
       return <SymbolCell trade={trade} isGroup={isGroup} legs={legs} isExpanded={isExpanded} toggleExpand={toggleExpand} surface={surface} />;
+    case "direction":
+      return <DirectionCell trade={trade} />;
     case "result":
       return <ResultCell trade={trade} surface={surface} />;
     case "status":
