@@ -472,6 +472,13 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
         onAction={handleBulkArchive}
         onClear={() => setSelectedIds(new Set())}
       />
+
+      <RemoveFieldDialog
+        field={removeTarget}
+        label={removeTarget ? resolveFieldLabel(removeTarget.key, labels) : ""}
+        onClose={() => setRemoveTarget(null)}
+      />
+
     </div>
   );
 }
