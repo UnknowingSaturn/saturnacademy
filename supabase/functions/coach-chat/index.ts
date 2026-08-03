@@ -222,8 +222,19 @@ Deno.serve(async (req) => {
     // Tool loop.
     let finalText = "";
     let usage: any = null;
+    const startedAt = Date.now();
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
-      const res = await callModel(messages, apiKey, { withTools: true, stream: false });
+      // Edge workers are wall-clock bounded. Once we're past the budget, force a
+      // final answer with the tool results already gathered instead of dying
+      // mid-loop with an opaque gateway error.
+      const outOfTime = Date.now() - startedAt > TOOL_LOOP_BUDGET_MS;
+      if (outOfTime) {
+        messages.push({
+          role: "user",
+          content: "Time budget reached. Answer now using only the tool results already gathered. Do not call any more tools.",
+        });
+      }
+      const res = await callModel(messages, apiKey, { withTools: !outOfTime, stream: false });
       if (!res.ok) {
         const bodyText = await res.text();
         if (res.status === 429) return json({ error: "AI rate limit — try again shortly." }, 429);
@@ -237,14 +248,22 @@ Deno.serve(async (req) => {
       const msg = choice.message ?? {};
       const toolCalls = msg.tool_calls;
 
-      if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+      if (!outOfTime && Array.isArray(toolCalls) && toolCalls.length > 0) {
         // Append the assistant message with tool_calls, then each tool result.
         messages.push({ role: "assistant", content: msg.content ?? "", tool_calls: toolCalls });
         for (const tc of toolCalls) {
           const name = tc.function?.name;
           let args: any = {};
           try { args = JSON.parse(tc.function?.arguments ?? "{}"); } catch { /* ignore */ }
-          const result = await executeTool(name, args, { admin, userId, lovableApiKey: apiKey });
+          // A throwing tool must never take the whole request down.
+          let result: { ok: boolean; data?: unknown; error?: string; images?: string[] };
+          try {
+            result = await executeTool(name, args, { admin, userId, lovableApiKey: apiKey });
+          } catch (toolErr) {
+            const m = toolErr instanceof Error ? toolErr.message : String(toolErr);
+            console.error(`tool ${name} threw:`, m);
+            result = { ok: false, error: m };
+          }
           toolCallsLog.push({ name, args, ok: result.ok, error: result.error ?? null });
           // Wrap data as untrusted user data.
           const payload = result.ok ? `<user_data>${JSON.stringify(result.data)}</user_data>` : `ERROR: ${result.error}`;
@@ -269,6 +288,7 @@ Deno.serve(async (req) => {
       finalText = String(msg.content ?? "").trim();
       break;
     }
+
 
     if (!finalText) finalText = "I couldn't complete that request. Try rephrasing or ask about something more specific.";
 
