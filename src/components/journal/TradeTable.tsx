@@ -113,11 +113,7 @@ function toColumnDefinition(
 
 
 export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, deletedFields, onEditProperty, accounts }: TradeTableProps) {
-  const updateTrade = useUpdateTrade();
-  const upsertReview = useUpsertTradeReview();
   const bulkArchive = useBulkArchiveTrades();
-  const [editingPlace, setEditingPlace] = useState<string | null>(null);
-  const [placeValue, setPlaceValue] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -131,18 +127,12 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     });
   };
 
-  // Fetch property options (active only — soft-deleted ones don't appear in dropdowns)
-  const { options: sessionOptions } = useSessionLookup();
-  const { data: timeframeOptions = [] } = usePropertyOptions('timeframe', true);
-  const { data: entryTimeframeOptions = [] } = usePropertyOptions('entry_timeframe', true);
-  const { data: profileOptions = [] } = usePropertyOptions('profile', true);
-  const { data: emotionOptions = [] } = usePropertyOptions('emotion', true);
-  
   // Fetch playbooks for model options
   const { data: playbooks } = usePlaybooks();
   const { data: settings } = useUserSettings();
   const updateSettings = useUpdateUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
+
 
   const fieldRegistry = useMemo(
     () => buildFieldRegistry(customFields, accounts),
