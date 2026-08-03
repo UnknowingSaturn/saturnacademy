@@ -11,9 +11,11 @@ const CHAT_MODEL = "google/gemini-2.5-pro";
 const TITLE_MODEL = "google/gemini-2.5-flash-lite";
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MAX_TOOL_STEPS = 12;
+const TOOL_LOOP_BUDGET_MS = 110_000;
 const RECENT_MESSAGE_WINDOW = 30;
 const RATE_LIMIT_PER_10MIN = 30;
 const MAX_TOOL_IMAGES = 4;
+
 
 const SYSTEM_PROMPT = `You are the user's elite trading coach and quant analyst. You have direct access to their trading journal through tools.
 
