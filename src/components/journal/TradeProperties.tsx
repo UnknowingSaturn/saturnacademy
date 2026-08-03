@@ -66,6 +66,9 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const { data: accounts } = useAccounts();
   const { data: settings } = useUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
+  const [removeTarget, setRemoveTarget] = useState<FieldDef | null>(null);
+
+
 
   const isManualTrade = !trade.ticket;
 
