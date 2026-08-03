@@ -336,7 +336,14 @@ async function tool_searchTrades(ctx: ToolExecCtx, args: any): Promise<ToolResul
   const { data, error } = await q;
   if (error) return { ok: false, error: error.message };
   const rows = (data ?? []).map(normalizeTrade);
-  return { ok: true, data: { count: rows.length, rollup: summarize(rows), trades: rows } };
+  return {
+    ok: true,
+    data: {
+      count: rows.length,
+      trades: rows,
+      note: "Rows only — this tool intentionally returns NO roll-up. Any win rate / expectancy / P&L must come from getStats so there is exactly one number per question.",
+    },
+  };
 }
 
 async function tool_getTradeDetail(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
