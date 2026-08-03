@@ -344,25 +344,80 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   );
 }
 
+function GroupHeader({
+  label,
+  onRename,
+  onDelete,
+}: {
+  label: string;
+  onRename: (v: string) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(label);
+
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => { onRename(draft); setEditing(false); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { onRename(draft); setEditing(false); }
+          if (e.key === "Escape") { setDraft(label); setEditing(false); }
+        }}
+        className="h-6 text-xs w-40"
+      />
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+      <div className="opacity-0 group-hover/section:opacity-100 transition-opacity flex items-center">
+        <button
+          onClick={() => { setDraft(label); setEditing(true); }}
+          className="p-0.5 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={`Rename ${label} group`}
+        >
+          <Pencil className="w-3 h-3" />
+        </button>
+        <button
+          onClick={onDelete}
+          className="p-0.5 rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+          aria-label={`Delete ${label} group`}
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PropertyRow({
   icon,
   label,
+  menu,
   children,
 }: {
   icon?: React.ReactNode;
   label: string;
+  menu?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex items-center justify-between gap-2 group/row">
+      <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
         {icon}
-        <span>{label}</span>
+        <span className="truncate">{label}</span>
+        {menu}
       </div>
       <div className="text-sm">{children}</div>
     </div>
   );
 }
+
 
 function PlaceEditor({ value, onSave }: { value: string; onSave: (v: string) => void | Promise<unknown> }) {
   const [editing, setEditing] = useState(false);
