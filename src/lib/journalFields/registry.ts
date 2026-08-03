@@ -392,6 +392,8 @@ export function buildFieldRegistry(
         key: f.key,
         label: f.label,
         group: "custom",
+        tier: "free",
+
         valueType,
         source: { kind: "custom", key: f.key },
         editor: valueType,
