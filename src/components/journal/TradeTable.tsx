@@ -3,6 +3,8 @@ import { Trade, Account } from "@/types/trading";
 import { useBulkArchiveTrades } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { cn } from "@/lib/utils";
+import { formatTimeET } from "@/lib/time";
+
 import { BadgeSelect } from "./BadgeSelect";
 import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
 import { BulkActionBar } from "./BulkActionBar";
