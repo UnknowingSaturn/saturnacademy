@@ -154,7 +154,18 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   const updateSettings = useUpdateUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
 
+  const fieldRegistry = useMemo(
+    () => buildFieldRegistry(customFields, accounts),
+    [customFields, accounts]
+  );
+  const getField = (key: string) => fieldRegistry.find((f) => f.key === key);
+  const getColumn = (key: string): ColumnDefinition => {
+    const field = getField(key);
+    return toColumnDefinition(field, key, settings?.column_overrides?.[key]);
+  };
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
 
   const handleColumnDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
