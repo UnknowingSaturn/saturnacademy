@@ -9,6 +9,8 @@ import {
 import { toast } from "sonner";
 import { useEffect, useMemo, useRef } from "react";
 import { setDisplayTimezone } from "@/lib/time";
+import { normalizeLayout } from "@/lib/journalFields/layout";
+
 
 // Legacy → canonical key map for label/override records (mirrors migrateDetailKeys).
 const LEGACY_KEY_MAP: Record<string, string> = {
