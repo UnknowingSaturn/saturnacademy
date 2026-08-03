@@ -9,7 +9,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CustomFieldDefinition, resolveFieldLabel } from "@/types/settings";
+import { fieldDependents, getFieldDef } from "@/lib/journalFields/registry";
+import { AlertTriangle } from "lucide-react";
 import type { FieldRow } from "./constants";
+
 
 export type DeleteTarget =
   | { kind: "system-soft"; field: FieldRow }
