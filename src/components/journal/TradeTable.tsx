@@ -1,21 +1,13 @@
 import { useState, useMemo } from "react";
-import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, Account } from "@/types/trading";
-import { useUpdateTrade, useUpsertTradeReview, useBulkArchiveTrades } from "@/hooks/useTrades";
-import { usePropertyOptions, useSessionLookup } from "@/hooks/useUserSettings";
+import { Trade, Account } from "@/types/trading";
+import { useBulkArchiveTrades } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { cn } from "@/lib/utils";
-import { formatDateET, formatTimeET, getDayNameET } from "@/lib/time";
 import { BadgeSelect } from "./BadgeSelect";
 import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
 import { BulkActionBar } from "./BulkActionBar";
-import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
-import { ChevronRight, Lightbulb, FileText, Clock, GripVertical, Wrench, RefreshCw, ChevronDown, Layers } from "lucide-react";
+import { ChevronRight, GripVertical, ChevronDown } from "lucide-react";
 import { DEFAULT_COLUMNS, ColumnDefinition } from "@/types/settings";
 import {
   DndContext,
@@ -34,11 +26,9 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
-import { CustomFieldCell } from "./CustomFieldCell";
-import { getRealPartialCloses } from "@/lib/tradeMath";
-import { useTradeGroup } from "@/hooks/useTradeGroup";
 import { FieldCell } from "@/lib/journalFields/FieldCell";
-import { buildFieldRegistry, getFieldDef, FieldDef } from "@/lib/journalFields/registry";
+import { buildFieldRegistry, FieldDef } from "@/lib/journalFields/registry";
+
 
 
 interface SortableHeaderProps {
