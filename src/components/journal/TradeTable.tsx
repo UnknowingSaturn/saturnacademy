@@ -161,89 +161,82 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     if (!over || active.id === over.id) return;
     const activeKey = String(active.id);
     const overKey = String(over.id);
-    // Build base order from persisted settings (fallback to current registry order)
-    const base = (settings?.column_order && settings.column_order.length > 0)
-      ? [...settings.column_order]
-      : columnRegistry.map(c => c.key);
-    // Ensure both keys exist in base (newly added custom fields may be missing)
+    // Prefer new Notion-style layout; fall back to legacy column_order props
+    const layout = settings?.journal_field_layout;
+    const base: string[] = layout?.table?.order?.length
+      ? [...layout.table.order]
+      : (columnOrder && columnOrder.length > 0)
+        ? [...columnOrder]
+        : fieldRegistry.map(f => f.key);
     if (!base.includes(activeKey)) base.push(activeKey);
     if (!base.includes(overKey)) base.push(overKey);
     const from = base.indexOf(activeKey);
     const to = base.indexOf(overKey);
     if (from === -1 || to === -1) return;
-    const newOrder = arrayMove(base, from, to);
-    await updateSettings.mutateAsync({ column_order: newOrder });
+    const newOrder = arrayMove(base, from, to) as string[];
+    if (layout) {
+      await updateSettings.mutateAsync({
+        journal_field_layout: {
+          ...layout,
+          table: { ...layout.table, order: newOrder },
+        },
+      });
+    } else {
+      await updateSettings.mutateAsync({ column_order: newOrder });
+    }
   };
 
   const handleHideColumn = async (key: string) => {
+    const layout = settings?.journal_field_layout;
+    if (layout) {
+      const hidden = new Set(layout.table?.hidden || []);
+      hidden.add(key);
+      await updateSettings.mutateAsync({
+        journal_field_layout: {
+          ...layout,
+          table: { ...layout.table, hidden: Array.from(hidden) },
+        },
+      });
+      return;
+    }
     const current = settings?.visible_columns || [];
     if (!current.includes(key)) return;
     await updateSettings.mutateAsync({ visible_columns: current.filter(k => k !== key) });
   };
 
-  // Merged registry: system columns + active custom field columns
-  const fieldRegistry = useMemo(
-    () => buildFieldRegistry(customFields, accounts),
-    [customFields, accounts]
-  );
-  const getField = (key: string) => fieldRegistry.find((f) => f.key === key);
-  const getColumn = (key: string): ColumnDefinition => {
-    const field = getField(key);
-    return toColumnDefinition(field, key, settings?.column_overrides?.[key]);
-  };
-  
-  // Generate dynamic model options from playbooks - use playbook ID as value
-  const playbookModelOptions = useMemo(() => {
-    if (!playbooks || playbooks.length === 0) return [];
-    return playbooks.map((pb) => ({
-      value: pb.id,
-      label: pb.name,
-      customColor: pb.color || undefined,
-    }));
-  }, [playbooks]);
-
-  // Convert property options to BadgeSelect format — pass the user's hex through as
-  // customColor so the table matches the color picker exactly (same as the detail panel).
-  const formatOptions = (options: any[]) => options.map(o => ({
-    value: o.value,
-    label: o.label,
-    customColor: o.color || undefined,
-    color: 'primary',
-  }));
-
-  // Effective per-user column list:
-  // 1. Start from the user's column_order (or default visible)
-  // 2. Filter to currently visible
-  // 3. Exclude per-user deleted system fields
-  // 4. Only keep keys we actually know how to render (system + active custom)
+  // Effective per-user column list: Notion-style layout wins, then legacy props
   const activeColumns = useMemo(() => {
-    const visibleSet = new Set(visibleColumns || DEFAULT_COLUMNS.filter(c =>
+    const layout = settings?.journal_field_layout;
+    const hiddenSet = new Set(layout?.table?.hidden || deletedFields || []);
+    const knownSet = new Set(fieldRegistry.map(f => f.key));
+    const defaultVisible = DEFAULT_COLUMNS.filter(c =>
       ['trade_number', 'entry_time', 'day', 'symbol', 'session', 'model', 'alignment', 'entry_timeframes', 'profile', 'r_multiple_actual', 'result', 'emotional_state_before', 'place'].includes(c.key)
-    ).map(c => c.key));
-    const deletedSet = new Set(deletedFields || []);
-    const knownSet = new Set(columnRegistry.map(c => c.key));
-    const order = (columnOrder && columnOrder.length > 0)
-      ? columnOrder
-      : columnRegistry.map(c => c.key);
+    ).map(c => c.key);
+    const visibleSet = new Set(visibleColumns || defaultVisible);
+    const order = layout?.table?.order?.length
+      ? layout.table.order
+      : (columnOrder && columnOrder.length > 0)
+        ? columnOrder
+        : fieldRegistry.map(f => f.key);
     const seen = new Set<string>();
     const out: string[] = [];
     for (const k of order) {
       if (seen.has(k)) continue;
-      if (!visibleSet.has(k)) continue;
-      if (deletedSet.has(k)) continue;
+      if (hiddenSet.has(k)) continue;
       if (!knownSet.has(k)) continue;
       seen.add(k);
       out.push(k);
     }
     // Append any visible keys missing from order (newly created custom fields)
     for (const k of visibleSet) {
-      if (!seen.has(k) && !deletedSet.has(k) && knownSet.has(k)) {
+      if (!seen.has(k) && !hiddenSet.has(k) && knownSet.has(k)) {
         out.push(k);
         seen.add(k);
       }
     }
     return out;
-  }, [visibleColumns, columnOrder, deletedFields, columnRegistry]);
+  }, [visibleColumns, columnOrder, deletedFields, fieldRegistry, settings?.journal_field_layout]);
+
 
   // Sort trades
   const sortedTrades = useMemo(() => {
