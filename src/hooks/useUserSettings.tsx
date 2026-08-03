@@ -52,6 +52,14 @@ const transformSettings = (row: any): UserSettings => ({
   detail_section_order: (row.detail_section_order as string[]) || [],
   field_label_overrides: migrateKeyedRecord(row.field_label_overrides as Record<string, string>),
   deleted_system_fields: migrateKeyList(row.deleted_system_fields as string[]),
+  journal_field_layout: normalizeLayout(row.journal_field_layout, {
+    visible_columns: row.visible_columns,
+    column_order: row.column_order,
+    detail_visible_fields: row.detail_visible_fields,
+    detail_field_order: row.detail_field_order,
+    deleted_system_fields: row.deleted_system_fields,
+    field_label_overrides: row.field_label_overrides,
+  }),
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
