@@ -1,51 +1,77 @@
-## Verdict on the previous plan
+## Review of the current plan
 
-It fixes the immediate complaint (screenshot descriptions unreachable) but not the root cause. Two structural problems remain:
+The plan fixes six real symptoms, but three of them share one root cause it doesn't name, and the "journaled vs everything" idea you raised is the missing structural piece.
 
-1. **Per-question tools over JSON blobs.** Every Coach capability is a hand-written query against `trade_reviews.mistakes`, `.screenshots`, `trade_comments.content`, etc. Adding `searchJournalText` makes it seven bespoke queries instead of six. The next unanswerable question needs an eighth.
-2. **Trade-level embedding granularity.** `buildTradeContent` concatenates header + mistakes + did_well + psychology + up to 1500 chars of AI review into **one** vector. A 12-word screenshot caption ("price found value about the previous HVN to continue higher") is diluted to near-invisibility in that blob. Backfilling 503 trades at this granularity improves coverage but not precision — recall would still miss the exact phrasing you asked about.
+**What holds up:** the citation rule, the unassigned bucket, the recency window, and the funded-account simulator are all correct and needed.
 
-Verified facts behind this: 159 reviews carry screenshot arrays with `description` + `timeframe`; `trade_embeddings` holds 11 rows against 177 reviews with prose; `coach_embed_queue` is empty (backfill never enqueued); `coachEmbed.ts` never reads the `screenshots` column at all.
+**Where it stops short:** it patches each tool one at a time. That's the same pattern that produced the gap in the first place — every tool hand-rolls its own filter, computes stats in TypeScript, and hands the model a bag of numbers with no provenance. So:
+- Wrong numbers (63.8% vs 59.0%) aren't a rounding bug — the model is free to re-narrate figures because nothing marks them as immutable facts.
+- Fabricated quotes aren't a prompt failure alone — prose and statistics arrive in the same undifferentiated blob, so quoting and inventing look identical to the model.
+- The 355 unlabeled trades aren't one missing bucket — *every* tool silently defines its own population, so "your edge" means a different set of trades in each answer.
 
-## Redesign: one retrieval layer, note-level granularity
+---
 
-### 1. `journal_notes` — a normalized prose surface
-A view (materialized only if it measures slow) that explodes every piece of user prose into one row per note:
+## Revised architecture
+
+### A. Trade tiers — make "journaled" a first-class concept
+
+Your database contains two different things that the Coach currently averages together:
+
+| Tier | Definition | Your data |
+|---|---|---|
+| `journaled` | has a playbook **and** a `trade_reviews` row | the +0.456R NY Continuation world |
+| `partial` | playbook or review, not both | mixed |
+| `raw` | broker-synced, never journaled | 355 trades, **-49,777**, 34% WR |
+
+Add a `journal_trade_tier` SQL view deriving this tier per trade. Every cohort the Coach builds defaults to **`journaled` + `partial`**, because that's the trading you actually intend to do — and every single answer returns the `raw` tier's size and P&L alongside, as a mandatory "what you're not counting" line.
+
+This directly answers your question: yes, the Coach should analyze journaled data for *edge*, but it must never hide the unjournaled block, because that block is where your money goes. Silently excluding it would make the Coach more wrong, not less.
+
+### B. One cohort engine, not nine tools
+
+Replace the per-tool SQL with a single RPC:
 
 ```
-trade_id | user_id | source        | field         | label   | body | occurred_at
-         |         | review        | mistakes      | –       | ...  |
-         |         | screenshot    | description   | 4H      | ...  |
-         |         | comment       | content       | –       | ...  |
-         |         | ai_review     | technical     | –       | ...  |
+journal_cohort(filters) -> { trades, stats, coverage, provenance }
 ```
 
-Screenshots unnest from the JSONB array so `timeframe` becomes a real, filterable column. One definition replaces the copy-pasted JSON traversal in `coachTools.ts` **and** `coachEmbed.ts` — the exact duplication that caused the earlier `trades.outcome` class of bug.
+Filters: tier, playbook, symbol, session, direction, date window, note-text match, semantic match. Every existing tool (`getPlaybookStats`, `getBreakdown`, `searchTrades`, `analyzeCohort`, `getRecentPerformance`) becomes a thin preset over this one call. One definition of a population, one definition of expectancy, computed in SQL — the model never sees raw rows it could average itself.
 
-### 2. Hybrid search on that surface
-- `tsvector` GIN index (English) for keyword recall, plus `pg_trgm` for fuzzy/misspelled terms like "HVN"/"hvn zone".
-- Embeddings move to **note granularity**: `note_embeddings(note_key, trade_id, user_id, embedding)`, one vector per note instead of one per trade. Short chart captions become their own retrievable units.
-- One RPC, `search_journal(user_id, query_text, query_embedding, filters, k)`, does reciprocal-rank fusion of keyword + vector hits and returns note + parent trade in a single round trip. Cosine ranking currently happens in Deno over up to 1000 rows pulled from the DB (`tool_recallSimilarTrades`); this moves it into the index.
+### C. Fact blocks — statistics the model may quote but not compute
 
-### 3. Cohort stats in SQL, not in the model
-`journal_cohort_stats(user_id, query, filters)` returns n, win rate, expectancy, mean/median R, best/worst for the trades matching a search. This is what turns "avoid HVN reactions?" into a statistic instead of the single anecdote the Coach gave you. Sample size is returned as a first-class field so the model cannot quote a cohort without it.
+Every cohort result returns a `facts` array of pre-rendered, immutable strings with ids:
 
-### 4. Collapse the tool surface
-Replace `recallSimilarTrades` (and absorb the ad-hoc prose paths) with:
-- `searchJournal({ query, source?, timeframe?, symbol?, dateFrom/To, k })` — hybrid retrieval, returns matched snippet + field + timeframe + normalized trade.
-- `analyzeCohort({ query | trade_ids, groupBy? })` — stats for that cohort.
+```
+f1: "NY Continuation | journaled | 90d | n=50 | WR 60.0% | avg 0.458R"
+f2: "raw tier | 90d | n=151 | WR 27.8% | avg -0.391R | -18,412"
+```
 
-`getTradeDetail`, `getBreakdown`, `getOpenTrades`, `searchTrades`, `getPlaybookStats`, `getUserContext` stay as-is. Net tool count is unchanged, but the prose path is now one indexed surface rather than N hand-written traversals.
+System prompt: numbers may appear in the answer **only** as verbatim copies of a fact string, tagged with its id. No arithmetic, no rounding, no combining. This kills the 63.8% class of error mechanically rather than by asking the model to be careful.
 
-### 5. Backfill, properly
-Enqueue every trade with any `journal_notes` row (~177+, vs 11 embedded today) and drain in batches until pending is zero. Because notes are hashed individually, re-embedding after an edit only re-embeds the changed note, not the whole trade.
+### D. Quote blocks — prose the model may cite but not paraphrase as evidence
 
-### 6. Prompt + guardrails
-- System prompt: screenshot captions and timeframes are searchable; run `searchJournal` before ever saying a style can't be isolated; every cohort claim carries n; n < 5 is labelled anecdotal.
-- Extend `coachTools_test.ts`: assert `journal_notes` returns screenshot rows for a known trade, that `searchJournal` on a phrase present in a caption finds it, and that `analyzeCohort` sample sizes match a direct SQL count. A schema drift then fails loudly instead of degrading answers silently.
+Same treatment for notes: `searchJournal` returns `q1..qn` with `note_key`, trade id, date, and verbatim body. Quotation marks are only permitted around a `q*` body, tagged with its key. If no `q*` supports a psychological claim, the Coach must write "no journal note supports this." That is exactly the guardrail the June 15 / July 8 fabrications bypassed.
 
-## Cost of the redesign vs the patch
+### E. Sufficiency gate before advice
 
-The patch is ~2 files + 1 migration. This is ~4 files + 3 migrations (view, indexes + note_embeddings table, RPCs) and one behavioural change: `recallSimilarTrades` is replaced, so its embeddings table is superseded by `note_embeddings`. No frontend changes; the new Coach UI renders the tool strip and citations unchanged. Trade screenshots keep flowing to the vision model via `getTradeDetail` — this plan adds the text layer that makes them findable in the first place.
+Cohort results carry `confidence`: `n < 10` → `anecdotal`, `n < 30` → `indicative`, else `established`. The prompt forbids prescriptive language ("trade exclusively", "stop immediately") on anything below `established`. XAUUSD's +1.38R over 6 trades was sold to you as a rule; it's a hint.
 
-**Recommendation: take the redesign.** The patch would need to be partly undone the first time you ask a question the seventh bespoke tool doesn't cover.
+### F. Account and challenge math (as planned, unchanged)
+
+- `getRiskProfile` — realized R distribution, consecutive-loss runs, worst drawdown in R and currency.
+- `simulateChallenge({ balance, maxDd, target, riskPerTrade, accounts, rotateOnLoss })` — reuses the existing prop-firm Monte Carlo, driven by the **journaled-tier** R distribution, and reports pass probability for one account and for the 5-account rotation. Your 2000 DD / 3000 target / 250-400 risk plan becomes a number instead of encouragement.
+- `getSessionBreakdown` — clock-time expectancy, so "only NY" is verified independently of playbook labels.
+- `getExecutionQuality` — checklist adherence vs outcome, which is the only honest basis for process-over-outcome coaching.
+
+### G. Verification
+
+Extend `coachTools_test.ts`: assert every stat in a tool result exists as a `facts` entry; assert `coverage` is non-null on every cohort; assert tier totals reconcile to the full trade count; assert simulator probabilities are bounded. Then replay your exact conversation and diff every figure against direct SQL — the NY Continuation line must read 61 / 59.0% / +0.456R.
+
+### Technical notes
+- New: one migration for `journal_trade_tier` view + `journal_cohort` and `journal_facts` RPCs (read-only, security definer, `auth.uid()`-scoped).
+- Rewrite: `supabase/functions/_shared/coachTools.ts` — tools become presets over the cohort RPC; add the four account/process tools.
+- Update: `supabase/functions/coach-chat/index.ts` — fact/quote citation contract, tier disclosure rule, sufficiency gate.
+- `npm run quant:sync` to vendor the Monte Carlo module (repo-root `shared/` imports break edge deploys).
+
+### Deliberately out of scope
+Backfilling playbooks onto the 355 raw trades. It's the highest-value thing you could do for every future answer, but it's data entry, not architecture — I'd add a Journal bulk-assign flow as a separate follow-up.

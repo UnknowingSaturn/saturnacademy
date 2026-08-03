@@ -336,6 +336,13 @@ export type Database = {
             foreignKeyName: "ai_reviews_trade_id_fkey"
             columns: ["trade_id"]
             isOneToOne: true
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
+          },
+          {
+            foreignKeyName: "ai_reviews_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: true
             referencedRelation: "trade_view"
             referencedColumns: ["id"]
           },
@@ -374,6 +381,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "coach_embed_queue_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
+          },
           {
             foreignKeyName: "coach_embed_queue_trade_id_fkey"
             columns: ["trade_id"]
@@ -469,6 +483,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "coach_threads_context_trade_id_fkey"
+            columns: ["context_trade_id"]
+            isOneToOne: false
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
+          },
           {
             foreignKeyName: "coach_threads_context_trade_id_fkey"
             columns: ["context_trade_id"]
@@ -973,6 +994,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "note_embeddings_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
+          },
           {
             foreignKeyName: "note_embeddings_trade_id_fkey"
             columns: ["trade_id"]
@@ -1534,6 +1562,13 @@ export type Database = {
             foreignKeyName: "shared_report_trades_trade_id_fkey"
             columns: ["trade_id"]
             isOneToOne: false
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
+          },
+          {
+            foreignKeyName: "shared_report_trades_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
             referencedRelation: "trade_view"
             referencedColumns: ["id"]
           },
@@ -1750,6 +1785,13 @@ export type Database = {
             foreignKeyName: "trade_comments_trade_id_fkey"
             columns: ["trade_id"]
             isOneToOne: false
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
+          },
+          {
+            foreignKeyName: "trade_comments_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
             referencedRelation: "trade_view"
             referencedColumns: ["id"]
           },
@@ -1820,6 +1862,13 @@ export type Database = {
             foreignKeyName: "trade_features_trade_id_fkey"
             columns: ["trade_id"]
             isOneToOne: true
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
+          },
+          {
+            foreignKeyName: "trade_features_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: true
             referencedRelation: "trade_view"
             referencedColumns: ["id"]
           },
@@ -1864,6 +1913,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "trade_modifications_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
+          },
           {
             foreignKeyName: "trade_modifications_trade_id_fkey"
             columns: ["trade_id"]
@@ -1928,6 +1984,13 @@ export type Database = {
             foreignKeyName: "trade_partial_fills_trade_id_fkey"
             columns: ["trade_id"]
             isOneToOne: false
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
+          },
+          {
+            foreignKeyName: "trade_partial_fills_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
             referencedRelation: "trade_view"
             referencedColumns: ["id"]
           },
@@ -1969,6 +2032,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "trade_repair_events_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
+          },
           {
             foreignKeyName: "trade_repair_events_trade_id_fkey"
             columns: ["trade_id"]
@@ -2068,6 +2138,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "playbooks"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trade_reviews_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: true
+            referencedRelation: "journal_trade_tier"
+            referencedColumns: ["trade_id"]
           },
           {
             foreignKeyName: "trade_reviews_trade_id_fkey"
@@ -2371,6 +2448,14 @@ export type Database = {
         }
         Relationships: []
       }
+      journal_trade_tier: {
+        Row: {
+          tier: string | null
+          trade_id: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
       terminal_accounts: {
         Row: {
           account_id: string | null
@@ -2600,6 +2685,23 @@ export type Database = {
       increment_shared_report_view: {
         Args: { p_report_id: string }
         Returns: undefined
+      }
+      journal_cohort: {
+        Args: {
+          _days?: number
+          _direction?: string
+          _from?: string
+          _group_by?: string
+          _include_open?: boolean
+          _playbook?: string
+          _session?: string
+          _symbol?: string
+          _tiers?: string[]
+          _to?: string
+          _trade_ids?: string[]
+          _user_id: string
+        }
+        Returns: Json
       }
       journal_cohort_stats: {
         Args: { _trade_ids: string[]; _user_id: string }

@@ -15,12 +15,14 @@ const ARGS: Record<string, unknown> = {
   getUserContext: {},
   searchTrades: { limit: 5 },
   getTradeDetail: {}, // filled from a real trade below
-  getRecentPerformance: { days: 90 },
-  getPlaybookStats: {},
-  getBreakdown: { dimension: "session" },
+  getStats: { groupBy: "playbook" },
   getOpenTrades: {},
   searchJournal: { query: "HVN", k: 5 },
   analyzeCohort: { query: "HVN" },
+  simulateChallenge: {
+    accountSize: 50000, numAccounts: 5, riskPerTrade: 300,
+    targetAmount: 3000, maxLossAmount: 2000, rotationModel: "stay_on_winner",
+  },
 };
 
 Deno.test("every coach tool runs against the live schema", async () => {
@@ -70,11 +72,14 @@ Deno.test("searchJournal finds a phrase that exists in a real note", async () =>
   assert(ids.includes((note as any).trade_id), `phrase "${phrase}" did not retrieve its own note`);
 });
 
-Deno.test("analyzeCohort sample size matches a direct count", async () => {
+Deno.test("analyzeCohort n matches the closed trades among the ids passed in", async () => {
   if (!url || !key) return;
   const admin = createClient(url, key);
   const { data: trades } = await admin
-    .from("trades").select("id, user_id").eq("is_open", false).limit(7);
+    .from("trades")
+    .select("id, user_id")
+    .eq("is_open", false).not("net_pnl", "is", null).eq("trade_type", "executed")
+    .limit(7);
   if (!trades || trades.length === 0) return;
   const userId = (trades[0] as any).user_id;
   const ids = (trades as any[]).filter((t) => t.user_id === userId).map((t) => t.id);
@@ -84,3 +89,17 @@ Deno.test("analyzeCohort sample size matches a direct count", async () => {
   assert((res.data as any).stats.n === ids.length, "cohort n disagrees with the ids passed in");
 });
 
+Deno.test("getStats never hides the raw tier and emits quotable facts", async () => {
+  if (!url || !key) return;
+  const admin = createClient(url, key);
+  const { data: t } = await admin
+    .from("trades").select("user_id").eq("is_open", false).limit(1).maybeSingle();
+  if (!t) return;
+  const ctx: ToolExecCtx = { admin, userId: (t as any).user_id, lovableApiKey: apiKey };
+  const res = await executeTool("getStats", { groupBy: "playbook" }, ctx);
+  assert(res.ok, `getStats failed: ${res.error}`);
+  const d = res.data as any;
+  assert(d.coverage && typeof d.coverage === "object", "coverage missing — the raw tier can be hidden again");
+  assert(Array.isArray(d.facts) && d.facts.length >= 2, "facts[] missing — the model would compute its own numbers");
+  assert(String(d.facts[1].text).startsWith("coverage by tier"), "tier coverage is not a quotable fact");
+});
