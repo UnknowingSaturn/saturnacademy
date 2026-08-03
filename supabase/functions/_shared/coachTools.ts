@@ -73,28 +73,13 @@ export function normalizeTrade(row: any) {
   };
 }
 
-function summarize(rows: any[]) {
-  const withR = rows.filter((t) => t.r != null);
-  const n = rows.length;
-  const wins = rows.filter((t) => t.outcome === "win").length;
-  const losses = rows.filter((t) => t.outcome === "loss").length;
-  const rs = withR.map((t) => Number(t.r));
-  const grossR = rs.reduce((a, b) => a + b, 0);
-  const pnl = rows.reduce((a, t) => a + (t.pnl ?? 0), 0);
-  return {
-    sample: n,
-    r_sample: rs.length,
-    winRate: n ? Number((wins / n).toFixed(3)) : null,
-    wins,
-    losses,
-    expectancyR: rs.length ? Number((grossR / rs.length).toFixed(3)) : null,
-    grossR: Number(grossR.toFixed(2)),
-    netPnl: Number(pnl.toFixed(2)),
-    bestR: rs.length ? Number(Math.max(...rs).toFixed(2)) : null,
-    worstR: rs.length ? Number(Math.min(...rs).toFixed(2)) : null,
-    low_confidence: n < 20,
-  };
-}
+// NOTE: statistics are NOT computed in TypeScript any more. Every win rate,
+// expectancy and P&L the Coach is allowed to say comes from the SQL engine
+// `public.journal_cohort`, which also emits pre-rendered `facts[]` strings.
+// Re-deriving numbers here is what produced the "63.8% NY Continuation"
+// hallucination — the model saw two slightly different roll-ups and invented
+// a third. One engine, one number.
+
 
 function collectScreenshots(v: unknown): string[] {
   const out: string[] = [];
