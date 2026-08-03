@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { ChevronRight, Lightbulb, FileText, Clock, GripVertical, Wrench, RefreshCw, ChevronDown, Layers } from "lucide-react";
-import { DEFAULT_COLUMNS, ColumnDefinition, buildColumnRegistry } from "@/types/settings";
+import { DEFAULT_COLUMNS, ColumnDefinition } from "@/types/settings";
 import {
   DndContext,
   PointerSensor,
@@ -32,12 +32,14 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
+import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
+import { CustomFieldCell } from "./CustomFieldCell";
+import { getRealPartialCloses } from "@/lib/tradeMath";
+import { useTradeGroups } from "@/hooks/useTradeGroup";
+import { FieldCell } from "@/lib/journalFields/FieldCell";
+import { buildFieldRegistry, getFieldDef } from "@/lib/journalFields/registry";
 
-interface SortableHeaderProps {
-  columnKey: string;
-  className?: string;
-  children: React.ReactNode;
-}
 
 function SortableHeader({ columnKey, className, children }: SortableHeaderProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: columnKey });
