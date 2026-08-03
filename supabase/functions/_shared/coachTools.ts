@@ -149,44 +149,30 @@ export const COACH_TOOL_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "getRecentPerformance",
+      name: "getStats",
       description:
-        "Rollup of closed trades over the last N days: count, win rate, expectancy (mean R), gross R, best/worst R, per-symbol breakdown.",
-      parameters: {
-        type: "object",
-        properties: { days: { type: "integer", minimum: 1, maximum: 730, default: 30 } },
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "getPlaybookStats",
-      description: "Aggregate stats grouped by playbook: sample size, win rate, expectancy, best/worst R.",
-      parameters: {
-        type: "object",
-        properties: { playbookName: { type: "string", description: "Optional filter to one playbook." } },
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "getBreakdown",
-      description:
-        "Expectancy / win rate / sample grouped by one dimension across closed trades. Use this instead of pulling raw trades when the question is 'which X performs best'.",
+        "THE ONLY source of performance numbers. Runs the SQL cohort engine and returns stats, an optional grouped breakdown, tier coverage, and a `facts[]` array of pre-rendered strings. You may state a number ONLY by quoting a facts[].text verbatim. Never add, average, round or re-derive. Defaults to journaled+partial trades and ALWAYS reports the raw (unjournaled) tier in coverage — mention it whenever you give portfolio-level advice.",
       parameters: {
         type: "object",
         properties: {
-          dimension: {
-            type: "string",
-            enum: ["symbol", "session", "weekday", "hour", "direction", "playbook", "emotion_before", "regime"],
+          tiers: {
+            type: "array",
+            items: { type: "string", enum: ["journaled", "partial", "raw"] },
+            description:
+              "journaled = has a playbook AND a written review; partial = one of the two; raw = broker-synced only. Default ['journaled','partial'].",
           },
-          days: { type: "integer", minimum: 1, maximum: 730, description: "Optional lookback window." },
+          groupBy: {
+            type: "string",
+            enum: ["symbol", "session", "weekday", "hour", "direction", "playbook", "tier", "month"],
+          },
+          playbook: { type: "string" },
+          symbol: { type: "string" },
+          session: { type: "string" },
+          direction: { type: "string", enum: ["buy", "sell"] },
+          days: { type: "integer", minimum: 1, maximum: 1460 },
+          dateFrom: { type: "string", description: "ISO date (YYYY-MM-DD)" },
+          dateTo: { type: "string", description: "ISO date (YYYY-MM-DD)" },
         },
-        required: ["dimension"],
         additionalProperties: false,
       },
     },
@@ -204,7 +190,7 @@ export const COACH_TOOL_SCHEMAS = [
     function: {
       name: "searchJournal",
       description:
-        "Hybrid keyword + semantic search over EVERY piece of written journal prose: trade review mistakes/did-well/to-improve/thoughts/psychology, CHART SCREENSHOT CAPTIONS (with their timeframe), trade comments, and AI review sections. Use this for any style, concept or phrasing question ('reaction from HVN', 'fading ranges', 'continuation entries', 'felt FOMO') — these are notes, not playbooks, so never claim a style cannot be isolated before calling this.",
+        "Hybrid keyword + semantic search over EVERY piece of written journal prose: trade review mistakes/did-well/to-improve/thoughts/psychology, CHART SCREENSHOT CAPTIONS (with their timeframe), trade comments, and AI review sections. Use this for any style, concept or phrasing question ('reaction from HVN', 'fading ranges', 'felt FOMO'). Returns `quotes[]` — the ONLY strings you are allowed to put inside quotation marks when attributing words to the user.",
       parameters: {
         type: "object",
         properties: {
@@ -226,13 +212,13 @@ export const COACH_TOOL_SCHEMAS = [
     function: {
       name: "analyzeCohort",
       description:
-        "Compute sample size, win rate, expectancy R, average/median R and P&L for a set of trades — either trade_ids returned by searchJournal, or a query it should search first. Use this instead of eyeballing individual trades whenever the user asks whether a style/pattern works.",
+        "Statistics for the trades matching a prose search (or explicit trade_ids). Runs the search unbounded, then hands the ids to the same SQL cohort engine as getStats, so its facts[] follow the same quoting contract.",
       parameters: {
         type: "object",
         properties: {
           query: { type: "string", description: "Used when trade_ids is not supplied." },
           trade_ids: { type: "array", items: { type: "string" }, description: "Trade ids from searchJournal." },
-          groupBy: { type: "string", enum: ["symbol", "session", "weekday", "direction", "playbook"] },
+          groupBy: { type: "string", enum: ["symbol", "session", "weekday", "hour", "direction", "playbook", "tier", "month"] },
           source: { type: "string", enum: ["review", "screenshot", "comment", "ai_review"] },
           timeframe: { type: "string" },
           symbol: { type: "string" },
@@ -243,6 +229,42 @@ export const COACH_TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "simulateChallenge",
+      description:
+        "Monte-Carlo a prop-firm challenge on the user's OWN R distribution (same engine as the Pair Lab / Challenge Planner). Use this for ANY question about pass odds, account rotation, risk sizing or drawdown — never estimate pass probability yourself.",
+      parameters: {
+        type: "object",
+        properties: {
+          accountSize: { type: "number", description: "Starting balance per account, $." },
+          numAccounts: { type: "integer", minimum: 1, maximum: 20, default: 1 },
+          riskPerTrade: { type: "number", description: "Dollar risk per trade. Converted to a fraction of accountSize." },
+          riskPct: { type: "number", description: "Alternative to riskPerTrade: risk as % of account, e.g. 0.75." },
+          targetAmount: { type: "number", description: "Profit target in $ (e.g. 3000)." },
+          maxLossAmount: { type: "number", description: "Max drawdown in $ (e.g. 2000)." },
+          dailyLossAmount: { type: "number", description: "Daily loss cap in $. Omit if the firm has none." },
+          maxLossMode: { type: "string", enum: ["static", "trailing"], default: "static" },
+          tradesPerDay: { type: "number", minimum: 0.1, maximum: 20, default: 2 },
+          maxDays: { type: "integer", minimum: 5, maximum: 365, default: 60 },
+          rotationModel: {
+            type: "string",
+            enum: ["one_only", "simultaneous", "stay_on_winner", "round_robin"],
+            default: "stay_on_winner",
+          },
+          tiers: { type: "array", items: { type: "string", enum: ["journaled", "partial", "raw"] } },
+          playbook: { type: "string", description: "Restrict the R sample to one playbook." },
+          symbol: { type: "string" },
+          session: { type: "string" },
+          days: { type: "integer", minimum: 30, maximum: 1460 },
+        },
+        required: ["accountSize", "targetAmount", "maxLossAmount"],
+        additionalProperties: false,
+      },
+    },
+  },
+
 
 ] as const;
 
