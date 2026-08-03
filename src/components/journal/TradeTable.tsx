@@ -32,7 +32,9 @@ import { CSS } from "@dnd-kit/utilities";
 import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { FieldCell } from "@/lib/journalFields/FieldCell";
-import { buildFieldRegistry, FieldDef } from "@/lib/journalFields/registry";
+import { buildFieldRegistry, FieldDef, DEFAULT_TABLE_ORDER, DEFAULT_TABLE_HIDDEN, resolveFieldLabel } from "@/lib/journalFields/registry";
+import { useFieldLayoutActions } from "@/hooks/useFieldLayoutActions";
+
 
 
 
