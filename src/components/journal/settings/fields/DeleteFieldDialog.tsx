@@ -40,7 +40,7 @@ export function DeleteFieldDialog({
           <>
             <AlertDialogHeader>
               <AlertDialogTitle>
-                Delete "{resolveFieldLabel(target.field.key, target.field.defaultLabel, overrides)}"?
+                Delete "{resolveFieldLabel(target.field.key, target.field.label, overrides)}"?
               </AlertDialogTitle>
               <AlertDialogDescription>
                 This is a system field. Removing it hides it from the table and trade detail.
