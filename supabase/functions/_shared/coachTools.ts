@@ -533,7 +533,16 @@ async function tool_searchJournal(ctx: ToolExecCtx, args: any): Promise<ToolResu
       trade_count: ids.length,
       trade_ids: ids,
       matches,
-      note: "These matches are the top-k for display only. For any statistic call analyzeCohort with the SAME query (not these trade_ids) so the cohort is not truncated by k.",
+      // Verbatim quotable strings. The model invented journal quotes before;
+      // it may now only reproduce text that appears in this array.
+      quotes: matches.slice(0, 12).map((m, i) => ({
+        id: `q${i + 1}`,
+        trade_id: m.trade_id,
+        source: m.source,
+        field: m.field,
+        text: m.snippet,
+      })),
+      note: "These matches are the top-k for display only. Quote ONLY strings present in quotes[]. For any statistic call analyzeCohort with the SAME query (not these trade_ids) so the cohort is not truncated by k.",
     },
   };
 }
