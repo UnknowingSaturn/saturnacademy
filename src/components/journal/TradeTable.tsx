@@ -38,7 +38,8 @@ import { CustomFieldCell } from "./CustomFieldCell";
 import { getRealPartialCloses } from "@/lib/tradeMath";
 import { useTradeGroup } from "@/hooks/useTradeGroup";
 import { FieldCell } from "@/lib/journalFields/FieldCell";
-import { buildFieldRegistry, getFieldDef } from "@/lib/journalFields/registry";
+import { buildFieldRegistry, getFieldDef, FieldDef } from "@/lib/journalFields/registry";
+
 
 interface SortableHeaderProps {
   columnKey: string;
