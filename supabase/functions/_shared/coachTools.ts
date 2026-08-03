@@ -540,49 +540,129 @@ async function tool_analyzeCohort(ctx: ToolExecCtx, args: any): Promise<ToolResu
     ids = Array.from(new Set(notes.map((n) => n.trade_id)));
     via = "query";
   }
-  if (ids.length === 0) return { ok: true, data: { via, sample: 0, note: "Empty cohort — no statistic can be quoted." } };
-
-  const { data, error } = await ctx.admin.rpc("journal_cohort_stats", {
-    _user_id: ctx.userId,
-    _trade_ids: ids,
-  });
-  if (error) return { ok: false, error: error.message };
-  const stats = Array.isArray(data) ? data[0] : data;
-
-  let groups: any[] | undefined;
-  if (args.groupBy) {
-    const { data: rows } = await ctx.admin
-      .from("trades").select(TRADE_SELECT).in("id", ids).eq("user_id", ctx.userId);
-    const buckets: Record<string, any[]> = {};
-    for (const raw of (rows ?? []) as any[]) {
-      const t = normalizeTrade(raw);
-      const d = t.date ? new Date(t.date) : null;
-      const key = args.groupBy === "symbol" ? (t.symbol ?? "?")
-        : args.groupBy === "session" ? (t.session ?? "unassigned")
-        : args.groupBy === "direction" ? (t.side ?? "?")
-        : args.groupBy === "playbook" ? (t.playbook ?? "no playbook")
-        : args.groupBy === "weekday" ? (d ? WEEKDAYS[d.getUTCDay()] : "?")
-        : "?";
-      (buckets[key] ??= []).push(t);
-    }
-    groups = Object.entries(buckets).map(([key, list]) => ({ key, ...summarize(list) }))
-      .sort((a, b) => (b.expectancyR ?? -99) - (a.expectancyR ?? -99));
+  if (ids.length === 0) {
+    return { ok: true, data: { via, stats: { n: 0 }, facts: [], note: "Empty cohort — no statistic can be quoted." } };
   }
+
+  // Same SQL engine as getStats → identical numbers, identical quoting contract.
+  const cohort = await runCohort(ctx, {
+    trade_ids: ids,
+    groupBy: args.groupBy,
+    symbol: args.symbol,
+    dateFrom: args.dateFrom,
+    dateTo: args.dateTo,
+  });
+  return { ok: true, data: { via, matched_trade_ids: ids.slice(0, 100), ...cohort } };
+}
+
+// ---------- Prop-firm challenge simulation ----------
+
+async function tool_simulateChallenge(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
+  const accountSize = Number(args.accountSize);
+  const targetAmount = Number(args.targetAmount);
+  const maxLossAmount = Number(args.maxLossAmount);
+  if (!Number.isFinite(accountSize) || accountSize <= 0) return { ok: false, error: "accountSize must be > 0" };
+  if (!Number.isFinite(targetAmount) || !Number.isFinite(maxLossAmount)) {
+    return { ok: false, error: "targetAmount and maxLossAmount are required" };
+  }
+
+  // R sample comes from the same cohort definition as every other number.
+  const tiers = Array.isArray(args.tiers) ? args.tiers : ["journaled", "partial"];
+  const cohort = await runCohort(ctx, {
+    tiers, playbook: args.playbook, symbol: args.symbol, session: args.session, days: args.days,
+  });
+
+  let q = ctx.admin
+    .from("trades")
+    .select("r_multiple_actual, entry_time, is_open, is_archived, playbook_id, actual_playbook_id, symbol, session")
+    .eq("user_id", ctx.userId).eq("is_open", false)
+    .not("r_multiple_actual", "is", null)
+    .order("entry_time", { ascending: true })
+    .limit(5000);
+  if (args.symbol) q = q.ilike("symbol", args.symbol);
+  if (args.session) q = q.ilike("session", args.session);
+  if (args.days) q = q.gte("entry_time", new Date(Date.now() - Number(args.days) * 86400_000).toISOString());
+  if (args.playbook) {
+    const { data: pb } = await ctx.admin
+      .from("playbooks").select("id").eq("user_id", ctx.userId).ilike("name", args.playbook).limit(1).maybeSingle();
+    if ((pb as any)?.id) q = q.or(`playbook_id.eq.${(pb as any).id},actual_playbook_id.eq.${(pb as any).id}`);
+    else return { ok: false, error: `No playbook named "${args.playbook}".` };
+  }
+  // Tier filter mirrors journal_cohort: journaled/partial require a playbook or review.
+  const { data: rows, error } = await q;
+  if (error) return { ok: false, error: error.message };
+  let sampleRows = (rows ?? []) as any[];
+  if (!tiers.includes("raw")) {
+    sampleRows = sampleRows.filter((t) => t.playbook_id != null || t.actual_playbook_id != null);
+  }
+  const rSample = extractRSample(sampleRows);
+  if (rSample.length < 20) {
+    return {
+      ok: true,
+      data: {
+        r_sample_size: rSample.length,
+        note: "Fewer than 20 R values in this cohort — a Monte-Carlo pass probability would be noise. Say the sample is too thin instead of quoting odds.",
+      },
+    };
+  }
+
+  const riskFrac = args.riskPct != null
+    ? Number(args.riskPct) / 100
+    : args.riskPerTrade != null
+    ? Number(args.riskPerTrade) / accountSize
+    : 0.01;
+
+  const params = {
+    rSample,
+    riskPerTradeFrac: riskFrac,
+    numAccounts: Math.max(1, Number(args.numAccounts ?? 1)),
+    accountSize,
+    dailyLossPct: args.dailyLossAmount != null ? Number(args.dailyLossAmount) / accountSize : null,
+    maxLossPct: maxLossAmount / accountSize,
+    targetPct: targetAmount / accountSize,
+    tradesPerDay: Number(args.tradesPerDay ?? 2),
+    maxDays: Math.min(Math.max(Number(args.maxDays ?? 60), 5), 365),
+    rotationModel: (args.rotationModel ?? "stay_on_winner") as any,
+    paths: 4000,
+    seed: 1337, // deterministic → the same question twice gives the same odds
+    maxLossMode: (args.maxLossMode ?? "static") as "static" | "trailing",
+  };
+  const mc = runMonteCarlo(params);
+  const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
   return {
     ok: true,
     data: {
-      via,
-      sample: ids.length,
-      trade_ids: ids.slice(0, 100),
-      stats: stats ?? null,
-      groups,
-      low_confidence: ids.length < 20,
-      anecdotal: ids.length < 5,
-      note: "Always state the sample size (n) with any win rate or expectancy from this cohort.",
+      inputs: {
+        account_size: accountSize, accounts: params.numAccounts,
+        risk_per_trade: Math.round(riskFrac * accountSize),
+        risk_pct: Number((riskFrac * 100).toFixed(3)),
+        target: targetAmount, max_loss: maxLossAmount,
+        daily_loss: args.dailyLossAmount ?? null,
+        trades_per_day: params.tradesPerDay, max_days: params.maxDays,
+        rotation: params.rotationModel, max_loss_mode: params.maxLossMode,
+        r_sample_size: rSample.length, tiers,
+      },
+      cohort_facts: cohort?.facts ?? [],
+      results: {
+        pass_prob: mc.passProb, fail_prob: mc.failProb, inconclusive_prob: mc.inconclusiveProb,
+        risk_of_ruin: mc.riskOfRuin, avg_days_to_pass: mc.avgDaysToPass,
+        avg_drawdown_pct: mc.avgDrawdownPct, cvar5_pct: mc.cvar5Pct,
+        expected_return_pct: mc.expectedReturnPct,
+        geometric_growth_per_trade_pct: mc.geometricMeanGrowthPct,
+        account_survival_rate: mc.accountSurvivalRate,
+      },
+      facts: [
+        { id: "s1", text: `simulation | ${params.numAccounts} × $${accountSize} | risk $${Math.round(riskFrac * accountSize)}/trade | target $${targetAmount} | max loss $${maxLossAmount} | rotation ${params.rotationModel} | R sample n=${rSample.length} | ${mc.paths} paths` },
+        { id: "s2", text: `pass ${pct(mc.passProb)} (95% CI ${pct(mc.passProbCI[0])}–${pct(mc.passProbCI[1])}) | fail ${pct(mc.failProb)} | undecided in ${params.maxDays}d ${pct(mc.inconclusiveProb)}` },
+        { id: "s3", text: `at least one account busts ${pct(mc.riskOfRuin)} | mean drawdown ${mc.avgDrawdownPct.toFixed(1)}% | worst-5% final equity ${mc.cvar5Pct.toFixed(1)}% | geometric growth ${mc.geometricMeanGrowthPct.toFixed(3)}%/trade` },
+      ],
+      contract: "Quote these odds only by copying facts[].text verbatim. Never round or restate them yourself.",
     },
   };
 }
+
+
 
 
 // ---------- Dispatcher ----------
