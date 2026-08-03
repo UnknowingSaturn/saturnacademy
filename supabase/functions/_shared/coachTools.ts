@@ -387,93 +387,63 @@ async function tool_getTradeDetail(ctx: ToolExecCtx, args: any): Promise<ToolRes
   };
 }
 
-async function tool_getRecentPerformance(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
-  const days = Math.min(Math.max(Number(args.days ?? 30), 1), 730);
-  const since = new Date(Date.now() - days * 86400_000).toISOString();
-  const { data, error } = await ctx.admin
-    .from("trades").select(TRADE_SELECT)
-    .eq("user_id", ctx.userId).eq("is_open", false)
-    .gte("entry_time", since)
-    .limit(5000);
-  if (error) return { ok: false, error: error.message };
-  const rows = (data ?? []).map(normalizeTrade);
-  if (rows.length === 0) return { ok: true, data: { days, sample: 0, message: "No closed trades in this window." } };
+// ---------- The one statistics engine ----------
 
-  const bySymbol: Record<string, any[]> = {};
-  for (const t of rows) (bySymbol[t.symbol ?? "?"] ??= []).push(t);
-  const symbols = Object.entries(bySymbol)
-    .map(([symbol, list]) => ({ symbol, ...summarize(list) }))
-    .sort((a, b) => (b.grossR ?? 0) - (a.grossR ?? 0))
-    .slice(0, 10);
-
-  return { ok: true, data: { days, ...summarize(rows), symbols } };
+export interface CohortArgs {
+  tiers?: string[] | null;
+  playbook?: string;
+  symbol?: string;
+  session?: string;
+  direction?: string;
+  days?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  groupBy?: string;
+  trade_ids?: string[];
+  includeOpen?: boolean;
 }
 
-async function tool_getPlaybookStats(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
-  const { data: playbooks } = await ctx.admin
-    .from("playbooks").select("id, name").eq("user_id", ctx.userId).eq("is_active", true);
-  if (!playbooks || playbooks.length === 0) return { ok: true, data: { playbooks: [] } };
-  const target = args.playbookName
-    ? (playbooks as any[]).find((p) => p.name.toLowerCase() === String(args.playbookName).toLowerCase())
-    : null;
-  const ids = target ? [target.id] : (playbooks as any[]).map((p) => p.id);
-
-  const { data: trades, error } = await ctx.admin
-    .from("trades").select(`playbook_id, ${TRADE_SELECT}`)
-    .eq("user_id", ctx.userId).eq("is_open", false).in("playbook_id", ids).limit(5000);
-  if (error) return { ok: false, error: error.message };
-
-  const byId: Record<string, any[]> = {};
-  for (const t of (trades ?? []) as any[]) (byId[t.playbook_id] ??= []).push(normalizeTrade(t));
-  const out = (playbooks as any[])
-    .filter((p) => ids.includes(p.id) && (byId[p.id]?.length ?? 0) > 0)
-    .map((p) => ({ name: p.name, ...summarize(byId[p.id]) }))
-    .sort((a, b) => (b.expectancyR ?? -99) - (a.expectancyR ?? -99));
-  return { ok: true, data: { playbooks: out } };
+/** Calls public.journal_cohort. All Coach numbers originate here. */
+export async function runCohort(ctx: ToolExecCtx, a: CohortArgs) {
+  const explicitIds = Array.isArray(a.trade_ids) && a.trade_ids.length > 0;
+  const { data, error } = await ctx.admin.rpc("journal_cohort", {
+    _user_id: ctx.userId,
+    // With explicit ids the caller already picked the population, so do not
+    // silently drop raw-tier trades out of it.
+    _tiers: explicitIds ? null : (a.tiers === null ? null : (a.tiers ?? ["journaled", "partial"])),
+    _playbook: a.playbook ?? null,
+    _symbol: a.symbol ?? null,
+    _session: a.session ?? null,
+    _direction: a.direction ?? null,
+    _from: a.dateFrom ? new Date(a.dateFrom).toISOString() : null,
+    _to: a.dateTo ? new Date(`${a.dateTo}T23:59:59Z`).toISOString() : null,
+    _days: a.days != null ? Math.min(Math.max(Number(a.days), 1), 1460) : null,
+    _trade_ids: explicitIds ? a.trade_ids : null,
+    _group_by: a.groupBy ?? null,
+    _include_open: !!a.includeOpen,
+  });
+  if (error) throw new Error(`journal_cohort failed: ${error.message}`);
+  return data as any;
 }
 
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-async function tool_getBreakdown(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
-  const dim = String(args.dimension ?? "");
-  const needsReview = dim === "emotion_before" || dim === "regime";
-  const select = needsReview
-    ? `${TRADE_SELECT}, trade_reviews(emotional_state_before, regime)`
-    : TRADE_SELECT;
-  let q = ctx.admin.from("trades").select(select)
-    .eq("user_id", ctx.userId).eq("is_open", false).limit(5000);
-  if (args.days) {
-    const since = new Date(Date.now() - Math.min(Number(args.days), 730) * 86400_000).toISOString();
-    q = q.gte("entry_time", since);
-  }
-  const { data, error } = await q;
-  if (error) return { ok: false, error: error.message };
-
-  const groups: Record<string, any[]> = {};
-  for (const raw of (data ?? []) as any[]) {
-    const t = normalizeTrade(raw);
-    const rv = Array.isArray(raw.trade_reviews) ? raw.trade_reviews[0] : raw.trade_reviews;
-    const d = t.date ? new Date(t.date) : null;
-    let key: string;
-    switch (dim) {
-      case "symbol": key = t.symbol ?? "?"; break;
-      case "session": key = t.session ?? "unassigned"; break;
-      case "weekday": key = d ? WEEKDAYS[d.getUTCDay()] : "?"; break;
-      case "hour": key = d ? `${String(d.getUTCHours()).padStart(2, "0")}:00 UTC` : "?"; break;
-      case "direction": key = t.side ?? "?"; break;
-      case "playbook": key = t.playbook ?? "no playbook"; break;
-      case "emotion_before": key = rv?.emotional_state_before ?? "not logged"; break;
-      case "regime": key = rv?.regime ?? "not logged"; break;
-      default: return { ok: false, error: `Unsupported dimension: ${dim}` };
-    }
-    (groups[key] ??= []).push(t);
-  }
-
-  const rows = Object.entries(groups)
-    .map(([key, list]) => ({ key, ...summarize(list) }))
-    .sort((a, b) => (b.expectancyR ?? -99) - (a.expectancyR ?? -99));
-  return { ok: true, data: { dimension: dim, groups: rows, note: "Groups with sample < 20 are flagged low_confidence." } };
+async function tool_getStats(ctx: ToolExecCtx, args: any): Promise<ToolResult> {
+  const cohort = await runCohort(ctx, args ?? {});
+  const n = Number(cohort?.stats?.n ?? 0);
+  return {
+    ok: true,
+    data: {
+      ...cohort,
+      guidance: n === 0
+        ? "Empty cohort — say so plainly and quote nothing."
+        : n < 10
+        ? "Anecdotal (n<10): describe it as a hint, never as an edge, and do not prescribe rules from it."
+        : n < 30
+        ? "Indicative (n<30): state the sample size in the same sentence as any number."
+        : "Established sample. Still quote facts[] verbatim.",
+    },
+  };
 }
+
 
 async function tool_getOpenTrades(ctx: ToolExecCtx): Promise<ToolResult> {
   const { data, error } = await ctx.admin
