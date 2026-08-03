@@ -359,15 +359,13 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
         <div className="divide-y divide-border">
           {/* Render individual trades */}
           {sortedTrades.map((trade) => {
-            const result = getResultBadge(trade);
-            const day = getDayNameET(trade.entry_time);
             const isSelected = selectedIds.has(trade.id);
-            const tradeTypeInfo = getTradeTypeIcon(trade.trade_type);
             const isNonExecuted = trade.trade_type && trade.trade_type !== 'executed';
             const g = trade as any;
             const isGroup = g.isGrouped === true;
             const legs: Trade[] = g.legs ?? [];
             const isExpanded = isGroup && expandedGroups.has(trade.id);
+
 
             return (
               <div key={trade.id}>
