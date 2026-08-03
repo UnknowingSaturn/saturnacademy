@@ -109,6 +109,7 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
     source: trades("direction"),
     surfaces: ["table", "detail"],
     width: "minmax(70px, 0.7fr)",
+    renderKey: "direction",
   }),
   core({
     key: "net_pnl",
