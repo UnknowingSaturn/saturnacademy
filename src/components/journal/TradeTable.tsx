@@ -583,10 +583,11 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                   if (!field) return <div key={key} className="text-sm text-muted-foreground truncate">—</div>;
                   return (
                     <div key={key} className="min-w-0" onClick={(e) => {
-                      if (field.valueType === 'readonly' || field.valueType === 'computed') {
+                      if (field.valueType === 'readonly' || field.source.kind === 'computed') {
                         e.stopPropagation();
                       }
                     }}>
+
                       <FieldCell
                         field={field}
                         trade={trade}
