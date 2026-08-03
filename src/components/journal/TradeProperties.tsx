@@ -2,26 +2,18 @@ import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, R
 import { useUpdateTrade, useUpsertTradeReview } from "@/hooks/useTrades";
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useAccounts } from "@/hooks/useAccounts";
-import { usePropertyOptions, useUserSettings, useSessionLookup } from "@/hooks/useUserSettings";
+import { useUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
-import {
-  DETAIL_FIELD_CATALOG,
-  DEFAULT_DETAIL_FIELD_ORDER,
-  DEFAULT_DETAIL_VISIBLE_FIELDS,
-  DetailFieldDef,
-  CustomFieldDefinition,
-  customFieldToColumn,
-  resolveFieldLabel,
-} from "@/types/settings";
+import { buildFieldRegistry, getFieldDef, resolveFieldLabel } from "@/lib/journalFields/registry";
+import { FieldCell } from "@/lib/journalFields/FieldCell";
 import { cn } from "@/lib/utils";
 import { formatFullDateTimeET, getDayNameET } from "@/lib/time";
-import { BadgeSelect } from "./BadgeSelect";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CustomFieldCell } from "./CustomFieldCell";
-import { Calendar, Clock, TrendingUp, TrendingDown, DollarSign, Target, Hash, Wallet, Layers } from "lucide-react";
-import { getAllCloseFills, getWeightedAvgExitPrice, hasMultipleCloses, getRealPartialCloses } from "@/lib/tradeMath";
-import { useMemo, useState } from "react";
+import { Calendar, Clock, DollarSign, Target, Hash, Wallet, Layers, TrendingUp, TrendingDown } from "lucide-react";
+import { getAllCloseFills, getWeightedAvgExitPrice, hasMultipleCloses } from "@/lib/tradeMath";
+import { useMemo } from "react";
 import { Input } from "@/components/ui/input";
 
 interface TradePropertiesProps {
@@ -32,15 +24,6 @@ interface TradePropertiesProps {
   /** Pre-aggregated group view (sum P&L, sum lots, VWAP prices). Provided by
    *  useTradeGroup; falls back to `trade` for single-leg trades. */
   aggregate?: Trade;
-}
-
-// Hour-setup landscape options live in a shared module so the journal table,
-// the detail sidebar, and the Pair Lab read the same labels / colors.
-
-// Convert user PropertyOption rows into BadgeSelect option shape
-function toBadgeOptions(rows?: { value: string; label: string; color: string }[]) {
-  if (!rows || rows.length === 0) return [];
-  return rows.map(r => ({ value: r.value, label: r.label, customColor: r.color, color: "primary" }));
 }
 
 export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps) {
@@ -79,71 +62,7 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const { data: settings } = useUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
 
-  // User-editable property dropdowns (from Settings → Fields). Only active options surface here.
-  const { data: profileOpts } = usePropertyOptions("profile", true);
-  const { data: regimeOpts } = usePropertyOptions("regime", true);
-  const { data: timeframeOpts } = usePropertyOptions("timeframe", true);
-  const { data: entryTimeframeOpts } = usePropertyOptions("entry_timeframe", true);
-  const { data: emotionOpts } = usePropertyOptions("emotion", true);
-  const { options: sessionLookupOptions } = useSessionLookup();
-
   const isManualTrade = !trade.ticket;
-
-  const accountOptions = useMemo(() => {
-    if (!accounts) return [];
-    return accounts.map(acc => ({ value: acc.id, label: acc.name, color: "primary" }));
-  }, [accounts]);
-
-  const optionsByProperty = useMemo(() => ({
-    profile: toBadgeOptions(profileOpts),
-    regime: toBadgeOptions(regimeOpts),
-    session: sessionLookupOptions,
-    timeframe: toBadgeOptions(timeframeOpts),
-    entry_timeframe: toBadgeOptions(entryTimeframeOpts),
-    emotion: toBadgeOptions(emotionOpts),
-  }), [profileOpts, regimeOpts, sessionLookupOptions, timeframeOpts, entryTimeframeOpts, emotionOpts]);
-
-  const modelOptions = useMemo(() => {
-    if (!playbooks) return [];
-    return playbooks.map(pb => ({
-      value: pb.id,
-      label: pb.name,
-      customColor: pb.color || undefined,
-      color: "primary",
-      description: pb.description || undefined,
-    }));
-  }, [playbooks]);
-
-  // Resolve the user's preferred field order (or defaults), and which fields are visible.
-  const fieldOrder = useMemo<string[]>(() => {
-    const userOrder = settings?.detail_field_order?.length ? settings.detail_field_order : DEFAULT_DETAIL_FIELD_ORDER;
-    const customKeys = customFields.filter(f => f.is_active).map(f => f.key);
-    const known = new Set([...DEFAULT_DETAIL_FIELD_ORDER, ...customKeys]);
-    const deletedSet = new Set(settings?.deleted_system_fields || []);
-    const seen = new Set<string>();
-    const ordered: string[] = [];
-    for (const key of userOrder) {
-      if (deletedSet.has(key)) continue;
-      if (known.has(key) && !seen.has(key)) { ordered.push(key); seen.add(key); }
-    }
-    for (const key of [...DEFAULT_DETAIL_FIELD_ORDER, ...customKeys]) {
-      if (deletedSet.has(key)) continue;
-      if (!seen.has(key)) ordered.push(key);
-    }
-    return ordered;
-  }, [settings?.detail_field_order, settings?.deleted_system_fields, customFields]);
-
-  const visibleSet = useMemo(() => {
-    if (!settings) return new Set(DEFAULT_DETAIL_VISIBLE_FIELDS);
-    if (settings.detail_visible_fields.length === 0) {
-      return new Set([...DEFAULT_DETAIL_VISIBLE_FIELDS, ...customFields.filter(f => f.is_active).map(f => f.key)]);
-    }
-    return new Set(settings.detail_visible_fields);
-  }, [settings, customFields]);
-
-  const overrides = settings?.field_label_overrides || {};
-  const labelFor = (key: string, fallback: string) => resolveFieldLabel(key, fallback, overrides);
-
 
   // Read Quality computation (only relevant if model+regime+profile fields are present)
   const readQuality = useMemo(() => {
@@ -160,14 +79,11 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
     return { label: "Partial", variant: "outline" as const, tone: "breakeven" };
   }, [trade.playbook_id, trade.actual_playbook_id, trade.profile, trade.actual_profile, trade.review?.regime, trade.actual_regime]);
 
-  // Headline P&L uses the group aggregate so multi-leg positions show
-  // cumulative net_pnl, not just the leader's slice.
   const pnl = agg.net_pnl || 0;
   const isWin = pnl > 0;
   const isLoss = pnl < 0;
   const totalLotsAgg = agg.original_lots ?? agg.total_lots ?? trade.original_lots ?? trade.total_lots;
 
-  // Memoize partial-close fills: every consumer (Closes block, Lots row, Avg Exit) reads from this.
   const fills = useMemo(() => getAllCloseFills(trade), [
     trade.partial_closes, trade.exit_price, trade.exit_time,
     trade.original_lots, trade.gross_pnl, trade.is_open, trade.total_lots,
@@ -175,318 +91,83 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const hasMultiple = fills.length > 1;
   const avgExit = useMemo(() => (hasMultiple ? getWeightedAvgExitPrice(trade) : null), [hasMultiple, trade]);
 
-  // Renderers per kind. Returns a JSX node OR null to skip.
+  const layout = settings?.journal_field_layout;
+  const allFields = buildFieldRegistry(customFields, accounts ?? []);
+  const allFieldMap = useMemo(() => new Map(allFields.map((f) => [f.key, f])), [allFields]);
+  const overrides = settings?.field_label_overrides || {};
+
+  const groups = layout?.detail?.groups ?? [];
+
   const renderField = (key: string) => {
-    if (!visibleSet.has(key)) return null;
-
-    const sysDef = DETAIL_FIELD_CATALOG.find(f => f.key === key);
-    if (sysDef) return renderSystemField(sysDef);
-
-    const customDef = customFields.find(f => f.key === key && f.is_active);
-    if (customDef) {
-      return (
-        <PropertyRow key={key} label={labelFor(key, customDef.label)}>
-          <CustomFieldCell trade={trade} field={customDef} />
-        </PropertyRow>
-      );
-    }
-    return null;
+    const field = allFieldMap.get(key) || getFieldDef(key);
+    if (!field) return null;
+    const label = resolveFieldLabel(key, field.label, overrides);
+    return (
+      <PropertyRow key={key} label={label}>
+        <FieldCell
+          field={field}
+          trade={trade}
+          surface="detail"
+          legIds={legIds}
+          accounts={accounts}
+          playbooks={playbooks}
+        />
+      </PropertyRow>
+    );
   };
-
-  const renderSystemField = (def: DetailFieldDef) => {
-    switch (def.key) {
-      case 'status':
-        return (
-          <div key="status" className="flex items-center gap-2 text-xs flex-wrap">
-            <Badge variant={trade.is_open ? "outline" : isWin ? "default" : "destructive"}>
-              {trade.is_open ? "OPEN" : isWin ? "WIN" : isLoss ? "LOSS" : "BE"}
-            </Badge>
-            {trade.trade_number && <span className="text-muted-foreground">#{trade.trade_number}</span>}
-            {readQuality && (
-              <Badge
-                variant={readQuality.variant}
-                className={cn(
-                  readQuality.tone === "profit" && "bg-profit/20 text-profit hover:bg-profit/30 border-transparent",
-                  readQuality.tone === "breakeven" && "bg-breakeven/20 text-breakeven hover:bg-breakeven/30 border-breakeven/30",
-                )}
-                title="Read Quality: how closely your planned thesis matched the actual setup"
-              >
-                Read: {readQuality.label}
-              </Badge>
-            )}
-          </div>
-        );
-      case 'account':
-        if (!isManualTrade) return null;
-        return (
-          <PropertyRow key="account" icon={<Wallet className="w-3.5 h-3.5" />} label={labelFor('account', 'Account')}>
-            <BadgeSelect
-              value={trade.account_id || ""}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, account_id: (v as string) || null })}
-              options={accountOptions}
-              placeholder="Select..."
-            />
-          </PropertyRow>
-        );
-      case 'symbol':
-        return (
-          <PropertyRow key="symbol" icon={<Hash className="w-3.5 h-3.5" />} label={labelFor('symbol', 'Pair')}>
-            <span className="font-semibold">{trade.symbol}</span>
-          </PropertyRow>
-        );
-      case 'day':
-        return (
-          <PropertyRow key="day" icon={<Calendar className="w-3.5 h-3.5" />} label={labelFor('day', 'Day')}>
-            <span>{getDayNameET(trade.entry_time)}</span>
-          </PropertyRow>
-        );
-      case 'entry_time':
-        return (
-          <PropertyRow key="entry_time" icon={<Clock className="w-3.5 h-3.5" />} label={labelFor('entry_time', 'Date (ET)')}>
-            <span>{formatFullDateTimeET(trade.entry_time)}</span>
-          </PropertyRow>
-        );
-      case 'direction':
-        return (
-          <PropertyRow
-            key="direction"
-            icon={trade.direction === "buy" ? <TrendingUp className="w-3.5 h-3.5 text-profit" /> : <TrendingDown className="w-3.5 h-3.5 text-loss" />}
-            label={labelFor('direction', 'Direction')}
-          >
-            <span className={cn("font-semibold uppercase", trade.direction === "buy" ? "text-profit" : "text-loss")}>
-              {trade.direction}
-            </span>
-          </PropertyRow>
-        );
-      case 'net_pnl':
-        return (
-          <PropertyRow key="net_pnl" icon={<DollarSign className="w-3.5 h-3.5" />} label={labelFor('net_pnl', 'P&L')}>
-            <span className={cn("font-mono-numbers font-bold", isWin && "text-profit", isLoss && "text-loss")}>
-              {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
-            </span>
-          </PropertyRow>
-        );
-      case 'r_multiple_actual': {
-        // Always resolve the equity base from the trade's OWN account — never
-        // from a globally-selected or aggregate balance. Prefer the snapshot
-        // captured at entry time; fall back to that same account's current
-        // equity, then its static starting balance.
-        const tradeAccount = accounts?.find(a => a.id === trade.account_id);
-        const equityBase =
-          trade.equity_at_entry ??
-          trade.balance_at_entry ??
-          tradeAccount?.equity_current ??
-          tradeAccount?.balance_start ??
-          null;
-        const accountPct =
-          agg.net_pnl != null && equityBase && Number(equityBase) > 0
-            ? (Number(agg.net_pnl) / Number(equityBase)) * 100
-            : null;
-        return (
-          <PropertyRow key="r_multiple_actual" icon={<Target className="w-3.5 h-3.5" />} label={labelFor('r_multiple_actual', '% of Account')}>
-            <span
-              className={cn(
-                "font-mono-numbers font-bold",
-                accountPct != null && accountPct >= 0 && "text-profit",
-                accountPct != null && accountPct < 0 && "text-loss"
-              )}
-            >
-              {accountPct != null
-                ? `${accountPct >= 0 ? "+" : ""}${accountPct.toFixed(2)}%`
-                : "—"}
-            </span>
-          </PropertyRow>
-        );
-      }
-      case 'emotional_state_before':
-        return (
-          <PropertyRow key="emotional_state_before" label={labelFor('emotional_state_before', 'Emotion')}>
-            <BadgeSelect
-              value={trade.review?.emotional_state_before || ""}
-              onChange={(v) => upsertReview.mutateAsync({
-                review: { trade_id: trade.id, emotional_state_before: v as EmotionalState },
-                silent: true,
-              })}
-              options={optionsByProperty.emotion}
-              placeholder="Select..."
-            />
-          </PropertyRow>
-        );
-      case 'session':
-        return (
-          <PropertyRow key="session" label={labelFor('session', 'Session')}>
-            <BadgeSelect
-              value={trade.session || ""}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, session: (v as SessionType) || null })}
-              options={optionsByProperty.session}
-              placeholder="Select..."
-            />
-          </PropertyRow>
-        );
-      case 'model':
-        return (
-          <PropertyRow key="model" label={labelFor('model', 'Planned Model')}>
-            <BadgeSelect
-              value={trade.playbook_id || ""}
-              onChange={async (v) => {
-                const playbookId = v as string;
-                await updateTrade.mutateAsync({ id: trade.id, playbook_id: playbookId || null });
-                const selected = playbooks?.find(p => p.id === playbookId);
-                if (selected?.valid_regimes?.length === 1 && !trade.review?.regime) {
-                  upsertReview.mutateAsync({
-                    review: { trade_id: trade.id, regime: selected.valid_regimes[0] as RegimeType },
-                    silent: true,
-                  });
-                }
-              }}
-              options={modelOptions}
-              placeholder="Select..."
-            />
-          </PropertyRow>
-        );
-      case 'actual_model':
-        return (
-          <PropertyRow key="actual_model" label={labelFor('actual_model', 'Actual Model')}>
-            <BadgeSelect
-              value={trade.actual_playbook_id || ""}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, actual_playbook_id: (v as string) || null })}
-              options={modelOptions}
-              placeholder="Select..."
-            />
-          </PropertyRow>
-        );
-      case 'profile':
-        return (
-          <PropertyRow key="profile" label={labelFor('profile', 'Planned Profile')}>
-            <BadgeSelect
-              value={trade.profile || ""}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, profile: (v as TradeProfile) || null })}
-              options={optionsByProperty.profile}
-              placeholder="Select..."
-            />
-          </PropertyRow>
-        );
-      case 'actual_profile':
-        return (
-          <PropertyRow key="actual_profile" label={labelFor('actual_profile', 'Actual Profile')}>
-            <BadgeSelect
-              value={(trade.actual_profile as string) || ""}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, actual_profile: ((v as string) || null) as TradeProfile | null })}
-              options={optionsByProperty.profile}
-              placeholder="Select..."
-            />
-          </PropertyRow>
-        );
-      case 'regime':
-        return (
-          <PropertyRow key="regime" label={labelFor('regime', 'Planned Regime')}>
-            <BadgeSelect
-              value={trade.review?.regime || ""}
-              onChange={(v) => upsertReview.mutateAsync({
-                review: { trade_id: trade.id, regime: v as RegimeType },
-                silent: true,
-              })}
-              options={optionsByProperty.regime}
-              placeholder="Select..."
-            />
-          </PropertyRow>
-        );
-      case 'actual_regime':
-        return (
-          <PropertyRow key="actual_regime" label={labelFor('actual_regime', 'Actual Regime')}>
-            <BadgeSelect
-              value={(trade.actual_regime as string) || ""}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, actual_regime: ((v as string) || null) as RegimeType | null })}
-              options={optionsByProperty.regime}
-              placeholder="Select..."
-            />
-          </PropertyRow>
-        );
-      case 'alignment':
-        return (
-          <PropertyRow key="alignment" label={labelFor('alignment', 'HTF Timeframes')}>
-            <BadgeSelect
-              value={trade.alignment || []}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, alignment: v as TimeframeAlignment[] })}
-              options={optionsByProperty.timeframe}
-              placeholder="Select..."
-              multiple
-            />
-          </PropertyRow>
-        );
-      case 'entry_timeframes':
-        return (
-          <PropertyRow key="entry_timeframes" label={labelFor('entry_timeframes', 'Entry Timeframes')}>
-            <BadgeSelect
-              value={trade.entry_timeframes || []}
-              onChange={(v) => updateTrade.mutateAsync({ id: trade.id, entry_timeframes: v as TimeframeAlignment[] })}
-              options={optionsByProperty.entry_timeframe}
-              placeholder="Select..."
-              multiple
-            />
-          </PropertyRow>
-        );
-      case 'place':
-        return (
-          <PropertyRow key="place" label={labelFor('place', 'Place')}>
-            <PlaceEditor
-              value={trade.place || ""}
-              onSave={(v) => updateTrade.mutateAsync({ id: trade.id, place: v || null })}
-            />
-          </PropertyRow>
-        );
-      case 'closes': {
-        if (fills.length < 2) return null;
-        return (
-          <div key="closes" className="space-y-1.5">
-            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5" />
-              {labelFor('closes', 'Closes')} <span className="text-[10px]">({fills.length} fills)</span>
-            </div>
-            <div className="rounded-md border border-border/50 divide-y divide-border/50 overflow-hidden">
-              {fills.map((f, i) => (
-                <div key={i} className="flex items-center justify-between px-2 py-1.5 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono-numbers font-medium">{f.lots.toFixed(2)}</span>
-                    <span className="text-muted-foreground">@</span>
-                    <span className="font-mono-numbers">{f.price}</span>
-                    {f.isFinal && <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">final</Badge>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={cn("font-mono-numbers font-semibold", f.pnl > 0 && "text-profit", f.pnl < 0 && "text-loss")}>
-                      {f.pnl >= 0 ? "+" : ""}${f.pnl.toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">{formatFullDateTimeET(f.time)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      }
-      default:
-        return null;
-    }
-  };
-
-  const renderedRows = fieldOrder.map(renderField).filter(Boolean);
 
   return (
     <div className="space-y-4">
       <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Properties</div>
 
-      <div className="space-y-3">{renderedRows}</div>
+      {/* Status row — always visible at the top */}
+      <div className="flex items-center gap-2 text-xs flex-wrap">
+        <Badge variant={trade.is_open ? "outline" : isWin ? "default" : "destructive"}>
+          {trade.is_open ? "OPEN" : isWin ? "WIN" : isLoss ? "LOSS" : "BE"}
+        </Badge>
+        {trade.trade_number && <span className="text-muted-foreground">#{trade.trade_number}</span>}
+        {readQuality && (
+          <Badge
+            variant={readQuality.variant}
+            className={cn(
+              readQuality.tone === "profit" && "bg-profit/20 text-profit hover:bg-profit/30 border-transparent",
+              readQuality.tone === "breakeven" && "bg-breakeven/20 text-breakeven hover:bg-breakeven/30 border-breakeven/30",
+            )}
+            title="Read Quality: how closely your planned thesis matched the actual setup"
+          >
+            Read: {readQuality.label}
+          </Badge>
+        )}
+      </div>
+
+      {/* User-defined groups from Notion-style layout */}
+      <div className="space-y-5">
+        {groups.map((group) => {
+          const visibleFields = group.fields.filter((k) => {
+            const f = allFieldMap.get(k) || getFieldDef(k);
+            return f && (f.group !== "custom" || customFields.some((cf) => cf.key === k && cf.is_active));
+          });
+          if (visibleFields.length === 0) return null;
+          return (
+            <div key={group.id} className="space-y-3">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                {group.label}
+              </div>
+              <div className="space-y-3">
+                {visibleFields.map(renderField)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       <Separator />
 
-      {/* Trade Details — always shown (raw price/lots data).
-          In a grouped trade these are the LEADER leg's values; aggregate
-          totals live above (P&L, % of Account, Lots). */}
+      {/* Trade Details — always shown (raw price/lots data). */}
       <div className="space-y-2 text-xs">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Trade Details</div>
         <div className="flex justify-between">
-          <span className="text-muted-foreground">
-            Entry Price{isGroup ? " (leader leg)" : ""}
-          </span>
+          <span className="text-muted-foreground">Entry Price{isGroup ? " (leader leg)" : ""}</span>
           <span className="font-mono-numbers">{trade.entry_price}</span>
         </div>
         {trade.exit_price && (
