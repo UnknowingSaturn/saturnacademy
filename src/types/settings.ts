@@ -18,6 +18,20 @@ export interface ColumnOverride {
   width?: string;
 }
 
+export interface JournalFieldLayout {
+  table: {
+    order: string[];
+    hidden: string[];
+  };
+  detail: {
+    order: string[];
+    hidden: string[];
+    groups: { id: string; label: string; fields: string[] }[];
+  };
+  removed: string[];
+  labels: Record<string, string>;
+}
+
 export interface UserSettings {
   id: string;
   user_id: string;
@@ -38,6 +52,9 @@ export interface UserSettings {
   // These are excluded from active table + detail layouts and from the normal
   // hidden-fields restore list, but can be brought back from the Deleted area.
   deleted_system_fields: string[];
+  // Unified journal field layout (new registry). When empty/invalid, back-filled
+  // from the legacy columns above.
+  journal_field_layout: JournalFieldLayout;
   created_at: string;
   updated_at: string;
 }

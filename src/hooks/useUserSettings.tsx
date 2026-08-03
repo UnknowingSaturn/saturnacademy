@@ -9,6 +9,8 @@ import {
 import { toast } from "sonner";
 import { useEffect, useMemo, useRef } from "react";
 import { setDisplayTimezone } from "@/lib/time";
+import { normalizeLayout } from "@/lib/journalFields/layout";
+
 
 // Legacy → canonical key map for label/override records (mirrors migrateDetailKeys).
 const LEGACY_KEY_MAP: Record<string, string> = {
@@ -50,6 +52,14 @@ const transformSettings = (row: any): UserSettings => ({
   detail_section_order: (row.detail_section_order as string[]) || [],
   field_label_overrides: migrateKeyedRecord(row.field_label_overrides as Record<string, string>),
   deleted_system_fields: migrateKeyList(row.deleted_system_fields as string[]),
+  journal_field_layout: normalizeLayout(row.journal_field_layout, {
+    visible_columns: row.visible_columns,
+    column_order: row.column_order,
+    detail_visible_fields: row.detail_visible_fields,
+    detail_field_order: row.detail_field_order,
+    deleted_system_fields: row.deleted_system_fields,
+    field_label_overrides: row.field_label_overrides,
+  }),
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -118,6 +128,7 @@ export function useUserSettings() {
           detail_section_order: [],
           field_label_overrides: {},
           deleted_system_fields: [],
+          journal_field_layout: normalizeLayout(null, {}),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as UserSettings;
@@ -160,6 +171,7 @@ export function useUpdateUserSettings() {
       if (updates.detail_section_order !== undefined) dbUpdates.detail_section_order = updates.detail_section_order as any;
       if (updates.field_label_overrides !== undefined) dbUpdates.field_label_overrides = updates.field_label_overrides as any;
       if (updates.deleted_system_fields !== undefined) dbUpdates.deleted_system_fields = updates.deleted_system_fields as any;
+      if (updates.journal_field_layout !== undefined) dbUpdates.journal_field_layout = updates.journal_field_layout as any;
 
       // Check if settings exist
       const { data: existing } = await supabase
