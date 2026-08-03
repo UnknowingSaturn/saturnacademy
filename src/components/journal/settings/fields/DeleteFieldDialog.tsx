@@ -9,7 +9,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CustomFieldDefinition, resolveFieldLabel } from "@/types/settings";
+import { fieldDependents, getFieldDef } from "@/lib/journalFields/registry";
+import { AlertTriangle } from "lucide-react";
 import type { FieldRow } from "./constants";
+
 
 export type DeleteTarget =
   | { kind: "system-soft"; field: FieldRow }
@@ -33,9 +36,27 @@ export function DeleteFieldDialog({
   target, overrides, customEraseCount, systemEraseCount,
   eraseAlongDelete, onEraseAlongDeleteChange, onClose, onConfirm,
 }: Props) {
+  const dependents =
+    target && (target.kind === "system-soft" || target.kind === "system-erasable")
+      ? fieldDependents(getFieldDef(target.field.key))
+      : [];
+
   return (
     <AlertDialog open={!!target} onOpenChange={(o) => !o && onClose()}>
       <AlertDialogContent>
+        {dependents.length > 0 && (
+          <div className="flex items-start gap-2 p-3 rounded-md border border-amber-500/40 bg-amber-500/10 text-sm order-first">
+            <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-500 shrink-0" />
+            <div>
+              <div className="font-medium">This field feeds other analysis</div>
+              <div className="text-xs text-muted-foreground">
+                {dependents.join(", ")} read this field. Existing data is kept, but you will not be
+                able to record it on new trades.
+              </div>
+            </div>
+          </div>
+        )}
+
         {target?.kind === "system-soft" && (
           <>
             <AlertDialogHeader>
