@@ -23,10 +23,22 @@ export type FieldValueType =
 
 export type FieldSurface = "table" | "detail";
 
+/**
+ * How freely a field can be removed from the journal.
+ * - `locked`   — identity / P&L fields. Can be hidden, renamed, reordered; never removed.
+ * - `analytics`— Pair Lab, reports and the Coach read these. Removable, but the
+ *                delete dialog names the surfaces that go blank.
+ * - `free`     — journaling extras nothing computes on. Removable with no warning.
+ */
+export type FieldTier = "locked" | "analytics" | "free";
+
 export interface FieldDef {
   key: string;
   label: string;
   group: "core" | "system" | "custom";
+  tier: FieldTier;
+  /** Human-readable surfaces that break when an `analytics` field is removed. */
+  dependents?: string[];
   valueType: FieldValueType;
   source: FieldSource;
   editor?: FieldValueType;
@@ -42,22 +54,31 @@ export interface FieldDef {
   alignCenter?: boolean;
 }
 
-// Core fields cannot be removed, only hidden/renamed.
-const core = (def: Omit<FieldDef, "group" | "erasable">): FieldDef => ({
+// Locked fields cannot be removed, only hidden/renamed.
+const core = (def: Omit<FieldDef, "group" | "erasable" | "tier"> & { tier?: FieldTier; erasable?: boolean }): FieldDef => ({
   ...def,
   group: "core",
-  erasable: false,
+  tier: def.tier ?? "locked",
+  erasable: def.erasable ?? false,
 });
 
-const system = (def: Omit<FieldDef, "group" | "erasable"> & { erasable?: boolean }): FieldDef => ({
+const system = (
+  def: Omit<FieldDef, "group" | "erasable" | "tier"> & { erasable?: boolean; tier?: FieldTier }
+): FieldDef => ({
   ...def,
   group: "system",
+  tier: def.tier ?? "free",
   erasable: def.erasable ?? true,
 });
 
 const computed = (id: string): FieldSource => ({ kind: "computed", id });
 const trades = (column: string): FieldSource => ({ kind: "trades", column });
 const reviews = (column: string): FieldSource => ({ kind: "trade_reviews", column });
+
+const PAIR_LAB = "Pair Lab breakdowns";
+const REPORTS = "Weekly reports";
+const COACH = "Coach cohort stats";
+
 
 export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   // ── Core / calculated fields ───────────────────────────────────────────────
