@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Trade } from "@/types/trading";
 import { cn } from "@/lib/utils";
 import { FieldDef, FieldValueType } from "./registry";
@@ -11,33 +11,61 @@ import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { usePropertyOptions, useSessionLookup } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { useUpdateTrade, useUpsertTradeReview } from "@/hooks/useTrades";
-import { formatDateET, formatTimeET } from "@/lib/time";
-import { useState } from "react";
+import { formatDateET, formatTimeET, getDayNameET } from "@/lib/time";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { Lightbulb, FileText, Clock, Layers, RefreshCw, Wrench } from "lucide-react";
+import { getRealPartialCloses } from "@/lib/tradeMath";
 
 interface FieldCellProps {
   field: FieldDef;
   trade: Trade;
   surface: "table" | "detail";
-  /** Called when the row click should be suppressed (e.g. inline edits). */
-  onSuppressClick?: (suppressed: boolean) => void;
-  /** If this cell is being edited inside a group leader, call this for every leg. */
+  /** Optional list of trade ids in the same group. When provided, edits apply to all legs. */
   legIds?: string[];
   accounts?: import("@/types/trading").Account[];
   playbooks?: import("@/types/trading").Playbook[];
+  /** Passed in from TradeTable context to render group/leg expand info. */
+  isGroup?: boolean;
+  legs?: Trade[];
+  isExpanded?: boolean;
+  toggleExpand?: () => void;
 }
 
 export function FieldCell({
   field,
   trade,
   surface,
-  onSuppressClick,
   legIds,
   accounts,
   playbooks,
+  isGroup,
+  legs,
+  isExpanded,
+  toggleExpand,
 }: FieldCellProps) {
-  // Special renderers that are too visual to fit the generic valueType path.
+  // RenderKey overrides are for complex cells that cannot be inferred from valueType.
   if (field.renderKey) {
-    return <SpecialCell renderKey={field.renderKey} field={field} trade={trade} surface={surface} />;
+    return (
+      <SpecialCell
+        renderKey={field.renderKey}
+        field={field}
+        trade={trade}
+        surface={surface}
+        isGroup={isGroup}
+        legs={legs}
+        isExpanded={isExpanded}
+        toggleExpand={toggleExpand}
+      />
+    );
   }
 
   const valueType = field.editor ?? field.valueType;
@@ -58,29 +86,57 @@ export function FieldCell({
     return <TextCell field={field} trade={trade} surface={surface} legIds={legIds} />;
   }
 
-  // Readonly / computed / badge / money / percent / number / duration / date — just display.
-  const { display, sortable } = resolveDisplay(trade, field);
-  return <DisplayCell display={display} field={field} />;
-}
-
-function DisplayCell({ display, field }: { display: string | null; field: FieldDef }) {
-  const alignClass = cn(
-    field.alignRight && "text-right",
-    field.alignCenter && "text-center"
-  );
-
-  if (field.valueType === "money" || field.valueType === "percent" || field.valueType === "number") {
-    const resolved = resolveDisplay as any; // we already have display string
-    return (
-      <div className={cn("text-sm font-mono-numbers", alignClass)}>
-        {display ?? "—"}
-      </div>
-    );
+  if (valueType === "date") {
+    return <DateCell trade={trade} />;
   }
 
+  if (valueType === "duration") {
+    return <DurationCell trade={trade} field={field} />;
+  }
+
+  // Readonly / computed / badge / money / percent / number
+  const { display } = resolveDisplay(trade, field);
+  const alignClass = cn(
+    field.alignRight && "text-right",
+    field.alignCenter && "text-center",
+    (field.valueType === "money" || field.valueType === "number" || field.valueType === "percent") && "font-mono-numbers"
+  );
+  const colorClass = useNumberColorClass(trade, field, readFieldValue(trade, field));
+
   return (
-    <div className={cn("text-sm text-muted-foreground", alignClass)}>
+    <div className={cn("text-sm", alignClass, colorClass)}>
       {display ?? "—"}
+    </div>
+  );
+}
+
+function useNumberColorClass(trade: Trade, field: FieldDef, raw: unknown): string {
+  if (field.valueType === "money" || field.valueType === "number" || field.valueType === "percent") {
+    const n = Number(raw);
+    if (n > 0) return "text-profit";
+    if (n < 0) return "text-loss";
+  }
+  return "";
+}
+
+function DateCell({ trade }: { trade: Trade }) {
+  return (
+    <div className="text-sm">
+      <div className="font-medium">{formatDateET(trade.entry_time)}</div>
+      <div className="text-xs text-muted-foreground">{formatTimeET(trade.entry_time)}</div>
+    </div>
+  );
+}
+
+function DurationCell({ trade, field }: { trade: Trade; field: FieldDef }) {
+  const raw = readFieldValue(trade, field);
+  const duration = Number(raw);
+  if (!duration) return <div className="text-sm text-muted-foreground">—</div>;
+  const hours = Math.floor(duration / 3600);
+  const minutes = Math.floor((duration % 3600) / 60);
+  return (
+    <div className="text-sm text-muted-foreground">
+      {hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`}
     </div>
   );
 }
@@ -90,6 +146,19 @@ function CustomFieldCellWrapper({ trade, fieldKey }: { trade: Trade; fieldKey: s
   const def = customFields.find((f) => f.key === fieldKey);
   if (!def) return <div className="text-sm text-muted-foreground">—</div>;
   return <CustomFieldCell trade={trade} field={def} />;
+}
+
+function useLegMutate<T extends (args: any) => Promise<any>>(
+  mutate: T,
+  legIds?: string[]
+): (args: any) => Promise<any> {
+  return useMemo(() => {
+    if (!legIds || legIds.length === 0) return mutate;
+    return async (args: any) => {
+      const { id, ...patch } = args;
+      return Promise.all(legIds.map((lid) => mutate({ id: lid, ...patch } as any)));
+    };
+  }, [mutate, legIds]);
 }
 
 function AccountCell({
@@ -109,13 +178,8 @@ function AccountCell({
   const accountList = accounts ?? accountsData ?? [];
   const account = accountList.find((a) => a.id === trade.account_id);
   const updateTrade = useUpdateTrade();
-  const mutate = useMemo(() => {
-    if (!legIds || legIds.length === 0) return updateTrade.mutateAsync;
-    return async (args: { id: string } & Partial<Trade>) => {
-      const { id, ...patch } = args;
-      return Promise.all(legIds.map((lid) => updateTrade.mutateAsync({ id: lid, ...patch } as any)));
-    };
-  }, [updateTrade, legIds]);
+  const mutate = useLegMutate(updateTrade.mutateAsync, legIds);
+  const pending = trade.is_open && account?.live_state === "dormant";
 
   if (surface === "detail") {
     const options = accountList.map((a) => ({ value: a.id, label: a.name, color: "primary" as const }));
@@ -136,8 +200,24 @@ function AccountCell({
   }
 
   return (
-    <div className="text-sm text-muted-foreground truncate">
-      {account?.name ?? "—"}
+    <div className="text-sm text-muted-foreground truncate flex items-center gap-1.5">
+      <span className="truncate">{account?.name ?? "—"}</span>
+      {pending && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap">
+                ⏸ Pending verification
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p className="text-xs">
+                No EA heartbeat for this account. Log into <strong>{account?.name}</strong> in MT5 to confirm or close this position.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
     </div>
   );
 }
@@ -159,13 +239,7 @@ function PlaybookCell({
   const list = playbooks ?? playbooksData ?? [];
   const updateTrade = useUpdateTrade();
   const upsertReview = useUpsertTradeReview();
-  const mutate = useMemo(() => {
-    if (!legIds || legIds.length === 0) return updateTrade.mutateAsync;
-    return async (args: { id: string } & Partial<Trade>) => {
-      const { id, ...patch } = args;
-      return Promise.all(legIds.map((lid) => updateTrade.mutateAsync({ id: lid, ...patch } as any)));
-    };
-  }, [updateTrade, legIds]);
+  const mutate = useLegMutate(updateTrade.mutateAsync, legIds);
 
   const column = field.source.kind === "trades" ? field.source.column : null;
   const value = column ? (trade as any)[column] : null;
@@ -193,7 +267,7 @@ function PlaybookCell({
   };
 
   return (
-    <div className={surface === "table" ? "" : "text-sm"}>
+    <div className={surface === "table" ? "" : "text-sm"} onClick={(e) => surface === "table" && e.stopPropagation()}>
       <BadgeSelect
         value={value || ""}
         onChange={handleChange}
@@ -220,20 +294,8 @@ function SelectCell({
   const { options: sessionOptions } = useSessionLookup();
   const updateTrade = useUpdateTrade();
   const upsertReview = useUpsertTradeReview();
-  const mutate = useMemo(() => {
-    if (!legIds || legIds.length === 0) return updateTrade.mutateAsync;
-    return async (args: { id: string } & Partial<Trade>) => {
-      const { id, ...patch } = args;
-      return Promise.all(legIds.map((lid) => updateTrade.mutateAsync({ id: lid, ...patch } as any)));
-    };
-  }, [updateTrade, legIds]);
-  const reviewMutate = useMemo(() => {
-    if (!legIds || legIds.length === 0) return upsertReview.mutateAsync;
-    return async (args: { review: any; silent?: boolean }) => {
-      const { review, silent } = args;
-      return Promise.all(legIds.map((lid) => upsertReview.mutateAsync({ review: { ...review, trade_id: lid }, silent })));
-    };
-  }, [upsertReview, legIds]);
+  const mutate = useLegMutate(updateTrade.mutateAsync, legIds);
+  const reviewMutate = useLegMutate(upsertReview.mutateAsync, legIds);
 
   const options = useMemo(() => {
     if (propertyName === "session") {
@@ -259,7 +321,7 @@ function SelectCell({
   };
 
   return (
-    <div className={surface === "table" ? "" : "text-sm"}>
+    <div className={surface === "table" ? "" : "text-sm"} onClick={(e) => surface === "table" && e.stopPropagation()}>
       <BadgeSelect
         value={value}
         onChange={handleChange}
@@ -285,13 +347,7 @@ function TextCell({
   const updateTrade = useUpdateTrade();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const mutate = useMemo(() => {
-    if (!legIds || legIds.length === 0) return updateTrade.mutateAsync;
-    return async (args: { id: string } & Partial<Trade>) => {
-      const { id, ...patch } = args;
-      return Promise.all(legIds.map((lid) => updateTrade.mutateAsync({ id: lid, ...patch } as any)));
-    };
-  }, [updateTrade, legIds]);
+  const mutate = useLegMutate(updateTrade.mutateAsync, legIds);
 
   const source = field.source;
   const current = source.kind === "trades" ? (trade as any)[source.column] : null;
@@ -321,7 +377,7 @@ function TextCell({
 
   if (editing) {
     return (
-      <div>
+      <div onClick={(e) => e.stopPropagation()}>
         <Input
           autoFocus
           value={draft}
@@ -340,7 +396,7 @@ function TextCell({
   return (
     <button
       onClick={() => { setDraft(current || ""); setEditing(true); }}
-      className={cn("text-sm hover:text-foreground transition-colors", current ? "" : "text-muted-foreground italic")}
+      className={cn("text-sm hover:text-foreground transition-colors text-left", current ? "" : "text-muted-foreground italic")}
     >
       {current || "Empty"}
     </button>
@@ -352,44 +408,174 @@ function SpecialCell({
   field,
   trade,
   surface,
+  isGroup,
+  legs,
+  isExpanded,
+  toggleExpand,
 }: {
   renderKey: string;
   field: FieldDef;
   trade: Trade;
   surface: "table" | "detail";
+  isGroup?: boolean;
+  legs?: Trade[];
+  isExpanded?: boolean;
+  toggleExpand?: () => void;
 }) {
   switch (renderKey) {
     case "symbol":
-      return <SymbolCell trade={trade} />;
+      return <SymbolCell trade={trade} isGroup={isGroup} legs={legs} isExpanded={isExpanded} toggleExpand={toggleExpand} surface={surface} />;
     case "result":
-      return <ResultCell trade={trade} />;
+      return <ResultCell trade={trade} surface={surface} />;
     case "status":
-      return <StatusCell trade={trade} />;
+      return <StatusCell trade={trade} surface={surface} />;
     case "read_quality":
       return <ReadQualityCell trade={trade} />;
     case "closes":
       return <ClosesCell trade={trade} />;
     default:
-      return <DisplayCell display={String(readFieldValue(trade, field))} field={field} />;
+      return <div className="text-sm text-muted-foreground">{String(readFieldValue(trade, field))}</div>;
   }
 }
 
-function SymbolCell({ trade }: { trade: Trade }) {
+function getTradeTypeIcon(tradeType: string | undefined) {
+  switch (tradeType) {
+    case "idea":
+      return { icon: <Lightbulb className="w-3.5 h-3.5" />, label: "Trade Idea", color: "text-amber-500" };
+    case "paper":
+      return { icon: <FileText className="w-3.5 h-3.5" />, label: "Paper Trade", color: "text-blue-500" };
+    case "missed":
+      return { icon: <Clock className="w-3.5 h-3.5" />, label: "Missed Setup", color: "text-orange-500" };
+    default:
+      return null;
+  }
+}
+
+function SymbolCell({
+  trade,
+  isGroup,
+  legs,
+  isExpanded,
+  toggleExpand,
+  surface,
+}: {
+  trade: Trade;
+  isGroup?: boolean;
+  legs?: Trade[];
+  isExpanded?: boolean;
+  toggleExpand?: () => void;
+  surface: "table" | "detail";
+}) {
+  const tradeTypeInfo = getTradeTypeIcon(trade.trade_type);
+  const isNonExecuted = trade.trade_type && trade.trade_type !== "executed";
+  if (surface === "detail") {
+    return <span className="font-semibold text-sm">{trade.symbol}</span>;
+  }
   return (
-    <div className="text-sm font-semibold truncate">
-      {trade.symbol}
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className={cn("font-semibold text-sm truncate", isNonExecuted && "italic text-muted-foreground")}>
+          {trade.symbol}
+        </span>
+        {tradeTypeInfo && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className={cn("shrink-0", tradeTypeInfo.color)}>{tradeTypeInfo.icon}</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{tradeTypeInfo.label}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
+      {isGroup && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/30 whitespace-nowrap cursor-pointer self-start"
+                onClick={(e) => { e.stopPropagation(); toggleExpand?.(); }}
+              >
+                <Layers className="w-3 h-3" />
+                {legs?.length ?? 0} legs
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="text-xs">
+              Multi-TP position: {legs?.length ?? 0} broker positions from the position sizer, grouped as one trade. Click to view legs.
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
     </div>
   );
 }
 
-function ResultCell({ trade }: { trade: Trade }) {
+function useAwaitingRepair(trade: Trade): boolean {
+  if ((trade as any).awaiting_exit === true) return true;
+  const events = (trade as any).repair_events as Array<{ action: string }> | undefined;
+  if (events && events.length > 0) {
+    const hasSnapshotClosed = events.some((e) => e.action === "snapshot_closed");
+    const wasRepaired = events.some((e) =>
+      e.action === "repaired_from_snapshot" || e.action === "repaired_reopened" || e.action === "phase_a_one_shot"
+    );
+    if (!hasSnapshotClosed || wasRepaired) return false;
+    return trade.net_pnl == null || trade.net_pnl === 0;
+  }
+  const pc = (trade as any).partial_closes;
+  if (!Array.isArray(pc)) return false;
+  const hasSnapshotClosed = pc.some((e: any) => e?.type === "snapshot_closed");
+  const wasRepaired = pc.some((e: any) =>
+    e?.type === "repaired_from_snapshot" || e?.type === "repaired_reopened" || e?.type === "phase_a_one_shot"
+  );
+  if (!hasSnapshotClosed || wasRepaired) return false;
+  return trade.net_pnl == null || trade.net_pnl === 0;
+}
+
+function getSnapshotInfo(trade: Trade) {
+  const events = (trade as any).repair_events as Array<{ action: string; metadata: any; applied_at: string }> | undefined;
+  if (events && events.length > 0) {
+    const marker = events.find((e) => e.action === "snapshot_closed");
+    if (marker) return { type: "snapshot_closed", ...(marker.metadata || {}), at: marker.applied_at };
+  }
+  const pc = (trade as any).partial_closes;
+  if (!Array.isArray(pc)) return null;
+  const marker = pc.find((e: any) => e?.type === "snapshot_closed");
+  return marker || null;
+}
+
+function ResultCell({ trade, surface }: { trade: Trade; surface: "table" | "detail" }) {
   const pnl = trade.net_pnl || 0;
   const isNonExecuted = trade.trade_type && trade.trade_type !== "executed";
   const g = trade as any;
+  const awaiting = useAwaitingRepair(trade);
+  const partialCount = getRealPartialCloses(trade).length;
+  const [repairingId, setRepairingId] = useState<string | null>(null);
+
+  const handleRepair = async () => {
+    try {
+      setRepairingId(trade.id);
+      const { data, error } = await supabase.functions.invoke("trade-repair", {
+        body: { action: "repair", account_id: trade.account_id },
+      });
+      if (error) throw error;
+      const result = data as any;
+      if (result?.repaired > 0) toast.success(result.message || "Trade repaired");
+      else if (result?.pending_mt5_reconnect > 0) toast.info(result.message || "Awaiting MT5 reconnect to repair");
+      else toast.info("Nothing to repair right now");
+    } catch (err) {
+      console.error(err);
+      toast.error("Repair failed — check edge function logs");
+    } finally {
+      setRepairingId(null);
+    }
+  };
 
   let label: string;
-  let color: string;
+  let color: "profit" | "loss" | "breakeven" | "muted";
   if (trade.is_open) { label = "Open"; color = "muted"; }
+  else if (awaiting) { label = "Awaiting repair"; color = "muted"; }
   else if (isNonExecuted) {
     if (pnl > 0) { label = "Would Win"; color = "profit"; }
     else if (pnl < 0) { label = "Would Lose"; color = "loss"; }
@@ -404,20 +590,65 @@ function ResultCell({ trade }: { trade: Trade }) {
   else if (pnl < 0) { label = "Loss"; color = "loss"; }
   else { label = "BE"; color = "breakeven"; }
 
-  return (
+  const badge = (
     <span className={cn(
       "px-2 py-0.5 rounded text-xs font-medium",
       color === "profit" && "bg-profit/20 text-profit",
       color === "loss" && "bg-loss/20 text-loss",
       color === "breakeven" && "bg-breakeven/20 text-breakeven",
-      color === "muted" && "bg-muted text-muted-foreground"
+      color === "muted" && "bg-muted text-muted-foreground",
+      awaiting && "cursor-pointer hover:bg-amber-500/20 hover:text-amber-700 dark:hover:text-amber-400"
     )}>
       {label}
     </span>
   );
+
+  if (surface === "detail") {
+    return <div className="flex items-center gap-1">{badge}</div>;
+  }
+
+  return (
+    <div className="flex justify-center items-center gap-1" onClick={(e) => awaiting && e.stopPropagation()}>
+      {awaiting ? (
+        <Popover>
+          <PopoverTrigger asChild>{badge}</PopoverTrigger>
+          <PopoverContent align="center" className="w-80 text-sm space-y-3">
+            <div>
+              <div className="font-medium mb-1">Awaiting repair</div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                This trade was zeroed out by a position snapshot from another MT5 login on the same install
+                {getSnapshotInfo(trade)?.account_login ? (
+                  <> (login <span className="font-mono">{getSnapshotInfo(trade)!.account_login}</span>)</>
+                ) : null}. The real close hasn't been streamed yet.
+              </p>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Clicking <strong>Try repair now</strong> searches MT5 deal history across sibling logins on the same install. If the close still isn't there, log MT5 back into the original broker account — the EA will heal it automatically on reconnect.
+            </div>
+            <Button size="sm" className="w-full" onClick={handleRepair} disabled={repairingId === trade.id}>
+              {repairingId === trade.id ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
+              ) : (
+                <Wrench className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Try repair now
+            </Button>
+          </PopoverContent>
+        </Popover>
+      ) : badge}
+      {partialCount > 0 && (
+        <span
+          className="text-[9px] px-1 py-0 rounded bg-muted text-muted-foreground border border-border/50"
+          title={`${partialCount + 1} partial closes`}
+        >
+          {partialCount + 1}×
+        </span>
+      )}
+    </div>
+  );
 }
 
-function StatusCell({ trade }: { trade: Trade }) {
+function StatusCell({ trade, surface }: { trade: Trade; surface: "table" | "detail" }) {
   const isOpen = trade.is_open;
   const pnl = trade.net_pnl ?? 0;
   const win = !isOpen && pnl > 0;
@@ -436,8 +667,11 @@ function StatusCell({ trade }: { trade: Trade }) {
       )}>
         {label}
       </span>
-      {advisory && (
-        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-600 border border-amber-500/30">
+      {advisory && surface === "table" && (
+        <span
+          title="Advisory close — inferred from snapshot, not from a real close event"
+          className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-600 border border-amber-500/30"
+        >
           ADV
         </span>
       )}
@@ -470,25 +704,11 @@ function ReadQualityCell({ trade }: { trade: Trade }) {
 }
 
 function ClosesCell({ trade }: { trade: Trade }) {
-  const partials = (trade as any).partial_fills?.filter((f: any) => !f.isFinal).length ?? 0;
+  const partials = getRealPartialCloses(trade).length;
   const total = trade.is_open ? partials : partials + 1;
   return (
     <div className="text-sm text-muted-foreground text-center font-mono-numbers">
       {total > 0 ? `${total}×` : "—"}
     </div>
   );
-}
-
-export function formatDateCell(trade: Trade) {
-  return (
-    <div className="text-sm">
-      <div className="font-medium">{formatDateET(trade.entry_time)}</div>
-      <div className="text-xs text-muted-foreground">{formatTimeET(trade.entry_time)}</div>
-    </div>
-  );
-}
-
-export function formatNumberCell(n: number | null, suffix = ""): string {
-  if (n === null || n === undefined) return "—";
-  return `${n >= 0 ? "+" : ""}${n.toFixed(2)}${suffix}`;
 }
