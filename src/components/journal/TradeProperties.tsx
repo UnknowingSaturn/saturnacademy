@@ -13,7 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { CustomFieldCell } from "./CustomFieldCell";
 import { Calendar, Clock, DollarSign, Target, Hash, Wallet, Layers, TrendingUp, TrendingDown } from "lucide-react";
 import { getAllCloseFills, getWeightedAvgExitPrice, hasMultipleCloses } from "@/lib/tradeMath";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 
 interface TradePropertiesProps {
