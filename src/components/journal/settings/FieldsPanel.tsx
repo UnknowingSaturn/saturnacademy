@@ -20,7 +20,7 @@ import {
   CustomFieldDefinition,
   resolveFieldLabel,
 } from "@/types/settings";
-import { buildFieldRegistry, getFieldDef, JOURNAL_FIELD_REGISTRY, isFieldRemovable } from "@/lib/journalFields/registry";
+import { buildFieldRegistry, getFieldDef, JOURNAL_FIELD_REGISTRY } from "@/lib/journalFields/registry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -300,16 +300,14 @@ export function FieldsPanel() {
       setDeleteTarget({ kind: "custom-soft", field: row.customDef });
       return;
     }
-    // Only locked-tier fields are undeletable; everything else can be removed
-    // (analytics-tier fields warn about the surfaces that go blank).
-    if (!isFieldRemovable(getFieldDef(row.key))) return;
+    if (row.category === "core") return;
+    // For system fields, treat as "soft delete" (move to removed).
     if (canEraseSystemField(row.key)) {
       setDeleteTarget({ kind: "system-erasable", field: row });
     } else {
       setDeleteTarget({ kind: "system-soft", field: row });
     }
   };
-
 
   const closeDelete = () => {
     setDeleteTarget(null);

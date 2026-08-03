@@ -23,22 +23,10 @@ export type FieldValueType =
 
 export type FieldSurface = "table" | "detail";
 
-/**
- * How freely a field can be removed from the journal.
- * - `locked`   — identity / P&L fields. Can be hidden, renamed, reordered; never removed.
- * - `analytics`— Pair Lab, reports and the Coach read these. Removable, but the
- *                delete dialog names the surfaces that go blank.
- * - `free`     — journaling extras nothing computes on. Removable with no warning.
- */
-export type FieldTier = "locked" | "analytics" | "free";
-
 export interface FieldDef {
   key: string;
   label: string;
   group: "core" | "system" | "custom";
-  tier: FieldTier;
-  /** Human-readable surfaces that break when an `analytics` field is removed. */
-  dependents?: string[];
   valueType: FieldValueType;
   source: FieldSource;
   editor?: FieldValueType;
@@ -54,31 +42,22 @@ export interface FieldDef {
   alignCenter?: boolean;
 }
 
-// Locked fields cannot be removed, only hidden/renamed.
-const core = (def: Omit<FieldDef, "group" | "erasable" | "tier"> & { tier?: FieldTier; erasable?: boolean }): FieldDef => ({
+// Core fields cannot be removed, only hidden/renamed.
+const core = (def: Omit<FieldDef, "group" | "erasable">): FieldDef => ({
   ...def,
   group: "core",
-  tier: def.tier ?? "locked",
-  erasable: def.erasable ?? false,
+  erasable: false,
 });
 
-const system = (
-  def: Omit<FieldDef, "group" | "erasable" | "tier"> & { erasable?: boolean; tier?: FieldTier }
-): FieldDef => ({
+const system = (def: Omit<FieldDef, "group" | "erasable"> & { erasable?: boolean }): FieldDef => ({
   ...def,
   group: "system",
-  tier: def.tier ?? "free",
   erasable: def.erasable ?? true,
 });
 
 const computed = (id: string): FieldSource => ({ kind: "computed", id });
 const trades = (column: string): FieldSource => ({ kind: "trades", column });
 const reviews = (column: string): FieldSource => ({ kind: "trade_reviews", column });
-
-const PAIR_LAB = "Pair Lab breakdowns";
-const REPORTS = "Weekly reports";
-const COACH = "Coach cohort stats";
-
 
 export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   // ── Core / calculated fields ───────────────────────────────────────────────
@@ -172,7 +151,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   core({
     key: "trade_type",
     label: "Type",
-    tier: "free",
     valueType: "badge",
     source: trades("trade_type"),
     surfaces: ["table"],
@@ -191,7 +169,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   core({
     key: "read_quality",
     label: "Read",
-    tier: "free",
     valueType: "badge",
     source: computed("read_quality"),
     surfaces: ["table"],
@@ -202,7 +179,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   core({
     key: "closes",
     label: "Closes",
-    tier: "free",
     valueType: "number",
     source: computed("closes"),
     surfaces: ["table"],
@@ -213,7 +189,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   core({
     key: "duration_seconds",
     label: "Duration",
-    tier: "free",
     valueType: "duration",
     source: trades("duration_seconds"),
     surfaces: ["table", "detail"],
@@ -224,8 +199,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "session",
     label: "Session",
-    tier: "analytics",
-    dependents: [PAIR_LAB, REPORTS, COACH],
     valueType: "select",
     source: trades("session"),
     editor: "select",
@@ -236,8 +209,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "model",
     label: "Planned Model",
-    tier: "analytics",
-    dependents: ["Playbook compliance", REPORTS, COACH],
     valueType: "playbook",
     source: trades("playbook_id"),
     editor: "playbook",
@@ -247,8 +218,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "actual_model",
     label: "Actual Model",
-    tier: "analytics",
-    dependents: ["Read quality", "Playbook compliance"],
     valueType: "playbook",
     source: trades("actual_playbook_id"),
     editor: "playbook",
@@ -258,8 +227,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "profile",
     label: "Planned Profile",
-    tier: "analytics",
-    dependents: [PAIR_LAB, REPORTS, COACH],
     valueType: "select",
     source: trades("profile"),
     editor: "select",
@@ -270,8 +237,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "actual_profile",
     label: "Actual Profile",
-    tier: "analytics",
-    dependents: [PAIR_LAB, "Read quality"],
     valueType: "select",
     source: trades("actual_profile"),
     editor: "select",
@@ -282,8 +247,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "regime",
     label: "Planned Regime",
-    tier: "analytics",
-    dependents: [PAIR_LAB, "Read quality"],
     valueType: "select",
     source: reviews("regime"),
     editor: "select",
@@ -295,8 +258,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "actual_regime",
     label: "Actual Regime",
-    tier: "analytics",
-    dependents: [PAIR_LAB, "Read quality"],
     valueType: "select",
     source: trades("actual_regime"),
     editor: "select",
@@ -341,8 +302,6 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "place",
     label: "Place",
-    tier: "analytics",
-    dependents: [PAIR_LAB],
     valueType: "text",
     source: trades("place"),
     editor: "text",
@@ -359,16 +318,6 @@ export const JOURNAL_FIELD_MAP = new Map<string, FieldDef>(
 export function getFieldDef(key: string): FieldDef | undefined {
   return JOURNAL_FIELD_MAP.get(key);
 }
-
-/** Locked fields can be hidden but never removed from the journal. */
-export function isFieldRemovable(field: Pick<FieldDef, "tier"> | undefined): boolean {
-  return !!field && field.tier !== "locked";
-}
-
-export function fieldDependents(field: Pick<FieldDef, "tier" | "dependents"> | undefined): string[] {
-  return field?.tier === "analytics" ? field.dependents ?? [] : [];
-}
-
 
 export function buildFieldRegistry(
   customFields: CustomFieldDefinition[] = [],
@@ -392,8 +341,6 @@ export function buildFieldRegistry(
         key: f.key,
         label: f.label,
         group: "custom",
-        tier: "free",
-
         valueType,
         source: { kind: "custom", key: f.key },
         editor: valueType,

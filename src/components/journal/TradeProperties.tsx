@@ -4,19 +4,14 @@ import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
-import { buildFieldRegistry, getFieldDef, resolveFieldLabel, DEFAULT_DETAIL_GROUPS, FieldDef } from "@/lib/journalFields/registry";
-import { useFieldLayoutActions } from "@/hooks/useFieldLayoutActions";
+import { buildFieldRegistry, getFieldDef, resolveFieldLabel } from "@/lib/journalFields/registry";
 import { FieldCell } from "@/lib/journalFields/FieldCell";
-import { FieldRowMenu } from "./FieldRowMenu";
-import { AddFieldPopover } from "./AddFieldPopover";
-import { RemoveFieldDialog } from "./RemoveFieldDialog";
 import { cn } from "@/lib/utils";
 import { formatFullDateTimeET, getDayNameET } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CustomFieldCell } from "./CustomFieldCell";
-import { Calendar, Clock, DollarSign, Target, Hash, Wallet, Layers, TrendingUp, TrendingDown, Plus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
-
+import { Calendar, Clock, DollarSign, Target, Hash, Wallet, Layers, TrendingUp, TrendingDown } from "lucide-react";
 import { getAllCloseFills, getWeightedAvgExitPrice, hasMultipleCloses } from "@/lib/tradeMath";
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
@@ -66,9 +61,6 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const { data: accounts } = useAccounts();
   const { data: settings } = useUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
-  const [removeTarget, setRemoveTarget] = useState<FieldDef | null>(null);
-
-
 
   const isManualTrade = !trade.ticket;
 
@@ -99,32 +91,19 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const hasMultiple = fills.length > 1;
   const avgExit = useMemo(() => (hasMultiple ? getWeightedAvgExitPrice(trade) : null), [hasMultiple, trade]);
 
-  const { layout, labels: overrides, addGroup, renameGroup, deleteGroup } = useFieldLayoutActions();
+  const layout = settings?.journal_field_layout;
   const allFields = buildFieldRegistry(customFields, accounts ?? []);
   const allFieldMap = useMemo(() => new Map(allFields.map((f) => [f.key, f])), [allFields]);
+  const overrides = settings?.field_label_overrides || {};
 
-  const groups = layout?.detail?.groups?.length ? layout.detail.groups : DEFAULT_DETAIL_GROUPS;
-  const groupOptions = useMemo(() => groups.map((g) => ({ id: g.id, label: g.label })), [groups]);
+  const groups = layout?.detail?.groups ?? [];
 
-  const renderField = (key: string, groupId: string) => {
+  const renderField = (key: string) => {
     const field = allFieldMap.get(key) || getFieldDef(key);
     if (!field) return null;
     const label = resolveFieldLabel(key, overrides);
     return (
-      <PropertyRow
-        key={key}
-        label={label}
-        menu={
-          <FieldRowMenu
-            field={field}
-            label={label}
-            hasLabelOverride={!!overrides[key]}
-            groups={groupOptions}
-            currentGroupId={groupId}
-            onRequestRemove={setRemoveTarget}
-          />
-        }
-      >
+      <PropertyRow key={key} label={label}>
         <FieldCell
           field={field}
           trade={trade}
@@ -168,53 +147,19 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
             const f = allFieldMap.get(k) || getFieldDef(k);
             return f && (f.group !== "custom" || customFields.some((cf) => cf.key === k && cf.is_active));
           });
+          if (visibleFields.length === 0) return null;
           return (
-            <div key={group.id} className="space-y-3 group/section">
-              <div className="flex items-center gap-1">
-                <GroupHeader
-                  label={group.label}
-                  onRename={(v) => renameGroup(group.id, v)}
-                  onDelete={() => deleteGroup(group.id)}
-                />
-                <div className="opacity-0 group-hover/section:opacity-100 transition-opacity">
-                  <AddFieldPopover
-                    surface="detail"
-                    groupId={group.id}
-                    trigger={
-                      <button
-                        className="p-0.5 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                        aria-label={`Add field to ${group.label}`}
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                    }
-                  />
-                </div>
+            <div key={group.id} className="space-y-3">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                {group.label}
               </div>
               <div className="space-y-3">
-                {visibleFields.map((k) => renderField(k, group.id))}
-                {visibleFields.length === 0 && (
-                  <div className="text-xs text-muted-foreground italic">No fields yet</div>
-                )}
+                {visibleFields.map(renderField)}
               </div>
             </div>
           );
         })}
-        <button
-          onClick={() => addGroup()}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          New group
-        </button>
       </div>
-
-      <RemoveFieldDialog
-        field={removeTarget}
-        label={removeTarget ? resolveFieldLabel(removeTarget.key, overrides) : ""}
-        onClose={() => setRemoveTarget(null)}
-      />
-
 
       <Separator />
 
@@ -344,80 +289,25 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   );
 }
 
-function GroupHeader({
-  label,
-  onRename,
-  onDelete,
-}: {
-  label: string;
-  onRename: (v: string) => void;
-  onDelete: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(label);
-
-  if (editing) {
-    return (
-      <Input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => { onRename(draft); setEditing(false); }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") { onRename(draft); setEditing(false); }
-          if (e.key === "Escape") { setDraft(label); setEditing(false); }
-        }}
-        className="h-6 text-xs w-40"
-      />
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-1">
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
-      <div className="opacity-0 group-hover/section:opacity-100 transition-opacity flex items-center">
-        <button
-          onClick={() => { setDraft(label); setEditing(true); }}
-          className="p-0.5 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label={`Rename ${label} group`}
-        >
-          <Pencil className="w-3 h-3" />
-        </button>
-        <button
-          onClick={onDelete}
-          className="p-0.5 rounded text-muted-foreground hover:bg-accent hover:text-destructive"
-          aria-label={`Delete ${label} group`}
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function PropertyRow({
   icon,
   label,
-  menu,
   children,
 }: {
   icon?: React.ReactNode;
   label: string;
-  menu?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 group/row">
-      <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {icon}
-        <span className="truncate">{label}</span>
-        {menu}
+        <span>{label}</span>
       </div>
       <div className="text-sm">{children}</div>
     </div>
   );
 }
-
 
 function PlaceEditor({ value, onSave }: { value: string; onSave: (v: string) => void | Promise<unknown> }) {
   const [editing, setEditing] = useState(false);
