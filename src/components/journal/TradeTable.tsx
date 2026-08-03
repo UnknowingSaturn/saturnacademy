@@ -36,10 +36,15 @@ import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings"
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { CustomFieldCell } from "./CustomFieldCell";
 import { getRealPartialCloses } from "@/lib/tradeMath";
-import { useTradeGroups } from "@/hooks/useTradeGroup";
+import { useTradeGroup } from "@/hooks/useTradeGroup";
 import { FieldCell } from "@/lib/journalFields/FieldCell";
 import { buildFieldRegistry, getFieldDef } from "@/lib/journalFields/registry";
 
+interface SortableHeaderProps {
+  columnKey: string;
+  className?: string;
+  children: React.ReactNode;
+}
 
 function SortableHeader({ columnKey, className, children }: SortableHeaderProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: columnKey });
@@ -63,10 +68,7 @@ function SortableHeader({ columnKey, className, children }: SortableHeaderProps)
     </div>
   );
 }
-import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
-import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
-import { CustomFieldCell } from "./CustomFieldCell";
-import { getRealPartialCloses } from "@/lib/tradeMath";
+
 
 
 interface TradeTableProps {
