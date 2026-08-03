@@ -8,6 +8,7 @@
 // public.trades. Add columns here, never inline in a tool.
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { embedQuery } from "./coachEmbed.ts";
+import { runMonteCarlo, extractRSample } from "./quant/vendor/propFirmMonteCarlo.ts";
 
 export interface ToolExecCtx {
   admin: SupabaseClient;
