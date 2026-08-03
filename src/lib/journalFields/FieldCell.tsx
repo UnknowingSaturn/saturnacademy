@@ -453,6 +453,15 @@ function getTradeTypeIcon(tradeType: string | undefined) {
   }
 }
 
+function DirectionCell({ trade }: { trade: Trade }) {
+  const isBuy = trade.direction === "buy";
+  return (
+    <span className={cn("font-semibold uppercase", isBuy ? "text-profit" : "text-loss")}>
+      {trade.direction}
+    </span>
+  );
+}
+
 function SymbolCell({
   trade,
   isGroup,
