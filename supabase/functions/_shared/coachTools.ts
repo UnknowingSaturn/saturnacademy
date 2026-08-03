@@ -676,12 +676,11 @@ export async function executeTool(
       case "getUserContext": return await tool_getUserContext(ctx);
       case "searchTrades": return await tool_searchTrades(ctx, args ?? {});
       case "getTradeDetail": return await tool_getTradeDetail(ctx, args ?? {});
-      case "getRecentPerformance": return await tool_getRecentPerformance(ctx, args ?? {});
-      case "getPlaybookStats": return await tool_getPlaybookStats(ctx, args ?? {});
-      case "getBreakdown": return await tool_getBreakdown(ctx, args ?? {});
+      case "getStats": return await tool_getStats(ctx, args ?? {});
       case "getOpenTrades": return await tool_getOpenTrades(ctx);
       case "searchJournal": return await tool_searchJournal(ctx, args ?? {});
       case "analyzeCohort": return await tool_analyzeCohort(ctx, args ?? {});
+      case "simulateChallenge": return await tool_simulateChallenge(ctx, args ?? {});
       default: return { ok: false, error: `Unknown tool: ${name}` };
     }
   } catch (e) {
