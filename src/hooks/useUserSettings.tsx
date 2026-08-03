@@ -171,6 +171,7 @@ export function useUpdateUserSettings() {
       if (updates.detail_section_order !== undefined) dbUpdates.detail_section_order = updates.detail_section_order as any;
       if (updates.field_label_overrides !== undefined) dbUpdates.field_label_overrides = updates.field_label_overrides as any;
       if (updates.deleted_system_fields !== undefined) dbUpdates.deleted_system_fields = updates.deleted_system_fields as any;
+      if (updates.journal_field_layout !== undefined) dbUpdates.journal_field_layout = updates.journal_field_layout as any;
 
       // Check if settings exist
       const { data: existing } = await supabase
