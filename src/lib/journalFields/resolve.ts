@@ -172,7 +172,7 @@ export function writeFieldValue(
         return { trades: { [col]: value as TradeProfile | null } };
       }
       if (col === "actual_regime") {
-        return { trades: { [col]: value as string | null } };
+        return { trades: { [col]: value as RegimeType | null } };
       }
       if (col === "alignment") {
         return { trades: { [col]: value as TimeframeAlignment[] } };
