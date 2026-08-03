@@ -6,11 +6,14 @@ import { cn } from "@/lib/utils";
 import { formatTimeET } from "@/lib/time";
 
 import { BadgeSelect } from "./BadgeSelect";
-import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
+import { FieldHeaderMenu } from "./FieldHeaderMenu";
+import { AddFieldPopover } from "./AddFieldPopover";
+import { RemoveFieldDialog } from "./RemoveFieldDialog";
 import { BulkActionBar } from "./BulkActionBar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ChevronRight, GripVertical, ChevronDown } from "lucide-react";
-import { DEFAULT_COLUMNS, ColumnDefinition } from "@/types/settings";
+import { ColumnDefinition } from "@/types/settings";
+
 import {
   DndContext,
   PointerSensor,
