@@ -11,7 +11,7 @@ import { AddFieldPopover } from "./AddFieldPopover";
 import { RemoveFieldDialog } from "./RemoveFieldDialog";
 import { BulkActionBar } from "./BulkActionBar";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ChevronRight, GripVertical, ChevronDown } from "lucide-react";
+import { ChevronRight, GripVertical, ChevronDown, Plus } from "lucide-react";
 import { ColumnDefinition } from "@/types/settings";
 
 import {
