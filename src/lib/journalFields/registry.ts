@@ -341,6 +341,8 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "place",
     label: "Place",
+    tier: "analytics",
+    dependents: [PAIR_LAB],
     valueType: "text",
     source: trades("place"),
     editor: "text",
@@ -357,6 +359,16 @@ export const JOURNAL_FIELD_MAP = new Map<string, FieldDef>(
 export function getFieldDef(key: string): FieldDef | undefined {
   return JOURNAL_FIELD_MAP.get(key);
 }
+
+/** Locked fields can be hidden but never removed from the journal. */
+export function isFieldRemovable(field: Pick<FieldDef, "tier"> | undefined): boolean {
+  return !!field && field.tier !== "locked";
+}
+
+export function fieldDependents(field: Pick<FieldDef, "tier" | "dependents"> | undefined): string[] {
+  return field?.tier === "analytics" ? field.dependents ?? [] : [];
+}
+
 
 export function buildFieldRegistry(
   customFields: CustomFieldDefinition[] = [],
