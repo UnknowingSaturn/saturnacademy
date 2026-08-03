@@ -128,6 +128,7 @@ export function useUserSettings() {
           detail_section_order: [],
           field_label_overrides: {},
           deleted_system_fields: [],
+          journal_field_layout: normalizeLayout(null, {}),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as UserSettings;
