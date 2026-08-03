@@ -172,6 +172,7 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   core({
     key: "trade_type",
     label: "Type",
+    tier: "free",
     valueType: "badge",
     source: trades("trade_type"),
     surfaces: ["table"],
@@ -190,6 +191,7 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   core({
     key: "read_quality",
     label: "Read",
+    tier: "free",
     valueType: "badge",
     source: computed("read_quality"),
     surfaces: ["table"],
@@ -200,6 +202,7 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   core({
     key: "closes",
     label: "Closes",
+    tier: "free",
     valueType: "number",
     source: computed("closes"),
     surfaces: ["table"],
@@ -210,6 +213,7 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   core({
     key: "duration_seconds",
     label: "Duration",
+    tier: "free",
     valueType: "duration",
     source: trades("duration_seconds"),
     surfaces: ["table", "detail"],
