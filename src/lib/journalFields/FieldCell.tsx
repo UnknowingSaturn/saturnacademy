@@ -42,10 +42,6 @@ export function FieldCell({
 
   const valueType = field.editor ?? field.valueType;
 
-  if (valueType === "custom") {
-    return <CustomFieldCellWrapper trade={trade} fieldKey={field.source.kind === "custom" ? field.source.key : ""} />;
-  }
-
   if (valueType === "account") {
     return <AccountCell field={field} trade={trade} surface={surface} accounts={accounts} legIds={legIds} />;
   }
