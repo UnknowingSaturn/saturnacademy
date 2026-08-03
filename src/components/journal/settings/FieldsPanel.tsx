@@ -10,33 +10,41 @@ import {
   useDeleteCustomField,
   useEraseCustomFieldData,
   useReorderCustomFields,
-  useCountTradesWithCustomField,
   useEraseSystemFieldData,
+  useCountTradesWithCustomField,
   useCountTradesWithSystemField,
+  useFieldOverrides,
 } from "@/hooks/useCustomFields";
 import {
-  DETAIL_FIELD_CATALOG,
-  DEFAULT_DETAIL_FIELD_ORDER,
-  DEFAULT_DETAIL_VISIBLE_FIELDS,
-  DEFAULT_COLUMNS,
-  DEFAULT_VISIBLE_COLUMNS,
+  JournalFieldLayout,
   CustomFieldDefinition,
-  isCoreField,
   resolveFieldLabel,
-  canEraseSystemField,
 } from "@/types/settings";
+import { buildFieldRegistry, getFieldDef, JOURNAL_FIELD_REGISTRY } from "@/lib/journalFields/registry";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, RotateCcw } from "lucide-react";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
+  Plus, MoreHorizontal, RotateCcw, Trash2, GripVertical,
+  Pencil, ChevronUp, ChevronDown, Eye, EyeOff, Settings2,
+  Lock,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CustomFieldDialog } from "./CustomFieldDialog";
 import { SystemFieldConfigDialog } from "./SystemFieldConfigDialog";
-import { useFieldOverrides } from "@/hooks/useCustomFields";
+import { DeleteFieldDialog, DeleteTarget } from "./fields/DeleteFieldDialog";
 import {
   DndContext,
   closestCenter,
@@ -49,10 +57,18 @@ import {
   arrayMove,
   SortableContext,
   verticalListSortingStrategy,
+  useSortable,
 } from "@dnd-kit/sortable";
-import { FieldRow, SYSTEM_OPTION_PROPERTY, kindHint } from "./fields/constants";
-import { FieldRowCard } from "./fields/FieldRowCard";
-import { DeleteFieldDialog, DeleteTarget } from "./fields/DeleteFieldDialog";
+import { CSS } from "@dnd-kit/utilities";
+
+type FieldRow = {
+  key: string;
+  label: string;
+  category: "core" | "system" | "custom";
+  description?: string;
+  optionsPropertyName?: string;
+  customDef?: CustomFieldDefinition;
+};
 
 export function FieldsPanel() {
   const { data: settings, isLoading: loadingSettings } = useUserSettings();
@@ -69,13 +85,22 @@ export function FieldsPanel() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState<CustomFieldDefinition | null>(null);
   const [systemConfigKey, setSystemConfigKey] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [eraseAlongDelete, setEraseAlongDelete] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [groupDraft, setGroupDraft] = useState("");
+
   const { data: fieldOverrides = [] } = useFieldOverrides();
   const overrideByKey = useMemo(
     () => new Map(fieldOverrides.map((o) => [o.field_key, o])),
     [fieldOverrides],
   );
-  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
-  const [eraseAlongDelete, setEraseAlongDelete] = useState(false);
+
+  const layout = settings?.journal_field_layout;
+  const overrides = settings?.field_label_overrides || {};
+
+  const allFields = useMemo(() => buildFieldRegistry(customFields), [customFields]);
+  const allFieldMap = useMemo(() => new Map(allFields.map((f) => [f.key, f])), [allFields]);
 
   const customCountKey =
     deleteTarget?.kind === "custom-hard" || deleteTarget?.kind === "custom-erase"
@@ -87,138 +112,157 @@ export function FieldsPanel() {
     deleteTarget?.kind === "system-erasable" ? deleteTarget.field.key : null;
   const { data: systemEraseCount = 0 } = useCountTradesWithSystemField(systemCountKey);
 
-  const overrides = settings?.field_label_overrides || {};
-  const visibleColumns = settings?.visible_columns || DEFAULT_VISIBLE_COLUMNS;
-  const columnOrder: string[] = (settings?.column_order as string[]) || DEFAULT_VISIBLE_COLUMNS;
-  const deletedSet = useMemo(
-    () => new Set(settings?.deleted_system_fields || []),
-    [settings?.deleted_system_fields],
-  );
-
-  const detailVisible = useMemo(() => {
-    if (!settings) return new Set(DEFAULT_DETAIL_VISIBLE_FIELDS);
-    if (settings.detail_visible_fields.length === 0) {
-      return new Set([
-        ...DEFAULT_DETAIL_VISIBLE_FIELDS,
-        ...customFields.filter((f) => f.is_active).map((f) => f.key),
-      ]);
-    }
-    return new Set(settings.detail_visible_fields);
-  }, [settings, customFields]);
-
-  const detailOrder = useMemo(() => {
-    const userOrder = settings?.detail_field_order?.length
-      ? settings.detail_field_order
-      : DEFAULT_DETAIL_FIELD_ORDER;
-    const customKeys = customFields.filter((f) => f.is_active).map((f) => f.key);
-    const known = new Set([...DEFAULT_DETAIL_FIELD_ORDER, ...customKeys]);
-    const seen = new Set<string>();
-    const ordered: string[] = [];
-    for (const k of userOrder) if (known.has(k) && !seen.has(k)) { ordered.push(k); seen.add(k); }
-    for (const k of [...DEFAULT_DETAIL_FIELD_ORDER, ...customKeys]) if (!seen.has(k)) ordered.push(k);
-    return ordered;
-  }, [settings?.detail_field_order, customFields]);
-
+  // Build the canonical list of all rows (table + detail candidates).
   const rows = useMemo<FieldRow[]>(() => {
+    const activeCustom = customFields.filter((f) => f.is_active);
     const out: FieldRow[] = [];
     const seen = new Set<string>();
-    const tableKeys = new Set(DEFAULT_COLUMNS.map((c) => c.key));
-    const activeCustomMap = new Map(customFields.filter((f) => f.is_active).map((f) => [f.key, f]));
-
-    const pushSystemKey = (key: string) => {
+    const push = (key: string) => {
       if (seen.has(key)) return;
-      if (deletedSet.has(key)) { seen.add(key); return; }
-      const sys = DETAIL_FIELD_CATALOG.find((d) => d.key === key);
-      const col = DEFAULT_COLUMNS.find((c) => c.key === key);
-      const custom = activeCustomMap.get(key);
-      if (custom) {
-        seen.add(key);
-        out.push({
-          key,
-          defaultLabel: custom.label,
-          category: "custom",
-          description: `Custom · ${custom.type}`,
-          customDef: custom,
-          isInTable: true,
-          isInDetail: true,
-          optionsPropertyName: undefined,
-        });
-      } else if (sys) {
-        seen.add(key);
-        out.push({
-          key,
-          defaultLabel: sys.label,
-          category: isCoreField(key) ? "core" : "system",
-          description: kindHint(sys.kind),
-          isInTable: tableKeys.has(key) || tableKeys.has(sys.field || ""),
-          isInDetail: true,
-          optionsPropertyName: SYSTEM_OPTION_PROPERTY[key] ?? sys.propertyName,
-        });
-      } else if (col) {
-        seen.add(key);
-        out.push({
-          key,
-          defaultLabel: col.label,
-          category: isCoreField(key) ? "core" : "system",
-          description: `Table · ${col.type}`,
-          isInTable: true,
-          isInDetail: false,
-          optionsPropertyName: SYSTEM_OPTION_PROPERTY[key] ?? col.propertyName,
-        });
-      }
+      const f = allFieldMap.get(key);
+      if (!f) return;
+      seen.add(key);
+      const customDef = f.group === "custom" ? activeCustom.find((c) => c.key === key) : undefined;
+      out.push({
+        key,
+        label: f.label,
+        category: f.group,
+        description: kindHint(f),
+        customDef,
+      });
     };
-
-    for (const key of columnOrder) pushSystemKey(key);
-    for (const key of detailOrder) pushSystemKey(key);
-    for (const col of DEFAULT_COLUMNS) {
-      if (col.key.startsWith("cf_")) continue;
-      pushSystemKey(col.key);
-    }
-
+    // Preserve order from current layouts.
+    for (const k of layout?.table?.order ?? []) push(k);
+    for (const g of layout?.detail?.groups ?? []) for (const k of g.fields) push(k);
+    for (const k of layout?.table?.hidden ?? []) push(k);
+    for (const k of layout?.detail?.hidden ?? []) push(k);
+    for (const f of allFields) push(f.key);
     return out;
-  }, [columnOrder, detailOrder, customFields, deletedSet]);
+  }, [allFields, allFieldMap, customFields, layout]);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const saveLayout = async (next: JournalFieldLayout) => {
+    // Derive legacy fields for backward compatibility.
+    const visibleColumns = next.table.order.filter((k) => !next.table.hidden.includes(k));
+    const columnOrder = next.table.order;
+    const detailOrder = next.detail.groups.flatMap((g) => g.fields);
+    const detailVisible = detailOrder.filter((k) => !next.detail.hidden.includes(k));
+    const detailHidden = next.detail.hidden;
 
-  const handleDragEnd = async (event: DragEndEvent) => {
+    await updateSettings.mutateAsync({
+      journal_field_layout: next,
+      visible_columns: visibleColumns,
+      column_order: columnOrder,
+      detail_field_order: detailOrder,
+      detail_visible_fields: detailVisible,
+      deleted_system_fields: next.removed,
+    });
+  };
+
+  const handleTableReorder = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const ids = rows.map((r) => r.key);
+    const ids = tableRows.map((r) => r.key);
     const oldIdx = ids.indexOf(String(active.id));
     const newIdx = ids.indexOf(String(over.id));
     if (oldIdx < 0 || newIdx < 0) return;
-    const newOrder = arrayMove(ids, oldIdx, newIdx);
-
-    const tableKnownSet = new Set([
-      ...DEFAULT_COLUMNS.map((c) => c.key),
-      ...customFields.map((f) => f.key),
-    ]);
-    const nextTableOrder = newOrder.filter((k) => tableKnownSet.has(k));
-    for (const k of columnOrder) if (!nextTableOrder.includes(k) && tableKnownSet.has(k)) nextTableOrder.push(k);
-
-    const detailKnownSet = new Set([
-      ...DEFAULT_DETAIL_FIELD_ORDER,
-      ...customFields.filter((f) => f.is_active).map((f) => f.key),
-    ]);
-    const nextDetailOrder = newOrder.filter((k) => detailKnownSet.has(k));
-
-    await updateSettings.mutateAsync({
-      column_order: nextTableOrder,
-      detail_field_order: nextDetailOrder,
-    });
-
-    const customOrder = newOrder
-      .map((k) => customFields.find((f) => f.key === k))
-      .filter((f): f is CustomFieldDefinition => !!f)
-      .map((f, i) => ({ id: f.id, sort_order: i }));
-    if (customOrder.length > 0) await reorderFields.mutateAsync(customOrder);
+    const nextOrder = arrayMove(ids, oldIdx, newIdx);
+    const next: JournalFieldLayout = {
+      ...layout!,
+      table: { ...layout!.table, order: nextOrder },
+    };
+    await saveLayout(next);
   };
 
-  const resolveLabel = (row: FieldRow) => resolveFieldLabel(row.key, row.defaultLabel, overrides);
+  const handleToggleTable = async (key: string) => {
+    if (!layout) return;
+    const isHidden = layout.table.hidden.includes(key);
+    const isVisible = layout.table.order.includes(key) && !isHidden;
+    let order = [...layout.table.order];
+    let hidden = [...layout.table.hidden];
+    if (isVisible) {
+      hidden = [...hidden, key];
+    } else {
+      hidden = hidden.filter((k) => k !== key);
+      if (!order.includes(key)) order = [...order, key];
+    }
+    await saveLayout({ ...layout, table: { ...layout.table, order, hidden } });
+  };
+
+  const handleToggleDetail = async (key: string) => {
+    if (!layout) return;
+    const groups = layout.detail.groups.map((g) => ({ ...g, fields: [...g.fields] }));
+    let hidden = [...layout.detail.hidden];
+    const isHidden = hidden.includes(key);
+    const inGroup = groups.some((g) => g.fields.includes(key));
+    if (inGroup) {
+      // Remove from groups and hide.
+      groups.forEach((g) => { g.fields = g.fields.filter((k) => k !== key); });
+      hidden = [...hidden, key];
+    } else if (isHidden) {
+      hidden = hidden.filter((k) => k !== key);
+      // Add to first group (or create a default one).
+      if (groups.length === 0) groups.push({ id: "properties", label: "Properties", fields: [key] });
+      else groups[0].fields.push(key);
+    } else {
+      // Not in layout yet — add to first group.
+      if (groups.length === 0) groups.push({ id: "properties", label: "Properties", fields: [key] });
+      else groups[0].fields.push(key);
+    }
+    await saveLayout({ ...layout, detail: { ...layout.detail, groups, hidden } });
+  };
+
+  const handleMoveToGroup = async (key: string, targetGroupId: string) => {
+    if (!layout) return;
+    const groups = layout.detail.groups.map((g) => ({ ...g, fields: [...g.fields] }));
+    // Remove from current group.
+    groups.forEach((g) => { g.fields = g.fields.filter((k) => k !== key); });
+    const target = groups.find((g) => g.id === targetGroupId);
+    if (target) target.fields.push(key);
+    await saveLayout({ ...layout, detail: { ...layout.detail, groups } });
+  };
+
+  const handleReorderWithinGroup = async (groupId: string, event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !layout) return;
+    const group = layout.detail.groups.find((g) => g.id === groupId);
+    if (!group) return;
+    const ids = [...group.fields];
+    const oldIdx = ids.indexOf(String(active.id));
+    const newIdx = ids.indexOf(String(over.id));
+    if (oldIdx < 0 || newIdx < 0) return;
+    const groups = layout.detail.groups.map((g) =>
+      g.id === groupId ? { ...g, fields: arrayMove(ids, oldIdx, newIdx) } : { ...g, fields: [...g.fields] }
+    );
+    await saveLayout({ ...layout, detail: { ...layout.detail, groups } });
+  };
+
+  const handleAddGroup = async () => {
+    if (!layout) return;
+    const id = `group_${Date.now()}`;
+    const groups = [...layout.detail.groups, { id, label: "New group", fields: [] }];
+    await saveLayout({ ...layout, detail: { ...layout.detail, groups } });
+  };
+
+  const handleRenameGroup = async (groupId: string, nextLabel: string) => {
+    if (!layout || !nextLabel.trim()) return;
+    const groups = layout.detail.groups.map((g) =>
+      g.id === groupId ? { ...g, label: nextLabel.trim() } : { ...g }
+    );
+    await saveLayout({ ...layout, detail: { ...layout.detail, groups } });
+  };
+
+  const handleDeleteGroup = async (groupId: string) => {
+    if (!layout) return;
+    const group = layout.detail.groups.find((g) => g.id === groupId);
+    if (!group) return;
+    const groups = layout.detail.groups.filter((g) => g.id !== groupId);
+    const hidden = [...layout.detail.hidden, ...group.fields];
+    await saveLayout({ ...layout, detail: { ...layout.detail, groups, hidden } });
+  };
 
   const handleRename = async (row: FieldRow, nextLabel: string) => {
     const trimmed = nextLabel.trim();
-    if (!trimmed || trimmed === resolveLabel(row)) return;
+    if (!trimmed || trimmed === row.label) return;
     if (row.category === "custom" && row.customDef) {
       await updateField.mutateAsync({ id: row.customDef.id, label: trimmed });
     } else {
@@ -250,22 +294,6 @@ export function FieldsPanel() {
     });
   };
 
-  const toggleTable = async (row: FieldRow) => {
-    const isVisible = visibleColumns.includes(row.key);
-    const nextVisible = isVisible ? visibleColumns.filter((k) => k !== row.key) : [...visibleColumns, row.key];
-    const nextOrder = columnOrder.includes(row.key) ? columnOrder : [...columnOrder, row.key];
-    await updateSettings.mutateAsync({
-      visible_columns: nextVisible,
-      column_order: nextOrder,
-    });
-  };
-
-  const toggleDetail = async (row: FieldRow) => {
-    const current = Array.from(detailVisible);
-    const next = current.includes(row.key) ? current.filter((k) => k !== row.key) : [...current, row.key];
-    await updateSettings.mutateAsync({ detail_visible_fields: next });
-  };
-
   const requestDelete = (row: FieldRow) => {
     setEraseAlongDelete(false);
     if (row.category === "custom" && row.customDef) {
@@ -273,6 +301,7 @@ export function FieldsPanel() {
       return;
     }
     if (row.category === "core") return;
+    // For system fields, treat as "soft delete" (move to removed).
     if (canEraseSystemField(row.key)) {
       setDeleteTarget({ kind: "system-erasable", field: row });
     } else {
@@ -286,96 +315,111 @@ export function FieldsPanel() {
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    switch (deleteTarget.kind) {
-      case "system-soft": {
-        const k = deleteTarget.field.key;
-        const nextDeleted = Array.from(new Set([...(settings?.deleted_system_fields || []), k]));
-        await updateSettings.mutateAsync({
-          column_order: columnOrder.filter((c) => c !== k),
-          visible_columns: visibleColumns.filter((c) => c !== k),
-          detail_visible_fields: Array.from(detailVisible).filter((c) => c !== k),
-          deleted_system_fields: nextDeleted,
-        });
-        break;
+    if (!deleteTarget || !layout) return;
+    const k = deleteTarget.field.key;
+    if (deleteTarget.kind === "custom-soft") {
+      await updateField.mutateAsync({ id: deleteTarget.field.id, is_active: false });
+    } else if (deleteTarget.kind === "custom-erase") {
+      await eraseFieldData.mutateAsync(deleteTarget.field.key);
+    } else if (deleteTarget.kind === "custom-hard") {
+      if (eraseAlongDelete) await eraseFieldData.mutateAsync(deleteTarget.field.key);
+      await deleteField.mutateAsync(deleteTarget.field.id);
+    } else {
+      // system-soft or system-erasable: move to removed and hide everywhere.
+      const tableOrder = layout.table.order.filter((c) => c !== k);
+      const tableHidden = layout.table.hidden.filter((c) => c !== k);
+      const groups = layout.detail.groups.map((g) => ({ ...g, fields: g.fields.filter((f) => f !== k) }));
+      const detailHidden = layout.detail.hidden.filter((c) => c !== k);
+      const removed = [...new Set([...layout.removed, k])];
+      await saveLayout({
+        ...layout,
+        table: { order: tableOrder, hidden: tableHidden },
+        detail: { ...layout.detail, groups, hidden: detailHidden },
+        removed,
+      });
+      if (eraseAlongDelete && deleteTarget.kind === "system-erasable") {
+        await eraseSystemData.mutateAsync(k);
       }
-      case "system-erasable": {
-        const k = deleteTarget.field.key;
-        const nextDeleted = Array.from(new Set([...(settings?.deleted_system_fields || []), k]));
-        await updateSettings.mutateAsync({
-          column_order: columnOrder.filter((c) => c !== k),
-          visible_columns: visibleColumns.filter((c) => c !== k),
-          detail_visible_fields: Array.from(detailVisible).filter((c) => c !== k),
-          deleted_system_fields: nextDeleted,
-        });
-        if (eraseAlongDelete) {
-          await eraseSystemData.mutateAsync(k);
-        }
-        break;
-      }
-      case "custom-soft":
-        await updateField.mutateAsync({ id: deleteTarget.field.id, is_active: false });
-        break;
-      case "custom-erase":
-        await eraseFieldData.mutateAsync(deleteTarget.field.key);
-        break;
-      case "custom-hard":
-        if (eraseAlongDelete) {
-          await eraseFieldData.mutateAsync(deleteTarget.field.key);
-        }
-        await deleteField.mutateAsync(deleteTarget.field.id);
-        break;
     }
     closeDelete();
+  };
+
+  const restoreSystem = async (key: string) => {
+    if (!layout) return;
+    const removed = layout.removed.filter((k) => k !== key);
+    const tableOrder = layout.table.order.includes(key) ? layout.table.order : [...layout.table.order, key];
+    const tableHidden = layout.table.hidden.filter((k) => k !== key);
+    const groups = layout.detail.groups.map((g) => ({ ...g, fields: [...g.fields] }));
+    const inDetail = groups.some((g) => g.fields.includes(key)) || layout.detail.hidden.includes(key);
+    if (!inDetail) {
+      if (groups.length === 0) groups.push({ id: "properties", label: "Properties", fields: [key] });
+      else groups[0].fields.push(key);
+    }
+    await saveLayout({
+      ...layout,
+      table: { order: tableOrder, hidden: tableHidden },
+      detail: { ...layout.detail, groups },
+      removed,
+    });
   };
 
   const restoreCustom = async (f: CustomFieldDefinition) => {
     await updateField.mutateAsync({ id: f.id, is_active: true });
   };
 
-  const restoreSystem = async (key: string) => {
-    const nextOrder = columnOrder.includes(key) ? columnOrder : [...columnOrder, key];
-    const nextVisible = visibleColumns.includes(key) ? visibleColumns : [...visibleColumns, key];
-    const nextDetail = Array.from(detailVisible);
-    if (DETAIL_FIELD_CATALOG.some((d) => d.key === key) && !nextDetail.includes(key)) {
-      nextDetail.push(key);
-    }
-    const nextDeleted = (settings?.deleted_system_fields || []).filter((k) => k !== key);
-    await updateSettings.mutateAsync({
-      column_order: nextOrder,
-      visible_columns: nextVisible,
-      detail_visible_fields: nextDetail,
-      deleted_system_fields: nextDeleted,
-    });
-  };
+  const tableRows = useMemo(
+    () => rows.filter((r) => {
+      const f = allFieldMap.get(r.key);
+      return f && f.surfaces.includes("table");
+    }),
+    [rows, allFieldMap],
+  );
 
-  type HiddenEntry =
-    | { kind: "system"; key: string; label: string; type: string; deleted: boolean }
-    | { kind: "custom"; def: CustomFieldDefinition };
+  const detailRows = useMemo(
+    () => rows.filter((r) => {
+      const f = allFieldMap.get(r.key);
+      return f && f.surfaces.includes("detail");
+    }),
+    [rows, allFieldMap],
+  );
 
-  const hiddenEntries = useMemo<HiddenEntry[]>(() => {
-    const list: HiddenEntry[] = [];
-    const orderSet = new Set(columnOrder);
+  const hiddenEntries = useMemo(() => {
+    if (!layout) return [];
+    const tableKnown = new Set(tableRows.map((r) => r.key));
+    const detailKnown = new Set(detailRows.map((r) => r.key));
+    const out: Array<{ kind: "system" | "custom"; key: string; label: string; category: "core" | "system" | "custom"; deleted: boolean }> = [];
     const seen = new Set<string>();
-    for (const k of settings?.deleted_system_fields || []) {
+    for (const k of layout.removed) {
       if (seen.has(k)) continue;
-      const col = DEFAULT_COLUMNS.find((c) => c.key === k);
-      const detail = DETAIL_FIELD_CATALOG.find((d) => d.key === k);
-      if (col) { list.push({ kind: "system", key: k, label: col.label, type: col.type, deleted: true }); seen.add(k); }
-      else if (detail) { list.push({ kind: "system", key: k, label: detail.label, type: detail.kind, deleted: true }); seen.add(k); }
+      const f = allFieldMap.get(k);
+      if (!f) continue;
+      seen.add(k);
+      out.push({ kind: "system", key: k, label: resolveFieldLabel(k, f.label, overrides), category: f.group, deleted: true });
     }
-    for (const c of DEFAULT_COLUMNS) {
-      if (seen.has(c.key)) continue;
-      if (orderSet.has(c.key)) continue;
-      if (c.key.startsWith("cf_")) continue;
-      list.push({ kind: "system", key: c.key, label: c.label, type: c.type, deleted: false });
-      seen.add(c.key);
+    // Hidden fields that are not in removed but not visible in either surface.
+    for (const k of layout.table.hidden) {
+      if (seen.has(k) || !tableKnown.has(k)) continue;
+      const f = allFieldMap.get(k);
+      if (!f) continue;
+      seen.add(k);
+      out.push({ kind: "system", key: k, label: resolveFieldLabel(k, f.label, overrides), category: f.group, deleted: false });
+    }
+    for (const k of layout.detail.hidden) {
+      if (seen.has(k) || !detailKnown.has(k)) continue;
+      const f = allFieldMap.get(k);
+      if (!f) continue;
+      seen.add(k);
+      out.push({ kind: "system", key: k, label: resolveFieldLabel(k, f.label, overrides), category: f.group, deleted: false });
     }
     for (const f of customFields.filter((f) => !f.is_active)) {
-      list.push({ kind: "custom", def: f });
+      if (seen.has(f.key)) continue;
+      seen.add(f.key);
+      out.push({ kind: "custom", key: f.key, label: f.label, category: "custom", deleted: false });
     }
-    return list;
-  }, [columnOrder, settings?.deleted_system_fields, customFields]);
+    return out;
+  }, [layout, tableRows, detailRows, allFieldMap, overrides, customFields]);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   if (loadingSettings || loadingFields) {
     return <div className="p-4 text-center text-muted-foreground">Loading fields…</div>;
@@ -387,8 +431,7 @@ export function FieldsPanel() {
         <div>
           <h3 className="font-medium">Fields</h3>
           <p className="text-sm text-muted-foreground">
-            Add, rename, hide, reorder, and delete fields. Edit dropdown options inline.
-            Core fields can be hidden but never deleted.
+            Reorder, rename, hide, and group fields. Table columns and detail groups are independent.
           </p>
         </div>
         <Button size="sm" onClick={() => { setEditingField(null); setDialogOpen(true); }}>
@@ -397,105 +440,105 @@ export function FieldsPanel() {
         </Button>
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={rows.map((r) => r.key)} strategy={verticalListSortingStrategy}>
-          <div className="space-y-2">
-            {rows.map((row) => (
-              <FieldRowCard
-                key={row.key}
-                row={row}
-                label={resolveLabel(row)}
-                hasOverride={!!overrides[row.key]}
-                inTable={visibleColumns.includes(row.key)}
-                inDetail={detailVisible.has(row.key)}
-                onRename={(next) => handleRename(row, next)}
-                onResetLabel={() => handleResetLabel(row)}
-                onToggleTable={() => toggleTable(row)}
-                onToggleDetail={() => toggleDetail(row)}
-                onDelete={() => requestDelete(row)}
-                onEditCustom={() => { if (row.customDef) { setEditingField(row.customDef); setDialogOpen(true); } }}
-                onConfigureSystem={
-                  row.category === "system" || row.category === "core"
-                    ? () => setSystemConfigKey(row.key)
-                    : undefined
-                }
+      <Tabs defaultValue="table">
+        <TabsList className="w-full">
+          <TabsTrigger value="table" className="flex-1">Table columns</TabsTrigger>
+          <TabsTrigger value="detail" className="flex-1">Detail groups</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="table" className="space-y-3">
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleTableReorder}>
+            <SortableContext items={tableRows.map((r) => r.key)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-2">
+                {tableRows.map((row) => (
+                  <TableRowCard
+                    key={row.key}
+                    row={row}
+                    label={resolveFieldLabel(row.key, row.label, overrides)}
+                    hasOverride={!!overrides[row.key]}
+                    isVisible={!!layout && layout.table.order.includes(row.key) && !layout.table.hidden.includes(row.key)}
+                    onRename={(next) => handleRename(row, next)}
+                    onResetLabel={() => handleResetLabel(row)}
+                    onToggle={() => handleToggleTable(row.key)}
+                    onDelete={() => requestDelete(row)}
+                    onEditCustom={() => { if (row.customDef) { setEditingField(row.customDef); setDialogOpen(true); } }}
+                    onConfigureSystem={() => setSystemConfigKey(row.key)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </TabsContent>
+
+        <TabsContent value="detail" className="space-y-4">
+          <div className="space-y-4">
+            {(layout?.detail?.groups ?? []).map((group) => (
+              <DetailGroup
+                key={group.id}
+                group={group}
+                layout={layout!}
+                rows={detailRows}
+                overrides={overrides}
+                onRename={(label) => handleRenameGroup(group.id, label)}
+                onDelete={() => handleDeleteGroup(group.id)}
+                onToggleField={handleToggleDetail}
+                onMoveField={handleMoveToGroup}
+                onReorder={(event) => handleReorderWithinGroup(group.id, event)}
+                onRenameField={handleRename}
+                onResetLabel={handleResetLabel}
+                onDeleteField={requestDelete}
+                onEditCustom={(row) => { if (row.customDef) { setEditingField(row.customDef); setDialogOpen(true); } }}
+                onConfigureSystem={(row) => setSystemConfigKey(row.key)}
+                editing={editingGroupId === group.id}
+                onStartEditing={() => { setEditingGroupId(group.id); setGroupDraft(group.label); }}
+                onCancelEditing={() => setEditingGroupId(null)}
+                draft={groupDraft}
+                onDraftChange={setGroupDraft}
+                onCommitRename={(label) => { handleRenameGroup(group.id, label); setEditingGroupId(null); }}
               />
             ))}
           </div>
-        </SortableContext>
-      </DndContext>
+          <Button variant="outline" size="sm" className="w-full" onClick={handleAddGroup}>
+            <Plus className="w-4 h-4 mr-1" />
+            Add group
+          </Button>
+        </TabsContent>
+      </Tabs>
 
       {hiddenEntries.length > 0 && (
         <div className="pt-4 border-t border-border">
           <div className="text-xs font-medium text-muted-foreground mb-2">
-            Hidden fields ({hiddenEntries.length})
+            Hidden / deleted fields ({hiddenEntries.length})
           </div>
           <div className="space-y-2">
-            {hiddenEntries.map((entry) => {
-              if (entry.kind === "custom") {
-                const f = entry.def;
-                return (
-                  <div
-                    key={`custom-${f.id}`}
-                    className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-border bg-muted/30"
-                  >
-                    <div>
-                      <div className="text-sm font-medium">{f.label}</div>
-                      <div className="text-xs text-muted-foreground">Custom · {f.type}</div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => restoreCustom(f)}>
-                        <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                        Restore
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => { setEraseAlongDelete(false); setDeleteTarget({ kind: "custom-erase", field: f }); }}
-                          >
-                            Erase data from all trades
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => { setEraseAlongDelete(false); setDeleteTarget({ kind: "custom-hard", field: f }); }}
-                          >
-                            Permanently delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+            {hiddenEntries.map((entry) => (
+              <div
+                key={entry.key}
+                className={cn(
+                  "flex items-center justify-between p-2.5 rounded-lg border border-dashed",
+                  entry.deleted ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/30"
+                )}
+              >
+                <div>
+                  <div className="text-sm font-medium">{entry.label}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {entry.category === "core" ? "Core" : entry.category === "custom" ? "Custom" : "System"}
+                    {entry.deleted ? " · deleted" : " · hidden"}
                   </div>
-                );
-              }
-              return (
-                <div
-                  key={`sys-${entry.key}`}
-                  className={cn(
-                    "flex items-center justify-between p-2.5 rounded-lg border border-dashed",
-                    entry.deleted ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/30"
-                  )}
-                >
-                  <div>
-                    <div className="text-sm font-medium">
-                      {resolveFieldLabel(entry.key, entry.label, overrides)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {entry.deleted ? `Deleted · ${entry.type}` : entry.type}
-                    </div>
-                  </div>
+                </div>
+                {entry.kind === "custom" ? (
+                  <Button variant="ghost" size="sm" onClick={() => restoreCustom(customFields.find((f) => f.key === entry.key)!)}>
+                    <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                    Restore
+                  </Button>
+                ) : (
                   <Button variant="ghost" size="sm" onClick={() => restoreSystem(entry.key)}>
                     <RotateCcw className="w-3.5 h-3.5 mr-1" />
                     Restore
                   </Button>
-                </div>
-              );
-            })}
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -522,39 +565,28 @@ export function FieldsPanel() {
       {systemConfigKey && (() => {
         const row = rows.find((r) => r.key === systemConfigKey);
         if (!row) return null;
-        const sys = DETAIL_FIELD_CATALOG.find((d) => d.key === systemConfigKey);
-        const col = DEFAULT_COLUMNS.find((c) => c.key === systemConfigKey);
+        const f = allFieldMap.get(systemConfigKey);
         const kindToType: Record<string, "text" | "number" | "select" | "multi_select" | "date" | "checkbox" | "url"> = {
           text: "text",
           select: "select",
-          "multi-select": "multi_select",
-          "playbook-select": "select",
-          "dual-select": "select",
-          "dual-multi": "multi_select",
-          "dual-playbook": "select",
-          readonly: "text",
-          "account-select": "select",
-        };
-        const colTypeMap: Record<string, "text" | "number" | "select" | "multi_select" | "date" | "checkbox" | "url"> = {
-          text: "text",
+          multi_select: "multi_select",
+          playbook: "select",
+          account: "select",
+          money: "number",
+          percent: "number",
           number: "number",
+          duration: "number",
           date: "date",
-          select: "select",
-          "multi-select": "multi_select",
           badge: "text",
+          readonly: "text",
         };
-        const defaultType = sys
-          ? kindToType[sys.kind] || "text"
-          : col
-          ? colTypeMap[col.type] || "text"
-          : "text";
         return (
           <SystemFieldConfigDialog
             open={!!systemConfigKey}
             onOpenChange={(o) => !o && setSystemConfigKey(null)}
             fieldKey={systemConfigKey}
-            label={resolveLabel(row)}
-            defaultType={defaultType}
+            label={resolveFieldLabel(systemConfigKey, row.label, overrides)}
+            defaultType={kindToType[f?.valueType || "text"] || "text"}
             override={overrideByKey.get(systemConfigKey)}
           />
         );
@@ -572,4 +604,385 @@ export function FieldsPanel() {
       />
     </div>
   );
+}
+
+function TableRowCard({
+  row, label, hasOverride, isVisible,
+  onRename, onResetLabel, onToggle, onDelete, onEditCustom, onConfigureSystem,
+}: {
+  row: FieldRow;
+  label: string;
+  hasOverride: boolean;
+  isVisible: boolean;
+  onRename: (next: string) => void;
+  onResetLabel: () => void;
+  onToggle: () => void;
+  onDelete: () => void;
+  onEditCustom?: () => void;
+  onConfigureSystem?: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(label);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: row.key });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+
+  const commit = () => {
+    if (draft.trim() && draft !== label) onRename(draft.trim());
+    setEditing(false);
+  };
+
+  const isCore = row.category === "core";
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "rounded-lg border border-border bg-card/50 transition-colors",
+        isDragging && "opacity-50 shadow-lg",
+      )}
+    >
+      <div className="flex items-center gap-3 p-3">
+        <button {...attributes} {...listeners} className="touch-none cursor-grab active:cursor-grabbing">
+          <GripVertical className="w-4 h-4 text-muted-foreground" />
+        </button>
+
+        <div className="flex-1 min-w-0">
+          {editing ? (
+            <Input
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commit();
+                if (e.key === "Escape") { setDraft(label); setEditing(false); }
+              }}
+              className="h-7 text-sm"
+            />
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setDraft(label); setEditing(true); }}
+                className="font-medium text-left text-sm hover:underline decoration-dotted underline-offset-4"
+              >
+                {label}
+              </button>
+              {isCore && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0 rounded text-[10px] border border-border bg-muted/50">
+                  <Lock className="w-2.5 h-2.5" />
+                  Core
+                </span>
+              )}
+              {row.category === "custom" && (
+                <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] border border-border bg-muted/50">Custom</span>
+              )}
+              {hasOverride && !isCore && (
+                <button onClick={onResetLabel} className="text-[10px] text-primary hover:underline" title="Reset to default name">
+                  reset
+                </button>
+              )}
+            </div>
+          )}
+          {row.description && <div className="text-[11px] text-muted-foreground mt-0.5">{row.description}</div>}
+        </div>
+
+        <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
+          <span>{isVisible ? "Visible" : "Hidden"}</span>
+          <Switch checked={isVisible} onCheckedChange={onToggle} />
+        </label>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreHorizontal className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onClick={() => { setDraft(label); setEditing(true); }}>
+              <Pencil className="w-4 h-4 mr-2" />
+              Rename
+            </DropdownMenuItem>
+            {row.category === "custom" && onEditCustom && (
+              <DropdownMenuItem onClick={onEditCustom}>
+                <Pencil className="w-4 h-4 mr-2" />
+                Edit field & change type…
+              </DropdownMenuItem>
+            )}
+            {onConfigureSystem && row.category !== "custom" && (
+              <DropdownMenuItem onClick={onConfigureSystem}>
+                <Settings2 className="w-4 h-4 mr-2" />
+                Configure type & options…
+              </DropdownMenuItem>
+            )}
+            {!isCore && (
+              <>
+                <DropdownMenuItem onClick={onDelete} className="text-destructive">
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete field
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+}
+
+function DetailGroup({
+  group, layout, rows, overrides,
+  onRename, onDelete, onToggleField, onMoveField, onReorder,
+  onRenameField, onResetLabel, onDeleteField, onEditCustom, onConfigureSystem,
+  editing, onStartEditing, onCancelEditing, draft, onDraftChange, onCommitRename,
+}: {
+  group: JournalFieldLayout["detail"]["groups"][number];
+  layout: JournalFieldLayout;
+  rows: FieldRow[];
+  overrides: Record<string, string>;
+  onRename: (label: string) => void;
+  onDelete: () => void;
+  onToggleField: (key: string) => void;
+  onMoveField: (key: string, groupId: string) => void;
+  onReorder: (event: DragEndEvent) => void;
+  onRenameField: (row: FieldRow, label: string) => void;
+  onResetLabel: (row: FieldRow) => void;
+  onDeleteField: (row: FieldRow) => void;
+  onEditCustom: (row: FieldRow) => void;
+  onConfigureSystem: (row: FieldRow) => void;
+  editing: boolean;
+  onStartEditing: () => void;
+  onCancelEditing: () => void;
+  draft: string;
+  onDraftChange: (v: string) => void;
+  onCommitRename: (v: string) => void;
+}) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const rowMap = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
+  const groupRows = useMemo(
+    () => group.fields.map((k) => rowMap.get(k)).filter((r): r is FieldRow => !!r),
+    [group.fields, rowMap],
+  );
+  const otherGroups = layout.detail.groups.filter((g) => g.id !== group.id);
+
+  return (
+    <div className="rounded-lg border border-border bg-card/50 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-muted/30 border-b border-border">
+        {editing ? (
+          <div className="flex items-center gap-2 flex-1">
+            <Input
+              autoFocus
+              value={draft}
+              onChange={(e) => onDraftChange(e.target.value)}
+              onBlur={() => onCommitRename(draft)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onCommitRename(draft);
+                if (e.key === "Escape") onCancelEditing();
+              }}
+              className="h-7 text-sm"
+            />
+          </div>
+        ) : (
+          <button
+            onClick={onStartEditing}
+            className="font-medium text-sm hover:underline decoration-dotted underline-offset-4"
+          >
+            {group.label}
+          </button>
+        )}
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onStartEditing}>
+            <Pencil className="w-3.5 h-3.5" />
+          </Button>
+          {group.fields.length === 0 && (
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={onDelete}>
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="p-2">
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onReorder}>
+          <SortableContext items={group.fields} strategy={verticalListSortingStrategy}>
+            <div className="space-y-1">
+              {groupRows.map((row) => (
+                <DetailFieldRow
+                  key={row.key}
+                  row={row}
+                  label={resolveFieldLabel(row.key, row.label, overrides)}
+                  hasOverride={!!overrides[row.key]}
+                  groupOptions={otherGroups}
+                  onToggle={() => onToggleField(row.key)}
+                  onMove={(groupId) => onMoveField(row.key, groupId)}
+                  onRename={(next) => onRenameField(row, next)}
+                  onResetLabel={() => onResetLabel(row)}
+                  onDelete={() => onDeleteField(row)}
+                  onEditCustom={() => onEditCustom(row)}
+                  onConfigureSystem={() => onConfigureSystem(row)}
+                />
+              ))}
+              {groupRows.length === 0 && (
+                <div className="text-xs text-muted-foreground italic px-2 py-1">Drag fields here or use the move menu.</div>
+              )}
+            </div>
+          </SortableContext>
+        </DndContext>
+      </div>
+    </div>
+  );
+}
+
+function DetailFieldRow({
+  row, label, hasOverride, groupOptions,
+  onToggle, onMove, onRename, onResetLabel, onDelete, onEditCustom, onConfigureSystem,
+}: {
+  row: FieldRow;
+  label: string;
+  hasOverride: boolean;
+  groupOptions: { id: string; label: string }[];
+  onToggle: () => void;
+  onMove: (groupId: string) => void;
+  onRename: (next: string) => void;
+  onResetLabel: () => void;
+  onDelete: () => void;
+  onEditCustom?: () => void;
+  onConfigureSystem?: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(label);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: row.key });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+
+  const commit = () => {
+    if (draft.trim() && draft !== label) onRename(draft.trim());
+    setEditing(false);
+  };
+
+  const isCore = row.category === "core";
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex items-center gap-2 p-2 rounded-md transition-colors",
+        isDragging && "opacity-50 shadow bg-muted",
+      )}
+    >
+      <button {...attributes} {...listeners} className="touch-none cursor-grab active:cursor-grabbing">
+        <GripVertical className="w-3.5 h-3.5 text-muted-foreground" />
+      </button>
+      <div className="flex-1 min-w-0">
+        {editing ? (
+          <Input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commit();
+              if (e.key === "Escape") { setDraft(label); setEditing(false); }
+            }}
+            className="h-7 text-sm"
+          />
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setDraft(label); setEditing(true); }}
+              className="text-sm text-left hover:underline decoration-dotted underline-offset-4"
+            >
+              {label}
+            </button>
+            {isCore && (
+              <span className="inline-flex items-center gap-1 px-1 py-0 rounded text-[10px] border border-border bg-muted/50">
+                <Lock className="w-2.5 h-2.5" />
+                Core
+              </span>
+            )}
+            {hasOverride && !isCore && (
+              <button onClick={onResetLabel} className="text-[10px] text-primary hover:underline" title="Reset to default name">
+                reset
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-7 w-7">
+            <MoreHorizontal className="w-3.5 h-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem onClick={() => { setDraft(label); setEditing(true); }}>
+            <Pencil className="w-4 h-4 mr-2" />
+            Rename
+          </DropdownMenuItem>
+          {groupOptions.length > 0 && (
+            <>
+              <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                Move to group
+              </DropdownMenuItem>
+              {groupOptions.map((g) => (
+                <DropdownMenuItem key={g.id} onClick={() => onMove(g.id)}>
+                  <ChevronDown className="w-4 h-4 mr-2" />
+                  {g.label}
+                </DropdownMenuItem>
+              ))}
+            </>
+          )}
+          <DropdownMenuItem onClick={onToggle}>
+            <EyeOff className="w-4 h-4 mr-2" />
+            Hide from detail
+          </DropdownMenuItem>
+          {row.category === "custom" && onEditCustom && (
+            <DropdownMenuItem onClick={onEditCustom}>
+              <Pencil className="w-4 h-4 mr-2" />
+              Edit field & change type…
+            </DropdownMenuItem>
+          )}
+          {onConfigureSystem && row.category !== "custom" && (
+            <DropdownMenuItem onClick={onConfigureSystem}>
+              <Settings2 className="w-4 h-4 mr-2" />
+              Configure type & options…
+            </DropdownMenuItem>
+          )}
+          {!isCore && (
+            <>
+              <DropdownMenuItem onClick={onDelete} className="text-destructive">
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete field
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+function kindHint(f: import("@/lib/journalFields/registry").FieldDef): string {
+  switch (f.valueType) {
+    case "readonly": return "Auto-filled";
+    case "select": return "Single select";
+    case "multi_select": return "Multi-select";
+    case "playbook": return "Playbook";
+    case "account": return "Account";
+    case "text": return "Text";
+    case "number": return "Number";
+    case "money": return "Money";
+    case "percent": return "Percent";
+    case "duration": return "Duration";
+    case "date": return "Date";
+    case "badge": return "Badge";
+    default: return "";
+  }
+}
+
+function canEraseSystemField(key: string): boolean {
+  // Only erasable system fields have actual trade data that can be wiped.
+  const f = getFieldDef(key);
+  return !!f && f.group === "system" && f.erasable;
 }
