@@ -140,13 +140,16 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     await updateSettings.mutateAsync({ visible_columns: current.filter(k => k !== key) });
   };
 
-  // Merged registry: system columns + active custom field columns + user label/width overrides
-  const columnRegistry = useMemo(
-    () => buildColumnRegistry(customFields, settings?.column_overrides || {}),
-    [customFields, settings?.column_overrides]
+  // Merged registry: system columns + active custom field columns
+  const fieldRegistry = useMemo(
+    () => buildFieldRegistry(customFields, accounts),
+    [customFields, accounts]
   );
-  const getColumn = (key: string): ColumnDefinition | undefined =>
-    columnRegistry.find((c) => c.key === key);
+  const getField = (key: string) => fieldRegistry.find((f) => f.key === key);
+  const getColumn = (key: string): ColumnDefinition => {
+    const field = getField(key);
+    return toColumnDefinition(field, key, settings?.column_overrides?.[key]);
+  };
   
   // Generate dynamic model options from playbooks - use playbook ID as value
   const playbookModelOptions = useMemo(() => {
