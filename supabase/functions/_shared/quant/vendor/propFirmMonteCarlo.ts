@@ -12,7 +12,7 @@
 // the R sample.
 // ============================================================================
 
-import { wilsonCi, ensureUtcMs } from "./stats";
+import { wilsonCi, ensureUtcMs } from "./stats.ts";
 
 export type RotationModel =
   | "one_only"

@@ -45,7 +45,11 @@ mkdirSync(OUT_DIR, { recursive: true });
 
 let drift = 0;
 for (const name of files) {
-  const src = readFileSync(join(SRC_DIR, name), "utf8");
+  const raw = readFileSync(join(SRC_DIR, name), "utf8");
+  // Deno needs explicit file extensions on relative specifiers; the Vite-side
+  // canonical files stay extensionless. Rewrite on the way into vendor/.
+  const src = raw.replace(/(from\s+")(\.\/[^"]+)(")/g, (m, a, spec, c) =>
+    spec.endsWith(".ts") ? m : a + spec + ".ts" + c);
   const expected = HEADER.replace("<name>", name) + src;
   const target = join(OUT_DIR, name);
   const current = existsSync(target) ? readFileSync(target, "utf8") : null;
