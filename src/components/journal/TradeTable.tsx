@@ -137,6 +137,10 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   const { data: settings } = useUserSettings();
   const updateSettings = useUpdateUserSettings();
   const { data: customFields = [] } = useCustomFieldDefinitions();
+  const { layout, labels, reorderColumns } = useFieldLayoutActions();
+  const [removeTarget, setRemoveTarget] = useState<FieldDef | null>(null);
+
+
 
 
   const fieldRegistry = useMemo(
