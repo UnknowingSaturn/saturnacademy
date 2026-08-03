@@ -116,9 +116,10 @@ function toColumnDefinition(
     hideable: field.group !== 'core',
     width: override?.width || field.width || 'minmax(80px, 1fr)',
     propertyName: field.optionsProperty,
-    category: field.valueType === 'readonly' || field.valueType === 'date' || field.valueType === 'computed' ? 'calculated' : 'editable',
+    category: field.source.kind === 'computed' || field.valueType === 'readonly' || field.valueType === 'date' ? 'calculated' : 'editable',
   };
 }
+
 
 
 export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, deletedFields, onEditProperty, accounts }: TradeTableProps) {
