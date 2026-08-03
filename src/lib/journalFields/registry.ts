@@ -224,6 +224,8 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "session",
     label: "Session",
+    tier: "analytics",
+    dependents: [PAIR_LAB, REPORTS, COACH],
     valueType: "select",
     source: trades("session"),
     editor: "select",
@@ -234,6 +236,8 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "model",
     label: "Planned Model",
+    tier: "analytics",
+    dependents: ["Playbook compliance", REPORTS, COACH],
     valueType: "playbook",
     source: trades("playbook_id"),
     editor: "playbook",
@@ -243,6 +247,8 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "actual_model",
     label: "Actual Model",
+    tier: "analytics",
+    dependents: ["Read quality", "Playbook compliance"],
     valueType: "playbook",
     source: trades("actual_playbook_id"),
     editor: "playbook",
@@ -252,6 +258,8 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "profile",
     label: "Planned Profile",
+    tier: "analytics",
+    dependents: [PAIR_LAB, REPORTS, COACH],
     valueType: "select",
     source: trades("profile"),
     editor: "select",
@@ -262,6 +270,8 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "actual_profile",
     label: "Actual Profile",
+    tier: "analytics",
+    dependents: [PAIR_LAB, "Read quality"],
     valueType: "select",
     source: trades("actual_profile"),
     editor: "select",
@@ -272,6 +282,8 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "regime",
     label: "Planned Regime",
+    tier: "analytics",
+    dependents: [PAIR_LAB, "Read quality"],
     valueType: "select",
     source: reviews("regime"),
     editor: "select",
@@ -283,6 +295,8 @@ export const JOURNAL_FIELD_REGISTRY: FieldDef[] = [
   system({
     key: "actual_regime",
     label: "Actual Regime",
+    tier: "analytics",
+    dependents: [PAIR_LAB, "Read quality"],
     valueType: "select",
     source: trades("actual_regime"),
     editor: "select",
