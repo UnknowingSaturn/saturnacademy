@@ -131,10 +131,26 @@ export function useSendCoachMessage() {
       };
       const { data, error } = await supabase.functions.invoke("coach-chat", { body });
       if (error) {
-        // Extract server-side error body if present
-        const msg = (error as any).message ?? "Request failed";
+        // supabase-js throws a generic "non-2xx status code" error and hides the
+        // JSON body the function actually returned. Read it so the user sees the
+        // real reason (auth, rate limit, AI credits, tool failure).
+        let msg = (error as any).message ?? "Request failed";
+        const res: Response | undefined = (error as any).context;
+        if (res && typeof res.json === "function") {
+          try {
+            const parsed = await res.clone().json();
+            if (parsed?.error) msg = String(parsed.error);
+          } catch {
+            try {
+              const txt = (await res.clone().text()).trim();
+              if (txt) msg = txt.slice(0, 300);
+            } catch { /* keep generic message */ }
+          }
+          if (res.status) msg = `${msg} (status ${res.status})`;
+        }
         throw new Error(msg);
       }
+
       if ((data as any)?.error) throw new Error((data as any).error);
       return data as { reply: string; title?: string | null };
     },
