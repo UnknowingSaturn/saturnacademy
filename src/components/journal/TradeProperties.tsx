@@ -91,19 +91,32 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const hasMultiple = fills.length > 1;
   const avgExit = useMemo(() => (hasMultiple ? getWeightedAvgExitPrice(trade) : null), [hasMultiple, trade]);
 
-  const layout = settings?.journal_field_layout;
+  const { layout, labels: overrides, addGroup, renameGroup, deleteGroup } = useFieldLayoutActions();
   const allFields = buildFieldRegistry(customFields, accounts ?? []);
   const allFieldMap = useMemo(() => new Map(allFields.map((f) => [f.key, f])), [allFields]);
-  const overrides = settings?.field_label_overrides || {};
 
-  const groups = layout?.detail?.groups ?? [];
+  const groups = layout?.detail?.groups?.length ? layout.detail.groups : DEFAULT_DETAIL_GROUPS;
+  const groupOptions = useMemo(() => groups.map((g) => ({ id: g.id, label: g.label })), [groups]);
 
-  const renderField = (key: string) => {
+  const renderField = (key: string, groupId: string) => {
     const field = allFieldMap.get(key) || getFieldDef(key);
     if (!field) return null;
     const label = resolveFieldLabel(key, overrides);
     return (
-      <PropertyRow key={key} label={label}>
+      <PropertyRow
+        key={key}
+        label={label}
+        menu={
+          <FieldRowMenu
+            field={field}
+            label={label}
+            hasLabelOverride={!!overrides[key]}
+            groups={groupOptions}
+            currentGroupId={groupId}
+            onRequestRemove={setRemoveTarget}
+          />
+        }
+      >
         <FieldCell
           field={field}
           trade={trade}
@@ -147,19 +160,53 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
             const f = allFieldMap.get(k) || getFieldDef(k);
             return f && (f.group !== "custom" || customFields.some((cf) => cf.key === k && cf.is_active));
           });
-          if (visibleFields.length === 0) return null;
           return (
-            <div key={group.id} className="space-y-3">
-              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                {group.label}
+            <div key={group.id} className="space-y-3 group/section">
+              <div className="flex items-center gap-1">
+                <GroupHeader
+                  label={group.label}
+                  onRename={(v) => renameGroup(group.id, v)}
+                  onDelete={() => deleteGroup(group.id)}
+                />
+                <div className="opacity-0 group-hover/section:opacity-100 transition-opacity">
+                  <AddFieldPopover
+                    surface="detail"
+                    groupId={group.id}
+                    trigger={
+                      <button
+                        className="p-0.5 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                        aria-label={`Add field to ${group.label}`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    }
+                  />
+                </div>
               </div>
               <div className="space-y-3">
-                {visibleFields.map(renderField)}
+                {visibleFields.map((k) => renderField(k, group.id))}
+                {visibleFields.length === 0 && (
+                  <div className="text-xs text-muted-foreground italic">No fields yet</div>
+                )}
               </div>
             </div>
           );
         })}
+        <button
+          onClick={() => addGroup()}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          New group
+        </button>
       </div>
+
+      <RemoveFieldDialog
+        field={removeTarget}
+        label={removeTarget ? resolveFieldLabel(removeTarget.key, overrides) : ""}
+        onClose={() => setRemoveTarget(null)}
+      />
+
 
       <Separator />
 
