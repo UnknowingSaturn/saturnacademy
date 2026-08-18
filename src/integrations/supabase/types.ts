@@ -355,6 +355,257 @@ export type Database = {
           },
         ]
       }
+      backtest_runs: {
+        Row: {
+          config: Json
+          config_hash: string
+          created_at: string
+          date_from: string | null
+          date_to: string | null
+          error_message: string | null
+          id: string
+          include_holdout: boolean
+          label: string
+          metrics: Json
+          no_trade_log: Json
+          status: string
+          symbols: string[]
+          trade_count: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          config: Json
+          config_hash: string
+          created_at?: string
+          date_from?: string | null
+          date_to?: string | null
+          error_message?: string | null
+          id?: string
+          include_holdout?: boolean
+          label: string
+          metrics?: Json
+          no_trade_log?: Json
+          status?: string
+          symbols?: string[]
+          trade_count?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          config?: Json
+          config_hash?: string
+          created_at?: string
+          date_from?: string | null
+          date_to?: string | null
+          error_message?: string | null
+          id?: string
+          include_holdout?: boolean
+          label?: string
+          metrics?: Json
+          no_trade_log?: Json
+          status?: string
+          symbols?: string[]
+          trade_count?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      backtest_trades: {
+        Row: {
+          ambiguous_bar: boolean
+          bars_held: number | null
+          created_at: string
+          direction: string
+          entry_price: number
+          entry_ts: string
+          exit_price: number | null
+          exit_reason: string | null
+          exit_ts: string | null
+          gross_pnl: number | null
+          id: string
+          mae_points: number | null
+          mfe_points: number | null
+          net_pnl: number | null
+          r_multiple: number | null
+          run_id: string
+          session_date: string
+          setup_ts: string | null
+          stop_price: number
+          symbol: string
+          target_price: number | null
+          user_id: string
+          window_key: string
+        }
+        Insert: {
+          ambiguous_bar?: boolean
+          bars_held?: number | null
+          created_at?: string
+          direction: string
+          entry_price: number
+          entry_ts: string
+          exit_price?: number | null
+          exit_reason?: string | null
+          exit_ts?: string | null
+          gross_pnl?: number | null
+          id?: string
+          mae_points?: number | null
+          mfe_points?: number | null
+          net_pnl?: number | null
+          r_multiple?: number | null
+          run_id: string
+          session_date: string
+          setup_ts?: string | null
+          stop_price: number
+          symbol: string
+          target_price?: number | null
+          user_id: string
+          window_key: string
+        }
+        Update: {
+          ambiguous_bar?: boolean
+          bars_held?: number | null
+          created_at?: string
+          direction?: string
+          entry_price?: number
+          entry_ts?: string
+          exit_price?: number | null
+          exit_reason?: string | null
+          exit_ts?: string | null
+          gross_pnl?: number | null
+          id?: string
+          mae_points?: number | null
+          mfe_points?: number | null
+          net_pnl?: number | null
+          r_multiple?: number | null
+          run_id?: string
+          session_date?: string
+          setup_ts?: string | null
+          stop_price?: number
+          symbol?: string
+          target_price?: number | null
+          user_id?: string
+          window_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "backtest_trades_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "backtest_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bar_ingest_jobs: {
+        Row: {
+          attempts: number
+          created_at: string
+          id: string
+          last_error: string | null
+          lease_until: string | null
+          month: string
+          requested_by: string | null
+          source: string
+          status: string
+          symbol: string
+          timeframe: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          lease_until?: string | null
+          month: string
+          requested_by?: string | null
+          source?: string
+          status?: string
+          symbol: string
+          timeframe?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          lease_until?: string | null
+          month?: string
+          requested_by?: string | null
+          source?: string
+          status?: string
+          symbol?: string
+          timeframe?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      bar_manifest: {
+        Row: {
+          bar_count: number
+          byte_size: number
+          created_at: string
+          duplicate_ts: number
+          first_ts: string | null
+          id: string
+          ingested_at: string
+          invalid_bars: number
+          last_ts: string | null
+          missing_days: Json
+          missing_minutes: number
+          month: string
+          object_path: string
+          quality: Json
+          source: string
+          symbol: string
+          timeframe: string
+          zero_volume_bars: number
+        }
+        Insert: {
+          bar_count?: number
+          byte_size?: number
+          created_at?: string
+          duplicate_ts?: number
+          first_ts?: string | null
+          id?: string
+          ingested_at?: string
+          invalid_bars?: number
+          last_ts?: string | null
+          missing_days?: Json
+          missing_minutes?: number
+          month: string
+          object_path: string
+          quality?: Json
+          source?: string
+          symbol: string
+          timeframe?: string
+          zero_volume_bars?: number
+        }
+        Update: {
+          bar_count?: number
+          byte_size?: number
+          created_at?: string
+          duplicate_ts?: number
+          first_ts?: string | null
+          id?: string
+          ingested_at?: string
+          invalid_bars?: number
+          last_ts?: string | null
+          missing_days?: Json
+          missing_minutes?: number
+          month?: string
+          object_path?: string
+          quality?: Json
+          source?: string
+          symbol?: string
+          timeframe?: string
+          zero_volume_bars?: number
+        }
+        Relationships: []
+      }
       coach_embed_queue: {
         Row: {
           attempts: number
