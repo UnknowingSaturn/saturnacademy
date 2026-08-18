@@ -2633,31 +2633,12 @@ var LZMA = (function () {
     }());
     /** ce */
     
-    /// If we're in a Web Worker, create the onmessage() communication channel.
-    ///NOTE: This seems to be the most reliable way to detect this.
-    if (typeof onmessage != "undefined" && (typeof window == "undefined" || typeof window.document == "undefined")) {
-        (function () {
-            /* jshint -W020 */
-            /// Create the global onmessage function.
-            onmessage = function (e) {
-                if (e && e.data) {
-                    /** xs */
-                    if (e.data.action == action_decompress) {
-                        LZMA.decompress(e.data.data, e.data.cbn);
-                    } else if (e.data.action == action_compress) {
-                        LZMA.compress(e.data.data, e.data.mode, e.data.cbn);
-                    }
-                    /** xe */
-                    /// co:if (e.data.action == action_compress) {
-                    /// co:    LZMA.compress(e.data.data, e.data.mode, e.data.cbn);
-                    /// co:}
-                    /// do:if (e.data.action == action_decompress) {
-                    /// do:    LZMA.decompress(e.data.data, e.data.cbn);
-                    /// do:}
-                }
-            };
-        }());
-    }
+    /// VENDOR PATCH: upstream installs a global `onmessage` handler when it
+    /// thinks it is running inside a Web Worker. Under ESM strict mode that
+    /// assignment to an undeclared binding throws, and the edge runtime never
+    /// drives this module by postMessage anyway — so the block is disabled.
+    /// The synchronous `LZMA.decompress(bytes)` API below is what we use.
+
         
     return {
         /** xs */
