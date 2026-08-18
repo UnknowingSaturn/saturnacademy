@@ -24,7 +24,7 @@ import {
   priorSessionLevels, sessionSpans, htfBias, etMinutes,
   type BiasMode, type Direction, type FairValueGap, type LiquidityLevel, type Swing,
 } from "./detectors";
-import { instrumentSpec, pointsToCash, type InstrumentSpec } from "./instruments";
+import { instrumentSpec, pointsToCash, sizeForRisk, type InstrumentSpec } from "./instruments";
 
 // ---------------------------------------------------------------------------
 // Config
