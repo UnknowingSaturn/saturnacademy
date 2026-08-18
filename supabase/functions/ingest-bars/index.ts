@@ -127,7 +127,7 @@ async function enqueue(admin: any, userId: string, body: Record<string, unknown>
   if (months.length > 120) return json({ error: "Range too large (max 120 months per request)" }, 400);
 
   const rows = months.map((month) => ({
-    symbol: inst.symbol,
+    symbol,
     timeframe: TIMEFRAME,
     month,
     source: SOURCE,
@@ -144,7 +144,7 @@ async function enqueue(admin: any, userId: string, body: Record<string, unknown>
   const { data: existing } = await admin
     .from("bar_ingest_jobs")
     .select("month,status")
-    .eq("symbol", inst.symbol)
+    .eq("symbol", symbol)
     .eq("timeframe", TIMEFRAME)
     .eq("source", SOURCE)
     .in("month", months);
@@ -165,7 +165,7 @@ async function enqueue(admin: any, userId: string, body: Record<string, unknown>
   }
 
   return json({
-    symbol: inst.symbol,
+    symbol,
     requested: months.length,
     queued: fresh.length,
     revived: revive.length,
