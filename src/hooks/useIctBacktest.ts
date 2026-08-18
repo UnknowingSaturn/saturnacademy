@@ -2,8 +2,10 @@
 // useIctBacktest — Layer 4 orchestration.
 //
 //   bar_manifest (which months exist)
+//     → coverage gate (refuse to run on months full of holes)
 //     → download `.bin` chunks from the private `bars` bucket (cached per path)
 //     → hand the ArrayBuffers to the backtest worker (transferred)
+//     → persist the finished run to `backtest_runs` / `backtest_trades`
 //     → latest request id wins
 //
 // Runs only when explicitly triggered (`run()`), because a multi-year 1-minute
@@ -12,13 +14,24 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeSymbol } from "../../shared/quant/symbolAliasing";
+import { configHash } from "../../shared/quant/ict/walkforward";
 import type { EngineConfig } from "../../shared/quant/ict/engine";
+import type { InstrumentSpec } from "../../shared/quant/ict/instruments";
 import type {
   IctBacktestRequest,
   IctBacktestResponse,
+  WalkForwardOptions,
 } from "@/workers/ictBacktest.worker";
 
 const BUCKET = "bars";
+
+/**
+ * A month with more holes than this is not tradeable data — the engine would
+ * silently skip sessions and hand back a flattering, unrepresentative curve.
+ * ~44,600 minutes in a month, so 6,000 ≈ 13% of the month missing.
+ */
+export const COVERAGE_GAP_LIMIT = 6000;
 
 /** Module-level chunk cache: object path → bytes. Survives tab switches. */
 const chunkCache = new Map<string, ArrayBuffer>();
@@ -29,15 +42,31 @@ export interface RunParams {
   fromMonth: string;
   toMonth: string;
   cfg: Partial<EngineConfig>;
+  mode?: "single" | "walkforward";
+  walkForward?: WalkForwardOptions;
+  specOverride?: Partial<InstrumentSpec> | null;
+  /** Skip the data-quality gate (the UI asks before setting this). */
+  ignoreCoverageGaps?: boolean;
+  /** Persist to backtest_runs; off for throwaway parameter fiddling. */
+  persist?: boolean;
+  label?: string;
+}
+
+export interface CoverageWarning {
+  months: string[];
+  missingMinutes: number;
 }
 
 export interface BacktestState {
   result: IctBacktestResponse | null;
   isRunning: boolean;
-  phase: "idle" | "loading" | "computing";
+  phase: "idle" | "loading" | "computing" | "saving";
   loaded: number;
   total: number;
   error: string | null;
+  /** Set when the gate blocked the run; the UI offers "run anyway". */
+  coverageWarning: CoverageWarning | null;
+  savedRunId: string | null;
 }
 
 async function loadChunk(path: string): Promise<ArrayBuffer> {
@@ -65,7 +94,80 @@ function monthEndMs(month: string): number {
   ) - 1;
 }
 
-export function useIctBacktest(): BacktestState & { run: (p: RunParams) => void } {
+/** Persist the run + its fills. Failure here never invalidates the result. */
+async function saveRun(
+  p: RunParams,
+  symbol: string,
+  res: IctBacktestResponse,
+): Promise<string | null> {
+  const { data: auth } = await supabase.auth.getUser();
+  const userId = auth.user?.id;
+  if (!userId) return null;
+
+  const config = { ...p.cfg, mode: p.mode ?? "single", walkForward: p.walkForward ?? null };
+  const hash = configHash({ config, symbol, from: p.fromMonth, to: p.toMonth });
+
+  const { data: run, error } = await supabase
+    .from("backtest_runs")
+    .insert({
+      user_id: userId,
+      label: p.label ?? `${symbol} ${p.fromMonth}→${p.toMonth}`,
+      config: config as never,
+      config_hash: hash,
+      symbols: [symbol],
+      date_from: `${p.fromMonth}-01`,
+      date_to: `${p.toMonth}-01`,
+      include_holdout: (p.mode ?? "single") === "walkforward",
+      status: "complete",
+      metrics: {
+        summary: res.summary ?? null,
+        stats: res.stats ?? null,
+        walkForward: res.walkForward
+          ? { ...res.walkForward, oosEquity: undefined }
+          : null,
+        barsScanned: res.barsScanned ?? 0,
+      } as never,
+      no_trade_log: (res.noTrades ?? []).slice(0, 500) as never,
+      trade_count: res.summary?.trades ?? res.trades?.length ?? 0,
+    })
+    .select("id")
+    .single();
+  if (error || !run) throw new Error(error?.message ?? "Could not save run");
+
+  const trades = (res.trades ?? []).slice(0, 2000).map((t) => ({
+    run_id: run.id,
+    user_id: userId,
+    symbol,
+    session_date: t.sessionDate,
+    window_key: t.windowKey,
+    direction: t.direction,
+    setup_ts: new Date(t.setupTs).toISOString(),
+    entry_ts: new Date(t.entryTs).toISOString(),
+    entry_price: t.entryPrice,
+    stop_price: t.stopPrice,
+    target_price: t.targetPrice,
+    exit_ts: new Date(t.exitTs).toISOString(),
+    exit_price: t.exitPrice,
+    exit_reason: t.exitReason,
+    bars_held: t.barsHeld,
+    gross_pnl: t.grossPnl,
+    net_pnl: t.netPnl,
+    r_multiple: t.rMultiple,
+    mae_points: t.maePoints,
+    mfe_points: t.mfePoints,
+    ambiguous_bar: t.ambiguousBar,
+  }));
+  if (trades.length) {
+    const { error: tErr } = await supabase.from("backtest_trades").insert(trades);
+    if (tErr) throw new Error(tErr.message);
+  }
+  return run.id;
+}
+
+export function useIctBacktest(): BacktestState & {
+  run: (p: RunParams) => void;
+  loadRun: (result: IctBacktestResponse) => void;
+} {
   const [state, setState] = useState<BacktestState>({
     result: null,
     isRunning: false,
@@ -73,10 +175,13 @@ export function useIctBacktest(): BacktestState & { run: (p: RunParams) => void 
     loaded: 0,
     total: 0,
     error: null,
+    coverageWarning: null,
+    savedRunId: null,
   });
   const workerRef = useRef<Worker | null>(null);
   const lastId = useRef(0);
   const aliveRef = useRef(true);
+  const paramsRef = useRef<Map<number, { p: RunParams; symbol: string }>>(new Map());
 
   useEffect(() => {
     aliveRef.current = true;
@@ -96,13 +201,46 @@ export function useIctBacktest(): BacktestState & { run: (p: RunParams) => void 
     w.onmessage = (e: MessageEvent<IctBacktestResponse>) => {
       if (!aliveRef.current) return;
       if (e.data.id !== lastId.current) return; // stale
+      const ctx = paramsRef.current.get(e.data.id);
+      paramsRef.current.delete(e.data.id);
+
+      if (!e.data.ok) {
+        setState((s) => ({
+          ...s,
+          isRunning: false,
+          phase: "idle",
+          result: null,
+          error: e.data.error ?? "Backtest failed",
+        }));
+        return;
+      }
+
       setState((s) => ({
         ...s,
-        isRunning: false,
-        phase: "idle",
-        result: e.data.ok ? e.data : null,
-        error: e.data.ok ? null : e.data.error ?? "Backtest failed",
+        isRunning: !!ctx?.p.persist,
+        phase: ctx?.p.persist ? "saving" : "idle",
+        result: e.data,
+        error: null,
+        savedRunId: null,
       }));
+
+      if (ctx?.p.persist) {
+        void saveRun(ctx.p, ctx.symbol, e.data)
+          .then((id) => {
+            if (!aliveRef.current || e.data.id !== lastId.current) return;
+            setState((s) => ({ ...s, isRunning: false, phase: "idle", savedRunId: id }));
+          })
+          .catch((err: Error) => {
+            if (!aliveRef.current || e.data.id !== lastId.current) return;
+            // The result is still valid — surface the save failure separately.
+            setState((s) => ({
+              ...s,
+              isRunning: false,
+              phase: "idle",
+              error: `Run finished but could not be saved: ${err.message}`,
+            }));
+          });
+      }
     };
     const fail = (msg: string) => {
       if (!aliveRef.current) return;
@@ -118,6 +256,8 @@ export function useIctBacktest(): BacktestState & { run: (p: RunParams) => void 
     (p: RunParams) => {
       const id = ++lastId.current;
       const worker = ensureWorker();
+      const symbol = normalizeSymbol(p.symbol.toUpperCase());
+      paramsRef.current.set(id, { p, symbol });
       setState({
         result: null,
         isRunning: true,
@@ -125,14 +265,16 @@ export function useIctBacktest(): BacktestState & { run: (p: RunParams) => void 
         loaded: 0,
         total: 0,
         error: null,
+        coverageWarning: null,
+        savedRunId: null,
       });
 
       void (async () => {
         try {
           const { data: months, error } = await supabase
             .from("bar_manifest")
-            .select("month,object_path,bar_count,source")
-            .eq("symbol", p.symbol.toUpperCase())
+            .select("month,object_path,bar_count,source,missing_minutes")
+            .eq("symbol", symbol)
             .eq("timeframe", "1m")
             .gte("month", p.fromMonth)
             .lte("month", p.toMonth)
@@ -141,18 +283,38 @@ export function useIctBacktest(): BacktestState & { run: (p: RunParams) => void 
           // One chunk per month. When the same month exists from both the
           // broker upload and the vendor feed, the broker's own prices win —
           // they are the feed that filled the journalled trades.
-          const byMonth = new Map<string, { month: string; object_path: string; source: string }>();
-          for (const r of months ?? []) {
-            if ((r.bar_count ?? 0) <= 0) continue;
+          type Row = { month: string; object_path: string; source: string; missing_minutes: number | null };
+          const byMonth = new Map<string, Row>();
+          for (const r of (months ?? []) as Row[] & { bar_count?: number }[]) {
+            if (((r as { bar_count?: number }).bar_count ?? 0) <= 0) continue;
             const prev = byMonth.get(r.month);
             if (!prev || (prev.source !== "broker" && r.source === "broker")) byMonth.set(r.month, r);
           }
           const rows = [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
           if (rows.length === 0) {
             throw new Error(
-              `No bars for ${p.symbol} between ${p.fromMonth} and ${p.toMonth}. Import your MT5 history in Data coverage first.`,
+              `No bars for ${symbol} between ${p.fromMonth} and ${p.toMonth}. Import your MT5 history in Data coverage first.`,
             );
           }
+
+          // Coverage gate — a month with big holes biases every statistic that
+          // follows, so it blocks the run rather than quietly degrading it.
+          if (!p.ignoreCoverageGaps) {
+            const bad = rows.filter((r) => (r.missing_minutes ?? 0) > COVERAGE_GAP_LIMIT);
+            if (bad.length) {
+              const worst = Math.max(...bad.map((r) => r.missing_minutes ?? 0));
+              if (id !== lastId.current || !aliveRef.current) return;
+              setState((s) => ({
+                ...s,
+                isRunning: false,
+                phase: "idle",
+                coverageWarning: { months: bad.map((r) => r.month), missingMinutes: worst },
+                error: null,
+              }));
+              return;
+            }
+          }
+
           if (id !== lastId.current) return;
           setState((s) => ({ ...s, total: rows.length }));
 
@@ -168,11 +330,14 @@ export function useIctBacktest(): BacktestState & { run: (p: RunParams) => void 
           setState((s) => ({ ...s, phase: "computing" }));
           const req: IctBacktestRequest = {
             id,
-            symbol: p.symbol.toUpperCase(),
+            symbol,
             chunks,
             fromMs: monthStartMs(p.fromMonth),
             toMs: monthEndMs(p.toMonth),
             cfg: p.cfg,
+            mode: p.mode ?? "single",
+            walkForward: p.walkForward,
+            specOverride: p.specOverride ?? null,
           };
           worker.postMessage(req, chunks);
         } catch (err) {
@@ -189,5 +354,20 @@ export function useIctBacktest(): BacktestState & { run: (p: RunParams) => void 
     [ensureWorker],
   );
 
-  return { ...state, run };
+  /** Re-display a stored run without recomputing it. */
+  const loadRun = useCallback((result: IctBacktestResponse) => {
+    lastId.current += 1;
+    setState({
+      result,
+      isRunning: false,
+      phase: "idle",
+      loaded: 0,
+      total: 0,
+      error: null,
+      coverageWarning: null,
+      savedRunId: null,
+    });
+  }, []);
+
+  return { ...state, run, loadRun };
 }
