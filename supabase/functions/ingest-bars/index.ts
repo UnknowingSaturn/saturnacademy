@@ -48,7 +48,11 @@ const MAX_JOBS_PER_RUN = 3;
 const RUN_BUDGET_MS = 110_000;
 const LEASE_MS = 5 * 60_000;
 const MAX_ATTEMPTS = 4;
-const DAY_CONCURRENCY = 4;
+// Dukascopy throttles hard and answers 503 (not 429) when it does — observed
+// blanket 503s after a burst of parallel day fetches from one IP. Two workers
+// with per-request pacing keeps a month under the threshold.
+const DAY_CONCURRENCY = 2;
+const DAY_PACING_MS = 120;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
