@@ -136,7 +136,14 @@ export interface BacktestTrade {
   grossPoints: number;
   grossPnl: number;
   commission: number;
+  /** Modelled spread cost for the round turn, in cash. */
+  spreadCost: number;
+  /** Contracts / lots actually traded (solved by the sizer in risk mode). */
+  size: number;
+  /** Cash at risk between entry and stop for this size — the R denominator. */
+  riskCash: number;
   netPnl: number;
+
   rMultiple: number;
   maePoints: number;
   mfePoints: number;
