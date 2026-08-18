@@ -117,7 +117,7 @@ export function BarCoveragePanel({ symbol, fromMonth, toMonth }: Props) {
                 title={`${r.bar_count.toLocaleString()} bars · ${r.missing_minutes.toLocaleString()} missing minutes`}
                 className={`text-[10px] px-1.5 py-0.5 rounded border ${
                   gap
-                    ? "border-warning/40 bg-warning/10 text-warning"
+                    ? "border-destructive/40 bg-destructive/10 text-destructive"
                     : "border-border/50 bg-muted/20 text-muted-foreground"
                 }`}
               >
