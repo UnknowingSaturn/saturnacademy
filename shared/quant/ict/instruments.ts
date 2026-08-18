@@ -38,6 +38,8 @@ const SPECS: Record<string, InstrumentSpec> = {
   NQ: { symbol: "NQ", cls: "index", tickSize: 0.25, tickValue: 5, commissionPerSide: 2.09, slippageTicks: 1, spreadTicks: 1, sizeStep: 1, maxSize: 50 },
   ES: { symbol: "ES", cls: "index", tickSize: 0.25, tickValue: 12.5, commissionPerSide: 2.09, slippageTicks: 1, spreadTicks: 1, sizeStep: 1, maxSize: 50 },
   // CFD indices as quoted by retail brokers (1 unit = 1 index point per lot)
+  NAS100: { symbol: "NAS100", cls: "index", tickSize: 0.25, tickValue: 0.25, commissionPerSide: 0, slippageTicks: 2, spreadTicks: 6, sizeStep: 0.01, maxSize: 100 },
+  SP500: { symbol: "SP500", cls: "index", tickSize: 0.25, tickValue: 0.25, commissionPerSide: 0, slippageTicks: 2, spreadTicks: 3, sizeStep: 0.01, maxSize: 100 },
   NASUSD: { symbol: "NASUSD", cls: "index", tickSize: 0.25, tickValue: 0.25, commissionPerSide: 0, slippageTicks: 2, spreadTicks: 6, sizeStep: 0.01, maxSize: 100 },
   SPXUSD: { symbol: "SPXUSD", cls: "index", tickSize: 0.25, tickValue: 0.25, commissionPerSide: 0, slippageTicks: 2, spreadTicks: 3, sizeStep: 0.01, maxSize: 100 },
   // Metals
@@ -52,7 +54,9 @@ const SPECS: Record<string, InstrumentSpec> = {
 /** Spec for a symbol, or a conservative FX default when unknown. */
 export function instrumentSpec(symbol: string): InstrumentSpec {
   const key = symbol.toUpperCase();
-  const hit = SPECS[key];
+  // The bar store is keyed canonically, but a caller may still pass a broker
+  // spelling (NASUSD, US100.cash) — resolve both.
+  const hit = SPECS[key] ?? SPECS[normalizeSymbol(key)];
   if (hit) return hit;
   const isIndex = /(NAS|SPX|US30|GER|UK100|JP225|NQ|ES|YM|RTY)/.test(key);
   return isIndex
