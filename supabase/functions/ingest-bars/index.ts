@@ -71,6 +71,7 @@ Deno.serve(async (req) => {
 
     if (action === "enqueue") return await enqueue(admin, userId, body);
     if (action === "drain") return await drain(admin, Number(body.maxJobs) || MAX_JOBS_PER_RUN);
+    if (action === "import") return await importChunk(admin, body);
     if (action === "status") return await status(admin, body.symbol ? String(body.symbol) : null);
 
     return json({ error: `Unknown action "${action}"` }, 400);
