@@ -118,8 +118,8 @@ describe("ICT execution engine", () => {
   it("hard-exits at the end of the window when nothing resolves", () => {
     const rows: Row[] = [
       ...flat(10, 100),
-      [100, 101, 100, 101],
-      [101, 103, 101, 103],
+      [100, 101, 99.8, 101],
+      [101, 103, 100.4, 103],
       [103, 104, 101.5, 103.5],
       [103.5, 103.5, 101.4, 102],
       ...flat(46, 102), // drifts nowhere until the killzone closes
@@ -148,8 +148,8 @@ describe("ICT execution engine", () => {
   it("expires unfilled limits instead of chasing", () => {
     const rows: Row[] = [
       ...flat(10, 100),
-      [100, 101, 100, 101],
-      [101, 103, 101, 103],
+      [100, 101, 99.8, 101],
+      [101, 103, 100.4, 103],
       [103, 104, 101.5, 103.5],
       ...flat(46, 104), // never trades back into the gap
     ];
