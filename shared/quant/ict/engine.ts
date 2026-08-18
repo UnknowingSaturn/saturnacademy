@@ -58,8 +58,22 @@ export interface EngineConfig {
   hardExitAtWindowEnd: boolean;
   hardExitAtRthEnd: boolean;
   swingStrength: number;
-  /** Position size in contracts / lots. */
+  /** Position size in contracts / lots, used when `sizing` is "fixed". */
   size: number;
+  /**
+   * "fixed"  — every trade uses `size` lots (raw signal study).
+   * "risk"   — size is solved so the stop distance costs `riskPercent` of
+   *            `accountBalance` (or `riskCashOverride` when set), matching how
+   *            the prop-firm simulator and the journal measure risk.
+   * Risk is fixed-fractional off the *starting* balance, not compounded, so a
+   * walk-forward fold's result doesn't depend on where it sits in the sequence.
+   */
+  sizing: "fixed" | "risk";
+  accountBalance: number;
+  riskPercent: number;
+  riskCashOverride: number | null;
+  /** Charge the modelled spread (instrument spec) on top of slippage. */
+  applySpread: boolean;
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -85,7 +99,13 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   hardExitAtRthEnd: false,
   swingStrength: 2,
   size: 1,
+  sizing: "risk",
+  accountBalance: 50_000,
+  riskPercent: 0.6,
+  riskCashOverride: null,
+  applySpread: true,
 };
+
 
 // ---------------------------------------------------------------------------
 // Output
