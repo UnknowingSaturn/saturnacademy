@@ -88,22 +88,39 @@ Deno.serve(async (req) => {
 // Actions
 // ---------------------------------------------------------------------------
 
+/**
+ * Vendor lookup that tolerates canonical names. The bar store is keyed by the
+ * CANONICAL symbol (NAS100, SP500 …) so broker uploads, vendor fetches and the
+ * journal all collapse onto one key; the vendor catalogue still uses its own
+ * spelling (NASUSD), so match on the normalized form.
+ */
+function resolveInstrument(raw: string) {
+  const direct = instrumentForSymbol(raw);
+  if (direct) return direct;
+  const canonical = normalizeSymbol(raw);
+  return (
+    DUKASCOPY_INSTRUMENTS.find((i) => normalizeSymbol(i.symbol) === canonical) ?? null
+  );
+}
+
 // deno-lint-ignore no-explicit-any
 async function enqueue(admin: any, userId: string, body: Record<string, unknown>) {
-  const symbol = String(body.symbol ?? "").toUpperCase();
-  const inst = instrumentForSymbol(symbol);
+  const requested = String(body.symbol ?? "").toUpperCase();
+  const inst = resolveInstrument(requested);
   if (!inst) {
     return json(
-      { error: `Unsupported symbol "${symbol}"`, supported: DUKASCOPY_INSTRUMENTS.map((i) => i.symbol) },
+      { error: `Unsupported symbol "${requested}"`, supported: DUKASCOPY_INSTRUMENTS.map((i) => i.symbol) },
       400,
     );
   }
+  const symbol = normalizeSymbol(inst.symbol);
 
   const from = String(body.from ?? "");
   const to = String(body.to ?? "");
   if (!/^\d{4}-\d{2}$/.test(from) || !/^\d{4}-\d{2}$/.test(to)) {
     return json({ error: "`from` and `to` must be YYYY-MM" }, 400);
   }
+
   const start = from < inst.since ? inst.since : from;
   const months = monthRange(start, to);
   if (months.length === 0) return json({ error: "Empty month range" }, 400);
