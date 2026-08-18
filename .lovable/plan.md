@@ -1,73 +1,86 @@
-# Journal Fields — Registry Redesign
+# Backtesting infrastructure: bar-data lab inside the app
 
-## What's actually broken (verified in code + DB)
+## What exists today vs what the prompts describe
 
-**Dead menu entries.** `DEFAULT_COLUMNS` advertises columns the table cannot draw. `TradeTable` has hard-coded `if (key === …)` branches for ~20 keys; anything else falls through to `String(trade[key])`. So:
-- `account_pct` ("Acct %") — no such column on `trades`, no renderer → always "—". It *is* computed correctly in the detail panel.
-- `regime` (Planned Regime) — lives on `trade_reviews`, not `trades` → always "—" in the table.
-- `actual_profile` / `actual_regime` — raw enum strings, no badge, no editing.
-- `duration_seconds` — the table *can* render it, but it's not in the catalog, so it can never be switched on.
+The Pair Lab is **not a backtester**. `pairLabSimulator.ts` replays *your already-executed trades* under different SL/TP rules using logged MAE/MFE — it can never discover a trade you didn't take, and it has no price bars. The uploaded prompts describe a genuine bar-level engine. Those are complementary, not competing: the new engine produces trades, the existing stats/Monte-Carlo layer (`shared/quant/`) scores them.
 
-**Surfaces are two separate hard-coded lists.** A field appears in the table only if it's in `DEFAULT_COLUMNS`, and in the detail panel only if it's in `DETAIL_FIELD_CATALOG`. `FieldsPanel` reads `isInTable`/`isInDetail` from those lists and hides the toggle when absent — that's why Acct %, Result and Type have no Detail switch and Emotion/Place can't be reasoned about consistently. There is no mechanism to put a field on a surface it wasn't statically born into.
+Two parts of the prompts do not fit and should be dropped:
 
-**Swapped and drifting labels.** `alignment` is "Entry" in the table but "HTF Timeframes" in detail; `entry_timeframes` is "Alignment" in the table but "Entry Timeframes" in detail — the two are literally crossed. `r_multiple_actual` is "RR" in the table and "% of Account" in detail while actually rendering account percentage. Option sources disagree too: `entry_timeframes` pulls the `timeframe` list in detail and `entry_timeframe` in the fields panel.
+- **Futures plumbing.** Roll files, back-adjusted vs unadjusted series, `is_roll_day` — you trade FX and CFDs (EURUSD 123, GBPUSD 96, NASUSD 51, XAGUSD 36, SPXUSD 32, XAUUSD 28). There is no roll, so there is one price series and the whole adjustment layer disappears.
+- **CME session model.** 18:00→17:00 ET with a maintenance break is a futures convention. FX runs Sun 17:00 ET → Fri 17:00 ET; CFD indices have per-broker hours. Session labeling becomes symbol-class-aware.
 
-**A feature that saves nothing.** `SystemFieldConfigDialog` writes `custom_field_definitions` rows with `scope='system_override'`, but no renderer ever reads them — `overrideByKey` is passed into the dialog and otherwise unused. "Configure type & options…" appears to work and changes nothing.
+Everything else in the prompts is worth keeping verbatim: points/ticks/R only (never a % of price), UTC storage with DST-correct ET conversion, no look-ahead with a truncation test, a no-trade log, stop-fills-first on ambiguous bars, and a reserved holdout.
 
-**Two competing removal concepts.** `deleted_system_fields` tombstones and "not in `column_order`" both produce "hidden fields", listed together with different restore semantics.
+## Your vocabulary vs canonical ICT
 
-## Redesign
+Across 348 screenshot captions: "order-flow-leg" 93, range/consolidation 92, volume profile (HVN/LVN/VAL/VAH/POC) 80, prior-week levels 38, sweep/liquidity 23, FVG/imbalance 44, displacement 3, MSS/BOS 0, killzone 0.
 
-### 1. One field registry (`src/lib/journalFields/`)
-Replace `DEFAULT_COLUMNS` + `DETAIL_FIELD_CATALOG` + `SYSTEM_FIELD_SOURCES` + `SYSTEM_OPTION_PROPERTY` with a single descriptor per field:
+You are trading a different sequence than Silver Bullet. Canonical ICT gets built first (your choice), but the detector library is designed so your sequence is a config of the same engine, not a rewrite:
 
-```text
-{ key, label, group, valueType, source, editor, optionsProperty,
-  surfaces: ['table','detail'], core, erasable, width }
-```
-`source` is explicit: `trades.<col>` | `trade_reviews.<col>` | `computed` | `custom`. `valueType` (`text | number | money | percent | date | badge | select | multi_select | playbook | account | duration`) drives generic read/write, so every field works on both surfaces by default.
+| Your term | Canonical ICT equivalent | Detector |
+|---|---|---|
+| 1min order-flow-leg | displacement + market structure shift on 1m | `displacement` + `mss`, timeframe=1m |
+| "swept the low of the range" | liquidity sweep of session/range extreme | `sweep` over range-extreme level type |
+| "previous week's VAL / HVN / high" | external liquidity / PD array | new `volume_profile` + `prior_period` level sources |
+| "price was in a clear range" | consolidation / dealing range | `regime` detector (range vs trend) |
+| "Continuation" playbooks | HTF-bias-aligned entry | `htf_bias` gate |
+| FVG | FVG | `fvg` (identical) |
 
-### 2. Generic renderers, custom only as opt-in
-`TradeTable` and `TradeProperties` both render through `<FieldCell field surface trade />`, which dispatches on `valueType`. The handful of genuinely special cells (Result badge with the W/L/BE mix, Symbol with the leg-group chip, Status, Closes) stay as registered per-key overrides. Net effect: enabling any field on any surface produces a real, editable cell — no more blank columns, and the Detail toggle exists for every field.
+Volume-profile levels and a range/trend regime detector are additions the canonical spec has no concept of — they are the largest single source of your documented reasoning, so they ship in the same detector library rather than "later".
 
-### 3. Fix the real fields, drop the fake ones
-- `account_pct` → `computed` percent, reusing the detail-panel formula (per-trade equity base: `equity_at_entry` → `balance_at_entry` → account equity → starting balance).
-- `regime` → sourced from `trade_reviews.regime`, editable badge on both surfaces.
-- `actual_profile` / `actual_regime` → proper badge selects with their option lists.
-- `duration_seconds` → registered so it can be enabled.
-- `r_multiple_actual` split cleanly: RR (the R multiple) vs Acct % (percent of account) — one label per concept everywhere.
-- `alignment` / `entry_timeframes` labels un-crossed, each bound to one option list (`timeframe` and `entry_timeframe`).
+## Approach
 
-### 4. Per-surface layout + groups
-New `user_settings.journal_field_layout jsonb`:
-```text
-{ table:  { order: [...], hidden: [...] },
-  detail: { order: [...], hidden: [...], groups: [{id,label,fields:[...]}] },
-  removed: [...],
-  labels:  { key: "Custom name" } }
-```
-One migration adds the column and back-fills it from `visible_columns` / `column_order` / `detail_*` / `field_label_overrides` / `deleted_system_fields`, applying the existing legacy-key migration. Old columns stay in place, unread, for one release as a rollback path.
+An in-app TypeScript engine with bar data in the backend, results rendered in the Pair Lab beside your journal.
 
-Detail groups are user-owned: create, rename, reorder, delete, drag fields between them. Ungrouped fields land in a default "Properties" group.
+### Layer 1 — Bar data
 
-### 5. Settings dialog rewrite
-`FieldsPanel` gets a **Table / Detail** switch:
-- **Table view** — drag to reorder columns, per-row visibility, width.
-- **Detail view** — grouped list; drag within and across groups; group header actions.
-- Shared per-field row: rename (+ reset), edit options inline, delete/hide, "also show on the other surface" toggle.
-- One removal concept: **Hide** (off this surface, still listed) vs **Remove** (moves to a "Removed" drawer, restorable, offers erase-data when the field has a real source).
-- Core fields can be hidden and renamed, never removed — unchanged.
+Source: **Dukascopy** historical feed — free, covers FX majors, XAUUSD/XAGUSD and index CFDs (SPX/NDX), 1-minute back to ~2010. An ingest edge function pulls per-symbol/per-month, normalises symbols through the existing `symbol_aliases` / `symbolMapping` layer, and writes:
 
-### 6. System field overrides
-Wire them in: an override row supplies the option list/type used by the renderer for that system key, so "Configure type & options…" actually changes what you see. If a key's editor can't honour an override (playbook, account, computed), the dialog hides that action instead of pretending.
+- **Storage**, bucket `bars`: one binary chunk per `symbol/timeframe/YYYY-MM`, columnar `Float64Array` (ts, o, h, l, c, v). ~43k bars/month/symbol ≈ 2 MB — small enough to fetch on demand, far cheaper than 10M+ Postgres rows.
+- **Postgres** `bar_manifest`: symbol, timeframe, month, bar count, first/last ts, gap count, quality flags. This is what the UI queries; bytes never go through the DB.
 
-## Technical notes
-- New: `src/lib/journalFields/registry.ts`, `resolve.ts` (read/write a field's value for a trade), `FieldCell.tsx`.
-- Rewritten: `FieldsPanel.tsx` (+ `fields/` children), `TradeProperties.tsx`, the column-render section of `TradeTable.tsx`.
-- `src/types/settings.ts` keeps `buildColumnRegistry` etc. as thin adapters over the registry so `FilterBar`, `ColumnHeaderMenu`, `JournalCalendarView`, exports and Pair Lab keep working without a rewrite.
-- One migration (adds `journal_field_layout`); a client-side back-fill runs on first load for users whose column is empty.
-- Vitest coverage: every registry entry resolves a value for a synthetic trade on both surfaces (the guard that would have caught `account_pct`), and layout back-fill from legacy settings is snapshot-tested.
+Ingest is a bounded, resumable background job (one symbol-month per invocation, progress recorded in the manifest, single-flight lease).
 
-## Risks
-- Rewriting the detail panel touches every editable field; the group fan-out for multi-leg trades must be preserved exactly.
-- Users with heavily customised layouts depend on the back-fill being right — hence keeping the old columns readable for a release.
+Data-quality report per the prompts — coverage, missing minutes per session per year, duplicate timestamps, zero-volume bars, `high < low`, full days missing — written into the manifest and surfaced as a coverage table.
+
+Sessions: timestamps stored UTC, converted to America/New_York via `Intl` (no hardcoded offsets). Killzone flags: London 03:00-04:00, NY AM 10:00-11:00, NY PM 14:00-15:00 ET, plus RTH for indices. Your existing `session_definitions` rows drive the session labels so backtest sessions and journal sessions are the same thing.
+
+### Layer 2 — Detectors
+
+`shared/quant/ict/` — pure, dependency-free, fully parameterised, shared by browser and edge:
+
+`fvg`, `liquidity_levels` (prior session/day/week H/L, pre-window H/L, N-bar fractal swings), `sweep`, `displacement`, `mss`, `htf_bias` (none / prior-day / swing-structure / MA-slope / "perfect" flagged look-ahead), plus `volume_profile` (HVN/LVN/VAL/VAH/POC from the bar distribution) and `regime` (range vs trend).
+
+All thresholds in points/ticks/ATR multiples. Tick sizes come from the existing `symbolMapping.ts` (already fixed for SP500/NAS). Two enforced tests: a lint test that fails if any detector divides by open/high/low/close, and a truncation test that runs each detector on full vs truncated data and asserts identical output up to bar N.
+
+### Layer 3 — Execution engine
+
+One trade per killzone window, no re-entries. Limit entry at proximal/50%/distal of the FVG, fills only on trade-through, cancelled at window end. Stops: swing / gap distal / fixed points. Targets: fixed R, next opposing liquidity level, or time. Hard exit at window or RTH end.
+
+Fill rules as specified: **stop wins ambiguous bars**, `ambiguous_bar` logged so you can count how much of the result rests on that assumption; stops slip, limits don't; fills snap to the tick grid. Costs per symbol class: index CFD spread + commission, FX spread in pips; every result gross and net.
+
+Trade log holds session date, symbol, window, direction, timestamps, prices, exit reason, R, MAE, MFE, `ambiguous_bar`, and the full config hash. No-trade log records the first failing condition per eligible session, so you can see which filter is binding.
+
+Runs execute in a Web Worker over the fetched chunks (the app already uses workers for `oosSplit` and `rankerRiskMC`).
+
+### Layer 4 — Results, storage and journal comparison
+
+`backtest_runs` (config JSON, hash, symbol set, date range, aggregate metrics) and `backtest_trades` (one row per simulated trade), both RLS-scoped to you. A new **Backtest** tab in the Pair Lab lists runs, renders the equity curve and the no-trade breakdown, and feeds the trade set straight into the existing `shared/quant` machinery — bootstrap CIs, walk-forward, prop-firm Monte Carlo — so a backtested config is scored by exactly the same math as your live trades.
+
+The payoff for staying in-app: a **journal overlay** that compares a config's simulated trades against your real trades on the same symbol/session/date, showing where the mechanical rule fired and you didn't, and vice versa.
+
+**Holdout:** the prompts reserve 2 years; your journal starts Dec 2025, so the default cutoff is instead the most recent 12 months, excluded from every load unless explicitly overridden, with the flag stored on the run.
+
+## Build order
+
+1. Data layer: Dukascopy ingest job, `bars` bucket, `bar_manifest`, session/killzone labeling, quality report, coverage UI. Nothing else works without this.
+2. Detector library + no-look-ahead and no-percent tests.
+3. Execution engine + trade/no-trade logs, verified on one month of NASUSD with the consensus config, printed trade-by-trade.
+4. Backtest tab, run storage, wiring into existing stats/MC, journal overlay.
+5. Your sequence as a second config: volume-profile and prior-week level sources, regime gate, order-flow-leg entry.
+
+## Notes
+
+- No Python, no parquet — the engine is TypeScript in `shared/quant/ict/`, reachable from both the browser worker and edge functions, following the existing vendoring rule (`npm run quant:sync`).
+- Grid search across many configs runs as a bounded queue on the server rather than in the browser, once single-config runs are proven correct.
+- Dukascopy prices are its own liquidity pool, not your broker's; expect small divergence from your fills. Spread/commission defaults are per-symbol and configurable.
