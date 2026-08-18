@@ -8,6 +8,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { BarCoveragePanel } from "@/components/pair-lab/backtest/BarCoveragePanel";
+import { Mt5ImportPanel } from "@/components/pair-lab/backtest/Mt5ImportPanel";
 import {
   BacktestControls,
   windowForKey,
@@ -36,9 +37,15 @@ export function BacktestTab() {
   const [cfg, setCfg] = useState<UiConfig>({ ...RULE_DEFAULTS, windowKey: "ny_am" });
 
   const { snapshot } = useBarCoverage(null);
+  // Imported (broker) symbols first — they are what the user actually has data
+  // for; the vendor catalogue only matters for the Dukascopy fallback.
   const symbols = useMemo(() => {
-    const list = (snapshot?.instruments ?? []).map((i) => i.symbol);
-    return list.length ? list : FALLBACK_SYMBOLS;
+    const list = [
+      ...(snapshot?.importedSymbols ?? []),
+      ...(snapshot?.instruments ?? []).map((i) => i.symbol),
+    ];
+    const unique = [...new Set(list)];
+    return unique.length ? unique : FALLBACK_SYMBOLS;
   }, [snapshot]);
 
   const { run, result, isRunning, phase, loaded, total, error } = useIctBacktest();
@@ -65,6 +72,7 @@ export function BacktestTab() {
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
       <div className="space-y-4">
+        <Mt5ImportPanel symbol={symbol} onImported={() => setSymbol((s) => s)} />
         <BarCoveragePanel symbol={symbol} fromMonth={fromMonth} toMonth={toMonth} />
         <BacktestControls
           cfg={cfg}
@@ -104,8 +112,8 @@ export function BacktestTab() {
           <div className="rounded-lg border border-dashed border-border/60 p-8 text-center space-y-2">
             <h3 className="text-sm font-medium">No backtest yet</h3>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              Pick a symbol and month range, queue the bar data if a month is missing,
-              set your ICT rules, then run. Entries fill on limit at the chosen FVG edge;
+              Import your MT5 M1 history for a symbol (or queue the vendor fallback),
+              pick a month range, set your ICT rules, then run. Entries fill on limit at the chosen FVG edge;
               ambiguous bars resolve stop-first, so results stay pessimistic.
             </p>
           </div>
