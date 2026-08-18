@@ -16,11 +16,15 @@ Broken or never finished:
 
 ## Plan
 
-### Phase 1 — Get data in (nothing else matters until this works)
-- Harden the Dukascopy fetch: browser-like headers, longer jittered backoff, and treat 503 as retryable rather than burning attempts; raise `MAX_ATTEMPTS` and stop parking jobs after transient throttles.
-- Add a second source so you are not hostage to one feed: a **CSV/MT5 history upload** path (`source: "broker"`) that runs through the same codec, manifest and quality assessment. This is the better long-term source anyway — it is your broker's own prices for the exact symbols in your journal.
-- Add an automatic drain: pg_cron every few minutes calling `ingest-bars` with `action: "drain"`, so the queue empties without you clicking.
-- Surface real job errors in the coverage panel (currently the failure reason is invisible in the UI).
+### Phase 1 — Get data in via MT5 export (nothing else matters until this works)
+Your broker's own M1 history is the right primary source: same symbols, same prices, same spreads as the trades in your journal.
+
+- **Upload path**: a drag-and-drop CSV/TSV importer in the Backtest tab. It accepts the standard MT5 M1 export (`date, time, open, high, low, close, tick_volume`), auto-detects delimiter, header row and the file's server-time offset, converts to UTC, splits into months, and writes the same binary chunks + `bar_manifest` rows the Dukascopy path produces — so the worker and engine need no changes. Source tagged `broker` so it never mixes with vendor data.
+- **How you get the file**: in MT5, View → Symbols → pick the symbol → Bars → M1 → Export, or Tools → Options → Charts → set "Max bars in chart" high, then File → Save As from an M1 chart. One file per symbol; the importer handles multi-year files.
+- **Validation on import**: reject wrong timeframe or non-monotonic timestamps, report duplicate/missing minutes and gap days per month, and show a coverage summary before it commits.
+- **Dukascopy stays as an optional fallback** for deep history, but I'll park the queued failing job and stop it hammering a 503 endpoint rather than build more on it now.
+- Surface real job/import errors in the coverage panel (the failure reason is currently invisible in the UI).
+
 
 ### Phase 2 — Make runs first-class objects
 - Persist each run to `backtest_runs` (config, `config_hash`, symbols, dates, metrics, funnel) and its fills to `backtest_trades`.
