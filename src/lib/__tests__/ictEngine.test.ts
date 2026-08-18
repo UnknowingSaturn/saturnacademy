@@ -151,7 +151,9 @@ describe("ICT execution engine", () => {
       [100, 101, 99.8, 101],
       [101, 103, 100.4, 103],
       [103, 104, 101.5, 103.5],
-      ...flat(46, 104), // never trades back into the gap
+      // Drifts above the gap and never trades back into it; the lows overlap
+      // bar 11's high so no fresh FVG is created either.
+      ...Array.from({ length: 46 }, () => [104, 104.5, 103, 104] as Row),
     ];
     const res = runBacktest(fromRows(rows), "TEST", BASE, CLEAN);
     expect(res.trades).toHaveLength(0);
