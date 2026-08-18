@@ -422,7 +422,11 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
     grossPoints,
     grossPnl,
     commission,
+    spreadCost,
+    size,
+    riskCash,
     netPnl,
+
     rMultiple: riskCash > 0 ? netPnl / riskCash : 0,
     maePoints: Math.max(0, mae),
     mfePoints: Math.max(0, mfe),
