@@ -17,8 +17,9 @@ const NY_AM_START = Date.UTC(2024, 2, 13, 14, 0, 0);
 /** Frictionless spec so P&L math is readable: 1 point = $1, no costs. */
 const CLEAN: InstrumentSpec = {
   symbol: "TEST", cls: "index", tickSize: 0.25, tickValue: 0.25,
-  commissionPerSide: 0, slippageTicks: 0,
+  commissionPerSide: 0, slippageTicks: 0, spreadTicks: 0, sizeStep: 1, maxSize: 100,
 };
+
 
 function fromRows(rows: Row[], startMs = NY_AM_START): BarSeries {
   const s = makeSeries(rows.length);
