@@ -27,6 +27,28 @@ export function windowForKey(key: string) {
   return key === "rth" ? RTH : (KILLZONES[key] ?? KILLZONES.ny_am);
 }
 
+export interface WfUi {
+  enabled: boolean;
+  trainMonths: number;
+  testMonths: number;
+  anchored: boolean;
+  minTrainTrades: number;
+  sweepTargetR: boolean;
+  sweepEntry: boolean;
+  sweepStopBuffer: boolean;
+}
+
+export const DEFAULT_WF: WfUi = {
+  enabled: false,
+  trainMonths: 6,
+  testMonths: 2,
+  anchored: false,
+  minTrainTrades: 20,
+  sweepTargetR: true,
+  sweepEntry: true,
+  sweepStopBuffer: false,
+};
+
 interface Props {
   cfg: UiConfig;
   onChange: (patch: Partial<UiConfig>) => void;
@@ -38,7 +60,14 @@ interface Props {
   onMonths: (from: string, to: string) => void;
   onRun: () => void;
   isRunning: boolean;
+  wf: WfUi;
+  onWf: (patch: Partial<WfUi>) => void;
+  persist: boolean;
+  onPersist: (v: boolean) => void;
+  /** Combinations the current sweep will try — shown so the cost is visible. */
+  gridSize: number;
 }
+
 
 function Num({
   id, label, value, min, max, step = 1, onChange,
