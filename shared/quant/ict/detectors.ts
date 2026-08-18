@@ -14,8 +14,8 @@
 // project-wide "points, ticks or R" rule.
 // ============================================================================
 
-import type { BarSeries } from "../bars.ts";
-import { sessionDate, isRth, toNewYork, type SessionInstrumentClass } from "../sessions.ts";
+import type { BarSeries } from "../bars";
+import { sessionDate, isRth, toNewYork, type SessionInstrumentClass } from "../sessions";
 
 // ---------------------------------------------------------------------------
 // Fair value gaps
