@@ -41,10 +41,11 @@ function flat(n: number, px: number): Row[] {
 function bullSetup(lastBar: Row): BarSeries {
   const rows: Row[] = [
     ...flat(10, 100),
-    [100, 101, 100, 101],       // 10
-    [101, 103, 101, 103],       // 11 impulse
+    [100, 101, 99.8, 101],      // 10
+    [101, 103, 100.4, 103],     // 11 impulse (low overlaps bar 9 -> no earlier gap)
     [103, 104, 101.5, 103.5],   // 12 FVG confirm
     [103.5, 103.5, 101.4, 102], // 13 pullback -> limit fill at 101.5
+
     lastBar,                    // 14 resolution bar
     ...flat(20, 103),
   ];
