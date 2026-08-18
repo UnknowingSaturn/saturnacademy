@@ -374,11 +374,31 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
     }
   }
 
+  // --- money ---------------------------------------------------------------
+  // Size is solved from the *intended* risk (entry→stop), so R is comparable
+  // across instruments and lines up with the prop-firm simulator. A stop that
+  // is too wide for even one size step yields size 0 and the trade is dropped
+  // rather than silently taken at an unfundable size.
+  const intendedRisk = cfg.sizing === "risk"
+    ? (cfg.riskCashOverride ?? (cfg.accountBalance * cfg.riskPercent) / 100)
+    : 0;
+  const size = cfg.sizing === "risk"
+    ? sizeForRisk(intendedRisk, riskPoints, spec)
+    : cfg.size;
+  if (!(size > 0)) return null;
+
   const grossPoints = long ? exitPrice - entryPrice : entryPrice - exitPrice;
-  const grossPnl = pointsToCash(grossPoints, spec, cfg.size);
-  const commission = spec.commissionPerSide * 2 * cfg.size;
-  const netPnl = grossPnl - commission;
-  const riskCash = pointsToCash(riskPoints, spec, cfg.size);
+  const grossPnl = pointsToCash(grossPoints, spec, size);
+  const commission = spec.commissionPerSide * 2 * size;
+  // Bars are one-sided (bid/mid), so the spread is a modelled round-turn cash
+  // cost rather than a price adjustment — charging it in price would also
+  // distort stop/target hit detection.
+  const spreadCost = cfg.applySpread
+    ? pointsToCash(spec.spreadTicks * spec.tickSize, spec, size)
+    : 0;
+  const netPnl = grossPnl - commission - spreadCost;
+  const riskCash = pointsToCash(riskPoints, spec, size);
+
 
   return {
     symbol: a.symbol,
