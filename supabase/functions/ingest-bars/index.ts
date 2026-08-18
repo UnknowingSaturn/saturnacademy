@@ -41,6 +41,8 @@ import {
   assessBarQuality,
   barChunkPath,
 } from "../_shared/quant/vendor/bars.ts";
+import { normalizeSymbol } from "../_shared/quant/vendor/symbolAliasing.ts";
+
 
 const BUCKET = "bars";
 const TIMEFRAME = "1m";
@@ -72,6 +74,7 @@ Deno.serve(async (req) => {
     if (action === "enqueue") return await enqueue(admin, userId, body);
     if (action === "drain") return await drain(admin, Number(body.maxJobs) || MAX_JOBS_PER_RUN);
     if (action === "import") return await importChunk(admin, body);
+    if (action === "delete") return await deleteMonths(admin, body);
     if (action === "status") return await status(admin, body.symbol ? String(body.symbol) : null);
 
     return json({ error: `Unknown action "${action}"` }, 400);
@@ -86,29 +89,46 @@ Deno.serve(async (req) => {
 // Actions
 // ---------------------------------------------------------------------------
 
+/**
+ * Vendor lookup that tolerates canonical names. The bar store is keyed by the
+ * CANONICAL symbol (NAS100, SP500 …) so broker uploads, vendor fetches and the
+ * journal all collapse onto one key; the vendor catalogue still uses its own
+ * spelling (NASUSD), so match on the normalized form.
+ */
+function resolveInstrument(raw: string) {
+  const direct = instrumentForSymbol(raw);
+  if (direct) return direct;
+  const canonical = normalizeSymbol(raw);
+  return (
+    DUKASCOPY_INSTRUMENTS.find((i) => normalizeSymbol(i.symbol) === canonical) ?? null
+  );
+}
+
 // deno-lint-ignore no-explicit-any
 async function enqueue(admin: any, userId: string, body: Record<string, unknown>) {
-  const symbol = String(body.symbol ?? "").toUpperCase();
-  const inst = instrumentForSymbol(symbol);
+  const requested = String(body.symbol ?? "").toUpperCase();
+  const inst = resolveInstrument(requested);
   if (!inst) {
     return json(
-      { error: `Unsupported symbol "${symbol}"`, supported: DUKASCOPY_INSTRUMENTS.map((i) => i.symbol) },
+      { error: `Unsupported symbol "${requested}"`, supported: DUKASCOPY_INSTRUMENTS.map((i) => i.symbol) },
       400,
     );
   }
+  const symbol = normalizeSymbol(inst.symbol);
 
   const from = String(body.from ?? "");
   const to = String(body.to ?? "");
   if (!/^\d{4}-\d{2}$/.test(from) || !/^\d{4}-\d{2}$/.test(to)) {
     return json({ error: "`from` and `to` must be YYYY-MM" }, 400);
   }
+
   const start = from < inst.since ? inst.since : from;
   const months = monthRange(start, to);
   if (months.length === 0) return json({ error: "Empty month range" }, 400);
   if (months.length > 120) return json({ error: "Range too large (max 120 months per request)" }, 400);
 
   const rows = months.map((month) => ({
-    symbol: inst.symbol,
+    symbol,
     timeframe: TIMEFRAME,
     month,
     source: SOURCE,
@@ -125,7 +145,7 @@ async function enqueue(admin: any, userId: string, body: Record<string, unknown>
   const { data: existing } = await admin
     .from("bar_ingest_jobs")
     .select("month,status")
-    .eq("symbol", inst.symbol)
+    .eq("symbol", symbol)
     .eq("timeframe", TIMEFRAME)
     .eq("source", SOURCE)
     .in("month", months);
@@ -146,7 +166,7 @@ async function enqueue(admin: any, userId: string, body: Record<string, unknown>
   }
 
   return json({
-    symbol: inst.symbol,
+    symbol,
     requested: months.length,
     queued: fresh.length,
     revived: revive.length,
@@ -203,7 +223,7 @@ async function status(admin: any, symbol: string | null) {
     .from("bar_manifest")
     .select("symbol,month,source,bar_count,first_ts,last_ts,byte_size,missing_minutes,missing_days")
     .order("month", { ascending: true });
-  if (symbol) manifestQuery = manifestQuery.eq("symbol", symbol.toUpperCase());
+  if (symbol) manifestQuery = manifestQuery.eq("symbol", normalizeSymbol(symbol));
 
   const [{ data: manifest }, { data: jobs }] = await Promise.all([
     manifestQuery,
@@ -237,11 +257,14 @@ async function status(admin: any, symbol: string | null) {
 
 // deno-lint-ignore no-explicit-any
 async function importChunk(admin: any, body: Record<string, unknown>) {
-  const symbol = String(body.symbol ?? "").toUpperCase().trim();
+  const requested = String(body.symbol ?? "").toUpperCase().trim();
+  // Store under the canonical name so an MT5 export of NAS100.cash and a
+  // journal trade on NASUSD resolve to the same bar chunks.
+  const symbol = normalizeSymbol(requested);
   const month = String(body.month ?? "");
   const b64 = String(body.chunk ?? "");
 
-  if (!SYMBOL_RE.test(symbol)) return json({ error: `Invalid symbol "${symbol}"` }, 400);
+  if (!SYMBOL_RE.test(symbol)) return json({ error: `Invalid symbol "${requested}"` }, 400);
   if (!MONTH_RE.test(month)) return json({ error: "`month` must be YYYY-MM" }, 400);
   if (!b64) return json({ error: "`chunk` (base64 bar chunk) is required" }, 400);
 
@@ -315,6 +338,59 @@ async function importChunk(admin: any, body: Record<string, unknown>) {
   });
 }
 
+/**
+ * Remove one or more stored months (object + manifest row + any queue row) so
+ * a bad import — wrong broker offset, wrong symbol — can be replaced instead of
+ * silently shadowing good data.
+ */
+// deno-lint-ignore no-explicit-any
+async function deleteMonths(admin: any, body: Record<string, unknown>) {
+  const symbol = normalizeSymbol(String(body.symbol ?? "").toUpperCase().trim());
+  const months = Array.isArray(body.months) ? body.months.map(String) : [];
+  const source = body.source ? String(body.source) : null;
+  if (!SYMBOL_RE.test(symbol)) return json({ error: `Invalid symbol "${symbol}"` }, 400);
+  if (months.length === 0 || months.some((m) => !MONTH_RE.test(m))) {
+    return json({ error: "`months` must be a non-empty array of YYYY-MM" }, 400);
+  }
+
+  let sel = admin
+    .from("bar_manifest")
+    .select("month,source,object_path")
+    .eq("symbol", symbol)
+    .eq("timeframe", TIMEFRAME)
+    .in("month", months);
+  if (source) sel = sel.eq("source", source);
+  const { data: rows, error: selErr } = await sel;
+  if (selErr) return json({ error: selErr.message }, 500);
+
+  const paths = (rows ?? []).map((r: { object_path: string }) => r.object_path);
+  if (paths.length) {
+    const { error: rmErr } = await admin.storage.from(BUCKET).remove(paths);
+    if (rmErr) return json({ error: `storage delete failed: ${rmErr.message}` }, 500);
+  }
+
+  let del = admin
+    .from("bar_manifest")
+    .delete()
+    .eq("symbol", symbol)
+    .eq("timeframe", TIMEFRAME)
+    .in("month", months);
+  if (source) del = del.eq("source", source);
+  const { error: delErr } = await del;
+  if (delErr) return json({ error: delErr.message }, 500);
+
+  let jobs = admin
+    .from("bar_ingest_jobs")
+    .delete()
+    .eq("symbol", symbol)
+    .eq("timeframe", TIMEFRAME)
+    .in("month", months);
+  if (source) jobs = jobs.eq("source", source);
+  await jobs;
+
+  return json({ symbol, deleted: paths.length, months });
+}
+
 // ---------------------------------------------------------------------------
 // Ingestion
 // ---------------------------------------------------------------------------
@@ -350,9 +426,12 @@ async function leaseJob(admin: any) {
 }
 
 // deno-lint-ignore no-explicit-any
-async function ingestMonth(admin: any, symbol: string, month: string, deadline: number) {
-  const inst = instrumentForSymbol(symbol);
-  if (!inst) throw new Error(`Unsupported symbol ${symbol}`);
+async function ingestMonth(admin: any, rawSymbol: string, month: string, deadline: number) {
+  const inst = resolveInstrument(rawSymbol);
+  if (!inst) throw new Error(`Unsupported symbol ${rawSymbol}`);
+  // Jobs are queued under the canonical name; the vendor catalogue keeps its
+  // own spelling for the download URL only.
+  const symbol = normalizeSymbol(rawSymbol);
 
   const days = monthDays(month);
   const collected: DecodedBar[][] = new Array(days.length);
@@ -388,7 +467,7 @@ async function ingestMonth(admin: any, symbol: string, month: string, deadline: 
 
   const quality = assessBarQuality(series);
   const bytes = encodeBarChunk(series);
-  const path = barChunkPath(SOURCE, inst.symbol, TIMEFRAME, month);
+  const path = barChunkPath(SOURCE, symbol, TIMEFRAME, month);
 
   const { error: upErr } = await admin.storage.from(BUCKET).upload(path, bytes, {
     contentType: "application/octet-stream",
@@ -397,7 +476,7 @@ async function ingestMonth(admin: any, symbol: string, month: string, deadline: 
   if (upErr) throw new Error(`storage upload failed: ${upErr.message}`);
 
   const { error: manErr } = await admin.from("bar_manifest").upsert({
-    symbol: inst.symbol,
+    symbol,
     timeframe: TIMEFRAME,
     month,
     source: SOURCE,

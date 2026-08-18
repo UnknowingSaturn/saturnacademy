@@ -24,7 +24,7 @@ import {
   priorSessionLevels, sessionSpans, htfBias, etMinutes,
   type BiasMode, type Direction, type FairValueGap, type LiquidityLevel, type Swing,
 } from "./detectors";
-import { instrumentSpec, pointsToCash, type InstrumentSpec } from "./instruments";
+import { instrumentSpec, pointsToCash, sizeForRisk, type InstrumentSpec } from "./instruments";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -58,8 +58,22 @@ export interface EngineConfig {
   hardExitAtWindowEnd: boolean;
   hardExitAtRthEnd: boolean;
   swingStrength: number;
-  /** Position size in contracts / lots. */
+  /** Position size in contracts / lots, used when `sizing` is "fixed". */
   size: number;
+  /**
+   * "fixed"  — every trade uses `size` lots (raw signal study).
+   * "risk"   — size is solved so the stop distance costs `riskPercent` of
+   *            `accountBalance` (or `riskCashOverride` when set), matching how
+   *            the prop-firm simulator and the journal measure risk.
+   * Risk is fixed-fractional off the *starting* balance, not compounded, so a
+   * walk-forward fold's result doesn't depend on where it sits in the sequence.
+   */
+  sizing: "fixed" | "risk";
+  accountBalance: number;
+  riskPercent: number;
+  riskCashOverride: number | null;
+  /** Charge the modelled spread (instrument spec) on top of slippage. */
+  applySpread: boolean;
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -85,7 +99,13 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   hardExitAtRthEnd: false,
   swingStrength: 2,
   size: 1,
+  sizing: "risk",
+  accountBalance: 50_000,
+  riskPercent: 0.6,
+  riskCashOverride: null,
+  applySpread: true,
 };
+
 
 // ---------------------------------------------------------------------------
 // Output
@@ -116,7 +136,14 @@ export interface BacktestTrade {
   grossPoints: number;
   grossPnl: number;
   commission: number;
+  /** Modelled spread cost for the round turn, in cash. */
+  spreadCost: number;
+  /** Contracts / lots actually traded (solved by the sizer in risk mode). */
+  size: number;
+  /** Cash at risk between entry and stop for this size — the R denominator. */
+  riskCash: number;
   netPnl: number;
+
   rMultiple: number;
   maePoints: number;
   mfePoints: number;
@@ -347,11 +374,31 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
     }
   }
 
+  // --- money ---------------------------------------------------------------
+  // Size is solved from the *intended* risk (entry→stop), so R is comparable
+  // across instruments and lines up with the prop-firm simulator. A stop that
+  // is too wide for even one size step yields size 0 and the trade is dropped
+  // rather than silently taken at an unfundable size.
+  const intendedRisk = cfg.sizing === "risk"
+    ? (cfg.riskCashOverride ?? (cfg.accountBalance * cfg.riskPercent) / 100)
+    : 0;
+  const size = cfg.sizing === "risk"
+    ? sizeForRisk(intendedRisk, riskPoints, spec)
+    : cfg.size;
+  if (!(size > 0)) return null;
+
   const grossPoints = long ? exitPrice - entryPrice : entryPrice - exitPrice;
-  const grossPnl = pointsToCash(grossPoints, spec, cfg.size);
-  const commission = spec.commissionPerSide * 2 * cfg.size;
-  const netPnl = grossPnl - commission;
-  const riskCash = pointsToCash(riskPoints, spec, cfg.size);
+  const grossPnl = pointsToCash(grossPoints, spec, size);
+  const commission = spec.commissionPerSide * 2 * size;
+  // Bars are one-sided (bid/mid), so the spread is a modelled round-turn cash
+  // cost rather than a price adjustment — charging it in price would also
+  // distort stop/target hit detection.
+  const spreadCost = cfg.applySpread
+    ? pointsToCash(spec.spreadTicks * spec.tickSize, spec, size)
+    : 0;
+  const netPnl = grossPnl - commission - spreadCost;
+  const riskCash = pointsToCash(riskPoints, spec, size);
+
 
   return {
     symbol: a.symbol,
@@ -375,7 +422,11 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
     grossPoints,
     grossPnl,
     commission,
+    spreadCost,
+    size,
+    riskCash,
     netPnl,
+
     rMultiple: riskCash > 0 ? netPnl / riskCash : 0,
     maePoints: Math.max(0, mae),
     mfePoints: Math.max(0, mfe),
