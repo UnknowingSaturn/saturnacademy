@@ -325,22 +325,34 @@ async function fetchDay(
   const url = dukascopyDayUrl(code, d.year, d.month, d.day);
   let lastError = "";
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await sleep(400 * 2 ** attempt + Math.random() * 250);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    // Pace every request (including the first) — a burst is what trips the
+    // feed's throttle; backoff grows to ~6s on repeated 503s.
+    await sleep(attempt === 0 ? DAY_PACING_MS + Math.random() * 80 : Math.min(600 * 2 ** attempt, 6000) + Math.random() * 400);
     let res: Response;
     try {
-      res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (bar-ingest)" } });
+      res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+          "Accept": "*/*",
+          "Referer": "https://www.dukascopy.com/",
+        },
+      });
     } catch (err) {
       lastError = `network: ${err instanceof Error ? err.message : String(err)}`;
       continue;
     }
     // 404 = the feed genuinely has no file for that day (holiday / pre-history).
     if (res.status === 404) return [];
+    // 503 here means "throttled", not "missing" — Dukascopy returns an HTML
+    // error page. Retry; never treat it as an empty day or we would silently
+    // cache a month full of holes.
     if (res.status === 429 || res.status >= 500) {
       lastError = `HTTP ${res.status}`;
       await res.body?.cancel();
       continue;
     }
+
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`Dukascopy ${res.status} for ${url}: ${text.slice(0, 200)}`);
