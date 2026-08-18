@@ -15,7 +15,7 @@ function buildCsv(
 ): { text: string; utcStamps: number[] } {
   const lines: string[] = [];
   const utcStamps: number[] = [];
-  if (opts.header) lines.push("<DATE>|<TIME>|<OPEN>|<HIGH>|<LOW>|<CLOSE>|<TICKVOL>".replaceAll("|", opts.delim));
+  if (opts.header) lines.push(["<DATE>", "<TIME>", "<OPEN>", "<HIGH>", "<LOW>", "<CLOSE>", "<TICKVOL>"].join(opts.delim));
   let price = 100;
   for (let d = 0; d < opts.days; d++) {
     const dayStart = opts.startUtc + d * 86_400_000;
