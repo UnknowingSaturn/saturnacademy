@@ -21,6 +21,7 @@ export interface DukascopyInstrument {
 export interface ManifestRow {
   symbol: string;
   month: string;
+  source: string;
   bar_count: number;
   first_ts: string | null;
   last_ts: string | null;
@@ -32,6 +33,7 @@ export interface ManifestRow {
 export interface JobRow {
   symbol: string;
   month: string;
+  source: string;
   status: string;
   attempts: number;
   last_error: string | null;
@@ -39,6 +41,8 @@ export interface JobRow {
 
 export interface CoverageSnapshot {
   instruments: DukascopyInstrument[];
+  /** Symbols with at least one manifest row (includes broker uploads). */
+  importedSymbols: string[];
   manifest: ManifestRow[];
   jobs: JobRow[];
   jobCounts: Record<string, number>;
