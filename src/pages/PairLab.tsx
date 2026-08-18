@@ -36,12 +36,14 @@ import { PairGridTab, type Selected } from "@/components/pair-lab/tabs/PairGridT
 import { IdealWindowsTab } from "@/components/pair-lab/tabs/IdealWindowsTab";
 import { StrategyTab } from "@/components/pair-lab/tabs/StrategyTab";
 import { SetupTab } from "@/components/pair-lab/tabs/SetupTab";
+import { BacktestTab } from "@/components/pair-lab/tabs/BacktestTab";
 
 const VALID_TABS = new Set([
   "overview",
   "grid",
   "windows",
   "strategy",
+  "backtest",
   "setup",
 ]);
 // U3 fix: hoisted to module scope. Previously declared inside the component
@@ -370,6 +372,7 @@ export default function PairLab() {
             <TabsTrigger value="grid">Pair Grid</TabsTrigger>
             <TabsTrigger value="windows">Ideal Windows</TabsTrigger>
             <TabsTrigger value="strategy">Strategy</TabsTrigger>
+            <TabsTrigger value="backtest">Backtest</TabsTrigger>
             <TabsTrigger value="setup">Setup</TabsTrigger>
           </TabsList>
 
@@ -417,6 +420,10 @@ export default function PairLab() {
               selected={selected}
               includeUnrealized={includeUnrealized}
             />
+          </TabsContent>
+
+          <TabsContent value="backtest" className="mt-4">
+            <BacktestTab />
           </TabsContent>
 
           <TabsContent value="setup" className="mt-4">
