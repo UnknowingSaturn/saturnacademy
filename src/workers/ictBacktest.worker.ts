@@ -115,8 +115,8 @@ self.onmessage = (e: MessageEvent<IctBacktestRequest>) => {
       noTrades: result.noTrades.slice(0, MAX_NO_TRADES_OUT),
       equity,
       barsScanned: series.length,
-      firstTs: series.time[0],
-      lastTs: series.time[series.length - 1],
+      firstTs: series.ts[0],
+      lastTs: series.ts[series.length - 1],
       sessionsScanned: result.sessionsScanned,
     };
     (self as unknown as Worker).postMessage(res);
