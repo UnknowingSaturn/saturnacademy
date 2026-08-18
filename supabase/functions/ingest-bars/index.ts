@@ -369,9 +369,12 @@ async function leaseJob(admin: any) {
 }
 
 // deno-lint-ignore no-explicit-any
-async function ingestMonth(admin: any, symbol: string, month: string, deadline: number) {
-  const inst = instrumentForSymbol(symbol);
-  if (!inst) throw new Error(`Unsupported symbol ${symbol}`);
+async function ingestMonth(admin: any, rawSymbol: string, month: string, deadline: number) {
+  const inst = resolveInstrument(rawSymbol);
+  if (!inst) throw new Error(`Unsupported symbol ${rawSymbol}`);
+  // Jobs are queued under the canonical name; the vendor catalogue keeps its
+  // own spelling for the download URL only.
+  const symbol = normalizeSymbol(rawSymbol);
 
   const days = monthDays(month);
   const collected: DecodedBar[][] = new Array(days.length);
@@ -407,7 +410,7 @@ async function ingestMonth(admin: any, symbol: string, month: string, deadline: 
 
   const quality = assessBarQuality(series);
   const bytes = encodeBarChunk(series);
-  const path = barChunkPath(SOURCE, inst.symbol, TIMEFRAME, month);
+  const path = barChunkPath(SOURCE, symbol, TIMEFRAME, month);
 
   const { error: upErr } = await admin.storage.from(BUCKET).upload(path, bytes, {
     contentType: "application/octet-stream",
@@ -416,7 +419,7 @@ async function ingestMonth(admin: any, symbol: string, month: string, deadline: 
   if (upErr) throw new Error(`storage upload failed: ${upErr.message}`);
 
   const { error: manErr } = await admin.from("bar_manifest").upsert({
-    symbol: inst.symbol,
+    symbol,
     timeframe: TIMEFRAME,
     month,
     source: SOURCE,
