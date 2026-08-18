@@ -8,6 +8,8 @@
 // ============================================================================
 
 import type { SessionInstrumentClass } from "../sessions";
+import { normalizeSymbol } from "../symbolAliasing";
+
 
 export interface InstrumentSpec {
   symbol: string;
