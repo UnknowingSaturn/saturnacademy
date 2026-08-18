@@ -37,6 +37,7 @@ import {
 import {
   makeSeries,
   encodeBarChunk,
+  decodeBarChunk,
   assessBarQuality,
   barChunkPath,
 } from "../_shared/quant/vendor/bars.ts";
@@ -44,6 +45,12 @@ import {
 const BUCKET = "bars";
 const TIMEFRAME = "1m";
 const SOURCE = "dukascopy";
+/** User-uploaded MT5 history — the broker's own prices. */
+const BROKER_SOURCE = "broker";
+const SYMBOL_RE = /^[A-Z0-9][A-Z0-9._#+-]{1,19}$/;
+const MONTH_RE = /^\d{4}-\d{2}$/;
+/** ~44k minutes/month × 48 bytes ≈ 2.2 MB; keep a safety margin. */
+const MAX_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_JOBS_PER_RUN = 3;
 const RUN_BUDGET_MS = 110_000;
 const LEASE_MS = 5 * 60_000;
