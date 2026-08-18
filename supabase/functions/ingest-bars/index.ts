@@ -23,7 +23,7 @@
 // ============================================================================
 
 import { corsHeaders } from "../_shared/cors.ts";
-import { json, requireAuth, AuthError } from "../_shared/edgeAuth.ts";
+import { json, requireUser, AuthError } from "../_shared/edgeAuth.ts";
 import { lzmaDecompress } from "../_shared/lzma/index.ts";
 import {
   DUKASCOPY_INSTRUMENTS,
@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { userId, admin } = await requireAuth(req);
+    const { userId, admin } = await requireUser(req);
     const body = await req.json().catch(() => ({}));
     const action = String(body.action ?? "status");
 
