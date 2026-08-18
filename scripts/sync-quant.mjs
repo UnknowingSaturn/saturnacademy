@@ -35,7 +35,18 @@ const HEADER = `// GENERATED FILE — DO NOT EDIT.
 
 const checkOnly = process.argv.includes("--check");
 
-const files = readdirSync(SRC_DIR).filter((f) => f.endsWith(".ts"));
+/** Every .ts under shared/quant, recursively, as paths relative to SRC_DIR. */
+function listTs(dir, prefix = "") {
+  const out = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const rel = prefix ? `${prefix}/${e.name}` : e.name;
+    if (e.isDirectory()) out.push(...listTs(join(dir, e.name), rel));
+    else if (e.name.endsWith(".ts")) out.push(rel);
+  }
+  return out;
+}
+
+const files = listTs(SRC_DIR);
 if (files.length === 0) {
   console.error("sync-quant: no source files found in shared/quant");
   process.exit(1);
@@ -47,8 +58,9 @@ let drift = 0;
 for (const name of files) {
   const raw = readFileSync(join(SRC_DIR, name), "utf8");
   // Deno needs explicit file extensions on relative specifiers; the Vite-side
-  // canonical files stay extensionless. Rewrite on the way into vendor/.
-  const src = raw.replace(/(from\s+")(\.\/[^"]+)(")/g, (m, a, spec, c) =>
+  // canonical files stay extensionless. Rewrite on the way into vendor/ —
+  // both `./x` (same dir) and `../x` (subdirectory modules like ict/).
+  const src = raw.replace(/(from\s+")(\.\.?\/[^"]+)(")/g, (m, a, spec, c) =>
     spec.endsWith(".ts") ? m : a + spec + ".ts" + c);
   const expected = HEADER.replace("<name>", name) + src;
   const target = join(OUT_DIR, name);
@@ -60,10 +72,12 @@ for (const name of files) {
   if (checkOnly) {
     console.error(`sync-quant: DRIFT ${name} (${hash(current)} != ${hash(expected)})`);
   } else {
+    mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, expected);
     console.log(`sync-quant: wrote ${name}`);
   }
 }
+
 
 function hash(s) {
   return s == null ? "missing" : createHash("sha256").update(s).digest("hex").slice(0, 8);
