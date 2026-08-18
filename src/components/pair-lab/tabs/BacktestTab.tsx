@@ -7,19 +7,27 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { BarCoveragePanel } from "@/components/pair-lab/backtest/BarCoveragePanel";
 import { Mt5ImportPanel } from "@/components/pair-lab/backtest/Mt5ImportPanel";
+import { RunHistoryPanel } from "@/components/pair-lab/backtest/RunHistoryPanel";
+import { WalkForwardReportPanel } from "@/components/pair-lab/backtest/WalkForwardReportPanel";
 import {
   BacktestControls,
   windowForKey,
+  DEFAULT_WF,
   type UiConfig,
+  type WfUi,
 } from "@/components/pair-lab/backtest/BacktestControls";
 import { BacktestResults } from "@/components/pair-lab/backtest/BacktestResults";
-import { useIctBacktest } from "@/hooks/useIctBacktest";
+import { useIctBacktest, type RunParams } from "@/hooks/useIctBacktest";
 import { useBarCoverage } from "@/hooks/useBarCoverage";
+import { useDerivedInstrumentCost } from "@/hooks/useDerivedInstrumentCost";
 import { DEFAULT_ENGINE_CONFIG } from "../../../../shared/quant/ict/engine";
+import { expandGrid, type GridAxis } from "../../../../shared/quant/ict/walkforward";
+import { normalizeSymbol } from "../../../../shared/quant/symbolAliasing";
 
-const FALLBACK_SYMBOLS = ["NASUSD", "SPXUSD", "EURUSD", "GBPUSD", "USDJPY", "XAUUSD"];
+const FALLBACK_SYMBOLS = ["NAS100", "SP500", "EURUSD", "GBPUSD", "USDJPY", "XAUUSD"];
 
 function monthsAgo(n: number): string {
   const d = new Date();
@@ -30,11 +38,22 @@ function monthsAgo(n: number): string {
 
 const { window: _defaultWindow, ...RULE_DEFAULTS } = DEFAULT_ENGINE_CONFIG;
 
+/** Sweep axes stay small and bounded — a big grid buys noise, not edge. */
+function gridAxes(wf: WfUi): GridAxis {
+  const axes: GridAxis = {};
+  if (wf.sweepTargetR) axes.targetR = [1.5, 2, 3, 4];
+  if (wf.sweepEntry) axes.entry = ["proximal", "mid", "distal"];
+  if (wf.sweepStopBuffer) axes.stopBufferTicks = [1, 2, 4, 8];
+  return axes;
+}
+
 export function BacktestTab() {
-  const [symbol, setSymbol] = useState("NASUSD");
+  const [symbol, setSymbol] = useState("NAS100");
   const [fromMonth, setFromMonth] = useState(monthsAgo(12));
   const [toMonth, setToMonth] = useState(monthsAgo(1));
   const [cfg, setCfg] = useState<UiConfig>({ ...RULE_DEFAULTS, windowKey: "ny_am" });
+  const [wf, setWf] = useState<WfUi>(DEFAULT_WF);
+  const [persist, setPersist] = useState(true);
 
   const { snapshot } = useBarCoverage(null);
   // Imported (broker) symbols first — they are what the user actually has data
@@ -42,32 +61,58 @@ export function BacktestTab() {
   const symbols = useMemo(() => {
     const list = [
       ...(snapshot?.importedSymbols ?? []),
-      ...(snapshot?.instruments ?? []).map((i) => i.symbol),
+      ...(snapshot?.instruments ?? []).map((i) => normalizeSymbol(i.symbol)),
     ];
     const unique = [...new Set(list)];
     return unique.length ? unique : FALLBACK_SYMBOLS;
   }, [snapshot]);
 
-  const { run, result, isRunning, phase, loaded, total, error } = useIctBacktest();
+  const { derived, override } = useDerivedInstrumentCost(symbol);
+  const {
+    run, loadRun, result, isRunning, phase, loaded, total, error, coverageWarning, savedRunId,
+  } = useIctBacktest();
 
   const patch = useCallback(
     (p: Partial<UiConfig>) => setCfg((c) => ({ ...c, ...p })),
     [],
   );
+  const patchWf = useCallback((p: Partial<WfUi>) => setWf((w) => ({ ...w, ...p })), []);
   const onMonths = useCallback((f: string, t: string) => {
     setFromMonth(f);
     setToMonth(t);
   }, []);
 
-  const onRun = useCallback(() => {
-    const { windowKey, ...rules } = cfg;
-    run({
-      symbol,
-      fromMonth,
-      toMonth,
-      cfg: { ...rules, window: windowForKey(windowKey) },
-    });
-  }, [cfg, symbol, fromMonth, toMonth, run]);
+  const gridSize = useMemo(() => expandGrid(gridAxes(wf)).length, [wf]);
+
+  const buildParams = useCallback(
+    (ignoreCoverageGaps: boolean): RunParams => {
+      const { windowKey, ...rules } = cfg;
+      return {
+        symbol,
+        fromMonth,
+        toMonth,
+        cfg: { ...rules, window: windowForKey(windowKey) },
+        mode: wf.enabled ? "walkforward" : "single",
+        walkForward: wf.enabled
+          ? {
+              trainMonths: wf.trainMonths,
+              testMonths: wf.testMonths,
+              anchored: wf.anchored,
+              minTrainTrades: wf.minTrainTrades,
+              grid: gridAxes(wf),
+            }
+          : undefined,
+        specOverride: override,
+        persist,
+        ignoreCoverageGaps,
+        label: `${normalizeSymbol(symbol)} ${fromMonth}→${toMonth}${wf.enabled ? " WF" : ""}`,
+      };
+    },
+    [cfg, symbol, fromMonth, toMonth, wf, override, persist],
+  );
+
+  const onRun = useCallback(() => run(buildParams(false)), [run, buildParams]);
+  const onRunAnyway = useCallback(() => run(buildParams(true)), [run, buildParams]);
 
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
@@ -85,7 +130,16 @@ export function BacktestTab() {
           onMonths={onMonths}
           onRun={onRun}
           isRunning={isRunning}
+          wf={wf}
+          onWf={patchWf}
+          persist={persist}
+          onPersist={setPersist}
+          gridSize={gridSize}
         />
+        {derived && (
+          <p className="text-[11px] text-muted-foreground px-1">{derived.note}</p>
+        )}
+        <RunHistoryPanel symbol={normalizeSymbol(symbol)} onOpen={loadRun} />
       </div>
 
       <div className="space-y-4">
@@ -95,20 +149,48 @@ export function BacktestTab() {
           </div>
         )}
 
+        {coverageWarning && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 space-y-2">
+            <p className="text-sm text-destructive">
+              {coverageWarning.months.length} month(s) have large gaps (up to{" "}
+              {coverageWarning.missingMinutes.toLocaleString()} missing minutes):{" "}
+              {coverageWarning.months.join(", ")}. Sessions inside those holes are silently
+              skipped, which flatters the results.
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={onRunAnyway}>
+                Run anyway
+              </Button>
+            </div>
+          </div>
+        )}
+
         {isRunning && (
           <div className="rounded-lg border border-border/60 p-6 flex items-center gap-3">
             <Loader2 className="w-4 h-4 animate-spin text-primary" />
             <p className="text-sm text-muted-foreground">
               {phase === "loading"
                 ? `Loading bar data — ${loaded}/${total || "?"} months`
-                : "Running the engine over every session…"}
+                : phase === "saving"
+                  ? "Saving the run…"
+                  : wf.enabled
+                    ? `Running ${gridSize} rule set(s) across every fold…`
+                    : "Running the engine over every session…"}
             </p>
           </div>
         )}
 
+        {!isRunning && result?.walkForward && (
+          <WalkForwardReportPanel report={result.walkForward} />
+        )}
+
         {!isRunning && result && <BacktestResults result={result} />}
 
-        {!isRunning && !result && !error && (
+        {savedRunId && !isRunning && (
+          <p className="text-[11px] text-muted-foreground">Saved to run history.</p>
+        )}
+
+        {!isRunning && !result && !error && !coverageWarning && (
           <div className="rounded-lg border border-dashed border-border/60 p-8 text-center space-y-2">
             <h3 className="text-sm font-medium">No backtest yet</h3>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
