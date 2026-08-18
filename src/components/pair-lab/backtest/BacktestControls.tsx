@@ -108,6 +108,7 @@ function Toggle({
 
 export function BacktestControls({
   cfg, onChange, symbols, symbol, onSymbol, fromMonth, toMonth, onMonths, onRun, isRunning,
+  wf, onWf, persist, onPersist, gridSize,
 }: Props) {
   return (
     <div className="rounded-lg border border-border/60 p-4 space-y-4">
@@ -242,8 +243,10 @@ export function BacktestControls({
             onChange={(n) => onChange({ maxTradesPerWindow: n })} />
           <Num id="bt-swing" label="Swing strength" value={cfg.swingStrength} min={1} max={10}
             onChange={(n) => onChange({ swingStrength: n })} />
-          <Num id="bt-size" label="Size (contracts / lots)" value={cfg.size} min={0.01} step={0.01}
-            onChange={(n) => onChange({ size: n })} />
+          {cfg.sizing === "fixed" && (
+            <Num id="bt-size" label="Size (contracts / lots)" value={cfg.size} min={0.01} step={0.01}
+              onChange={(n) => onChange({ size: n })} />
+          )}
         </div>
         <Toggle id="bt-hexw" label="Hard exit at window end" checked={cfg.hardExitAtWindowEnd}
           onChange={(v) => onChange({ hardExitAtWindowEnd: v })} />
@@ -251,9 +254,69 @@ export function BacktestControls({
           onChange={(v) => onChange({ hardExitAtRthEnd: v })} />
       </div>
 
+      <div className="space-y-1 pt-1 border-t border-border/40">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground pt-2">Money</p>
+        <div className="space-y-1">
+          <Label className="text-xs">Position sizing</Label>
+          <Select value={cfg.sizing} onValueChange={(v) => onChange({ sizing: v as UiConfig["sizing"] })}>
+            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="risk">Risk % of balance (matches the simulator)</SelectItem>
+              <SelectItem value="fixed">Fixed size</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {cfg.sizing === "risk" && (
+          <div className="grid grid-cols-2 gap-3">
+            <Num id="bt-bal" label="Account balance" value={cfg.accountBalance} min={100} step={1000}
+              onChange={(n) => onChange({ accountBalance: n })} />
+            <Num id="bt-riskpct" label="Risk per trade (%)" value={cfg.riskPercent} min={0.05} max={5} step={0.05}
+              onChange={(n) => onChange({ riskPercent: n })} />
+          </div>
+        )}
+        <Toggle id="bt-spread" label="Charge modelled spread" checked={cfg.applySpread}
+          onChange={(v) => onChange({ applySpread: v })} />
+        <p className="text-[11px] text-muted-foreground">
+          Risk is fixed-fractional off the starting balance (not compounded), so a fold's
+          result never depends on where it sits in the sequence.
+        </p>
+      </div>
+
+      <div className="space-y-1 pt-1 border-t border-border/40">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground pt-2">Robustness</p>
+        <Toggle id="bt-wf" label="Walk-forward (out-of-sample)" checked={wf.enabled}
+          onChange={(v) => onWf({ enabled: v })} />
+        {wf.enabled && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Num id="bt-train" label="Train months" value={wf.trainMonths} min={1} max={36}
+                onChange={(n) => onWf({ trainMonths: n })} />
+              <Num id="bt-test" label="Test months" value={wf.testMonths} min={1} max={12}
+                onChange={(n) => onWf({ testMonths: n })} />
+              <Num id="bt-mintr" label="Min train trades" value={wf.minTrainTrades} min={5} max={200}
+                onChange={(n) => onWf({ minTrainTrades: n })} />
+            </div>
+            <Toggle id="bt-anch" label="Anchored (expanding) train window" checked={wf.anchored}
+              onChange={(v) => onWf({ anchored: v })} />
+            <Toggle id="bt-sw-r" label="Sweep target R" checked={wf.sweepTargetR}
+              onChange={(v) => onWf({ sweepTargetR: v })} />
+            <Toggle id="bt-sw-e" label="Sweep entry level" checked={wf.sweepEntry}
+              onChange={(v) => onWf({ sweepEntry: v })} />
+            <Toggle id="bt-sw-b" label="Sweep stop buffer" checked={wf.sweepStopBuffer}
+              onChange={(v) => onWf({ sweepStopBuffer: v })} />
+            <p className="text-[11px] text-muted-foreground">
+              {gridSize} combination{gridSize === 1 ? "" : "s"} per fold. Selection happens on
+              train data only and the reported expectancy is deflated for the number tried.
+            </p>
+          </>
+        )}
+        <Toggle id="bt-persist" label="Save this run to history" checked={persist}
+          onChange={onPersist} />
+      </div>
+
       <Button className="w-full" onClick={onRun} disabled={isRunning}>
         {isRunning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
-        Run backtest
+        {wf.enabled ? "Run walk-forward" : "Run backtest"}
       </Button>
     </div>
   );
