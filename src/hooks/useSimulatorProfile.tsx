@@ -19,7 +19,7 @@ export interface PairLabPrefs {
   includeUnrealized?: boolean;
   includeUnassigned?: boolean;
   scope?: string;                // "all" | "grp:<id>"
-  tab?: "overview" | "grid" | "windows" | "strategy" | "setup";
+  tab?: "overview" | "grid" | "windows" | "strategy" | "backtest" | "setup";
   lens?: "all" | "90d" | "30d";
 }
 
