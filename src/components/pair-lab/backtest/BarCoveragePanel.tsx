@@ -61,6 +61,10 @@ export function BarCoveragePanel({ symbol, fromMonth, toMonth }: Props) {
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
+      <p className="text-xs text-muted-foreground">
+        Vendor fallback (Dukascopy) — use it for history your terminal no longer holds.
+      </p>
+
       <div className="flex flex-wrap items-end gap-2">
         <div className="space-y-1">
           <Label htmlFor="cov-from" className="text-xs">From</Label>
@@ -102,9 +106,17 @@ export function BarCoveragePanel({ symbol, fromMonth, toMonth }: Props) {
       </div>
 
       {failed.length > 0 && (
-        <p className="text-xs text-destructive">
-          {failed.length} month(s) failed — {failed[0].last_error?.slice(0, 120)}
-        </p>
+        <div className="space-y-0.5">
+          {failed.slice(0, 3).map((j) => (
+            <p key={`${j.month}-${j.source}`} className="text-xs text-destructive break-words">
+              {j.month} failed after {j.attempts} attempt{j.attempts === 1 ? "" : "s"} —{" "}
+              {j.last_error?.slice(0, 160) ?? "unknown error"}
+            </p>
+          ))}
+          {failed.length > 3 && (
+            <p className="text-xs text-destructive">+{failed.length - 3} more failed month(s)</p>
+          )}
+        </div>
       )}
 
       {rows.length > 0 && (
@@ -114,7 +126,7 @@ export function BarCoveragePanel({ symbol, fromMonth, toMonth }: Props) {
             return (
               <span
                 key={r.month}
-                title={`${r.bar_count.toLocaleString()} bars · ${r.missing_minutes.toLocaleString()} missing minutes`}
+                title={`${r.source} · ${r.bar_count.toLocaleString()} bars · ${r.missing_minutes.toLocaleString()} missing minutes`}
                 className={`text-[10px] px-1.5 py-0.5 rounded border ${
                   gap
                     ? "border-destructive/40 bg-destructive/10 text-destructive"
@@ -122,6 +134,7 @@ export function BarCoveragePanel({ symbol, fromMonth, toMonth }: Props) {
                 }`}
               >
                 {r.month}
+                {r.source === "broker" && <span className="ml-1 opacity-70">MT5</span>}
               </span>
             );
           })}

@@ -131,17 +131,26 @@ export function useIctBacktest(): BacktestState & { run: (p: RunParams) => void 
         try {
           const { data: months, error } = await supabase
             .from("bar_manifest")
-            .select("month,object_path,bar_count")
+            .select("month,object_path,bar_count,source")
             .eq("symbol", p.symbol.toUpperCase())
             .eq("timeframe", "1m")
             .gte("month", p.fromMonth)
             .lte("month", p.toMonth)
             .order("month", { ascending: true });
           if (error) throw new Error(error.message);
-          const rows = (months ?? []).filter((r) => (r.bar_count ?? 0) > 0);
+          // One chunk per month. When the same month exists from both the
+          // broker upload and the vendor feed, the broker's own prices win —
+          // they are the feed that filled the journalled trades.
+          const byMonth = new Map<string, { month: string; object_path: string; source: string }>();
+          for (const r of months ?? []) {
+            if ((r.bar_count ?? 0) <= 0) continue;
+            const prev = byMonth.get(r.month);
+            if (!prev || (prev.source !== "broker" && r.source === "broker")) byMonth.set(r.month, r);
+          }
+          const rows = [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
           if (rows.length === 0) {
             throw new Error(
-              `No ingested bars for ${p.symbol} between ${p.fromMonth} and ${p.toMonth}. Queue the months in Data coverage first.`,
+              `No bars for ${p.symbol} between ${p.fromMonth} and ${p.toMonth}. Import your MT5 history in Data coverage first.`,
             );
           }
           if (id !== lastId.current) return;

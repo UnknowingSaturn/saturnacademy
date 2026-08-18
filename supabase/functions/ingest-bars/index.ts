@@ -37,6 +37,7 @@ import {
 import {
   makeSeries,
   encodeBarChunk,
+  decodeBarChunk,
   assessBarQuality,
   barChunkPath,
 } from "../_shared/quant/vendor/bars.ts";
@@ -44,6 +45,12 @@ import {
 const BUCKET = "bars";
 const TIMEFRAME = "1m";
 const SOURCE = "dukascopy";
+/** User-uploaded MT5 history — the broker's own prices. */
+const BROKER_SOURCE = "broker";
+const SYMBOL_RE = /^[A-Z0-9][A-Z0-9._#+-]{1,19}$/;
+const MONTH_RE = /^\d{4}-\d{2}$/;
+/** ~44k minutes/month × 48 bytes ≈ 2.2 MB; keep a safety margin. */
+const MAX_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_JOBS_PER_RUN = 3;
 const RUN_BUDGET_MS = 110_000;
 const LEASE_MS = 5 * 60_000;
@@ -64,6 +71,7 @@ Deno.serve(async (req) => {
 
     if (action === "enqueue") return await enqueue(admin, userId, body);
     if (action === "drain") return await drain(admin, Number(body.maxJobs) || MAX_JOBS_PER_RUN);
+    if (action === "import") return await importChunk(admin, body);
     if (action === "status") return await status(admin, body.symbol ? String(body.symbol) : null);
 
     return json({ error: `Unknown action "${action}"` }, 400);
@@ -193,23 +201,117 @@ async function drain(admin: any, maxJobs: number) {
 async function status(admin: any, symbol: string | null) {
   let manifestQuery = admin
     .from("bar_manifest")
-    .select("symbol,month,bar_count,first_ts,last_ts,byte_size,missing_minutes,missing_days")
+    .select("symbol,month,source,bar_count,first_ts,last_ts,byte_size,missing_minutes,missing_days")
     .order("month", { ascending: true });
   if (symbol) manifestQuery = manifestQuery.eq("symbol", symbol.toUpperCase());
 
   const [{ data: manifest }, { data: jobs }] = await Promise.all([
     manifestQuery,
-    admin.from("bar_ingest_jobs").select("symbol,month,status,attempts,last_error").order("month"),
+    admin.from("bar_ingest_jobs").select("symbol,month,source,status,attempts,last_error").order("month"),
   ]);
 
   const counts: Record<string, number> = {};
   for (const j of jobs ?? []) counts[j.status] = (counts[j.status] ?? 0) + 1;
 
+  // Symbols the user actually has data for (broker uploads are not in the
+  // Dukascopy catalogue), plus the vendor catalogue for the fallback path.
+  const importedSymbols = [...new Set((manifest ?? []).map((m: { symbol: string }) => m.symbol))];
+
   return json({
     instruments: DUKASCOPY_INSTRUMENTS,
+    importedSymbols,
     manifest: manifest ?? [],
     jobs: jobs ?? [],
     jobCounts: counts,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// MT5 import — one encoded month per call.
+//
+// The client parses the CSV, converts broker time to UTC and encodes the
+// binary chunk in a worker; this endpoint re-decodes the bytes (never trust
+// the caller's own quality numbers), re-derives quality server-side, writes
+// the object and upserts the manifest row.
+// ---------------------------------------------------------------------------
+
+// deno-lint-ignore no-explicit-any
+async function importChunk(admin: any, body: Record<string, unknown>) {
+  const symbol = String(body.symbol ?? "").toUpperCase().trim();
+  const month = String(body.month ?? "");
+  const b64 = String(body.chunk ?? "");
+
+  if (!SYMBOL_RE.test(symbol)) return json({ error: `Invalid symbol "${symbol}"` }, 400);
+  if (!MONTH_RE.test(month)) return json({ error: "`month` must be YYYY-MM" }, 400);
+  if (!b64) return json({ error: "`chunk` (base64 bar chunk) is required" }, 400);
+
+  let bytes: Uint8Array;
+  try {
+    const bin = atob(b64);
+    if (bin.length > MAX_CHUNK_BYTES) return json({ error: "Chunk too large" }, 413);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  } catch {
+    return json({ error: "`chunk` is not valid base64" }, 400);
+  }
+
+  let series;
+  try {
+    series = decodeBarChunk(bytes);
+  } catch (err) {
+    return json({ error: `Bad bar chunk: ${err instanceof Error ? err.message : String(err)}` }, 400);
+  }
+  if (series.length === 0) return json({ error: `No bars in ${symbol} ${month}` }, 400);
+
+  // Every bar must belong to the claimed month, in ascending order.
+  const monthStart = Date.parse(`${month}-01T00:00:00Z`);
+  const [y, m] = month.split("-").map(Number);
+  const monthEnd = Date.UTC(m === 12 ? y + 1 : y, m === 12 ? 0 : m, 1);
+  for (let i = 0; i < series.length; i++) {
+    const t = series.ts[i];
+    if (!(t >= monthStart && t < monthEnd)) {
+      return json({ error: `Bar at index ${i} falls outside ${month}` }, 400);
+    }
+    if (i > 0 && t < series.ts[i - 1]) return json({ error: "Bars are not in ascending time order" }, 400);
+  }
+
+  const quality = assessBarQuality(series);
+  const path = barChunkPath(BROKER_SOURCE, symbol, TIMEFRAME, month);
+
+  const { error: upErr } = await admin.storage.from(BUCKET).upload(path, bytes, {
+    contentType: "application/octet-stream",
+    upsert: true,
+  });
+  if (upErr) return json({ error: `storage upload failed: ${upErr.message}` }, 500);
+
+  const { error: manErr } = await admin.from("bar_manifest").upsert({
+    symbol,
+    timeframe: TIMEFRAME,
+    month,
+    source: BROKER_SOURCE,
+    object_path: path,
+    bar_count: quality.barCount,
+    first_ts: quality.firstTs ? new Date(quality.firstTs).toISOString() : null,
+    last_ts: quality.lastTs ? new Date(quality.lastTs).toISOString() : null,
+    byte_size: bytes.byteLength,
+    missing_minutes: quality.missingMinutes,
+    duplicate_ts: quality.duplicateTs,
+    zero_volume_bars: quality.zeroVolumeBars,
+    invalid_bars: quality.invalidBars,
+    missing_days: quality.missingDays,
+    quality,
+    ingested_at: new Date().toISOString(),
+  }, { onConflict: "symbol,timeframe,month,source" });
+  if (manErr) return json({ error: `manifest upsert failed: ${manErr.message}` }, 500);
+
+  return json({
+    symbol,
+    month,
+    source: BROKER_SOURCE,
+    barCount: quality.barCount,
+    bytes: bytes.byteLength,
+    missingMinutes: quality.missingMinutes,
+    missingDays: quality.missingDays.length,
   });
 }
 
