@@ -74,6 +74,7 @@ Deno.serve(async (req) => {
     if (action === "enqueue") return await enqueue(admin, userId, body);
     if (action === "drain") return await drain(admin, Number(body.maxJobs) || MAX_JOBS_PER_RUN);
     if (action === "import") return await importChunk(admin, body);
+    if (action === "delete") return await deleteMonths(admin, body);
     if (action === "status") return await status(admin, body.symbol ? String(body.symbol) : null);
 
     return json({ error: `Unknown action "${action}"` }, 400);
@@ -222,7 +223,7 @@ async function status(admin: any, symbol: string | null) {
     .from("bar_manifest")
     .select("symbol,month,source,bar_count,first_ts,last_ts,byte_size,missing_minutes,missing_days")
     .order("month", { ascending: true });
-  if (symbol) manifestQuery = manifestQuery.eq("symbol", symbol.toUpperCase());
+  if (symbol) manifestQuery = manifestQuery.eq("symbol", normalizeSymbol(symbol));
 
   const [{ data: manifest }, { data: jobs }] = await Promise.all([
     manifestQuery,
@@ -256,11 +257,14 @@ async function status(admin: any, symbol: string | null) {
 
 // deno-lint-ignore no-explicit-any
 async function importChunk(admin: any, body: Record<string, unknown>) {
-  const symbol = String(body.symbol ?? "").toUpperCase().trim();
+  const requested = String(body.symbol ?? "").toUpperCase().trim();
+  // Store under the canonical name so an MT5 export of NAS100.cash and a
+  // journal trade on NASUSD resolve to the same bar chunks.
+  const symbol = normalizeSymbol(requested);
   const month = String(body.month ?? "");
   const b64 = String(body.chunk ?? "");
 
-  if (!SYMBOL_RE.test(symbol)) return json({ error: `Invalid symbol "${symbol}"` }, 400);
+  if (!SYMBOL_RE.test(symbol)) return json({ error: `Invalid symbol "${requested}"` }, 400);
   if (!MONTH_RE.test(month)) return json({ error: "`month` must be YYYY-MM" }, 400);
   if (!b64) return json({ error: "`chunk` (base64 bar chunk) is required" }, 400);
 
@@ -332,6 +336,59 @@ async function importChunk(admin: any, body: Record<string, unknown>) {
     missingMinutes: quality.missingMinutes,
     missingDays: quality.missingDays.length,
   });
+}
+
+/**
+ * Remove one or more stored months (object + manifest row + any queue row) so
+ * a bad import — wrong broker offset, wrong symbol — can be replaced instead of
+ * silently shadowing good data.
+ */
+// deno-lint-ignore no-explicit-any
+async function deleteMonths(admin: any, body: Record<string, unknown>) {
+  const symbol = normalizeSymbol(String(body.symbol ?? "").toUpperCase().trim());
+  const months = Array.isArray(body.months) ? body.months.map(String) : [];
+  const source = body.source ? String(body.source) : null;
+  if (!SYMBOL_RE.test(symbol)) return json({ error: `Invalid symbol "${symbol}"` }, 400);
+  if (months.length === 0 || months.some((m) => !MONTH_RE.test(m))) {
+    return json({ error: "`months` must be a non-empty array of YYYY-MM" }, 400);
+  }
+
+  let sel = admin
+    .from("bar_manifest")
+    .select("month,source,object_path")
+    .eq("symbol", symbol)
+    .eq("timeframe", TIMEFRAME)
+    .in("month", months);
+  if (source) sel = sel.eq("source", source);
+  const { data: rows, error: selErr } = await sel;
+  if (selErr) return json({ error: selErr.message }, 500);
+
+  const paths = (rows ?? []).map((r: { object_path: string }) => r.object_path);
+  if (paths.length) {
+    const { error: rmErr } = await admin.storage.from(BUCKET).remove(paths);
+    if (rmErr) return json({ error: `storage delete failed: ${rmErr.message}` }, 500);
+  }
+
+  let del = admin
+    .from("bar_manifest")
+    .delete()
+    .eq("symbol", symbol)
+    .eq("timeframe", TIMEFRAME)
+    .in("month", months);
+  if (source) del = del.eq("source", source);
+  const { error: delErr } = await del;
+  if (delErr) return json({ error: delErr.message }, 500);
+
+  let jobs = admin
+    .from("bar_ingest_jobs")
+    .delete()
+    .eq("symbol", symbol)
+    .eq("timeframe", TIMEFRAME)
+    .in("month", months);
+  if (source) jobs = jobs.eq("source", source);
+  await jobs;
+
+  return json({ symbol, deleted: paths.length, months });
 }
 
 // ---------------------------------------------------------------------------
