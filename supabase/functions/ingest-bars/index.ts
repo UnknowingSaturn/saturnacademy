@@ -41,6 +41,8 @@ import {
   assessBarQuality,
   barChunkPath,
 } from "../_shared/quant/vendor/bars.ts";
+import { normalizeSymbol } from "../_shared/quant/vendor/symbolAliasing.ts";
+
 
 const BUCKET = "bars";
 const TIMEFRAME = "1m";
