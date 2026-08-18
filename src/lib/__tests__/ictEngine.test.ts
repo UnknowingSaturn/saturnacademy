@@ -64,6 +64,11 @@ const BASE: Partial<EngineConfig> = {
   stopBufferTicks: 2,
   targetMode: "r",
   targetR: 2,
+  // Raw-signal semantics: these tests assert price/points behaviour, so size
+  // and spread are pinned. Money-model behaviour has its own tests below.
+  sizing: "fixed",
+  size: 1,
+  applySpread: false,
 };
 
 describe("ICT execution engine", () => {
