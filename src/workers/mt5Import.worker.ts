@@ -121,7 +121,7 @@ self.onmessage = (e: MessageEvent<Mt5ImportRequest>) => {
     const encoded: EncodedMonth[] = months.map((m) => {
       const bytes = encodeBarChunk(m.series);
       // Copy out of the (possibly larger) worker buffer so it transfers cleanly.
-      const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      const buf = bytes.slice().buffer as ArrayBuffer;
       return { month: m.month, bytes: buf, quality: assessBarQuality(m.series) };
     });
     const res: Mt5EncodeResponse = { id: req.id, phase: "encode", ok: true, months: encoded };
