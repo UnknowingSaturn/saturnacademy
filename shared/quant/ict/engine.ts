@@ -318,15 +318,20 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   let mfe = 0;
 
   for (let j = entryIndex; j <= boundary; j++) {
+    // On the entry bar the intrabar path before the fill is unknown, so only
+    // the adverse side counts: the stop can hit, the target cannot. Favourable
+    // excursion is likewise only tracked from the following bar.
+    const entryBar = j === entryIndex;
     const adverse = long ? entryPrice - s.low[j] : s.high[j] - entryPrice;
     const favourable = long ? s.high[j] - entryPrice : entryPrice - s.low[j];
     if (adverse > mae) mae = adverse;
-    if (favourable > mfe) mfe = favourable;
+    if (!entryBar && favourable > mfe) mfe = favourable;
 
     const stopHit = long ? s.low[j] <= stopPrice : s.high[j] >= stopPrice;
-    const targetHit = targetPrice != null && (long ? s.high[j] >= targetPrice : s.low[j] <= targetPrice);
+    const targetHit = !entryBar && targetPrice != null && (long ? s.high[j] >= targetPrice : s.low[j] <= targetPrice);
 
     if (stopHit && targetHit) ambiguous = true;
+
     if (stopHit) {
       // Pessimistic: stop first on an ambiguous bar, filled with slippage.
       exitIndex = j;
