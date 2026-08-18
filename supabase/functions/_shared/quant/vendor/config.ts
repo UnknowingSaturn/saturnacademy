@@ -8,7 +8,7 @@
 // functions (via Deno).
 //
 // PATH CONVENTIONS:
-//   - Vite/client (TS):   import { TP1_STAR_MIN_HIT_RATE } from "../../shared/quant/config";
+//   - Vite/client (TS):   import { TP1_STAR_MIN_HIT_RATE } from "../../shared/quant/config.ts";
 //   - Deno/edge:          import { TP1_STAR_MIN_HIT_RATE } from "../../../shared/quant/config.ts";
 //
 // This file MUST stay dependency-free (no imports, no types/trading)
