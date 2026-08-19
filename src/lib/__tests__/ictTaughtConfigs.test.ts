@@ -105,7 +105,7 @@ describe("sweep universe and K-nearest gating", () => {
   const s = series(600, start, (i) => 100 + Math.sin(i / 23) * 4);
 
   it("builds distinct universes", () => {
-    const opts = { windows: [KILLZONES.ny_am], swingStrength: 2, swingTimeframe: 15 } as const;
+    const opts = { windows: [KILLZONES.ny_am], swingStrength: 2, swingTimeframe: 15 };
     const refs = buildLiquidityUniverse(s, "fx", { ...opts, universe: "session_refs" });
     const bsl = buildLiquidityUniverse(s, "fx", { ...opts, universe: "bsl_ssl_15m" });
     expect(bsl.length).toBeGreaterThan(refs.length);
