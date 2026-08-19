@@ -517,12 +517,18 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   const entryPrice = long ? entryLevel + slip : entryLevel - slip;
 
   // --- target -------------------------------------------------------------
+  const rTarget = long ? entryLevel + riskPoints * cfg.targetR : entryLevel - riskPoints * cfg.targetR;
   let targetPrice: number | null = null;
   if (cfg.targetMode === "r") {
-    targetPrice = long ? entryLevel + riskPoints * cfg.targetR : entryLevel - riskPoints * cfg.targetR;
+    targetPrice = rTarget;
+  } else if (cfg.targetMode === "range_mean") {
+    // Mean reversion to the middle of the prevailing consolidation; falls back
+    // to the R target when no range was in force at the signal.
+    const mid = a.range ? a.range.mid : null;
+    const valid = mid != null && (long ? mid > entryLevel : mid < entryLevel);
+    targetPrice = valid ? (mid as number) : rTarget;
   } else {
-    targetPrice = nearestLiquidityTarget(a.levels, entryIndex, entryLevel, long)
-      ?? (long ? entryLevel + riskPoints * cfg.targetR : entryLevel - riskPoints * cfg.targetR);
+    targetPrice = nearestLiquidityTarget(a.levels, entryIndex, entryLevel, long) ?? rTarget;
   }
 
   // --- walk forward -------------------------------------------------------
@@ -532,6 +538,12 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   let ambiguous = false;
   let mae = 0;
   let mfe = 0;
+  // Breakeven and the hourly-close exit are both armed on a bar CLOSE and act
+  // from the next bar, because intrabar ordering is unknowable from OHLC.
+  let workingStop = stopPrice;
+  const beTrigger = cfg.breakevenAtR > 0 ? cfg.breakevenAtR * riskPoints : 0;
+  const counterTrend = a.bias !== 0 && (long ? a.bias < 0 : a.bias > 0);
+  const hourExit = cfg.exitCounterTrendAtHourClose && counterTrend;
 
   for (let j = entryIndex; j <= boundary; j++) {
     // On the entry bar the intrabar path before the fill is unknown, so only
@@ -543,7 +555,7 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
     if (adverse > mae) mae = adverse;
     if (!entryBar && favourable > mfe) mfe = favourable;
 
-    const stopHit = long ? s.low[j] <= stopPrice : s.high[j] >= stopPrice;
+    const stopHit = long ? s.low[j] <= workingStop : s.high[j] >= workingStop;
     const targetHit = !entryBar && targetPrice != null && (long ? s.high[j] >= targetPrice : s.low[j] <= targetPrice);
 
     if (stopHit && targetHit) ambiguous = true;
@@ -551,7 +563,7 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
     if (stopHit) {
       // Pessimistic: stop first on an ambiguous bar, filled with slippage.
       exitIndex = j;
-      exitPrice = long ? stopPrice - slip : stopPrice + slip;
+      exitPrice = long ? workingStop - slip : workingStop + slip;
       exitReason = "stop";
       break;
     }
@@ -561,6 +573,19 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
       exitReason = "target";
       break;
     }
+
+    // Counter-bias trades are cut on the first completed ET hour.
+    if (hourExit && !entryBar && j < boundary && (a.etMin[j] + 1) % 60 === 0) {
+      exitIndex = j;
+      exitPrice = long ? s.close[j] - slip : s.close[j] + slip;
+      exitReason = "hour_close";
+      break;
+    }
+
+    // Arm breakeven from the NEXT bar once the trigger printed on this one.
+    if (beTrigger > 0 && !entryBar && favourable >= beTrigger) {
+      workingStop = long ? Math.max(workingStop, entryPrice) : Math.min(workingStop, entryPrice);
+    }
   }
 
   // --- money ---------------------------------------------------------------
@@ -568,6 +593,7 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   // across instruments and lines up with the prop-firm simulator. A stop that
   // is too wide for even one size step yields size 0 and the trade is dropped
   // rather than silently taken at an unfundable size.
+
   const intendedRisk = cfg.sizing === "risk"
     ? (cfg.riskCashOverride ?? (cfg.accountBalance * cfg.riskPercent) / 100)
     : 0;
