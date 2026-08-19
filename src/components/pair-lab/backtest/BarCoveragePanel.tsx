@@ -165,6 +165,9 @@ export function BarCoveragePanel({ symbol, fromMonth, toMonth }: Props) {
           })}
         </div>
       )}
+
+      </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }
