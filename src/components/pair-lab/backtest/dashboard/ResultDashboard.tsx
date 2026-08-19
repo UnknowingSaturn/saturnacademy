@@ -107,16 +107,33 @@ export function ResultDashboard({ report }: { report: SweepReport }) {
     e.rows.map((r) => ({ label: `${e.key} — ${r.era}`, value: r.avgR, note: `${n2(r.avgR)}R · ${r.trades} tr` })),
   );
 
-  const slipRows = (report.slippage[0]?.cells ?? []).map((c) => ({
-    label: `+${c.extraTicks} tick slip`,
-    value: c.avgR,
-    note: `${n2(c.avgR)}R`,
-  }));
+  // One row per stop-slippage step at zero timed slippage, plus the worst corner.
+  const slipRows = (() => {
+    const cells = report.slippage[0]?.cells ?? [];
+    const base = cells.filter((c) => c.timeTicks === 0);
+    const worst = cells.reduce<typeof cells[number] | null>((w, c) => (!w || c.avgR < w.avgR ? c : w), null);
+    const rows = base.map((c) => ({
+      label: `+${c.stopTicks} tick on stops`,
+      value: c.avgR,
+      note: `${n2(c.avgR)}R`,
+    }));
+    if (worst && worst.timeTicks > 0) {
+      rows.push({
+        label: `worst: +${worst.stopTicks}/+${worst.timeTicks} ticks`,
+        value: worst.avgR,
+        note: `${n2(worst.avgR)}R`,
+      });
+    }
+    return rows;
+  })();
 
   const discretionItems = report.discretion.map((d) => ({
     label: d.label,
-    value: `${pctS(d.premium.skipFractionForBreakeven)} skip`,
-    hint: "Fraction of losers that must be avoided to break even",
+    value:
+      d.premium.skipForBreakeven === null
+        ? "already positive"
+        : `${pctS(d.premium.skipForBreakeven)} skip`,
+    hint: "Fraction of losers that must be avoided in advance to break even net",
   }));
 
   const ambiguous = report.rows.length
