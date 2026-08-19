@@ -22,8 +22,9 @@ import { KILLZONES, RTH, type TradeWindow, journalSessionKey, sessionDate } from
 import {
   detectFvgsTf, detectSwings, detectSwingsTf, detectSweeps, detectMss, detectDisplacement,
   buildLiquidityUniverse, sessionSpans, htfBias, structureBias, etMinutes,
+  detectOrderFlowLegs, detectVShapes, detectRanges, priorSessionProfiles, midBalanceFlags, detectSmt,
   type BiasMode, type Direction, type Displacement, type FairValueGap,
-  type LiquidityLevel, type Swing, type SweepUniverse,
+  type LiquidityLevel, type Swing, type SweepUniverse, type OrderFlowLeg, type RangeContext,
 } from "./detectors";
 import { instrumentSpec, pointsToCash, sizeForRisk, type InstrumentSpec } from "./instruments";
 
@@ -32,9 +33,11 @@ import { instrumentSpec, pointsToCash, sizeForRisk, type InstrumentSpec } from "
 // ---------------------------------------------------------------------------
 
 export type EntryMode = "proximal" | "mid" | "distal";
-export type StopMode = "swing" | "gap" | "displacement_swing";
-export type TargetMode = "r" | "liquidity";
+export type StopMode = "swing" | "gap" | "displacement_swing" | "leg_origin";
+export type TargetMode = "r" | "liquidity" | "range_mean";
 export type EngineBiasMode = BiasMode | "structure_15m" | "none";
+export type RegimeFilter = "any" | "rotational" | "transitional";
+
 
 /** Hard safety cap on trades per window, whatever the config asks for. */
 export const MAX_TRADES_PER_WINDOW_CAP = 10;
