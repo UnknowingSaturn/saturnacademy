@@ -3,10 +3,12 @@
 // `EngineConfig` field — the UI never invents a knob the engine can't execute.
 // ============================================================================
 
-import { KILLZONES, RTH } from "../../../../shared/quant/sessions";
 import type { EngineConfig } from "../../../../shared/quant/ict/engine";
 
-export type UiConfig = Omit<EngineConfig, "window"> & { windowKey: string };
+export { windowForKey, windowsForKeys } from "../../../../shared/quant/ict/configs";
+
+/** Windows are chosen by key in the UI and resolved by `windowsForKeys`. */
+export type UiConfig = Omit<EngineConfig, "windows"> & { windowKeys: string[] };
 
 /** Labels quote the real ET windows defined in `shared/quant/sessions.ts`. */
 export const WINDOW_OPTIONS = [
@@ -15,10 +17,6 @@ export const WINDOW_OPTIONS = [
   { key: "ny_pm", label: "NY PM killzone (14:00–15:00 ET)" },
   { key: "rth", label: "Full RTH (09:30–16:00 ET)" },
 ];
-
-export function windowForKey(key: string) {
-  return key === "rth" ? RTH : (KILLZONES[key] ?? KILLZONES.ny_am);
-}
 
 export function windowLabel(key: string): string {
   return WINDOW_OPTIONS.find((w) => w.key === key)?.label ?? key;
