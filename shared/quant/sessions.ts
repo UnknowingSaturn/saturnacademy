@@ -145,12 +145,17 @@ export function isRth(ms: number): boolean {
  */
 export function journalSessionKey(windowKey: string): string {
   switch (windowKey) {
-    case "london": return "london";
-    case "ny_am": return "new_york_am";
+    case "london":
+    case "london_early":
+    case "london_range": return "london";
+    case "ny_am":
+    case "ny_open": return "new_york_am";
     case "ny_pm": return "new_york_pm";
+    case "tokyo": return "tokyo";
     default: return windowKey;
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // Date helpers (pure string math on YYYY-MM-DD)
