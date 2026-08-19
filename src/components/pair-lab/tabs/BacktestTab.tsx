@@ -219,6 +219,10 @@ export function BacktestTab() {
         </div>
 
         <div className="space-y-4">
+          {step === "validate" ? (
+            <ValidatePanel symbol={symbol} fromMonth={fromMonth} toMonth={toMonth} />
+          ) : (
+            <>
           {error && (
             <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
               <p className="text-sm text-destructive">{error}</p>
@@ -268,6 +272,8 @@ export function BacktestTab() {
                 so results stay pessimistic.
               </p>
             </div>
+          )}
+            </>
           )}
         </div>
       </div>
