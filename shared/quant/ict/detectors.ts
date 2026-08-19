@@ -15,7 +15,7 @@
 // ============================================================================
 
 import { resample, type BarSeries } from "../bars";
-import { sessionDate, isRth, toNewYork, type SessionInstrumentClass } from "../sessions";
+import { sessionDate, isRth, toNewYork, type SessionInstrumentClass, type TradeWindow } from "../sessions";
 
 // ---------------------------------------------------------------------------
 // Fair value gaps
@@ -431,4 +431,141 @@ export function etMinutes(s: BarSeries): Int16Array {
   const out = new Int16Array(s.length);
   for (let i = 0; i < s.length; i++) out[i] = toNewYork(s.ts[i]).minuteOfDay;
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Higher-timeframe features (5m FVGs, 15m swings, 15m structure bias)
+//
+// Every HTF feature is stamped with the index of the 1-MINUTE bar at which the
+// HTF candle closes, so the causal contract above survives aggregation: a 5m
+// FVG printed by the 10:10–10:15 candle is only visible from the 10:14 minute
+// bar onward, never at 10:10.
+// ---------------------------------------------------------------------------
+
+/** FVGs on an aggregated timeframe, projected back onto 1-minute indices. */
+export function detectFvgsTf(s: BarSeries, timeframeMinutes: number, minSize = 0): FairValueGap[] {
+  if (!(timeframeMinutes > 1)) return detectFvgs(s, minSize);
+  const { series, closeIndex } = resample(s, timeframeMinutes);
+  return detectFvgs(series, minSize).map((g) => {
+    const i = closeIndex[g.index];
+    return { ...g, index: i, ts: s.ts[i] };
+  });
+}
+
+/** Fractal swings on an aggregated timeframe, projected onto 1-minute indices. */
+export function detectSwingsTf(s: BarSeries, timeframeMinutes: number, strength = 2): Swing[] {
+  if (!(timeframeMinutes > 1)) return detectSwings(s, strength);
+  const { series, closeIndex } = resample(s, timeframeMinutes);
+  return detectSwings(series, strength).map((sw) => {
+    const pivot = closeIndex[sw.index];
+    const confirmed = closeIndex[Math.min(sw.confirmedIndex, closeIndex.length - 1)];
+    return { ...sw, index: pivot, ts: s.ts[pivot], confirmedIndex: Math.max(pivot, confirmed) };
+  });
+}
+
+/**
+ * Swing-structure trend bias: +1 while the last two confirmed swing highs AND
+ * lows are both rising (HH + HL), -1 while both are falling (LH + LL), and it
+ * holds the last state in between (an incomplete leg is not a reversal).
+ * Feed it `detectSwingsTf(s, 15, strength)` for the taught 15m definition.
+ */
+export function structureBias(s: BarSeries, swings: Swing[]): Int8Array {
+  const ordered = [...swings].sort((a, b) => a.confirmedIndex - b.confirmedIndex);
+  const out = new Int8Array(s.length);
+  let cursor = 0;
+  let state = 0;
+  let hi1: number | null = null, hi2: number | null = null;
+  let lo1: number | null = null, lo2: number | null = null;
+
+  for (let i = 0; i < s.length; i++) {
+    while (cursor < ordered.length && ordered[cursor].confirmedIndex <= i) {
+      const sw = ordered[cursor++];
+      if (sw.kind === "high") { hi2 = hi1; hi1 = sw.price; }
+      else { lo2 = lo1; lo1 = sw.price; }
+      if (hi1 != null && hi2 != null && lo1 != null && lo2 != null) {
+        if (hi1 > hi2 && lo1 > lo2) state = 1;
+        else if (hi1 < hi2 && lo1 < lo2) state = -1;
+      }
+    }
+    out[i] = state as -1 | 0 | 1;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Liquidity universes
+// ---------------------------------------------------------------------------
+
+export type SweepUniverse =
+  | "session_refs"
+  | "session_refs_plus_swings"
+  | "bsl_ssl_15m"
+  | "swings_only";
+
+/**
+ * Pre-window extremes: the high/low made in the session BEFORE the trade
+ * window opens (e.g. the 18:00→10:00 ET run-up into Silver Bullet). Valid from
+ * the first bar of the window itself.
+ */
+export function preWindowLevels(s: BarSeries, cls: SessionInstrumentClass, windows: TradeWindow[]): LiquidityLevel[] {
+  const spans = sessionSpans(s, cls);
+  const etMin = etMinutes(s);
+  const out: LiquidityLevel[] = [];
+  for (const sp of spans) {
+    for (const w of windows) {
+      let hi = -Infinity, lo = Infinity, start = -1;
+      for (let i = sp.from; i <= sp.to; i++) {
+        if (etMin[i] >= w.startMin) { start = i; break; }
+        if (s.high[i] > hi) hi = s.high[i];
+        if (s.low[i] < lo) lo = s.low[i];
+      }
+      if (start < 0 || hi === -Infinity) continue;
+      out.push({ kind: "pre_window_high", price: hi, sourceDate: sp.dateKey, validFromIndex: start });
+      out.push({ kind: "pre_window_low", price: lo, sourceDate: sp.dateKey, validFromIndex: start });
+    }
+  }
+  return out;
+}
+
+/** Confirmed swings as liquidity levels — usable only once confirmed. */
+export function swingLevels(s: BarSeries, cls: SessionInstrumentClass, swings: Swing[]): LiquidityLevel[] {
+  return swings.map((sw) => ({
+    kind: (sw.kind === "high" ? "swing_high" : "swing_low") as LiquidityKind,
+    price: sw.price,
+    sourceDate: sessionDate(sw.ts, cls),
+    validFromIndex: sw.confirmedIndex,
+  }));
+}
+
+export interface UniverseOptions {
+  universe: SweepUniverse;
+  windows: TradeWindow[];
+  swingStrength: number;
+  /** Timeframe (minutes) for the swing component of the universe. */
+  swingTimeframe: number;
+}
+
+/**
+ * Build the liquidity universe a config sweeps AND targets from — one list, so
+ * "next opposing liquidity" can never point at a level the sweep rule doesn't
+ * even consider.
+ */
+export function buildLiquidityUniverse(
+  s: BarSeries,
+  cls: SessionInstrumentClass,
+  opts: UniverseOptions,
+): LiquidityLevel[] {
+  const { universe, windows, swingStrength, swingTimeframe } = opts;
+  const sessionRefs = () => [...priorSessionLevels(s, cls), ...preWindowLevels(s, cls, windows)];
+  switch (universe) {
+    case "swings_only":
+      return swingLevels(s, cls, detectSwingsTf(s, swingTimeframe, swingStrength));
+    case "session_refs_plus_swings":
+      return [...sessionRefs(), ...swingLevels(s, cls, detectSwings(s, swingStrength))];
+    case "bsl_ssl_15m":
+      return [...sessionRefs(), ...swingLevels(s, cls, detectSwingsTf(s, 15, swingStrength))];
+    case "session_refs":
+    default:
+      return sessionRefs();
+  }
 }
