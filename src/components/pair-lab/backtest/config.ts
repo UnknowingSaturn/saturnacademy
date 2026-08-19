@@ -12,11 +12,16 @@ export type UiConfig = Omit<EngineConfig, "windows"> & { windowKeys: string[] };
 
 /** Labels quote the real ET windows defined in `shared/quant/sessions.ts`. */
 export const WINDOW_OPTIONS = [
+  { key: "tokyo", label: "Tokyo session (20:00–24:00 ET)" },
+  { key: "london_early", label: "London continuation (02:00–03:00 ET)" },
   { key: "london", label: "London killzone (03:00–04:00 ET)" },
+  { key: "london_range", label: "London range (03:00–05:00 ET)" },
+  { key: "ny_open", label: "NY open (07:00–08:00 ET)" },
   { key: "ny_am", label: "NY AM / Silver Bullet (10:00–11:00 ET)" },
   { key: "ny_pm", label: "NY PM killzone (14:00–15:00 ET)" },
   { key: "rth", label: "Full RTH (09:30–16:00 ET)" },
 ];
+
 
 export function windowLabel(key: string): string {
   return WINDOW_OPTIONS.find((w) => w.key === key)?.label ?? key;
