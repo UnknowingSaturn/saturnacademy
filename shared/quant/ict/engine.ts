@@ -455,8 +455,8 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   return {
     symbol: a.symbol,
     sessionDate: a.sessionDateKey,
-    windowKey: cfg.window.key,
-    journalSession: journalSessionKey(cfg.window.key),
+    windowKey: a.windowKey,
+    journalSession: journalSessionKey(a.windowKey),
     direction: long ? "long" : "short",
     setupIndex: signalIndex,
     setupTs: s.ts[signalIndex],
