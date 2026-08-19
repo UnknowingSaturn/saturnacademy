@@ -13,6 +13,7 @@ import type {
   DiscretionPremium,
 } from "../../../shared/quant/ict/sweep";
 import type { NullDistribution } from "../../../shared/quant/ict/nulls";
+import type { SweepCandidate } from "../../../shared/quant/ict/sweep";
 import type { HourStat } from "@/workers/ictSweep.worker";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +64,8 @@ export interface SweepReport {
   rows: ConfigRow[];
   fdr: FdrResult;
   survivors: ConfigRow[];
+  /** Top-3 survivors, patch included — the only configs the holdout may run. */
+  topCandidates: SweepCandidate[];
   validationRows: ConfigRow[];
   refs: RefConfigResult[];
   nulls: NullReport[];

@@ -131,7 +131,7 @@ function ablationLadder(): Array<{ label: string; patch: Partial<EngineConfig>; 
   return rungs;
 }
 
-function namedCandidates(): SweepCandidate[] {
+export function namedCandidates(): SweepCandidate[] {
   const out: SweepCandidate[] = [];
   for (const key of SWEEP.namedKeys) {
     const nc = namedConfig(key);
@@ -528,6 +528,10 @@ export function useIctSweep() {
           rows,
           fdr,
           survivors,
+          topCandidates: survivors
+            .slice(0, 3)
+            .map((r) => candByHash.get(r.hash))
+            .filter((c): c is SweepCandidate => Boolean(c)),
           validationRows,
           refs,
           nulls,
