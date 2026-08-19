@@ -88,35 +88,36 @@ function checkData(symbol: string, s: BarSeries, months: string[]) {
   ok("no zero/negative prices", nonPositive === 0, `${nonPositive} bars`);
 
   // Biggest gaps should be weekends (FX closes 17:00 ET Fri, reopens 17:00 ET Sun).
-  const gapStart = etMinutes(s.ts[gapAt - 1]);
-  const dow = new Date(s.ts[gapAt - 1]).getUTCDay();
+  const gapStart = toNewYork(s.ts[gapAt - 1]);
   ok(
     "largest gap is the weekend break",
-    biggestGapMin > 40 * 60 && biggestGapMin < 56 * 60 && (dow === 5 || dow === 6),
-    `${(biggestGapMin / 60).toFixed(1)}h starting ${new Date(s.ts[gapAt - 1]).toISOString()} (ET min ${gapStart})`,
+    biggestGapMin > 40 * 60 && biggestGapMin < 56 * 60 && (gapStart.weekday === 5 || gapStart.weekday === 6),
+    `${(biggestGapMin / 60).toFixed(1)}h from ${new Date(s.ts[gapAt - 1]).toISOString()} (ET weekday ${gapStart.weekday}, ${Math.floor(gapStart.minuteOfDay / 60)}:${String(gapStart.minuteOfDay % 60).padStart(2, "0")})`,
   );
 
-  // Codec round trip on one month.
+  // Codec sanity on one month read in isolation.
   const one = decodeBarChunk(new Uint8Array(readFileSync(join(DIR, `${symbol}_${months[Math.floor(months.length / 2)]}.bin`))));
   let mismatch = 0;
-  for (let i = 0; i < Math.min(one.length, 5000); i++) {
-    const j = i + s.ts.indexOf?.(one.ts[0]);
-    void j;
-    if (!(one.high[i] >= one.low[i])) mismatch++;
-  }
-  ok("decoded chunk self-consistent", mismatch === 0);
+  for (let i = 0; i < one.length; i++) if (!(one.high[i] >= one.low[i] && one.ts[i] > 0)) mismatch++;
+  ok("single-month chunk decodes cleanly", mismatch === 0, `${one.length} bars`);
 
-  // Weekday coverage: FX should have ~1440 minutes per weekday session.
+  // Coverage inside the hours the lab actually trades (02:00–16:00 ET). Bars
+  // outside those hours are irrelevant to the strategies, and holidays only
+  // matter if they silently thin a session the engine still scans.
+  const TRADING_MINUTES = 14 * 60;
   const perDay = new Map<string, number>();
   for (let i = 0; i < s.length; i++) {
+    const et = toNewYork(s.ts[i]);
+    if (et.minuteOfDay < 2 * 60 || et.minuteOfDay >= 16 * 60) continue;
+    if (et.weekday === 0 || et.weekday === 6) continue;
     const d = sessionDate(s.ts[i], "fx");
     perDay.set(d, (perDay.get(d) ?? 0) + 1);
   }
-  const counts = [...perDay.values()].sort((a, b) => a - b);
-  const median = counts[Math.floor(counts.length / 2)];
-  const thin = counts.filter((c) => c < median * 0.5).length;
-  ok("session days are near-complete", thin / counts.length < 0.06,
-    `${thin}/${counts.length} days below half the median (${median} bars)`);
+  const thinDays = [...perDay.entries()].filter(([, c]) => c < TRADING_MINUTES * 0.5).map(([d]) => d).sort();
+  ok("trading-hour coverage is complete on non-holiday weekdays",
+    thinDays.length / perDay.size < 0.03,
+    `${thinDays.length}/${perDay.size} thin days${thinDays.length ? ` (e.g. ${thinDays.slice(0, 6).join(", ")})` : ""}`);
+
 }
 
 // ---------------------------------------------------------------------------
