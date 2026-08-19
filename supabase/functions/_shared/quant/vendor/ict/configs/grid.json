@@ -151,8 +151,177 @@
         "maxTradesPerWindow": 2,
         "hardExitAtWindowEnd": true
       }
+    },
+    {
+      "key": "pb_lon_continuation",
+      "label": "Playbook · LON Continuation",
+      "blurb": "02:00\u201303:00 ET trend continuation. 1m order-flow leg + FVG, SMT vs the reference series, stop at the leg origin (min 4 pips), BE at 1.5R, 2R target, counter-trend trades cut at the hourly close.",
+      "windowKeys": [
+        "london_early"
+      ],
+      "patch": {
+        "fvgTimeframe": 1,
+        "biasMode": "structure_15m",
+        "biasSwingTimeframe": 15,
+        "swingStrength": 2,
+        "requireSweep": false,
+        "requireMss": false,
+        "requireDisplacement": false,
+        "requireOrderFlowLeg": true,
+        "orderFlowLookbackBars": 20,
+        "requireSmt": true,
+        "smtLookbackBars": 30,
+        "smtInverse": true,
+        "regimeFilter": "transitional",
+        "entry": "proximal",
+        "entryExpiryBars": 20,
+        "stopMode": "leg_origin",
+        "stopBufferTicks": 1,
+        "minStopDistanceTicks": 40,
+        "breakevenAtR": 1.5,
+        "exitCounterTrendAtHourClose": true,
+        "targetMode": "r",
+        "targetR": 2,
+        "maxTradesPerWindow": 2,
+        "hardExitAtWindowEnd": false,
+        "hardExitAtRthEnd": false
+      }
+    },
+    {
+      "key": "pb_ny_continuation",
+      "label": "Playbook · NY Continuation",
+      "blurb": "07:00\u201308:00 ET trend continuation \u2014 same rules as LON Continuation, run in the NY open window.",
+      "windowKeys": [
+        "ny_open"
+      ],
+      "patch": {
+        "fvgTimeframe": 1,
+        "biasMode": "structure_15m",
+        "biasSwingTimeframe": 15,
+        "swingStrength": 2,
+        "requireSweep": false,
+        "requireMss": false,
+        "requireDisplacement": false,
+        "requireOrderFlowLeg": true,
+        "orderFlowLookbackBars": 20,
+        "requireSmt": true,
+        "smtLookbackBars": 30,
+        "smtInverse": true,
+        "regimeFilter": "transitional",
+        "entry": "proximal",
+        "entryExpiryBars": 20,
+        "stopMode": "leg_origin",
+        "stopBufferTicks": 1,
+        "minStopDistanceTicks": 40,
+        "breakevenAtR": 1.5,
+        "exitCounterTrendAtHourClose": true,
+        "targetMode": "r",
+        "targetR": 2,
+        "maxTradesPerWindow": 2,
+        "hardExitAtWindowEnd": false,
+        "hardExitAtRthEnd": false
+      }
+    },
+    {
+      "key": "pb_lon_range",
+      "label": "Playbook · LON Range",
+      "blurb": "03:00\u201305:00 ET. Reactions from the 25%/75% quartiles of a 15m consolidation \u2014 1m order-flow leg or 5m V-shape, SMT confirmation, target the range mean.",
+      "windowKeys": [
+        "london_range"
+      ],
+      "patch": {
+        "fvgTimeframe": 1,
+        "biasMode": "none",
+        "requireSweep": false,
+        "requireMss": false,
+        "requireDisplacement": false,
+        "requireVShape": true,
+        "vShapeTimeframe": 5,
+        "vShapeAtrMultiple": 1.2,
+        "vShapeLookbackBars": 15,
+        "requireSmt": true,
+        "smtInverse": true,
+        "rangeZoneFilter": "quartile",
+        "rangeTimeframe": 15,
+        "rangeLookbackBars": 24,
+        "rangeMaxWidthAtr": 6,
+        "regimeFilter": "rotational",
+        "entry": "proximal",
+        "entryExpiryBars": 20,
+        "stopMode": "leg_origin",
+        "stopBufferTicks": 1,
+        "minStopDistanceTicks": 40,
+        "targetMode": "range_mean",
+        "targetR": 2,
+        "maxTradesPerWindow": 2,
+        "hardExitAtWindowEnd": true
+      }
+    },
+    {
+      "key": "pb_ny_range",
+      "label": "Playbook · NY Range",
+      "blurb": "NY AM quartile reversals \u2014 same range logic as LON Range, no SMT requirement, stop at the reaction leg.",
+      "windowKeys": [
+        "ny_am"
+      ],
+      "patch": {
+        "fvgTimeframe": 1,
+        "biasMode": "none",
+        "requireSweep": false,
+        "requireMss": false,
+        "requireDisplacement": false,
+        "requireVShape": true,
+        "vShapeTimeframe": 5,
+        "vShapeAtrMultiple": 1.2,
+        "vShapeLookbackBars": 15,
+        "requireSmt": false,
+        "rangeZoneFilter": "quartile",
+        "rangeTimeframe": 15,
+        "rangeLookbackBars": 24,
+        "rangeMaxWidthAtr": 6,
+        "regimeFilter": "rotational",
+        "entry": "proximal",
+        "entryExpiryBars": 20,
+        "stopMode": "leg_origin",
+        "stopBufferTicks": 1,
+        "targetMode": "range_mean",
+        "targetR": 2,
+        "maxTradesPerWindow": 2,
+        "hardExitAtWindowEnd": true
+      }
+    },
+    {
+      "key": "pb_tky_continuation",
+      "label": "Playbook · TKY Continuation",
+      "blurb": "Tokyo session continuation off a HTF reaction: 1m order-flow leg + SMT, skipped while price sits mid prior value area, 2R off the leg.",
+      "windowKeys": [
+        "tokyo"
+      ],
+      "patch": {
+        "fvgTimeframe": 1,
+        "biasMode": "structure_15m",
+        "biasSwingTimeframe": 15,
+        "requireSweep": false,
+        "requireMss": false,
+        "requireDisplacement": false,
+        "requireOrderFlowLeg": true,
+        "orderFlowLookbackBars": 20,
+        "requireSmt": true,
+        "smtInverse": true,
+        "avoidMidBalance": true,
+        "entry": "proximal",
+        "entryExpiryBars": 20,
+        "stopMode": "leg_origin",
+        "stopBufferTicks": 1,
+        "minStopDistanceTicks": 40,
+        "targetMode": "r",
+        "targetR": 2,
+        "maxTradesPerWindow": 2,
+        "hardExitAtWindowEnd": true
+      }
     }
   ],
+
   "sweep": {
     "note": "Sweep axes for the Layer-5 validation harness. bias=perfect is deliberately absent: it exists only as the labelled lookahead rung of the ablation ladder.",
     "holdoutFromMonth": "2025-01",
