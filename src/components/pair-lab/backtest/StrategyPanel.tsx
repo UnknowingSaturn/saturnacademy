@@ -31,6 +31,13 @@ const BIAS_LABEL: Record<string, string> = {
 
 const TF_OPTIONS = [1, 5, 15];
 
+const STOP_LABEL: Record<string, string> = {
+  gap: "gap stop",
+  swing: "swing stop",
+  displacement_swing: "displacement-leg stop",
+  leg_origin: "order-flow-leg stop",
+};
+
 const UNIVERSE_LABEL: Record<string, string> = {
   session_refs: "Session refs (prior session + pre-window)",
   session_refs_plus_swings: "Session refs + 1m swings",
@@ -38,7 +45,7 @@ const UNIVERSE_LABEL: Record<string, string> = {
   swings_only: "Swings only",
 };
 
-export function StrategyPanel({ cfg, onChange }: Props) {
+export function StrategyPanel({ cfg, onChange, symbols = [], referenceSymbol, onReferenceSymbol }: Props) {
   const preset = activePresetKey(cfg);
 
   const confluence = [
@@ -51,8 +58,8 @@ export function StrategyPanel({ cfg, onChange }: Props) {
 
   const entryExit = [
     `${cfg.entry} entry`,
-    `${cfg.stopMode === "gap" ? "gap stop" : cfg.stopMode === "swing" ? "swing stop" : "displacement-leg stop"} +${cfg.stopBufferTicks} ticks`,
-    cfg.targetMode === "r" ? `${cfg.targetR}R target` : "liquidity target",
+    `${STOP_LABEL[cfg.stopMode] ?? cfg.stopMode} +${cfg.stopBufferTicks} ticks`,
+    cfg.targetMode === "r" ? `${cfg.targetR}R target` : cfg.targetMode === "range_mean" ? "range-mean target" : "liquidity target",
   ].join(" · ");
 
   const filters = [
@@ -60,6 +67,15 @@ export function StrategyPanel({ cfg, onChange }: Props) {
     `max ${cfg.maxTradesPerWindow}/window`,
     `swing ${cfg.swingStrength}`,
   ].join(" · ");
+
+  const playbookSummary = [
+    cfg.requireOrderFlowLeg ? "1-2-3 leg" : null,
+    cfg.requireVShape ? "V-shape" : null,
+    cfg.rangeZoneFilter === "quartile" ? "range quartiles" : null,
+    cfg.regimeFilter !== "any" ? cfg.regimeFilter : null,
+    cfg.avoidMidBalance ? "skip mid-balance" : null,
+    cfg.requireSmt ? `SMT vs ${referenceSymbol ?? "—"}` : null,
+  ].filter(Boolean).join(" · ") || "none active";
 
   return (
     <div className="space-y-3">
@@ -230,6 +246,7 @@ export function StrategyPanel({ cfg, onChange }: Props) {
                 <SelectItem value="gap">Far side of the gap</SelectItem>
                 <SelectItem value="swing">Protected swing</SelectItem>
                 <SelectItem value="displacement_swing">Displacement-leg origin</SelectItem>
+                <SelectItem value="leg_origin">Order-flow-leg origin (1-2-3)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -246,6 +263,7 @@ export function StrategyPanel({ cfg, onChange }: Props) {
               <SelectContent>
                 <SelectItem value="r">Fixed R multiple</SelectItem>
                 <SelectItem value="liquidity">Opposing liquidity</SelectItem>
+                <SelectItem value="range_mean">Range mean (consolidation midpoint)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -254,6 +272,15 @@ export function StrategyPanel({ cfg, onChange }: Props) {
               onChange={(n) => onChange({ targetR: n })} />
           )}
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Num id="bt-minstop" label="Min stop distance (ticks)" value={cfg.minStopDistanceTicks} min={0} max={2000}
+            onChange={(n) => onChange({ minStopDistanceTicks: n })} />
+          <Num id="bt-be" label="Breakeven at R (0 = off)" value={cfg.breakevenAtR} min={0} max={10} step={0.25}
+            onChange={(n) => onChange({ breakevenAtR: n })} />
+        </div>
+        <Toggle id="bt-hourclose" label="Close counter-trend trades at the hourly close"
+          checked={cfg.exitCounterTrendAtHourClose}
+          onChange={(v) => onChange({ exitCounterTrendAtHourClose: v })} />
         <Toggle id="bt-hexw" label="Hard exit at window end" checked={cfg.hardExitAtWindowEnd}
           onChange={(v) => onChange({ hardExitAtWindowEnd: v })} />
         <Toggle id="bt-hexr" label="Hard exit at RTH close" checked={cfg.hardExitAtRthEnd}
@@ -268,6 +295,85 @@ export function StrategyPanel({ cfg, onChange }: Props) {
             onChange={(n) => onChange({ maxTradesPerWindow: n })} />
           <Num id="bt-swing" label="Swing strength" value={cfg.swingStrength} min={1} max={10}
             onChange={(n) => onChange({ swingStrength: n })} />
+        </div>
+      </RuleSection>
+
+      <RuleSection title="Playbook rules" summary={playbookSummary}>
+        <div className="pt-2 space-y-2">
+          <Toggle id="bt-ofl" label="Require 1m order-flow leg (1-2-3)" checked={cfg.requireOrderFlowLeg}
+            onChange={(v) => onChange({ requireOrderFlowLeg: v })} />
+          {cfg.requireOrderFlowLeg && (
+            <Num id="bt-ofl-lb" label="Leg lookback (bars)" value={cfg.orderFlowLookbackBars} min={1} max={120}
+              onChange={(n) => onChange({ orderFlowLookbackBars: n })} />
+          )}
+          <Toggle id="bt-vshape" label="Require V-shape reversal" checked={cfg.requireVShape}
+            onChange={(v) => onChange({ requireVShape: v })} />
+          {cfg.requireVShape && (
+            <div className="grid grid-cols-2 gap-3">
+              <Num id="bt-vs-tf" label="V-shape timeframe (min)" value={cfg.vShapeTimeframe} min={1} max={30}
+                onChange={(n) => onChange({ vShapeTimeframe: n })} />
+              <Num id="bt-vs-atr" label="V-shape ATR multiple" value={cfg.vShapeAtrMultiple} min={0.2} max={5} step={0.1}
+                onChange={(n) => onChange({ vShapeAtrMultiple: n })} />
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <Label className="text-xs">Range zone filter</Label>
+            <Select value={cfg.rangeZoneFilter}
+              onValueChange={(v) => onChange({ rangeZoneFilter: v as UiConfig["rangeZoneFilter"] })}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="off">Off</SelectItem>
+                <SelectItem value="quartile">Only 25% / 75% of the HTF range</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {cfg.rangeZoneFilter === "quartile" && (
+            <div className="grid grid-cols-2 gap-3">
+              <Num id="bt-rng-tf" label="Range timeframe (min)" value={cfg.rangeTimeframe} min={5} max={60} step={5}
+                onChange={(n) => onChange({ rangeTimeframe: n })} />
+              <Num id="bt-rng-lb" label="Range lookback (candles)" value={cfg.rangeLookbackBars} min={4} max={120}
+                onChange={(n) => onChange({ rangeLookbackBars: n })} />
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <Label className="text-xs">Regime</Label>
+            <Select value={cfg.regimeFilter}
+              onValueChange={(v) => onChange({ regimeFilter: v as UiConfig["regimeFilter"] })}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any</SelectItem>
+                <SelectItem value="rotational">Rotational (in a range)</SelectItem>
+                <SelectItem value="transitional">Transitional (trending / breaking out)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Toggle id="bt-midbal" label="Skip setups mid prior value area" checked={cfg.avoidMidBalance}
+            onChange={(v) => onChange({ avoidMidBalance: v })} />
+
+          <Toggle id="bt-smt" label="Require SMT divergence" checked={cfg.requireSmt}
+            onChange={(v) => onChange({ requireSmt: v })} />
+          {cfg.requireSmt && (
+            <>
+              <div className="space-y-1">
+                <Label className="text-xs">Reference instrument</Label>
+                <Select value={referenceSymbol} onValueChange={(v) => onReferenceSymbol?.(v)}>
+                  <SelectTrigger className="h-8"><SelectValue placeholder="Pick a correlated symbol" /></SelectTrigger>
+                  <SelectContent>
+                    {symbols.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground pt-0.5">
+                  Needs its own imported 1m history for the same months.
+                </p>
+              </div>
+              <Toggle id="bt-smt-inv" label="Reference moves inversely (e.g. DXY)" checked={cfg.smtInverse}
+                onChange={(v) => onChange({ smtInverse: v })} />
+              <Num id="bt-smt-lb" label="SMT lookback (bars)" value={cfg.smtLookbackBars} min={5} max={240}
+                onChange={(n) => onChange({ smtLookbackBars: n })} />
+            </>
+          )}
         </div>
       </RuleSection>
     </div>
