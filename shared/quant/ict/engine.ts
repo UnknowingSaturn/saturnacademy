@@ -697,7 +697,7 @@ function resolveStopBase(
   if (c.stopMode === "leg_origin") {
     // Stop beyond the origin of the 1-2-3 order-flow leg that produced the setup.
     if (!leg) return gap.distal;
-    return long ? Math.min(leg.originPrice, gap.distal) : Math.max(leg.originPrice, gap.distal);
+    return long ? Math.min(leg.legOrigin, gap.distal) : Math.max(leg.legOrigin, gap.distal);
   }
   if (c.stopMode === "displacement_swing") {
 
