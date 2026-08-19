@@ -13,8 +13,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodeBarChunk, concatSeries, sliceSeries, type BarSeries } from "../shared/quant/bars";
-import { etMinutes } from "../shared/quant/ict/detectors";
-import { sessionDate } from "../shared/quant/sessions";
+import { sessionDate, toNewYork, inWindow } from "../shared/quant/sessions";
 import {
   DEFAULT_ENGINE_CONFIG,
   runBacktest,
@@ -167,11 +166,7 @@ function checkExecution(symbol: string, s: BarSeries, key: string, reference: Ba
   for (const t of tr) {
     const w = windows.find((x) => x.key === t.windowKey);
     if (!w) { outOfWindow++; continue; }
-    const m = etMinutes(t.entryTs);
-    const inside = w.startMin <= w.endMin
-      ? m >= w.startMin && m < w.endMin
-      : m >= w.startMin || m < w.endMin;
-    if (!inside) outOfWindow++;
+    if (!inWindow(t.entryTs, w)) outOfWindow++;
   }
   ok("every entry lands inside its ET killzone", outOfWindow === 0, `${outOfWindow}/${tr.length}`);
 
