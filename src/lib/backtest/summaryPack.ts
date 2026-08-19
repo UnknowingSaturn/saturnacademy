@@ -33,6 +33,8 @@ export interface NullReport {
   label: string;
   symbol: string;
   randomEntry: NullDistribution;
+  /** Null distribution of per-trade Sharpe under random entry (panel overlay). */
+  randomEntrySharpe: NullDistribution | null;
   shuffledDirection: NullDistribution | null;
   otherHours: NullDistribution;
   hours: HourStat[];
@@ -68,6 +70,8 @@ export interface SweepReport {
   discretion: Array<{ key: string; label: string; symbol: string; premium: DiscretionPremium }>;
   dsr: (DsrResult & { configKey: string }) | null;
   perYear: Array<{ key: string; symbol: string; rows: YearRow[] }>;
+  /** Per-year average R for each FDR survivor — the heatmap's source. */
+  survivorYears: Array<{ hash: string; label: string; rows: YearRow[] }>;
   era: Array<{ key: string; symbol: string; rows: EraRow[] }>;
   rollDay: Array<{ key: string; symbol: string; withRoll: number; withoutRoll: number; rollTrades: number }>;
   slippage: Array<{ key: string; symbol: string; cells: SlippageCell[] }>;
