@@ -1,12 +1,12 @@
 // ============================================================================
-// Backtest tab (Layer 4) — a three-step workflow: data, strategy, run.
+// Backtest tab (Layers 4-5) — a four-step workflow: data, strategy, run, validate.
 // The step panel changes; the header (what you test) and the results column
 // (what came out) stay put. Config lives in local state; the run is explicit.
 // ============================================================================
 
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Check, Database, Loader2, SlidersHorizontal, Play } from "lucide-react";
+import { Check, Database, FlaskConical, Loader2, SlidersHorizontal, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BarCoveragePanel } from "@/components/pair-lab/backtest/BarCoveragePanel";
 import { Mt5ImportPanel } from "@/components/pair-lab/backtest/Mt5ImportPanel";
@@ -14,6 +14,7 @@ import { WalkForwardReportPanel } from "@/components/pair-lab/backtest/WalkForwa
 import { BacktestHeader } from "@/components/pair-lab/backtest/BacktestHeader";
 import { StrategyPanel } from "@/components/pair-lab/backtest/StrategyPanel";
 import { RunPanel } from "@/components/pair-lab/backtest/RunPanel";
+import { ValidatePanel } from "@/components/pair-lab/backtest/ValidatePanel";
 import {
   windowsForKeys, DEFAULT_WF, type UiConfig, type WfUi,
 } from "@/components/pair-lab/backtest/config";
@@ -49,6 +50,7 @@ const STEPS = [
   { key: "data", label: "Data", icon: Database },
   { key: "strategy", label: "Strategy", icon: SlidersHorizontal },
   { key: "run", label: "Run", icon: Play },
+  { key: "validate", label: "Validate", icon: FlaskConical },
 ] as const;
 
 type StepKey = (typeof STEPS)[number]["key"];
