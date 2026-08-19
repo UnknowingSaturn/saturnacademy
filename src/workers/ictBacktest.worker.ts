@@ -61,7 +61,11 @@ export interface IctBacktestRequest {
   walkForward?: WalkForwardOptions;
   /** Journal/user-derived cost overrides merged onto the catalogue spec. */
   specOverride?: Partial<InstrumentSpec> | null;
+  /** Correlated series for the SMT rule (same months as `chunks`). */
+  referenceSymbol?: string | null;
+  referenceChunks?: ArrayBuffer[];
 }
+
 
 export interface EquityPoint {
   ts: number;
