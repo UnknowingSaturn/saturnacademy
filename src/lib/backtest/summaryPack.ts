@@ -170,7 +170,8 @@ export function buildSummaryPack(rep: SweepReport): PackFile[] {
   md("named_configs_report.md", namedLines.join("\n") + "\n");
 
   if (rep.validationRows.length) {
-    csv("validation.csv", toCsv(rep.validationRows.map(configRowRecord)));
+    const vName = (rep.validationSymbol ?? "second_symbol").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    csv(`${vName}_validation.csv`, toCsv(rep.validationRows.map(configRowRecord)));
   }
 
   csv(
@@ -305,6 +306,37 @@ export function buildSummaryPack(rep: SweepReport): PackFile[] {
       `Sweep wall clock (s)    : ${rep.timing.sweepSeconds.toFixed(1)}`,
       `Total wall clock (s)    : ${rep.timing.totalSeconds.toFixed(1)}`,
       `Projected at sizing (min): ${rep.sizing.projectedMinutes.toFixed(1)}`,
+      "",
+    ].join("\n"),
+  });
+
+  files.unshift({
+    name: "README.md",
+    mime: "text/markdown",
+    content: [
+      `# Sweep summary pack — ${rep.discoverySymbol}${rep.validationSymbol ? ` / ${rep.validationSymbol}` : ""}`,
+      "",
+      `Range ${rep.fromMonth} → ${rep.toMonth}. Generated ${rep.createdAt}.`,
+      "",
+      "| File | Question it answers |",
+      "|---|---|",
+      "| results_configs.csv | Every configuration that was run, with its canonical parameters and net stats. |",
+      "| funnel_counts.json | How many configs survived each stage, from grid size to validation. |",
+      "| named_configs_report.md | How the taught configs did, win rate against the claimed 70-80% band. |",
+      "| null_summary.md | Where the real result sits inside each reference null distribution. |",
+      "| ablation_ladder.csv | What each added requirement is actually worth. |",
+      `| ${(rep.validationSymbol ?? "second_symbol").toLowerCase().replace(/[^a-z0-9]+/g, "_")}_validation.csv | The survivors re-run once, raw, on the second symbol. |`,
+      "| discretion_premium.txt | How much loser-skipping skill the setup requires to be worth trading. |",
+      "| frequency_report.csv | Trades per year across the population and for the named configs. |",
+      "| per_year.csv, era_split.csv | Stability across years and across the pre/post-2022 eras. |",
+      "| slippage_sensitivity.csv, roll_day_sensitivity.csv | How fragile the result is to cost and roll-day assumptions. |",
+      "| statistics.txt | Deflated Sharpe and the Benjamini-Hochberg FDR outcome. |",
+      "| timing_report.txt | Benchmark, sizing and wall clock of the run. |",
+      "",
+      "Deliberately excluded: raw bar data and full trade logs. This pack is meant to be",
+      "small enough to read and argue with, not to reproduce the run byte for byte.",
+      "",
+      "The holdout era (" + "from the configured holdout month onward) was not loaded by this run.",
       "",
     ].join("\n"),
   });
