@@ -144,16 +144,25 @@ function checkExecution(symbol: string, s: BarSeries, key: string, reference: Ba
   // -- fill legality --------------------------------------------------------
   const tickTol = spec.tickSize * (spec.slippageTicks + spec.spreadTicks + 1);
   let badEntry = 0, badExit = 0, badStopSide = 0;
+  const offenders: string[] = [];
   for (const t of tr) {
     const i = t.entryIndex, j = t.exitIndex;
     if (t.entryPrice < s.low[i] - tickTol || t.entryPrice > s.high[i] + tickTol) badEntry++;
-    if (t.exitPrice < s.low[j] - tickTol || t.exitPrice > s.high[j] + tickTol) badExit++;
+    if (t.exitPrice < s.low[j] - tickTol || t.exitPrice > s.high[j] + tickTol) {
+      badExit++;
+      if (offenders.length < 3) {
+        offenders.push(
+          `${t.direction} ${t.exitReason} exit ${t.exitPrice} vs bar [${s.low[j]}, ${s.high[j]}] at ${new Date(t.exitTs).toISOString()}`,
+        );
+      }
+    }
     if (t.direction === "long" && !(t.stopPrice < t.entryPrice)) badStopSide++;
     if (t.direction === "short" && !(t.stopPrice > t.entryPrice)) badStopSide++;
   }
   ok("entry fills inside the entry bar's range", badEntry === 0, `${badEntry}/${tr.length}`);
-  ok("exit fills inside the exit bar's range", badExit === 0, `${badExit}/${tr.length}`);
+  ok("exit fills inside the exit bar's range", badExit === 0, `${badExit}/${tr.length}${offenders.length ? ` — ${offenders.join(" | ")}` : ""}`);
   ok("stop is on the losing side of entry", badStopSide === 0, `${badStopSide}/${tr.length}`);
+
 
   // -- ordering / no look-ahead --------------------------------------------
   let ordering = 0;
