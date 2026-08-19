@@ -9,7 +9,7 @@
 
 import { KILLZONES, RTH, type TradeWindow } from "../sessions.ts";
 import type { EngineConfig } from "./engine.ts";
-import grid from "./configs/grid.json.ts" with { type: "json" };
+import grid from "./configs/grid.json" with { type: "json" };
 
 export interface NamedConfig {
   key: string;
