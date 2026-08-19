@@ -15,7 +15,12 @@ import { STRATEGY_PRESETS, activePresetKey } from "./presets";
 interface Props {
   cfg: UiConfig;
   onChange: (patch: Partial<UiConfig>) => void;
+  /** Symbols with imported history — the SMT reference is picked from these. */
+  symbols?: string[];
+  referenceSymbol?: string;
+  onReferenceSymbol?: (s: string) => void;
 }
+
 
 const BIAS_LABEL: Record<string, string> = {
   none: "no HTF bias",
