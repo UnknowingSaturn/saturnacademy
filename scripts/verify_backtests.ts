@@ -253,8 +253,13 @@ function pickSample<T>(arr: T[], n: number): T[] {
 function checkWalkForward(symbol: string, s: BarSeries, key: string) {
   section(`[walk-forward] ${symbol} · ${key}`);
   const from = s.ts[0], to = s.ts[s.length - 1];
-  const folds = buildFolds(from, to, 6, 2, false);
-  ok("folds were built", folds.length > 0, `${folds.length} folds`);
+  // Scale the folds to whatever range was loaded so a short run still exercises
+  // the walk-forward path instead of silently producing zero folds.
+  const rangeMonths = Math.max(1, Math.round((to - from) / (30.44 * 86_400_000)));
+  const trainMonths = Math.max(1, Math.min(6, Math.floor(rangeMonths / 3)));
+  const testMonths = Math.max(1, Math.min(2, Math.floor(rangeMonths / 6)));
+  const folds = buildFolds(from, to, trainMonths, testMonths, false);
+  ok("folds were built", folds.length > 0, `${folds.length} folds of ${trainMonths}m train / ${testMonths}m test`);
   let overlap = 0, backwards = 0;
   for (const f of folds) {
     if (!(f.trainToMs <= f.testFromMs)) overlap++;
