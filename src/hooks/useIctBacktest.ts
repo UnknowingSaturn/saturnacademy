@@ -45,6 +45,12 @@ export interface RunParams {
   mode?: "single" | "walkforward";
   walkForward?: WalkForwardOptions;
   specOverride?: Partial<InstrumentSpec> | null;
+  /**
+   * Correlated instrument used by the SMT-divergence rule (e.g. GBPUSD or DXY
+   * against EURUSD). Required only when `cfg.requireSmt` is on.
+   */
+  referenceSymbol?: string | null;
+
   /** Skip the data-quality gate (the UI asks before setting this). */
   ignoreCoverageGaps?: boolean;
   /** Persist to backtest_runs; off for throwaway parameter fiddling. */
