@@ -333,6 +333,23 @@ export function useIctBacktest(): BacktestState & {
           }
           if (id !== lastId.current || !aliveRef.current) return;
 
+          // SMT needs a second, correlated series over the same months.
+          const refChunks: ArrayBuffer[] = [];
+          const refSymbol = p.referenceSymbol ? normalizeSymbol(p.referenceSymbol.toUpperCase()) : null;
+          if (refSymbol) {
+            const refRows = await fetchManifest(refSymbol, p.fromMonth, p.toMonth);
+            if (refRows.length === 0) {
+              throw new Error(
+                `No bars for the reference instrument ${refSymbol} between ${p.fromMonth} and ${p.toMonth}. Import its history in Data coverage, or turn the SMT rule off.`,
+              );
+            }
+            for (const row of refRows) {
+              if (id !== lastId.current) return;
+              refChunks.push(await loadChunk(row.object_path));
+            }
+          }
+          if (id !== lastId.current || !aliveRef.current) return;
+
           setState((s) => ({ ...s, phase: "computing" }));
           const req: IctBacktestRequest = {
             id,
@@ -344,8 +361,11 @@ export function useIctBacktest(): BacktestState & {
             mode: p.mode ?? "single",
             walkForward: p.walkForward,
             specOverride: p.specOverride ?? null,
+            referenceSymbol: refSymbol,
+            referenceChunks: refChunks,
           };
-          worker.postMessage(req, chunks);
+          worker.postMessage(req, [...chunks, ...refChunks]);
+
         } catch (err) {
           if (id !== lastId.current || !aliveRef.current) return;
           setState((s) => ({
