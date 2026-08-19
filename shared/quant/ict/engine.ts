@@ -100,7 +100,41 @@ export interface EngineConfig {
   riskCashOverride: number | null;
   /** Charge the modelled spread (instrument spec) on top of slippage. */
   applySpread: boolean;
+
+  // --- Playbook rules (all default-off: existing configs are unchanged) -----
+  /** Require a confirmed 1-minute order-flow leg (1-2-3) in the same direction. */
+  requireOrderFlowLeg: boolean;
+  orderFlowLookbackBars: number;
+  /** Require a V-shape reversal on `vShapeTimeframe` candles within lookback. */
+  requireVShape: boolean;
+  vShapeTimeframe: number;
+  vShapeAtrMultiple: number;
+  vShapeLookbackBars: number;
+  /**
+   * "quartile" — only take longs below the 25% quartile of the prevailing HTF
+   * consolidation range and shorts above the 75% quartile.
+   */
+  rangeZoneFilter: "off" | "quartile";
+  rangeTimeframe: number;
+  rangeLookbackBars: number;
+  rangeMaxWidthAtr: number;
+  /** Trade only when the market is in balance / out of balance. */
+  regimeFilter: RegimeFilter;
+  /** Skip setups while price sits in the middle of the prior value area. */
+  avoidMidBalance: boolean;
+  /** Floor on the stop distance, in ticks (the "minimum 4 pips" rule). */
+  minStopDistanceTicks: number;
+  /** Move the stop to entry once this many R of favourable excursion print. 0 = off. */
+  breakevenAtR: number;
+  /** Close a counter-bias trade on the first ET hourly close after entry. */
+  exitCounterTrendAtHourClose: boolean;
+  /** Require SMT divergence against the reference series (see `runBacktest`). */
+  requireSmt: boolean;
+  smtLookbackBars: number;
+  /** Reference is negatively correlated (e.g. EURUSD vs DXY). */
+  smtInverse: boolean;
 }
+
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   windows: [KILLZONES.ny_am],
