@@ -54,7 +54,7 @@ function bullSetup(lastBar: Row): BarSeries {
 }
 
 const BASE: Partial<EngineConfig> = {
-  window: KILLZONES.ny_am,
+  windows: [KILLZONES.ny_am],
   biasMode: "none",
   requireSweep: false,
   requireMss: false,

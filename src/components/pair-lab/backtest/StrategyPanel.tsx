@@ -8,6 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Num, Toggle, RuleSection } from "./controls";
+import { Button } from "@/components/ui/button";
 import { WINDOW_OPTIONS, windowLabel, type UiConfig } from "./config";
 import { STRATEGY_PRESETS, activePresetKey } from "./presets";
 
