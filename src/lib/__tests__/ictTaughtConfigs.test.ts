@@ -87,11 +87,11 @@ describe("HTF features are causal", () => {
 
 describe("structureBias", () => {
   it("is +1 on HH/HL, -1 on LH/LL and holds state in between", () => {
-    const up = series(400, Date.UTC(2024, 2, 14, 8, 0), (i) => 100 + i * 0.25 + Math.sin(i / 40) * 6, 0.2);
+    const up = series(1600, Date.UTC(2024, 2, 14, 0, 0), (i) => 100 + i * 0.05 + Math.sin(i / 25) * 6, 0.2);
     const bias = structureBias(up, detectSwingsTf(up, 15, 2));
     expect(bias[bias.length - 1]).toBe(1);
 
-    const down = series(400, Date.UTC(2024, 2, 14, 8, 0), (i) => 200 - i * 0.25 + Math.sin(i / 40) * 6, 0.2);
+    const down = series(1600, Date.UTC(2024, 2, 14, 0, 0), (i) => 200 - i * 0.05 + Math.sin(i / 25) * 6, 0.2);
     const dBias = structureBias(down, detectSwingsTf(down, 15, 2));
     expect(dBias[dBias.length - 1]).toBe(-1);
 
