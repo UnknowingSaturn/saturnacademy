@@ -20,9 +20,10 @@
 import type { BarSeries } from "../bars";
 import { KILLZONES, RTH, type TradeWindow, journalSessionKey, sessionDate } from "../sessions";
 import {
-  detectFvgs, detectSwings, detectSweeps, detectMss, detectDisplacement,
-  priorSessionLevels, sessionSpans, htfBias, etMinutes,
-  type BiasMode, type Direction, type FairValueGap, type LiquidityLevel, type Swing,
+  detectFvgsTf, detectSwings, detectSwingsTf, detectSweeps, detectMss, detectDisplacement,
+  buildLiquidityUniverse, sessionSpans, htfBias, structureBias, etMinutes,
+  type BiasMode, type Direction, type Displacement, type FairValueGap,
+  type LiquidityLevel, type Swing, type SweepUniverse,
 } from "./detectors";
 import { instrumentSpec, pointsToCash, sizeForRisk, type InstrumentSpec } from "./instruments";
 
@@ -31,15 +32,32 @@ import { instrumentSpec, pointsToCash, sizeForRisk, type InstrumentSpec } from "
 // ---------------------------------------------------------------------------
 
 export type EntryMode = "proximal" | "mid" | "distal";
-export type StopMode = "swing" | "gap";
+export type StopMode = "swing" | "gap" | "displacement_swing";
 export type TargetMode = "r" | "liquidity";
+export type EngineBiasMode = BiasMode | "structure_15m" | "none";
+
+/** Hard safety cap on trades per window, whatever the config asks for. */
+export const MAX_TRADES_PER_WINDOW_CAP = 10;
 
 export interface EngineConfig {
-  /** Killzone key ("london" | "ny_am" | "ny_pm") or a custom window. */
-  window: TradeWindow;
-  biasMode: BiasMode | "none";
+  /**
+   * One or more trade windows. Each listed window is scanned independently
+   * inside the session; daily PnL aggregates across them.
+   */
+  windows: TradeWindow[];
+  /** Timeframe (minutes) the FVGs are detected on. 1 = raw minute gaps. */
+  fvgTimeframe: number;
+  biasMode: EngineBiasMode;
   biasTrendDays: number;
+  /** Swing timeframe (minutes) for `biasMode: "structure_15m"`. */
+  biasSwingTimeframe: number;
   requireSweep: boolean;
+  /** Which levels the sweep rule (and the liquidity target) may use. */
+  sweepUniverse: SweepUniverse;
+  /** Only the K nearest unswept levels per side are eligible. 0 = all. */
+  sweepK: number;
+  /** Minimum penetration beyond the level, in ticks. */
+  sweepPenetrationTicks: number;
   /** Sweep must occur within this many bars before the signal bar. */
   sweepLookbackBars: number;
   requireMss: boolean;
@@ -47,6 +65,11 @@ export interface EngineConfig {
   requireDisplacement: boolean;
   displacementMode: "atr" | "percentile";
   displacementAtrMultiple: number;
+  /**
+   * How far back from the qualifying displacement bar the leg origin is taken
+   * for `stopMode: "displacement_swing"`.
+   */
+  displacementLegBars: number;
   minFvgPoints: number;
   entry: EntryMode;
   entryExpiryBars: number;
@@ -77,16 +100,22 @@ export interface EngineConfig {
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
-  window: KILLZONES.ny_am,
+  windows: [KILLZONES.ny_am],
+  fvgTimeframe: 1,
   biasMode: "prior_close",
   biasTrendDays: 3,
+  biasSwingTimeframe: 15,
   requireSweep: true,
+  sweepUniverse: "session_refs",
+  sweepK: 0,
+  sweepPenetrationTicks: 0,
   sweepLookbackBars: 30,
   requireMss: true,
   mssLookbackBars: 15,
   requireDisplacement: false,
   displacementMode: "atr",
   displacementAtrMultiple: 1.5,
+  displacementLegBars: 10,
   minFvgPoints: 0,
   entry: "proximal",
   entryExpiryBars: 20,
@@ -160,6 +189,7 @@ export type NoTradeReason =
   | "no_displacement"
   | "entry_not_filled"
   | "invalid_stop"
+  | "no_liquidity_target"
   | "max_trades_reached";
 
 export interface NoTradeRecord {
