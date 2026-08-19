@@ -14,7 +14,7 @@
 // project-wide "points, ticks or R" rule.
 // ============================================================================
 
-import type { BarSeries } from "../bars";
+import { resample, type BarSeries } from "../bars";
 import { sessionDate, isRth, toNewYork, type SessionInstrumentClass } from "../sessions";
 
 // ---------------------------------------------------------------------------
@@ -119,8 +119,14 @@ export function detectSwings(s: BarSeries, strength = 2): Swing[] {
 // Session liquidity levels
 // ---------------------------------------------------------------------------
 
+export type LiquidityKind =
+  | "prior_session_high" | "prior_session_low"
+  | "prior_rth_high" | "prior_rth_low"
+  | "pre_window_high" | "pre_window_low"
+  | "swing_high" | "swing_low";
+
 export interface LiquidityLevel {
-  kind: "prior_session_high" | "prior_session_low" | "prior_rth_high" | "prior_rth_low";
+  kind: LiquidityKind;
   price: number;
   /** Session the level was formed in. */
   sourceDate: string;
@@ -197,23 +203,54 @@ export interface Sweep {
  * within the same bar. Only levels whose `validFromIndex <= i` are considered,
  * so no future level can be swept.
  */
-export function detectSweeps(s: BarSeries, levels: LiquidityLevel[], minPenetration = 0): Sweep[] {
+export function detectSweeps(
+  s: BarSeries,
+  levels: LiquidityLevel[],
+  minPenetration = 0,
+  opts: { k?: number; onceOnly?: boolean } = {},
+): Sweep[] {
+  // k = only the K nearest still-unswept levels on each side are eligible.
+  // This is the taught workflow: you mark the handful of levels closest to
+  // price before the session, not every level in history.
+  const k = opts.k && opts.k > 0 ? opts.k : Infinity;
+  const onceOnly = opts.onceOnly ?? false;
   const highs = levels.filter((l) => l.kind.endsWith("high")).sort((a, b) => a.validFromIndex - b.validFromIndex);
   const lows = levels.filter((l) => l.kind.endsWith("low")).sort((a, b) => a.validFromIndex - b.validFromIndex);
+  const sweptHigh = new Set<LiquidityLevel>();
+  const sweptLow = new Set<LiquidityLevel>();
   const out: Sweep[] = [];
+
   for (let i = 0; i < s.length; i++) {
-    for (const l of highs) {
-      if (l.validFromIndex > i) break;
+    const ref = i > 0 ? s.close[i - 1] : s.open[i];
+    const eligible = (side: LiquidityLevel[], swept: Set<LiquidityLevel>) => {
+      const live: LiquidityLevel[] = [];
+      for (const l of side) {
+        if (l.validFromIndex > i) break;
+        if (onceOnly && swept.has(l)) continue;
+        live.push(l);
+      }
+      if (live.length <= k) return live;
+      // Nearest K by distance from the previous close — the levels price is
+      // actually working towards.
+      return live
+        .map((l) => ({ l, d: Math.abs(l.price - ref) }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, k)
+        .map((x) => x.l);
+    };
+
+    for (const l of eligible(highs, sweptHigh)) {
       const pen = s.high[i] - l.price;
       if (pen > minPenetration && s.close[i] < l.price) {
         out.push({ index: i, ts: s.ts[i], side: "high", level: l.price, levelKind: l.kind, penetration: pen });
+        sweptHigh.add(l);
       }
     }
-    for (const l of lows) {
-      if (l.validFromIndex > i) break;
+    for (const l of eligible(lows, sweptLow)) {
       const pen = l.price - s.low[i];
       if (pen > minPenetration && s.close[i] > l.price) {
         out.push({ index: i, ts: s.ts[i], side: "low", level: l.price, levelKind: l.kind, penetration: pen });
+        sweptLow.add(l);
       }
     }
   }
