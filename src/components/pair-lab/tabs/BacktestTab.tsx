@@ -34,7 +34,7 @@ function monthsAgo(n: number): string {
   return d.toISOString().slice(0, 7);
 }
 
-const { window: _defaultWindow, ...RULE_DEFAULTS } = DEFAULT_ENGINE_CONFIG;
+const { windows: _defaultWindows, ...RULE_DEFAULTS } = DEFAULT_ENGINE_CONFIG;
 
 /** Sweep axes stay small and bounded — a big grid buys noise, not edge. */
 function gridAxes(wf: WfUi): GridAxis {

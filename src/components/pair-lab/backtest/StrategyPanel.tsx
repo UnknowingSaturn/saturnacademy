@@ -75,17 +75,33 @@ export function StrategyPanel({ cfg, onChange }: Props) {
         )}
       </div>
 
-      <div className="rounded-lg border border-border/60 p-3 space-y-1">
-        <Label className="text-xs">Session window</Label>
-        <Select value={cfg.windowKey} onValueChange={(v) => onChange({ windowKey: v })}>
-          <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {WINDOW_OPTIONS.map((w) => (
-              <SelectItem key={w.key} value={w.key}>{w.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-[11px] text-muted-foreground pt-0.5">{windowLabel(cfg.windowKey)}</p>
+      <div className="rounded-lg border border-border/60 p-3 space-y-2">
+        <Label className="text-xs">Session windows</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {WINDOW_OPTIONS.map((w) => {
+            const on = cfg.windowKeys.includes(w.key);
+            return (
+              <Button
+                key={w.key}
+                type="button"
+                size="sm"
+                variant={on ? "secondary" : "outline"}
+                className="h-7 text-[11px]"
+                onClick={() => {
+                  const next = on
+                    ? cfg.windowKeys.filter((k) => k !== w.key)
+                    : [...cfg.windowKeys, w.key];
+                  onChange({ windowKeys: next.length ? next : cfg.windowKeys });
+                }}
+              >
+                {w.key === "rth" ? "RTH" : w.key.replace("_", " ").toUpperCase()}
+              </Button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-muted-foreground pt-0.5">
+          {cfg.windowKeys.map(windowLabel).join(" · ")}
+        </p>
       </div>
 
       <RuleSection title="Setup" summary={confluence}>
