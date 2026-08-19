@@ -724,3 +724,16 @@ export function assertNoHoldout(toMonth: string, def: SweepDefinition = SWEEP): 
     );
   }
 }
+
+/**
+ * The mirror image: the final holdout run may load ONLY holdout-era bars, so a
+ * "one run" result can never quietly include the months the sweep was fitted
+ * on. Both guards together make the two eras strictly disjoint.
+ */
+export function assertHoldoutOnly(fromMonth: string, def: SweepDefinition = SWEEP): void {
+  if (fromMonth < def.holdoutFromMonth) {
+    throw new Error(
+      `Holdout run: bars before ${def.holdoutFromMonth} belong to the discovery era (requested from ${fromMonth}).`,
+    );
+  }
+}

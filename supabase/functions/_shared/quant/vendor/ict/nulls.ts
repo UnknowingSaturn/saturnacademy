@@ -138,6 +138,21 @@ export function describeNull(label: string, samples: number[], real: number): Nu
  * with the stop distance and target structure copied from the real trades and
  * the same trades-per-day count.
  */
+export interface NullSamples {
+  /** Mean R of each iteration's synthetic trade set. */
+  avgR: number[];
+  /** Per-trade Sharpe of each iteration — the null for a Sharpe comparison. */
+  sharpe: number[];
+}
+
+function iterationStats(rs: number[]): { avgR: number; sharpe: number } | null {
+  if (!rs.length) return null;
+  const m = rs.reduce((a, b) => a + b, 0) / rs.length;
+  if (rs.length < 2) return { avgR: m, sharpe: 0 };
+  const v = rs.reduce((a, b) => a + (b - m) ** 2, 0) / (rs.length - 1);
+  return { avgR: m, sharpe: v > 0 ? m / Math.sqrt(v) : 0 };
+}
+
 export function randomEntryNull(
   series: BarSeries,
   trades: BacktestTrade[],
@@ -146,7 +161,19 @@ export function randomEntryNull(
   iterations = 1000,
   seed = 424242,
 ): number[] {
-  if (!trades.length || !series.length) return [];
+  return randomEntryNullSamples(series, trades, windows, spec, iterations, seed).avgR;
+}
+
+/** Same simulation, both statistics — used where the Sharpe null is needed. */
+export function randomEntryNullSamples(
+  series: BarSeries,
+  trades: BacktestTrade[],
+  windows: TradeWindow[],
+  spec: InstrumentSpec,
+  iterations = 1000,
+  seed = 424242,
+): NullSamples {
+  if (!trades.length || !series.length) return { avgR: [], sharpe: [] };
 
   // Index the eligible minutes by session date so a synthetic trade lands in
   // the same session the real one did.
@@ -167,7 +194,7 @@ export function randomEntryNull(
   const maxBars = Math.max(...windows.map((w) => w.endMin - w.startMin), 30);
 
   const rng = makeRng(seed);
-  const out: number[] = [];
+  const out: NullSamples = { avgR: [], sharpe: [] };
   for (let it = 0; it < iterations; it++) {
     const rs: number[] = [];
     for (const [date, count] of perDate) {
@@ -181,7 +208,11 @@ export function randomEntryNull(
         if (fill) rs.push(fill.rMultiple);
       }
     }
-    if (rs.length) out.push(rs.reduce((a, b) => a + b, 0) / rs.length);
+    const st = iterationStats(rs);
+    if (st) {
+      out.avgR.push(st.avgR);
+      out.sharpe.push(st.sharpe);
+    }
   }
   return out;
 }
