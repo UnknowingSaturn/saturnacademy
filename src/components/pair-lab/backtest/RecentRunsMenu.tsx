@@ -1,10 +1,13 @@
 // ============================================================================
-// Run history — stored runs are re-openable and comparable. Nothing here
+// Recent runs — stored runs re-opened from the header. Nothing here
 // recomputes: a stored run's metrics and fills come straight out of the DB.
 // ============================================================================
 
 import { Button } from "@/components/ui/button";
-import { Loader2, Trash2 } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { History, Loader2, Trash2 } from "lucide-react";
 import { useBacktestRuns, type BacktestRunRow } from "@/hooks/useBacktestRuns";
 import type { IctBacktestResponse } from "@/workers/ictBacktest.worker";
 
@@ -19,23 +22,27 @@ function runExpectancy(row: BacktestRunRow): string {
   return `${stats.meanR >= 0 ? "" : "-"}${Math.abs(stats.meanR).toFixed(2)}R`;
 }
 
-export function RunHistoryPanel({ symbol, onOpen }: Props) {
+export function RecentRunsMenu({ symbol, onOpen }: Props) {
   const { runs, isLoading, remove, load } = useBacktestRuns(symbol);
 
   return (
-    <div className="rounded-lg border border-border/60 p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Run history</h3>
-        {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
-      </div>
-
-      {!isLoading && runs.length === 0 && (
-        <p className="text-xs text-muted-foreground">
-          No saved runs for {symbol} yet. Runs are saved when "Save this run to history" is on.
-        </p>
-      )}
-
-      <div className="space-y-1.5">
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8">
+          {isLoading ? (
+            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+          ) : (
+            <History className="w-3.5 h-3.5 mr-1.5" />
+          )}
+          Recent runs{runs.length ? ` (${runs.length})` : ""}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80 p-2 space-y-1.5">
+        {!isLoading && runs.length === 0 && (
+          <p className="text-xs text-muted-foreground p-1">
+            No saved runs for {symbol} yet. Runs are saved when "Save this run to history" is on.
+          </p>
+        )}
         {runs.map((r) => (
           <div key={r.id} className="flex items-center gap-2 text-xs">
             <button
@@ -63,7 +70,7 @@ export function RunHistoryPanel({ symbol, onOpen }: Props) {
             </Button>
           </div>
         ))}
-      </div>
-    </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

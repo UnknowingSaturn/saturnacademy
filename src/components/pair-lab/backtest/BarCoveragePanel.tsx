@@ -4,10 +4,13 @@
 // ============================================================================
 
 import { useMemo, useState } from "react";
-import { Loader2, RefreshCw, Download } from "lucide-react";
+import { Loader2, RefreshCw, Download, ChevronRight, Check, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Collapsible, CollapsibleContent, CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useBarCoverage } from "@/hooks/useBarCoverage";
 
 interface Props {
@@ -37,16 +40,30 @@ export function BarCoveragePanel({ symbol, fromMonth, toMonth }: Props) {
   const totalBars = rows.reduce((a, r) => a + (r.bar_count ?? 0), 0);
   const missing = rows.reduce((a, r) => a + (r.missing_minutes ?? 0), 0);
   const validRange = MONTH_RE.test(from) && MONTH_RE.test(to) && from <= to;
+  const brokerMonths = rows.filter((r) => r.source === "broker").length;
+  const gapMonths = rows.filter((r) => (r.missing_minutes ?? 0) > 2000).length;
+  const clean = rows.length > 0 && gapMonths === 0;
+
+  const status = isLoading
+    ? "Loading manifest…"
+    : rows.length === 0
+      ? "No bars yet — import an MT5 export or queue the vendor fallback."
+      : `${rows.length} month${rows.length === 1 ? "" : "s"} · ${
+          brokerMonths ? `${brokerMonths} from MT5` : "vendor data"
+        } · ${gapMonths ? `${gapMonths} with gaps` : "no gaps"}`;
 
   return (
     <div className="rounded-lg border border-border/60 p-4 space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <div>
+        <div className="min-w-0">
           <h3 className="text-sm font-medium">Data coverage — {symbol}</h3>
-          <p className="text-xs text-muted-foreground">
-            {isLoading
-              ? "Loading manifest…"
-              : `${rows.length} month${rows.length === 1 ? "" : "s"} ingested · ${totalBars.toLocaleString()} bars · ${missing.toLocaleString()} missing minutes`}
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            {!isLoading && rows.length > 0 && (
+              clean
+                ? <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                : <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
+            )}
+            {status}
           </p>
         </div>
         <Button
@@ -61,9 +78,17 @@ export function BarCoveragePanel({ symbol, fromMonth, toMonth }: Props) {
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
+      <Collapsible className="space-y-3">
+      <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+        <ChevronRight className="w-3.5 h-3.5 transition-transform group-data-[state=open]:rotate-90" />
+        Details — {totalBars.toLocaleString()} bars, {missing.toLocaleString()} missing minutes
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3">
+
       <p className="text-xs text-muted-foreground">
         Vendor fallback (Dukascopy) — use it for history your terminal no longer holds.
       </p>
+
 
       <div className="flex flex-wrap items-end gap-2">
         <div className="space-y-1">
@@ -140,6 +165,9 @@ export function BarCoveragePanel({ symbol, fromMonth, toMonth }: Props) {
           })}
         </div>
       )}
+
+      </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }
