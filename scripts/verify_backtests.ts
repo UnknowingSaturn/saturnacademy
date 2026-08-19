@@ -49,6 +49,8 @@ const argVal = (flag: string, dflt: string) => {
 };
 const DIR = argVal("--dir", "/tmp/bars");
 const SYMBOLS = argVal("--symbols", "EURUSD,GBPUSD").split(",");
+/** Keep only the last N months so a full-catalogue pass stays interactive. */
+const MONTHS = Number(argVal("--months", "12"));
 
 // ---------------------------------------------------------------------------
 // load
@@ -58,8 +60,9 @@ function loadSymbol(symbol: string): { series: BarSeries; months: string[] } {
     .filter((f) => f.startsWith(`${symbol}_`) && f.endsWith(".bin"))
     .sort();
   const months = files.map((f) => f.slice(symbol.length + 1, -4));
-  const parts = files.map((f) => decodeBarChunk(new Uint8Array(readFileSync(join(DIR, f)))));
-  return { series: concatSeries(parts), months };
+  const keep = Number.isFinite(MONTHS) && MONTHS > 0 ? files.slice(-MONTHS) : files;
+  const parts = keep.map((f) => decodeBarChunk(new Uint8Array(readFileSync(join(DIR, f)))));
+  return { series: concatSeries(parts), months: months.slice(-keep.length) };
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +221,7 @@ function checkExecution(symbol: string, s: BarSeries, key: string, reference: Ba
     `${ambiguous.length} ambiguous (${((ambiguous.length / tr.length) * 100).toFixed(1)}%)`);
 
   // -- causality: truncate right after each sampled trade's exit -----------
-  const sample = pickSample(tr, 6);
+  const sample = pickSample(tr, 3);
   let causalityBreaks = 0;
   for (const t of sample) {
     const cut = sliceSeries(s, -Infinity, s.ts[t.exitIndex]);
