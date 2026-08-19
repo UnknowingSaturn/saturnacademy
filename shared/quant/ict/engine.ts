@@ -247,7 +247,15 @@ export type NoTradeReason =
   | "entry_not_filled"
   | "invalid_stop"
   | "no_liquidity_target"
+  | "no_order_flow_leg"
+  | "no_v_shape"
+  | "outside_range_zone"
+  | "no_range"
+  | "regime_conflict"
+  | "mid_balance"
+  | "no_smt"
   | "max_trades_reached";
+
 
 export interface NoTradeRecord {
   symbol: string;
