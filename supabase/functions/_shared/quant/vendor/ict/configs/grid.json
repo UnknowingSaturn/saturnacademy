@@ -6,7 +6,9 @@
       "key": "as_taught_5m",
       "label": "As taught (5m book version)",
       "blurb": "5m FVG, 15m swing-structure bias, 1-tick sweep of the nearest 15m BSL/SSL, stop beyond the displacement leg, up to 3 sequential trades per window.",
-      "windowKeys": ["ny_am"],
+      "windowKeys": [
+        "ny_am"
+      ],
       "patch": {
         "fvgTimeframe": 5,
         "minFvgPoints": 0,
@@ -37,8 +39,10 @@
     {
       "key": "silver_bullet",
       "label": "Silver Bullet",
-      "blurb": "10:00–11:00 ET, sweep + structure shift, first setup only, 2R.",
-      "windowKeys": ["ny_am"],
+      "blurb": "10:00\u201311:00 ET, sweep + structure shift, first setup only, 2R.",
+      "windowKeys": [
+        "ny_am"
+      ],
       "patch": {
         "fvgTimeframe": 1,
         "biasMode": "prior_close",
@@ -63,8 +67,10 @@
     {
       "key": "london_killzone",
       "label": "London killzone",
-      "blurb": "03:00–04:00 ET, sweep of Asia liquidity, protected-swing stop, 3R.",
-      "windowKeys": ["london"],
+      "blurb": "03:00\u201304:00 ET, sweep of Asia liquidity, protected-swing stop, 3R.",
+      "windowKeys": [
+        "london"
+      ],
       "patch": {
         "fvgTimeframe": 1,
         "biasMode": "prior_close",
@@ -92,7 +98,9 @@
       "key": "ny_am_continuation",
       "label": "NY AM continuation",
       "blurb": "Multi-day trend bias, no sweep required, target opposing liquidity.",
-      "windowKeys": ["ny_am"],
+      "windowKeys": [
+        "ny_am"
+      ],
       "patch": {
         "fvgTimeframe": 1,
         "biasMode": "trend",
@@ -116,8 +124,12 @@
     {
       "key": "killzones_all",
       "label": "All killzones (multi-window)",
-      "blurb": "Silver Bullet rules scanned in London, NY AM and NY PM — same day, up to 2 sequential trades per window.",
-      "windowKeys": ["london", "ny_am", "ny_pm"],
+      "blurb": "Silver Bullet rules scanned in London, NY AM and NY PM \u2014 same day, up to 2 sequential trades per window.",
+      "windowKeys": [
+        "london",
+        "ny_am",
+        "ny_pm"
+      ],
       "patch": {
         "fvgTimeframe": 5,
         "biasMode": "structure_15m",
@@ -140,5 +152,133 @@
         "hardExitAtWindowEnd": true
       }
     }
-  ]
+  ],
+  "sweep": {
+    "note": "Sweep axes for the Layer-5 validation harness. bias=perfect is deliberately absent: it exists only as the labelled lookahead rung of the ablation ladder.",
+    "holdoutFromMonth": "2025-01",
+    "namedKeys": [
+      "as_taught_5m",
+      "silver_bullet",
+      "london_killzone"
+    ],
+    "windowSets": [
+      [
+        "london"
+      ],
+      [
+        "ny_am"
+      ],
+      [
+        "ny_pm"
+      ],
+      [
+        "london",
+        "ny_am"
+      ],
+      [
+        "london",
+        "ny_am",
+        "ny_pm"
+      ]
+    ],
+    "axes": {
+      "fvgTimeframe": [
+        1,
+        5,
+        15
+      ],
+      "biasMode": [
+        "none",
+        "prior_close",
+        "trend",
+        "structure_15m"
+      ],
+      "biasTrendDays": [
+        3
+      ],
+      "biasSwingTimeframe": [
+        15
+      ],
+      "requireSweep": [
+        true,
+        false
+      ],
+      "sweepUniverse": [
+        "session_refs",
+        "session_refs_plus_swings",
+        "bsl_ssl_15m"
+      ],
+      "sweepK": [
+        0,
+        3
+      ],
+      "sweepPenetrationTicks": [
+        0,
+        1,
+        5
+      ],
+      "sweepLookbackBars": [
+        30,
+        60
+      ],
+      "requireMss": [
+        true,
+        false
+      ],
+      "mssLookbackBars": [
+        15,
+        30
+      ],
+      "requireDisplacement": [
+        true,
+        false
+      ],
+      "displacementMode": [
+        "atr",
+        "percentile"
+      ],
+      "displacementAtrMultiple": [
+        1.25,
+        1.5,
+        2
+      ],
+      "displacementLegBars": [
+        10,
+        20
+      ],
+      "entry": [
+        "proximal",
+        "mid"
+      ],
+      "entryExpiryBars": [
+        20,
+        30
+      ],
+      "stopMode": [
+        "gap",
+        "swing",
+        "displacement_swing"
+      ],
+      "stopBufferTicks": [
+        1,
+        2
+      ],
+      "targetMode": [
+        "r",
+        "liquidity"
+      ],
+      "targetR": [
+        2,
+        3
+      ],
+      "maxTradesPerWindow": [
+        1,
+        2,
+        3
+      ],
+      "swingStrength": [
+        2
+      ]
+    }
+  }
 }
