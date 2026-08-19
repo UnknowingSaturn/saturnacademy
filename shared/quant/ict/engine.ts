@@ -493,7 +493,14 @@ interface SimArgs {
   levels: LiquidityLevel[];
   sessionDateKey: string;
   windowKey: string;
+  /** Prevailing HTF consolidation at the signal, when range logic is on. */
+  range: RangeContext | null;
+  /** HTF bias at the signal: +1 long, -1 short, 0 neutral / disabled. */
+  bias: number;
+  /** ET minute-of-day per bar (used by the hourly-close exit rule). */
+  etMin: Int16Array | Int32Array | number[];
 }
+
 
 function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   const { spec, cfg, long, entryLevel, stopPrice, riskPoints, signalIndex, boundary } = a;
