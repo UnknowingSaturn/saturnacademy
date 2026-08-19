@@ -231,6 +231,8 @@ export interface WalkForwardParams {
   folds: Fold[];
   minTrainTrades?: number;
   specOverride?: InstrumentSpec;
+  /** Correlated series for the SMT rule; passed straight through to the engine. */
+  reference?: BarSeries | null;
   onProgress?: (done: number, total: number) => void;
 }
 
@@ -246,7 +248,7 @@ export function runWalkForward(p: WalkForwardParams): WalkForwardResult {
   const candidates: CandidateResult[] = [];
   grid.forEach((g, i) => {
     const cfg = { ...p.baseCfg, ...g };
-    const res = runBacktest(p.series, p.symbol, cfg, p.specOverride);
+    const res = runBacktest(p.series, p.symbol, cfg, p.specOverride, p.reference ?? null);
     candidates.push({ cfg: g, hash: configHash(cfg), trades: res.trades });
     p.onProgress?.(i + 1, grid.length);
   });
