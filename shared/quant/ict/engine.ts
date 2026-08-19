@@ -170,6 +170,25 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   riskPercent: 0.6,
   riskCashOverride: null,
   applySpread: true,
+
+  requireOrderFlowLeg: false,
+  orderFlowLookbackBars: 20,
+  requireVShape: false,
+  vShapeTimeframe: 5,
+  vShapeAtrMultiple: 1.2,
+  vShapeLookbackBars: 15,
+  rangeZoneFilter: "off",
+  rangeTimeframe: 15,
+  rangeLookbackBars: 24,
+  rangeMaxWidthAtr: 6,
+  regimeFilter: "any",
+  avoidMidBalance: false,
+  minStopDistanceTicks: 0,
+  breakevenAtR: 0,
+  exitCounterTrendAtHourClose: false,
+  requireSmt: false,
+  smtLookbackBars: 30,
+  smtInverse: false,
 };
 
 
@@ -177,7 +196,8 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
 // Output
 // ---------------------------------------------------------------------------
 
-export type ExitReason = "stop" | "target" | "window_end" | "session_end" | "rth_end";
+export type ExitReason = "stop" | "target" | "window_end" | "session_end" | "rth_end" | "hour_close";
+
 
 export interface BacktestTrade {
   symbol: string;
