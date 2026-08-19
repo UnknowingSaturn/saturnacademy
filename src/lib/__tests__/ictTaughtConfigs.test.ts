@@ -4,7 +4,7 @@ import {
   detectFvgs, detectFvgsTf, detectSwingsTf, structureBias, detectSweeps, buildLiquidityUniverse,
 } from "../../../shared/quant/ict/detectors";
 import { runBacktest, DEFAULT_ENGINE_CONFIG, MAX_TRADES_PER_WINDOW_CAP } from "../../../shared/quant/ict/engine";
-import { NAMED_CONFIGS, engineConfigFor, windowsForKeys } from "../../../shared/quant/ict/configs";
+import { NAMED_CONFIGS, engineConfigFor, namedConfig, windowsForKeys } from "../../../shared/quant/ict/configs";
 import { KILLZONES } from "../../../shared/quant/sessions";
 
 const MIN = 60_000;
@@ -215,9 +215,47 @@ describe("grid.json named configs", () => {
 
   it("every named config runs end to end", () => {
     const s = series(60 * 24 * 5, Date.UTC(2024, 2, 11, 0, 0), (i) => 1.08 + Math.sin(i / 37) * 0.004, 0.00002);
+    // Correlated reference so SMT-based playbook configs have a second series.
+    const ref = series(60 * 24 * 5, Date.UTC(2024, 2, 11, 0, 0), (i) => 1.26 + Math.sin(i / 41) * 0.005, 0.00002);
     for (const c of NAMED_CONFIGS) {
-      const r = runBacktest(s, "EURUSD", engineConfigFor(c.key));
+      const r = runBacktest(s, "EURUSD", engineConfigFor(c.key), undefined, ref);
       expect(r.sessionsScanned).toBeGreaterThan(0);
     }
+  });
+
+  it("refuses to run an SMT config without a reference series", () => {
+    const s = series(60 * 24 * 3, Date.UTC(2024, 2, 11, 0, 0), (i) => 1.08 + Math.sin(i / 37) * 0.004, 0.00002);
+    expect(() => runBacktest(s, "EURUSD", engineConfigFor("pb_lon_continuation"))).toThrow(/SMT/);
+  });
+
+  it("the five playbook presets exist and pin their playbook rules", () => {
+    const keys = ["pb_lon_continuation", "pb_ny_continuation", "pb_lon_range", "pb_ny_range", "pb_tky_continuation"];
+    for (const k of keys) expect(namedConfig(k), k).toBeTruthy();
+
+    const lon = engineConfigFor("pb_lon_continuation")!;
+    expect(lon.stopMode).toBe("leg_origin");
+    expect(lon.requireOrderFlowLeg).toBe(true);
+    expect(lon.minStopDistanceTicks).toBe(40); // 4 pips on a 0.00001 tick
+    expect(lon.breakevenAtR).toBe(1.5);
+    expect(lon.exitCounterTrendAtHourClose).toBe(true);
+    expect(lon.windows?.[0].startMin).toBe(2 * 60);
+
+    const range = engineConfigFor("pb_ny_range")!;
+    expect(range.rangeZoneFilter).toBe("quartile");
+    expect(range.targetMode).toBe("range_mean");
+    expect(range.regimeFilter).toBe("rotational");
+  });
+
+  it("the minimum stop distance widens a too-tight stop", () => {
+    const s = series(60 * 24 * 5, Date.UTC(2024, 2, 11, 0, 0), (i) => 1.08 + Math.sin(i / 23) * 0.003, 0.00002);
+    const base = { ...engineConfigFor("silver_bullet")!, minStopDistanceTicks: 0 };
+    const wide = { ...base, minStopDistanceTicks: 200 };
+    const a = runBacktest(s, "EURUSD", base).trades;
+    const b = runBacktest(s, "EURUSD", wide).trades;
+    if (a.length && b.length) {
+      const minRisk = Math.min(...b.map((t) => t.riskPoints));
+      expect(minRisk).toBeGreaterThanOrEqual(200 * 0.00001 - 1e-9);
+    }
+    expect(b.every((t) => t.riskPoints > 0)).toBe(true);
   });
 });
