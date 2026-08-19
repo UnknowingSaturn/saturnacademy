@@ -25,8 +25,9 @@ import { KILLZONES, RTH, type TradeWindow, journalSessionKey, sessionDate } from
 import {
   detectFvgsTf, detectSwings, detectSwingsTf, detectSweeps, detectMss, detectDisplacement,
   buildLiquidityUniverse, sessionSpans, htfBias, structureBias, etMinutes,
+  detectOrderFlowLegs, detectVShapes, detectRanges, priorSessionProfiles, midBalanceFlags, detectSmt,
   type BiasMode, type Direction, type Displacement, type FairValueGap,
-  type LiquidityLevel, type Swing, type SweepUniverse,
+  type LiquidityLevel, type Swing, type SweepUniverse, type OrderFlowLeg, type RangeContext,
 } from "./detectors.ts";
 import { instrumentSpec, pointsToCash, sizeForRisk, type InstrumentSpec } from "./instruments.ts";
 
@@ -35,9 +36,11 @@ import { instrumentSpec, pointsToCash, sizeForRisk, type InstrumentSpec } from "
 // ---------------------------------------------------------------------------
 
 export type EntryMode = "proximal" | "mid" | "distal";
-export type StopMode = "swing" | "gap" | "displacement_swing";
-export type TargetMode = "r" | "liquidity";
+export type StopMode = "swing" | "gap" | "displacement_swing" | "leg_origin";
+export type TargetMode = "r" | "liquidity" | "range_mean";
 export type EngineBiasMode = BiasMode | "structure_15m" | "none";
+export type RegimeFilter = "any" | "rotational" | "transitional";
+
 
 /** Hard safety cap on trades per window, whatever the config asks for. */
 export const MAX_TRADES_PER_WINDOW_CAP = 10;
@@ -100,7 +103,41 @@ export interface EngineConfig {
   riskCashOverride: number | null;
   /** Charge the modelled spread (instrument spec) on top of slippage. */
   applySpread: boolean;
+
+  // --- Playbook rules (all default-off: existing configs are unchanged) -----
+  /** Require a confirmed 1-minute order-flow leg (1-2-3) in the same direction. */
+  requireOrderFlowLeg: boolean;
+  orderFlowLookbackBars: number;
+  /** Require a V-shape reversal on `vShapeTimeframe` candles within lookback. */
+  requireVShape: boolean;
+  vShapeTimeframe: number;
+  vShapeAtrMultiple: number;
+  vShapeLookbackBars: number;
+  /**
+   * "quartile" — only take longs below the 25% quartile of the prevailing HTF
+   * consolidation range and shorts above the 75% quartile.
+   */
+  rangeZoneFilter: "off" | "quartile";
+  rangeTimeframe: number;
+  rangeLookbackBars: number;
+  rangeMaxWidthAtr: number;
+  /** Trade only when the market is in balance / out of balance. */
+  regimeFilter: RegimeFilter;
+  /** Skip setups while price sits in the middle of the prior value area. */
+  avoidMidBalance: boolean;
+  /** Floor on the stop distance, in ticks (the "minimum 4 pips" rule). */
+  minStopDistanceTicks: number;
+  /** Move the stop to entry once this many R of favourable excursion print. 0 = off. */
+  breakevenAtR: number;
+  /** Close a counter-bias trade on the first ET hourly close after entry. */
+  exitCounterTrendAtHourClose: boolean;
+  /** Require SMT divergence against the reference series (see `runBacktest`). */
+  requireSmt: boolean;
+  smtLookbackBars: number;
+  /** Reference is negatively correlated (e.g. EURUSD vs DXY). */
+  smtInverse: boolean;
 }
+
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   windows: [KILLZONES.ny_am],
@@ -136,6 +173,25 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   riskPercent: 0.6,
   riskCashOverride: null,
   applySpread: true,
+
+  requireOrderFlowLeg: false,
+  orderFlowLookbackBars: 20,
+  requireVShape: false,
+  vShapeTimeframe: 5,
+  vShapeAtrMultiple: 1.2,
+  vShapeLookbackBars: 15,
+  rangeZoneFilter: "off",
+  rangeTimeframe: 15,
+  rangeLookbackBars: 24,
+  rangeMaxWidthAtr: 6,
+  regimeFilter: "any",
+  avoidMidBalance: false,
+  minStopDistanceTicks: 0,
+  breakevenAtR: 0,
+  exitCounterTrendAtHourClose: false,
+  requireSmt: false,
+  smtLookbackBars: 30,
+  smtInverse: false,
 };
 
 
@@ -143,7 +199,8 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
 // Output
 // ---------------------------------------------------------------------------
 
-export type ExitReason = "stop" | "target" | "window_end" | "session_end" | "rth_end";
+export type ExitReason = "stop" | "target" | "window_end" | "session_end" | "rth_end" | "hour_close";
+
 
 export interface BacktestTrade {
   symbol: string;
@@ -193,7 +250,15 @@ export type NoTradeReason =
   | "entry_not_filled"
   | "invalid_stop"
   | "no_liquidity_target"
+  | "no_order_flow_leg"
+  | "no_v_shape"
+  | "outside_range_zone"
+  | "no_range"
+  | "regime_conflict"
+  | "mid_balance"
+  | "no_smt"
   | "max_trades_reached";
+
 
 export interface NoTradeRecord {
   symbol: string;
@@ -219,12 +284,19 @@ export function runBacktest(
   symbol: string,
   cfg: Partial<EngineConfig> = {},
   specOverride?: InstrumentSpec,
+  /** Correlated instrument, required only when `requireSmt` is on. */
+  reference?: BarSeries | null,
 ): BacktestResult {
   const c: EngineConfig = { ...DEFAULT_ENGINE_CONFIG, ...cfg };
   const spec = specOverride ?? instrumentSpec(symbol);
   const trades: BacktestTrade[] = [];
   const noTrades: NoTradeRecord[] = [];
   if (series.length < 5) return { trades, noTrades, sessionsScanned: 0 };
+  if (c.requireSmt && (!reference || reference.length < 5)) {
+    throw new Error(
+      "This strategy requires SMT divergence, but no reference instrument was loaded. Pick a reference symbol (e.g. DXY or the correlated pair) that has bar history imported.",
+    );
+  }
 
   const windows = c.windows.length ? c.windows : DEFAULT_ENGINE_CONFIG.windows;
   const maxPerWindow = Math.max(1, Math.min(c.maxTradesPerWindow, MAX_TRADES_PER_WINDOW_CAP));
@@ -256,11 +328,37 @@ export function runBacktest(
   const etMin = etMinutes(series);
   const spans = sessionSpans(series, spec.cls);
 
+  // --- playbook detectors (only paid for when the rule is on) --------------
+  const needLegs = c.requireOrderFlowLeg || c.stopMode === "leg_origin";
+  const legs = needLegs ? detectOrderFlowLegs(series, swings) : [];
+  const vShapes = c.requireVShape
+    ? detectVShapes(series, { timeframeMinutes: c.vShapeTimeframe, atrMultiple: c.vShapeAtrMultiple })
+    : [];
+  const needRanges = c.rangeZoneFilter === "quartile" || c.targetMode === "range_mean" || c.regimeFilter !== "any";
+  const ranges: (RangeContext | null)[] | null = needRanges
+    ? detectRanges(series, {
+        timeframeMinutes: c.rangeTimeframe,
+        lookbackBars: c.rangeLookbackBars,
+        maxWidthAtrMultiple: c.rangeMaxWidthAtr,
+      })
+    : null;
+  const midBalance = c.avoidMidBalance
+    ? midBalanceFlags(series, priorSessionProfiles(series, spec.cls))
+    : null;
+  const smt = c.requireSmt && reference
+    ? detectSmt(series, reference, { lookbackBars: c.smtLookbackBars, inverse: c.smtInverse })
+    : [];
+
   const fvgByIndex = groupByIndex(fvgs);
   const sweepByIndex = groupByIndex(sweeps);
   const mssByIndex = groupByIndex(mss);
   const dispByIndex = groupByIndex(displacement);
+  const legByIndex = groupByIndex(legs);
+  const vShapeByIndex = groupByIndex(vShapes);
+  const smtByIndex = groupByIndex(smt);
   const buffer = c.stopBufferTicks * spec.tickSize;
+  const minStop = c.minStopDistanceTicks * spec.tickSize;
+
 
   for (const span of spans) {
    for (const win of windows) {
@@ -315,17 +413,49 @@ export function runBacktest(
         const disp = findEvent<Displacement>(dispByIndex, i - 3, i, (e) => e.direction === gap.direction);
         if (c.requireDisplacement && !disp) { firstReject ??= "no_displacement"; continue; }
 
+        // --- playbook filters ---------------------------------------------
+        const leg = needLegs
+          ? findEvent<OrderFlowLeg>(legByIndex, i - c.orderFlowLookbackBars, i, (e) => e.direction === gap.direction)
+          : null;
+        if (c.requireOrderFlowLeg && !leg) { firstReject ??= "no_order_flow_leg"; continue; }
+        if (c.requireVShape && !hasEvent(vShapeByIndex, i - c.vShapeLookbackBars, i, (e: { direction: Direction }) => e.direction === gap.direction)) {
+          firstReject ??= "no_v_shape"; continue;
+        }
+        if (c.requireSmt && !hasEvent(smtByIndex, i - c.smtLookbackBars, i, (e: { direction: Direction }) => e.direction === gap.direction)) {
+          firstReject ??= "no_smt"; continue;
+        }
+        if (midBalance && midBalance[i] === 1) { firstReject ??= "mid_balance"; continue; }
+
+        const range = ranges ? ranges[i] : null;
+        if (c.regimeFilter !== "any") {
+          const rotational = range !== null;
+          if (c.regimeFilter === "rotational" && !rotational) { firstReject ??= "regime_conflict"; continue; }
+          if (c.regimeFilter === "transitional" && rotational) { firstReject ??= "regime_conflict"; continue; }
+        }
+        if (c.rangeZoneFilter === "quartile") {
+          if (!range) { firstReject ??= "no_range"; continue; }
+          const px = series.close[i];
+          const inZone = long ? px <= range.q25 : px >= range.q75;
+          if (!inZone) { firstReject ??= "outside_range_zone"; continue; }
+        }
+
         const entryLevel = c.entry === "proximal" ? gap.proximal : c.entry === "mid" ? gap.mid : gap.distal;
-        const stopBase = resolveStopBase(series, c, swings, gap, disp, i, ws, long, entryLevel);
-        const stopPrice = long ? stopBase - buffer : stopBase + buffer;
+        const stopBase = resolveStopBase(series, c, swings, gap, disp, leg, i, ws, long, entryLevel);
+        let stopPrice = long ? stopBase - buffer : stopBase + buffer;
+        // Minimum stop distance ("at least N ticks from the leg formation").
+        if (minStop > 0) {
+          const floorStop = long ? entryLevel - minStop : entryLevel + minStop;
+          stopPrice = long ? Math.min(stopPrice, floorStop) : Math.max(stopPrice, floorStop);
+        }
         const riskPoints = long ? entryLevel - stopPrice : stopPrice - entryLevel;
         if (!(riskPoints > 0)) { firstReject ??= "invalid_stop"; continue; }
 
         const trade = simulateTrade(series, {
           symbol, spec, cfg: c, gap, long, entryLevel, stopPrice, riskPoints,
           signalIndex: i, boundary, boundaryReason, levels, sessionDateKey: span.dateKey,
-          windowKey: win.key,
+          windowKey: win.key, range, bias: bias ? bias[i] : 0, etMin,
         });
+
         if (!trade) { firstReject ??= "entry_not_filled"; continue; }
 
         trades.push(trade);
@@ -366,7 +496,14 @@ interface SimArgs {
   levels: LiquidityLevel[];
   sessionDateKey: string;
   windowKey: string;
+  /** Prevailing HTF consolidation at the signal, when range logic is on. */
+  range: RangeContext | null;
+  /** HTF bias at the signal: +1 long, -1 short, 0 neutral / disabled. */
+  bias: number;
+  /** ET minute-of-day per bar (used by the hourly-close exit rule). */
+  etMin: Int16Array | Int32Array | number[];
 }
+
 
 function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   const { spec, cfg, long, entryLevel, stopPrice, riskPoints, signalIndex, boundary } = a;
@@ -383,12 +520,18 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   const entryPrice = long ? entryLevel + slip : entryLevel - slip;
 
   // --- target -------------------------------------------------------------
+  const rTarget = long ? entryLevel + riskPoints * cfg.targetR : entryLevel - riskPoints * cfg.targetR;
   let targetPrice: number | null = null;
   if (cfg.targetMode === "r") {
-    targetPrice = long ? entryLevel + riskPoints * cfg.targetR : entryLevel - riskPoints * cfg.targetR;
+    targetPrice = rTarget;
+  } else if (cfg.targetMode === "range_mean") {
+    // Mean reversion to the middle of the prevailing consolidation; falls back
+    // to the R target when no range was in force at the signal.
+    const mid = a.range ? a.range.mid : null;
+    const valid = mid != null && (long ? mid > entryLevel : mid < entryLevel);
+    targetPrice = valid ? (mid as number) : rTarget;
   } else {
-    targetPrice = nearestLiquidityTarget(a.levels, entryIndex, entryLevel, long)
-      ?? (long ? entryLevel + riskPoints * cfg.targetR : entryLevel - riskPoints * cfg.targetR);
+    targetPrice = nearestLiquidityTarget(a.levels, entryIndex, entryLevel, long) ?? rTarget;
   }
 
   // --- walk forward -------------------------------------------------------
@@ -398,6 +541,12 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   let ambiguous = false;
   let mae = 0;
   let mfe = 0;
+  // Breakeven and the hourly-close exit are both armed on a bar CLOSE and act
+  // from the next bar, because intrabar ordering is unknowable from OHLC.
+  let workingStop = stopPrice;
+  const beTrigger = cfg.breakevenAtR > 0 ? cfg.breakevenAtR * riskPoints : 0;
+  const counterTrend = a.bias !== 0 && (long ? a.bias < 0 : a.bias > 0);
+  const hourExit = cfg.exitCounterTrendAtHourClose && counterTrend;
 
   for (let j = entryIndex; j <= boundary; j++) {
     // On the entry bar the intrabar path before the fill is unknown, so only
@@ -409,7 +558,7 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
     if (adverse > mae) mae = adverse;
     if (!entryBar && favourable > mfe) mfe = favourable;
 
-    const stopHit = long ? s.low[j] <= stopPrice : s.high[j] >= stopPrice;
+    const stopHit = long ? s.low[j] <= workingStop : s.high[j] >= workingStop;
     const targetHit = !entryBar && targetPrice != null && (long ? s.high[j] >= targetPrice : s.low[j] <= targetPrice);
 
     if (stopHit && targetHit) ambiguous = true;
@@ -417,7 +566,7 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
     if (stopHit) {
       // Pessimistic: stop first on an ambiguous bar, filled with slippage.
       exitIndex = j;
-      exitPrice = long ? stopPrice - slip : stopPrice + slip;
+      exitPrice = long ? workingStop - slip : workingStop + slip;
       exitReason = "stop";
       break;
     }
@@ -427,6 +576,19 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
       exitReason = "target";
       break;
     }
+
+    // Counter-bias trades are cut on the first completed ET hour.
+    if (hourExit && !entryBar && j < boundary && (a.etMin[j] + 1) % 60 === 0) {
+      exitIndex = j;
+      exitPrice = long ? s.close[j] - slip : s.close[j] + slip;
+      exitReason = "hour_close";
+      break;
+    }
+
+    // Arm breakeven from the NEXT bar once the trigger printed on this one.
+    if (beTrigger > 0 && !entryBar && favourable >= beTrigger) {
+      workingStop = long ? Math.max(workingStop, entryPrice) : Math.min(workingStop, entryPrice);
+    }
   }
 
   // --- money ---------------------------------------------------------------
@@ -434,6 +596,7 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   // across instruments and lines up with the prop-firm simulator. A stop that
   // is too wide for even one size step yields size 0 and the trade is dropped
   // rather than silently taken at an unfundable size.
+
   const intendedRisk = cfg.sizing === "risk"
     ? (cfg.riskCashOverride ?? (cfg.accountBalance * cfg.riskPercent) / 100)
     : 0;
@@ -527,13 +690,20 @@ function resolveStopBase(
   swings: Swing[],
   gap: FairValueGap,
   disp: Displacement | null,
+  leg: OrderFlowLeg | null,
   signalIndex: number,
   windowStart: number,
   long: boolean,
   entryLevel: number,
 ): number {
   if (c.stopMode === "swing") return swingStop(swings, signalIndex, long, entryLevel) ?? gap.distal;
+  if (c.stopMode === "leg_origin") {
+    // Stop beyond the origin of the 1-2-3 order-flow leg that produced the setup.
+    if (!leg) return gap.distal;
+    return long ? Math.min(leg.legOrigin, gap.distal) : Math.max(leg.legOrigin, gap.distal);
+  }
   if (c.stopMode === "displacement_swing") {
+
     if (!disp) return gap.distal;
     const from = Math.max(0, Math.min(disp.index - Math.max(0, c.displacementLegBars), signalIndex));
     let extreme = long ? Infinity : -Infinity;

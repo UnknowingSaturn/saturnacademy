@@ -61,7 +61,11 @@ export interface IctBacktestRequest {
   walkForward?: WalkForwardOptions;
   /** Journal/user-derived cost overrides merged onto the catalogue spec. */
   specOverride?: Partial<InstrumentSpec> | null;
+  /** Correlated series for the SMT rule (same months as `chunks`). */
+  referenceSymbol?: string | null;
+  referenceChunks?: ArrayBuffer[];
 }
+
 
 export interface EquityPoint {
   ts: number;
@@ -163,6 +167,17 @@ self.onmessage = (e: MessageEvent<IctBacktestRequest>) => {
 
     const spec = withSpecOverrides(instrumentSpec(req.symbol), req.specOverride);
 
+    // Reference series for the SMT rule, sliced to the same window.
+    let reference: BarSeries | null = null;
+    if (req.referenceChunks && req.referenceChunks.length) {
+      const refParts: BarSeries[] = [];
+      for (const buf of req.referenceChunks) refParts.push(decodeBarChunk(new Uint8Array(buf)));
+      reference = concatSeries(refParts);
+      if (req.fromMs != null || req.toMs != null) {
+        reference = sliceSeries(reference, req.fromMs ?? -Infinity, req.toMs ?? Infinity);
+      }
+    }
+
     if (req.mode === "walkforward" && req.walkForward) {
       const wf = req.walkForward;
       const folds = buildFolds(
@@ -186,6 +201,7 @@ self.onmessage = (e: MessageEvent<IctBacktestRequest>) => {
         folds,
         minTrainTrades: wf.minTrainTrades,
         specOverride: spec,
+        reference,
       });
 
       const res: IctBacktestResponse = {
@@ -226,7 +242,7 @@ self.onmessage = (e: MessageEvent<IctBacktestRequest>) => {
       return;
     }
 
-    const result = runBacktest(series, req.symbol, req.cfg, spec);
+    const result = runBacktest(series, req.symbol, req.cfg, spec, reference);
     const summary = summarize(result);
 
     const res: IctBacktestResponse = {

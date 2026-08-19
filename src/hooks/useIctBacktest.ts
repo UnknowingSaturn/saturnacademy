@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeSymbol } from "../../shared/quant/symbolAliasing";
+import { fetchManifest } from "@/lib/backtest/barLoader";
+
 import { configHash } from "../../shared/quant/ict/walkforward";
 import type { EngineConfig } from "../../shared/quant/ict/engine";
 import type { InstrumentSpec } from "../../shared/quant/ict/instruments";
@@ -45,6 +47,12 @@ export interface RunParams {
   mode?: "single" | "walkforward";
   walkForward?: WalkForwardOptions;
   specOverride?: Partial<InstrumentSpec> | null;
+  /**
+   * Correlated instrument used by the SMT-divergence rule (e.g. GBPUSD or DXY
+   * against EURUSD). Required only when `cfg.requireSmt` is on.
+   */
+  referenceSymbol?: string | null;
+
   /** Skip the data-quality gate (the UI asks before setting this). */
   ignoreCoverageGaps?: boolean;
   /** Persist to backtest_runs; off for throwaway parameter fiddling. */
@@ -327,6 +335,23 @@ export function useIctBacktest(): BacktestState & {
           }
           if (id !== lastId.current || !aliveRef.current) return;
 
+          // SMT needs a second, correlated series over the same months.
+          const refChunks: ArrayBuffer[] = [];
+          const refSymbol = p.referenceSymbol ? normalizeSymbol(p.referenceSymbol.toUpperCase()) : null;
+          if (refSymbol) {
+            const refRows = await fetchManifest(refSymbol, p.fromMonth, p.toMonth);
+            if (refRows.length === 0) {
+              throw new Error(
+                `No bars for the reference instrument ${refSymbol} between ${p.fromMonth} and ${p.toMonth}. Import its history in Data coverage, or turn the SMT rule off.`,
+              );
+            }
+            for (const row of refRows) {
+              if (id !== lastId.current) return;
+              refChunks.push(await loadChunk(row.object_path));
+            }
+          }
+          if (id !== lastId.current || !aliveRef.current) return;
+
           setState((s) => ({ ...s, phase: "computing" }));
           const req: IctBacktestRequest = {
             id,
@@ -338,8 +363,11 @@ export function useIctBacktest(): BacktestState & {
             mode: p.mode ?? "single",
             walkForward: p.walkForward,
             specOverride: p.specOverride ?? null,
+            referenceSymbol: refSymbol,
+            referenceChunks: refChunks,
           };
-          worker.postMessage(req, chunks);
+          worker.postMessage(req, [...chunks, ...refChunks]);
+
         } catch (err) {
           if (id !== lastId.current || !aliveRef.current) return;
           setState((s) => ({

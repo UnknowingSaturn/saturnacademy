@@ -72,6 +72,8 @@ export function BacktestTab() {
   const [toMonth, setToMonth] = useState(monthsAgo(1));
   const [cfg, setCfg] = useState<UiConfig>({ ...RULE_DEFAULTS, windowKeys: ["ny_am"] });
   const [wf, setWf] = useState<WfUi>(DEFAULT_WF);
+  // Correlated instrument for the SMT rule (playbook strategies).
+  const [referenceSymbol, setReferenceSymbol] = useState("GBPUSD");
   const [persist, setPersist] = useState(true);
 
   const { snapshot } = useBarCoverage(symbol);
@@ -128,12 +130,13 @@ export function BacktestTab() {
             }
           : undefined,
         specOverride: override,
+        referenceSymbol: cfg.requireSmt ? referenceSymbol : null,
         persist,
         ignoreCoverageGaps,
         label: `${normalizeSymbol(symbol)} ${fromMonth}→${toMonth}${wf.enabled ? " WF" : ""}`,
       };
     },
-    [cfg, symbol, fromMonth, toMonth, wf, override, persist],
+    [cfg, symbol, fromMonth, toMonth, wf, override, persist, referenceSymbol],
   );
 
   const onRun = useCallback(() => run(buildParams(false)), [run, buildParams]);
@@ -203,7 +206,15 @@ export function BacktestTab() {
             </>
           )}
 
-          {step === "strategy" && <StrategyPanel cfg={cfg} onChange={patch} />}
+          {step === "strategy" && (
+            <StrategyPanel
+              cfg={cfg}
+              onChange={patch}
+              symbols={symbols}
+              referenceSymbol={referenceSymbol}
+              onReferenceSymbol={setReferenceSymbol}
+            />
+          )}
 
           {step === "run" && (
             <RunPanel

@@ -119,10 +119,17 @@ export interface TradeWindow {
 }
 
 export const KILLZONES: Readonly<Record<string, TradeWindow>> = {
+  // Classic ICT killzones.
   london: { key: "london", label: "London killzone", startMin: 3 * 60, endMin: 4 * 60 },
   ny_am: { key: "ny_am", label: "NY AM killzone", startMin: 10 * 60, endMin: 11 * 60 },
   ny_pm: { key: "ny_pm", label: "NY PM killzone", startMin: 14 * 60, endMin: 15 * 60 },
+  // Playbook windows — the hours the journal's own systems are traded in.
+  tokyo: { key: "tokyo", label: "Tokyo session", startMin: 20 * 60, endMin: 24 * 60 },
+  london_early: { key: "london_early", label: "London continuation (02:00–03:00 ET)", startMin: 2 * 60, endMin: 3 * 60 },
+  london_range: { key: "london_range", label: "London range (03:00–05:00 ET)", startMin: 3 * 60, endMin: 5 * 60 },
+  ny_open: { key: "ny_open", label: "NY open (07:00–08:00 ET)", startMin: 7 * 60, endMin: 8 * 60 },
 };
+
 
 export const RTH: TradeWindow = { key: "rth", label: "Regular trading hours", startMin: 9 * 60 + 30, endMin: 16 * 60 };
 
@@ -141,12 +148,17 @@ export function isRth(ms: number): boolean {
  */
 export function journalSessionKey(windowKey: string): string {
   switch (windowKey) {
-    case "london": return "london";
-    case "ny_am": return "new_york_am";
+    case "london":
+    case "london_early":
+    case "london_range": return "london";
+    case "ny_am":
+    case "ny_open": return "new_york_am";
     case "ny_pm": return "new_york_pm";
+    case "tokyo": return "tokyo";
     default: return windowKey;
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // Date helpers (pure string math on YYYY-MM-DD)
