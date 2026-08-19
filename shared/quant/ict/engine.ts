@@ -410,17 +410,49 @@ export function runBacktest(
         const disp = findEvent<Displacement>(dispByIndex, i - 3, i, (e) => e.direction === gap.direction);
         if (c.requireDisplacement && !disp) { firstReject ??= "no_displacement"; continue; }
 
+        // --- playbook filters ---------------------------------------------
+        const leg = needLegs
+          ? findEvent<OrderFlowLeg>(legByIndex, i - c.orderFlowLookbackBars, i, (e) => e.direction === gap.direction)
+          : null;
+        if (c.requireOrderFlowLeg && !leg) { firstReject ??= "no_order_flow_leg"; continue; }
+        if (c.requireVShape && !hasEvent(vShapeByIndex, i - c.vShapeLookbackBars, i, (e: { direction: Direction }) => e.direction === gap.direction)) {
+          firstReject ??= "no_v_shape"; continue;
+        }
+        if (c.requireSmt && !hasEvent(smtByIndex, i - c.smtLookbackBars, i, (e: { direction: Direction }) => e.direction === gap.direction)) {
+          firstReject ??= "no_smt"; continue;
+        }
+        if (midBalance && midBalance[i] === 1) { firstReject ??= "mid_balance"; continue; }
+
+        const range = ranges ? ranges[i] : null;
+        if (c.regimeFilter !== "any") {
+          const rotational = range !== null;
+          if (c.regimeFilter === "rotational" && !rotational) { firstReject ??= "regime_conflict"; continue; }
+          if (c.regimeFilter === "transitional" && rotational) { firstReject ??= "regime_conflict"; continue; }
+        }
+        if (c.rangeZoneFilter === "quartile") {
+          if (!range) { firstReject ??= "no_range"; continue; }
+          const px = series.close[i];
+          const inZone = long ? px <= range.q25 : px >= range.q75;
+          if (!inZone) { firstReject ??= "outside_range_zone"; continue; }
+        }
+
         const entryLevel = c.entry === "proximal" ? gap.proximal : c.entry === "mid" ? gap.mid : gap.distal;
-        const stopBase = resolveStopBase(series, c, swings, gap, disp, i, ws, long, entryLevel);
-        const stopPrice = long ? stopBase - buffer : stopBase + buffer;
+        const stopBase = resolveStopBase(series, c, swings, gap, disp, leg, i, ws, long, entryLevel);
+        let stopPrice = long ? stopBase - buffer : stopBase + buffer;
+        // Minimum stop distance ("at least N ticks from the leg formation").
+        if (minStop > 0) {
+          const floorStop = long ? entryLevel - minStop : entryLevel + minStop;
+          stopPrice = long ? Math.min(stopPrice, floorStop) : Math.max(stopPrice, floorStop);
+        }
         const riskPoints = long ? entryLevel - stopPrice : stopPrice - entryLevel;
         if (!(riskPoints > 0)) { firstReject ??= "invalid_stop"; continue; }
 
         const trade = simulateTrade(series, {
           symbol, spec, cfg: c, gap, long, entryLevel, stopPrice, riskPoints,
           signalIndex: i, boundary, boundaryReason, levels, sessionDateKey: span.dateKey,
-          windowKey: win.key,
+          windowKey: win.key, range, bias: bias ? bias[i] : 0, etMin,
         });
+
         if (!trade) { firstReject ??= "entry_not_filled"; continue; }
 
         trades.push(trade);
