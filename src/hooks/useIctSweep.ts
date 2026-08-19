@@ -380,6 +380,11 @@ export function useIctSweep() {
             label: ref.label,
             symbol: discovery,
             randomEntry: describeNull("Random entry, same windows", nres.randomEntry, real),
+            randomEntrySharpe: describeNull(
+              "Random entry, per-trade Sharpe",
+              nres.randomEntrySharpe,
+              perTradeSharpe(tradeLogs.get(ref.hash) ?? ref.trades),
+            ),
             shuffledDirection: describeNull("Shuffled direction", nres.shuffledDirection, real),
             otherHours: describeNull("Other hours, same logic", hres.hours.filter((h) => h.trades >= 5).map((h) => h.avgR), real),
             hours: hres.hours,
@@ -426,6 +431,15 @@ export function useIctSweep() {
           : null;
 
         const perYearOut = refs.map((r) => ({ key: r.label, symbol: discovery, rows: perYear(r.trades) }));
+        // Heatmap source: the survivors we already hold trade logs for.
+        const survivorYears = survivors
+          .filter((r) => tradeLogs.has(r.hash))
+          .slice(0, 40)
+          .map((r) => ({
+            hash: r.hash,
+            label: r.namedKey ?? r.hash.slice(0, 8),
+            rows: perYear(tradeLogs.get(r.hash)!),
+          }));
         const eraOut = refs.map((r) => ({ key: r.label, symbol: discovery, rows: eraSplit(r.trades) }));
         const rollDay = refs.map((r) => {
           const without = r.trades.filter((t) => !isRollDay(t.sessionDate));
@@ -485,6 +499,7 @@ export function useIctSweep() {
                 label: namedConfig(key)?.label ?? key,
                 symbol: validation,
                 randomEntry: describeNull("Random entry, same windows", nres.randomEntry, nres.realAvgR),
+                randomEntrySharpe: null,
                 shuffledDirection: null,
                 otherHours: describeNull("Other hours, same logic", hres.hours.filter((h) => h.trades >= 5).map((h) => h.avgR), nres.realAvgR),
                 hours: hres.hours,
@@ -520,11 +535,15 @@ export function useIctSweep() {
           discretion,
           dsr,
           perYear: perYearOut,
+          survivorYears,
           era: eraOut,
           rollDay,
           slippage,
           funnel: {
             configs_run: rows.length,
+            profitable_gross: rows.filter((r) => r.grossPnl > 0).length,
+            profitable_net: rows.filter((r) => r.netPnl > 0).length,
+            net_sharpe_over_0_5: rows.filter((r) => r.netSharpe >= 0.5).length,
             resumed_from_checkpoint: stored.length,
             with_min_30_trades: testable.length,
             p_value_tested: pvalues.length,
