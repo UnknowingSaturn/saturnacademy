@@ -8,6 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Num, Toggle, RuleSection } from "./controls";
+import { Button } from "@/components/ui/button";
 import { WINDOW_OPTIONS, windowLabel, type UiConfig } from "./config";
 import { STRATEGY_PRESETS, activePresetKey } from "./presets";
 
@@ -20,12 +21,23 @@ const BIAS_LABEL: Record<string, string> = {
   none: "no HTF bias",
   prior_close: "prior-session close bias",
   trend: "multi-day trend bias",
+  structure_15m: "15m swing-structure bias",
+};
+
+const TF_OPTIONS = [1, 5, 15];
+
+const UNIVERSE_LABEL: Record<string, string> = {
+  session_refs: "Session refs (prior session + pre-window)",
+  session_refs_plus_swings: "Session refs + 1m swings",
+  bsl_ssl_15m: "Session refs + 15m BSL/SSL",
+  swings_only: "Swings only",
 };
 
 export function StrategyPanel({ cfg, onChange }: Props) {
   const preset = activePresetKey(cfg);
 
   const confluence = [
+    `${cfg.fvgTimeframe}m FVG`,
     BIAS_LABEL[cfg.biasMode] ?? cfg.biasMode,
     cfg.requireSweep ? "sweep" : null,
     cfg.requireMss ? "MSS" : null,
@@ -34,7 +46,7 @@ export function StrategyPanel({ cfg, onChange }: Props) {
 
   const entryExit = [
     `${cfg.entry} entry`,
-    `${cfg.stopMode === "gap" ? "gap stop" : "swing stop"} +${cfg.stopBufferTicks} ticks`,
+    `${cfg.stopMode === "gap" ? "gap stop" : cfg.stopMode === "swing" ? "swing stop" : "displacement-leg stop"} +${cfg.stopBufferTicks} ticks`,
     cfg.targetMode === "r" ? `${cfg.targetR}R target` : "liquidity target",
   ].join(" · ");
 
@@ -75,21 +87,46 @@ export function StrategyPanel({ cfg, onChange }: Props) {
         )}
       </div>
 
-      <div className="rounded-lg border border-border/60 p-3 space-y-1">
-        <Label className="text-xs">Session window</Label>
-        <Select value={cfg.windowKey} onValueChange={(v) => onChange({ windowKey: v })}>
-          <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {WINDOW_OPTIONS.map((w) => (
-              <SelectItem key={w.key} value={w.key}>{w.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-[11px] text-muted-foreground pt-0.5">{windowLabel(cfg.windowKey)}</p>
+      <div className="rounded-lg border border-border/60 p-3 space-y-2">
+        <Label className="text-xs">Session windows</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {WINDOW_OPTIONS.map((w) => {
+            const on = cfg.windowKeys.includes(w.key);
+            return (
+              <Button
+                key={w.key}
+                type="button"
+                size="sm"
+                variant={on ? "secondary" : "outline"}
+                className="h-7 text-[11px]"
+                onClick={() => {
+                  const next = on
+                    ? cfg.windowKeys.filter((k) => k !== w.key)
+                    : [...cfg.windowKeys, w.key];
+                  onChange({ windowKeys: next.length ? next : cfg.windowKeys });
+                }}
+              >
+                {w.key === "rth" ? "RTH" : w.key.replace("_", " ").toUpperCase()}
+              </Button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-muted-foreground pt-0.5">
+          {cfg.windowKeys.map(windowLabel).join(" · ")}
+        </p>
       </div>
 
       <RuleSection title="Setup" summary={confluence}>
         <div className="space-y-1 pt-2">
+          <Label className="text-xs">FVG timeframe</Label>
+          <Select value={String(cfg.fvgTimeframe)} onValueChange={(v) => onChange({ fvgTimeframe: Number(v) })}>
+            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {TF_OPTIONS.map((m) => <SelectItem key={m} value={String(m)}>{m}-minute gaps</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
           <Label className="text-xs">HTF bias</Label>
           <Select value={cfg.biasMode} onValueChange={(v) => onChange({ biasMode: v as UiConfig["biasMode"] })}>
             <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
@@ -97,6 +134,7 @@ export function StrategyPanel({ cfg, onChange }: Props) {
               <SelectItem value="none">None</SelectItem>
               <SelectItem value="prior_close">Prior session close</SelectItem>
               <SelectItem value="trend">Multi-day trend</SelectItem>
+              <SelectItem value="structure_15m">15m swing structure (HH/HL)</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -104,11 +142,36 @@ export function StrategyPanel({ cfg, onChange }: Props) {
           <Num id="bt-trend" label="Trend days" value={cfg.biasTrendDays} min={1} max={20}
             onChange={(n) => onChange({ biasTrendDays: n })} />
         )}
+        {cfg.biasMode === "structure_15m" && (
+          <Num id="bt-bias-tf" label="Structure timeframe (min)" value={cfg.biasSwingTimeframe} min={5} max={60} step={5}
+            onChange={(n) => onChange({ biasSwingTimeframe: n })} />
+        )}
         <Toggle id="bt-sweep" label="Require liquidity sweep" checked={cfg.requireSweep}
           onChange={(v) => onChange({ requireSweep: v })} />
         {cfg.requireSweep && (
-          <Num id="bt-sweep-lb" label="Sweep lookback (bars)" value={cfg.sweepLookbackBars} min={1} max={240}
-            onChange={(n) => onChange({ sweepLookbackBars: n })} />
+          <>
+            <div className="space-y-1">
+              <Label className="text-xs">Liquidity universe</Label>
+              <Select value={cfg.sweepUniverse}
+                onValueChange={(v) => onChange({ sweepUniverse: v as UiConfig["sweepUniverse"] })}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(UNIVERSE_LABEL).map(([k, l]) => (
+                    <SelectItem key={k} value={k}>{l}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground pt-0.5">
+                Also the pool the “opposing liquidity” target draws from.
+              </p>
+            </div>
+            <Num id="bt-sweep-lb" label="Sweep lookback (bars)" value={cfg.sweepLookbackBars} min={1} max={240}
+              onChange={(n) => onChange({ sweepLookbackBars: n })} />
+            <Num id="bt-sweep-k" label="Nearest levels per side (0 = all)" value={cfg.sweepK} min={0} max={20}
+              onChange={(n) => onChange({ sweepK: n })} />
+            <Num id="bt-sweep-pen" label="Min penetration (ticks)" value={cfg.sweepPenetrationTicks} min={0} max={50}
+              onChange={(n) => onChange({ sweepPenetrationTicks: n })} />
+          </>
         )}
         <Toggle id="bt-mss" label="Require market-structure shift" checked={cfg.requireMss}
           onChange={(v) => onChange({ requireMss: v })} />
@@ -161,9 +224,14 @@ export function StrategyPanel({ cfg, onChange }: Props) {
               <SelectContent>
                 <SelectItem value="gap">Far side of the gap</SelectItem>
                 <SelectItem value="swing">Protected swing</SelectItem>
+                <SelectItem value="displacement_swing">Displacement-leg origin</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {cfg.stopMode === "displacement_swing" && (
+            <Num id="bt-leg" label="Leg lookback (bars)" value={cfg.displacementLegBars} min={0} max={60}
+              onChange={(n) => onChange({ displacementLegBars: n })} />
+          )}
           <Num id="bt-buf" label="Stop buffer (ticks)" value={cfg.stopBufferTicks} min={0} max={200}
             onChange={(n) => onChange({ stopBufferTicks: n })} />
           <div className="space-y-1">

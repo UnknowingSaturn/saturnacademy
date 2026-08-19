@@ -15,7 +15,7 @@ import { BacktestHeader } from "@/components/pair-lab/backtest/BacktestHeader";
 import { StrategyPanel } from "@/components/pair-lab/backtest/StrategyPanel";
 import { RunPanel } from "@/components/pair-lab/backtest/RunPanel";
 import {
-  windowForKey, DEFAULT_WF, type UiConfig, type WfUi,
+  windowsForKeys, DEFAULT_WF, type UiConfig, type WfUi,
 } from "@/components/pair-lab/backtest/config";
 import { BacktestResults } from "@/components/pair-lab/backtest/BacktestResults";
 import { useIctBacktest, type RunParams } from "@/hooks/useIctBacktest";
@@ -34,7 +34,7 @@ function monthsAgo(n: number): string {
   return d.toISOString().slice(0, 7);
 }
 
-const { window: _defaultWindow, ...RULE_DEFAULTS } = DEFAULT_ENGINE_CONFIG;
+const { windows: _defaultWindows, ...RULE_DEFAULTS } = DEFAULT_ENGINE_CONFIG;
 
 /** Sweep axes stay small and bounded — a big grid buys noise, not edge. */
 function gridAxes(wf: WfUi): GridAxis {
@@ -68,7 +68,7 @@ export function BacktestTab() {
   const [symbol, setSymbol] = useState("NAS100");
   const [fromMonth, setFromMonth] = useState(monthsAgo(12));
   const [toMonth, setToMonth] = useState(monthsAgo(1));
-  const [cfg, setCfg] = useState<UiConfig>({ ...RULE_DEFAULTS, windowKey: "ny_am" });
+  const [cfg, setCfg] = useState<UiConfig>({ ...RULE_DEFAULTS, windowKeys: ["ny_am"] });
   const [wf, setWf] = useState<WfUi>(DEFAULT_WF);
   const [persist, setPersist] = useState(true);
 
@@ -109,12 +109,12 @@ export function BacktestTab() {
 
   const buildParams = useCallback(
     (ignoreCoverageGaps: boolean): RunParams => {
-      const { windowKey, ...rules } = cfg;
+      const { windowKeys, ...rules } = cfg;
       return {
         symbol,
         fromMonth,
         toMonth,
-        cfg: { ...rules, window: windowForKey(windowKey) },
+        cfg: { ...rules, windows: windowsForKeys(windowKeys) },
         mode: wf.enabled ? "walkforward" : "single",
         walkForward: wf.enabled
           ? {

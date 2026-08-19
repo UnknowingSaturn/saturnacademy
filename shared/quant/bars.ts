@@ -217,3 +217,78 @@ export function utcDateKey(ms: number): string {
 export function barChunkPath(source: string, symbol: string, timeframe: string, month: string): string {
   return `${source}/${symbol.toUpperCase()}/${timeframe}/${month}.bin`;
 }
+
+// ---------------------------------------------------------------------------
+// Timeframe aggregation
+// ---------------------------------------------------------------------------
+
+export interface ResampledSeries {
+  /** Aggregated bars. `ts` is the bucket START (epoch ms, UTC-aligned). */
+  series: BarSeries;
+  /**
+   * For HTF bar k, the index in the SOURCE series of its last 1-minute bar —
+   * i.e. the first source index at which the HTF bar is fully known. Every
+   * causal consumer must stamp HTF features with this index, never with the
+   * bucket start, or it reads the future.
+   */
+  closeIndex: Int32Array;
+  /** For HTF bar k, the index in the source series of its first bar. */
+  openIndex: Int32Array;
+}
+
+/**
+ * Aggregate a 1-minute series into `minutes`-minute bars. Buckets are aligned
+ * to the epoch (floor(ts / step) * step), which matches how brokers stamp M5 /
+ * M15 candles and keeps buckets stable across DST because the alignment is in
+ * UTC, not wall clock. Missing minutes simply produce shorter buckets; empty
+ * buckets are not emitted.
+ */
+export function resample(s: BarSeries, minutes: number): ResampledSeries {
+  if (!(minutes > 1)) {
+    const idx = new Int32Array(s.length);
+    for (let i = 0; i < s.length; i++) idx[i] = i;
+    return { series: s, closeIndex: idx, openIndex: idx.slice() };
+  }
+  const step = minutes * MINUTE_MS;
+  const n = s.length;
+  const ts: number[] = [];
+  const open: number[] = [];
+  const high: number[] = [];
+  const low: number[] = [];
+  const close: number[] = [];
+  const volume: number[] = [];
+  const closeIdx: number[] = [];
+  const openIdx: number[] = [];
+
+  let bucket = NaN;
+  for (let i = 0; i < n; i++) {
+    const b = Math.floor(s.ts[i] / step) * step;
+    if (b !== bucket) {
+      bucket = b;
+      ts.push(b);
+      open.push(s.open[i]);
+      high.push(s.high[i]);
+      low.push(s.low[i]);
+      close.push(s.close[i]);
+      volume.push(s.volume[i]);
+      openIdx.push(i);
+      closeIdx.push(i);
+    } else {
+      const k = ts.length - 1;
+      if (s.high[i] > high[k]) high[k] = s.high[i];
+      if (s.low[i] < low[k]) low[k] = s.low[i];
+      close[k] = s.close[i];
+      volume[k] += s.volume[i];
+      closeIdx[k] = i;
+    }
+  }
+
+  const out = makeSeries(ts.length);
+  out.ts.set(ts);
+  out.open.set(open);
+  out.high.set(high);
+  out.low.set(low);
+  out.close.set(close);
+  out.volume.set(volume);
+  return { series: out, closeIndex: Int32Array.from(closeIdx), openIndex: Int32Array.from(openIdx) };
+}

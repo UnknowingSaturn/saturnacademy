@@ -23,9 +23,10 @@
 import type { BarSeries } from "../bars.ts";
 import { KILLZONES, RTH, type TradeWindow, journalSessionKey, sessionDate } from "../sessions.ts";
 import {
-  detectFvgs, detectSwings, detectSweeps, detectMss, detectDisplacement,
-  priorSessionLevels, sessionSpans, htfBias, etMinutes,
-  type BiasMode, type Direction, type FairValueGap, type LiquidityLevel, type Swing,
+  detectFvgsTf, detectSwings, detectSwingsTf, detectSweeps, detectMss, detectDisplacement,
+  buildLiquidityUniverse, sessionSpans, htfBias, structureBias, etMinutes,
+  type BiasMode, type Direction, type Displacement, type FairValueGap,
+  type LiquidityLevel, type Swing, type SweepUniverse,
 } from "./detectors.ts";
 import { instrumentSpec, pointsToCash, sizeForRisk, type InstrumentSpec } from "./instruments.ts";
 
@@ -34,15 +35,32 @@ import { instrumentSpec, pointsToCash, sizeForRisk, type InstrumentSpec } from "
 // ---------------------------------------------------------------------------
 
 export type EntryMode = "proximal" | "mid" | "distal";
-export type StopMode = "swing" | "gap";
+export type StopMode = "swing" | "gap" | "displacement_swing";
 export type TargetMode = "r" | "liquidity";
+export type EngineBiasMode = BiasMode | "structure_15m" | "none";
+
+/** Hard safety cap on trades per window, whatever the config asks for. */
+export const MAX_TRADES_PER_WINDOW_CAP = 10;
 
 export interface EngineConfig {
-  /** Killzone key ("london" | "ny_am" | "ny_pm") or a custom window. */
-  window: TradeWindow;
-  biasMode: BiasMode | "none";
+  /**
+   * One or more trade windows. Each listed window is scanned independently
+   * inside the session; daily PnL aggregates across them.
+   */
+  windows: TradeWindow[];
+  /** Timeframe (minutes) the FVGs are detected on. 1 = raw minute gaps. */
+  fvgTimeframe: number;
+  biasMode: EngineBiasMode;
   biasTrendDays: number;
+  /** Swing timeframe (minutes) for `biasMode: "structure_15m"`. */
+  biasSwingTimeframe: number;
   requireSweep: boolean;
+  /** Which levels the sweep rule (and the liquidity target) may use. */
+  sweepUniverse: SweepUniverse;
+  /** Only the K nearest unswept levels per side are eligible. 0 = all. */
+  sweepK: number;
+  /** Minimum penetration beyond the level, in ticks. */
+  sweepPenetrationTicks: number;
   /** Sweep must occur within this many bars before the signal bar. */
   sweepLookbackBars: number;
   requireMss: boolean;
@@ -50,6 +68,11 @@ export interface EngineConfig {
   requireDisplacement: boolean;
   displacementMode: "atr" | "percentile";
   displacementAtrMultiple: number;
+  /**
+   * How far back from the qualifying displacement bar the leg origin is taken
+   * for `stopMode: "displacement_swing"`.
+   */
+  displacementLegBars: number;
   minFvgPoints: number;
   entry: EntryMode;
   entryExpiryBars: number;
@@ -80,16 +103,22 @@ export interface EngineConfig {
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
-  window: KILLZONES.ny_am,
+  windows: [KILLZONES.ny_am],
+  fvgTimeframe: 1,
   biasMode: "prior_close",
   biasTrendDays: 3,
+  biasSwingTimeframe: 15,
   requireSweep: true,
+  sweepUniverse: "session_refs",
+  sweepK: 0,
+  sweepPenetrationTicks: 0,
   sweepLookbackBars: 30,
   requireMss: true,
   mssLookbackBars: 15,
   requireDisplacement: false,
   displacementMode: "atr",
   displacementAtrMultiple: 1.5,
+  displacementLegBars: 10,
   minFvgPoints: 0,
   entry: "proximal",
   entryExpiryBars: 20,
@@ -163,6 +192,7 @@ export type NoTradeReason =
   | "no_displacement"
   | "entry_not_filled"
   | "invalid_stop"
+  | "no_liquidity_target"
   | "max_trades_reached";
 
 export interface NoTradeRecord {
@@ -196,16 +226,33 @@ export function runBacktest(
   const noTrades: NoTradeRecord[] = [];
   if (series.length < 5) return { trades, noTrades, sessionsScanned: 0 };
 
+  const windows = c.windows.length ? c.windows : DEFAULT_ENGINE_CONFIG.windows;
+  const maxPerWindow = Math.max(1, Math.min(c.maxTradesPerWindow, MAX_TRADES_PER_WINDOW_CAP));
+
   // --- detectors, once over the whole series -------------------------------
-  const fvgs = detectFvgs(series, c.minFvgPoints);
+  const fvgs = detectFvgsTf(series, c.fvgTimeframe, c.minFvgPoints);
   const swings = detectSwings(series, c.swingStrength);
-  const levels = priorSessionLevels(series, spec.cls);
-  const sweeps = c.requireSweep ? detectSweeps(series, levels) : [];
+  // One universe drives both the sweep rule and the liquidity target, so a
+  // target can never sit on a level the sweep rule does not know about.
+  const levels = buildLiquidityUniverse(series, spec.cls, {
+    universe: c.sweepUniverse,
+    windows,
+    swingStrength: c.swingStrength,
+    swingTimeframe: c.biasSwingTimeframe,
+  });
+  const sweeps = c.requireSweep
+    ? detectSweeps(series, levels, c.sweepPenetrationTicks * spec.tickSize, { k: c.sweepK, onceOnly: c.sweepK > 0 })
+    : [];
   const mss = c.requireMss ? detectMss(series, swings) : [];
-  const displacement = c.requireDisplacement
+  const needDisplacement = c.requireDisplacement || c.stopMode === "displacement_swing";
+  const displacement = needDisplacement
     ? detectDisplacement(series, { mode: c.displacementMode, atrMultiple: c.displacementAtrMultiple })
     : [];
-  const bias = c.biasMode === "none" ? null : htfBias(series, spec.cls, c.biasMode, c.biasTrendDays);
+  const bias = c.biasMode === "none"
+    ? null
+    : c.biasMode === "structure_15m"
+      ? structureBias(series, detectSwingsTf(series, c.biasSwingTimeframe, c.swingStrength))
+      : htfBias(series, spec.cls, c.biasMode, c.biasTrendDays);
   const etMin = etMinutes(series);
   const spans = sessionSpans(series, spec.cls);
 
@@ -216,18 +263,19 @@ export function runBacktest(
   const buffer = c.stopBufferTicks * spec.tickSize;
 
   for (const span of spans) {
+   for (const win of windows) {
     // Bars of this session inside the trade window.
     let ws = -1;
     let we = -1;
     for (let i = span.from; i <= span.to; i++) {
       const m = etMin[i];
-      if (m >= c.window.startMin && m < c.window.endMin) {
+      if (m >= win.startMin && m < win.endMin) {
         if (ws < 0) ws = i;
         we = i;
       }
     }
     if (ws < 0) {
-      noTrades.push({ symbol, sessionDate: span.dateKey, windowKey: c.window.key, reason: "no_bars_in_window", candidates: 0 });
+      noTrades.push({ symbol, sessionDate: span.dateKey, windowKey: win.key, reason: "no_bars_in_window", candidates: 0 });
       continue;
     }
 
@@ -245,7 +293,8 @@ export function runBacktest(
     let firstReject: NoTradeReason | null = null;
     let nextFreeIndex = ws;
 
-    for (let i = ws; i <= we && taken < c.maxTradesPerWindow; i++) {
+    for (let i = ws; i <= we && taken < maxPerWindow; i++) {
+      if (i < nextFreeIndex) continue;
       const gaps = fvgByIndex.get(i);
       if (!gaps) continue;
       for (const gap of gaps) {
@@ -263,14 +312,11 @@ export function runBacktest(
         if (c.requireMss && !hasEvent(mssByIndex, i - c.mssLookbackBars, i, (e: { direction: Direction }) => e.direction === gap.direction)) {
           firstReject ??= "no_mss"; continue;
         }
-        if (c.requireDisplacement && !hasEvent(dispByIndex, i - 3, i, (e: { direction: Direction }) => e.direction === gap.direction)) {
-          firstReject ??= "no_displacement"; continue;
-        }
+        const disp = findEvent<Displacement>(dispByIndex, i - 3, i, (e) => e.direction === gap.direction);
+        if (c.requireDisplacement && !disp) { firstReject ??= "no_displacement"; continue; }
 
         const entryLevel = c.entry === "proximal" ? gap.proximal : c.entry === "mid" ? gap.mid : gap.distal;
-        const stopBase = c.stopMode === "swing"
-          ? swingStop(swings, i, long, entryLevel) ?? gap.distal
-          : gap.distal;
+        const stopBase = resolveStopBase(series, c, swings, gap, disp, i, ws, long, entryLevel);
         const stopPrice = long ? stopBase - buffer : stopBase + buffer;
         const riskPoints = long ? entryLevel - stopPrice : stopPrice - entryLevel;
         if (!(riskPoints > 0)) { firstReject ??= "invalid_stop"; continue; }
@@ -278,11 +324,15 @@ export function runBacktest(
         const trade = simulateTrade(series, {
           symbol, spec, cfg: c, gap, long, entryLevel, stopPrice, riskPoints,
           signalIndex: i, boundary, boundaryReason, levels, sessionDateKey: span.dateKey,
+          windowKey: win.key,
         });
         if (!trade) { firstReject ??= "entry_not_filled"; continue; }
 
         trades.push(trade);
         taken++;
+        // Sequential only: the next setup is scanned from the bar after the
+        // exit, so a window can produce several trades but never overlapping
+        // ones (risk per window stays bounded at 1R at a time).
         nextFreeIndex = trade.exitIndex + 1;
         break;
       }
@@ -290,11 +340,12 @@ export function runBacktest(
 
     if (taken === 0) {
       noTrades.push({
-        symbol, sessionDate: span.dateKey, windowKey: c.window.key,
+        symbol, sessionDate: span.dateKey, windowKey: win.key,
         reason: firstReject ?? (candidates === 0 ? "no_fvg" : "entry_not_filled"),
         candidates,
       });
     }
+   }
   }
 
   return { trades, noTrades, sessionsScanned: spans.length };
@@ -314,6 +365,7 @@ interface SimArgs {
   boundaryReason: ExitReason;
   levels: LiquidityLevel[];
   sessionDateKey: string;
+  windowKey: string;
 }
 
 function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
@@ -406,8 +458,8 @@ function simulateTrade(s: BarSeries, a: SimArgs): BacktestTrade | null {
   return {
     symbol: a.symbol,
     sessionDate: a.sessionDateKey,
-    windowKey: cfg.window.key,
-    journalSession: journalSessionKey(cfg.window.key),
+    windowKey: a.windowKey,
+    journalSession: journalSessionKey(a.windowKey),
     direction: long ? "long" : "short",
     setupIndex: signalIndex,
     setupTs: s.ts[signalIndex],
@@ -448,6 +500,51 @@ function groupByIndex<T extends { index: number }>(items: T[]): Map<number, T[]>
     if (bucket) bucket.push(it); else m.set(it.index, [it]);
   }
   return m;
+}
+
+function findEvent<T>(byIndex: Map<number, T[]>, from: number, to: number, pred: (e: T) => boolean): T | null {
+  let found: T | null = null;
+  for (let i = Math.max(0, from); i <= to; i++) {
+    const bucket = byIndex.get(i);
+    if (!bucket) continue;
+    for (const e of bucket) if (pred(e)) found = e; // most recent wins
+  }
+  return found;
+}
+
+/**
+ * Protective price the stop is placed beyond, before the tick buffer.
+ * - "gap": the far edge of the FVG.
+ * - "swing": the last confirmed swing on the protective side.
+ * - "displacement_swing": the origin of the displacement leg that created the
+ *   gap — the extreme printed between `displacementLegBars` before the
+ *   qualifying displacement bar and the signal bar. Falls back to the gap edge
+ *   when no displacement qualified.
+ */
+function resolveStopBase(
+  s: BarSeries,
+  c: EngineConfig,
+  swings: Swing[],
+  gap: FairValueGap,
+  disp: Displacement | null,
+  signalIndex: number,
+  windowStart: number,
+  long: boolean,
+  entryLevel: number,
+): number {
+  if (c.stopMode === "swing") return swingStop(swings, signalIndex, long, entryLevel) ?? gap.distal;
+  if (c.stopMode === "displacement_swing") {
+    if (!disp) return gap.distal;
+    const from = Math.max(0, Math.min(disp.index - Math.max(0, c.displacementLegBars), signalIndex));
+    let extreme = long ? Infinity : -Infinity;
+    for (let j = Math.max(from, Math.min(windowStart, disp.index)); j <= signalIndex; j++) {
+      if (long) { if (s.low[j] < extreme) extreme = s.low[j]; }
+      else if (s.high[j] > extreme) extreme = s.high[j];
+    }
+    if (!Number.isFinite(extreme)) return gap.distal;
+    return long ? Math.min(extreme, gap.distal) : Math.max(extreme, gap.distal);
+  }
+  return gap.distal;
 }
 
 function hasEvent<T>(byIndex: Map<number, T[]>, from: number, to: number, pred: (e: T) => boolean): boolean {

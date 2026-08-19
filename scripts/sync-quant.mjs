@@ -35,13 +35,13 @@ const HEADER = `// GENERATED FILE — DO NOT EDIT.
 
 const checkOnly = process.argv.includes("--check");
 
-/** Every .ts under shared/quant, recursively, as paths relative to SRC_DIR. */
+/** Every .ts and .json under shared/quant, recursively, relative to SRC_DIR. */
 function listTs(dir, prefix = "") {
   const out = [];
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const rel = prefix ? `${prefix}/${e.name}` : e.name;
     if (e.isDirectory()) out.push(...listTs(join(dir, e.name), rel));
-    else if (e.name.endsWith(".ts")) out.push(rel);
+    else if (e.name.endsWith(".ts") || e.name.endsWith(".json")) out.push(rel);
   }
   return out;
 }
@@ -57,11 +57,26 @@ mkdirSync(OUT_DIR, { recursive: true });
 let drift = 0;
 for (const name of files) {
   const raw = readFileSync(join(SRC_DIR, name), "utf8");
+  if (name.endsWith(".json")) {
+    // Data files are copied verbatim — no header, no specifier rewriting.
+    const targetJson = join(OUT_DIR, name);
+    const currentJson = existsSync(targetJson) ? readFileSync(targetJson, "utf8") : null;
+    if (currentJson !== raw) {
+      drift += 1;
+      if (checkOnly) console.error(`sync-quant: DRIFT ${name} (${hash(currentJson)} != ${hash(raw)})`);
+      else {
+        mkdirSync(dirname(targetJson), { recursive: true });
+        writeFileSync(targetJson, raw);
+        console.log(`sync-quant: wrote ${name}`);
+      }
+    }
+    continue;
+  }
   // Deno needs explicit file extensions on relative specifiers; the Vite-side
   // canonical files stay extensionless. Rewrite on the way into vendor/ —
   // both `./x` (same dir) and `../x` (subdirectory modules like ict/).
   const src = raw.replace(/(from\s+")(\.\.?\/[^"]+)(")/g, (m, a, spec, c) =>
-    spec.endsWith(".ts") ? m : a + spec + ".ts" + c);
+    spec.endsWith(".ts") || spec.endsWith(".json") ? m : a + spec + ".ts" + c);
   const expected = HEADER.replace("<name>", name) + src;
   const target = join(OUT_DIR, name);
   const current = existsSync(target) ? readFileSync(target, "utf8") : null;
