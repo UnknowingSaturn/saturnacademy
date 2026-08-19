@@ -10,14 +10,14 @@ import { KILLZONES } from "../../../shared/quant/sessions";
 const MIN = 60_000;
 
 /** Deterministic synthetic minute series starting at a UTC timestamp. */
-function series(n: number, startTs: number, price: (i: number) => number): BarSeries {
+function series(n: number, startTs: number, price: (i: number) => number, range = 0.5): BarSeries {
   const s = makeSeries(n);
   for (let i = 0; i < n; i++) {
     const p = price(i);
     s.ts[i] = startTs + i * MIN;
     s.open[i] = p;
-    s.high[i] = p + 0.5;
-    s.low[i] = p - 0.5;
+    s.high[i] = p + range;
+    s.low[i] = p - range;
     s.close[i] = p;
     s.volume[i] = 1;
   }
@@ -87,11 +87,11 @@ describe("HTF features are causal", () => {
 
 describe("structureBias", () => {
   it("is +1 on HH/HL, -1 on LH/LL and holds state in between", () => {
-    const up = series(400, Date.UTC(2024, 2, 14, 8, 0), (i) => 100 + i * 0.1 + Math.sin(i / 7) * 2);
+    const up = series(400, Date.UTC(2024, 2, 14, 8, 0), (i) => 100 + i * 0.25 + Math.sin(i / 40) * 6, 0.2);
     const bias = structureBias(up, detectSwingsTf(up, 15, 2));
     expect(bias[bias.length - 1]).toBe(1);
 
-    const down = series(400, Date.UTC(2024, 2, 14, 8, 0), (i) => 200 - i * 0.1 + Math.sin(i / 7) * 2);
+    const down = series(400, Date.UTC(2024, 2, 14, 8, 0), (i) => 200 - i * 0.25 + Math.sin(i / 40) * 6, 0.2);
     const dBias = structureBias(down, detectSwingsTf(down, 15, 2));
     expect(dBias[dBias.length - 1]).toBe(-1);
 
@@ -102,7 +102,7 @@ describe("structureBias", () => {
 
 describe("sweep universe and K-nearest gating", () => {
   const start = Date.UTC(2024, 2, 14, 8, 0);
-  const s = series(600, start, (i) => 100 + Math.sin(i / 23) * 4);
+  const s = series(600, start, (i) => 100 + Math.sin(i / 23) * 4, 0.2);
 
   it("builds distinct universes", () => {
     const opts = { windows: [KILLZONES.ny_am], swingStrength: 2, swingTimeframe: 15 };
@@ -124,7 +124,7 @@ describe("sweep universe and K-nearest gating", () => {
 
 describe("multi-window engine", () => {
   // Five sessions of noisy FX-like data covering London through NY PM.
-  const s = series(60 * 24 * 5, Date.UTC(2024, 2, 11, 0, 0), (i) => 1.08 + Math.sin(i / 37) * 0.004 + Math.sin(i / 5) * 0.0006);
+  const s = series(60 * 24 * 5, Date.UTC(2024, 2, 11, 0, 0), (i) => 1.08 + Math.sin(i / 37) * 0.004 + Math.sin(i / 5) * 0.0006, 0.00002);
 
   const base = {
     ...DEFAULT_ENGINE_CONFIG,
@@ -171,7 +171,7 @@ describe("multi-window engine", () => {
 });
 
 describe("displacement_swing stop", () => {
-  const s = series(60 * 24 * 5, Date.UTC(2024, 2, 11, 0, 0), (i) => 1.08 + Math.sin(i / 37) * 0.004 + Math.sin(i / 5) * 0.0006);
+  const s = series(60 * 24 * 5, Date.UTC(2024, 2, 11, 0, 0), (i) => 1.08 + Math.sin(i / 37) * 0.004 + Math.sin(i / 5) * 0.0006, 0.00002);
 
   it("places the stop at or beyond the gap edge", () => {
     const r = runBacktest(s, "EURUSD", {
@@ -214,7 +214,7 @@ describe("grid.json named configs", () => {
   });
 
   it("every named config runs end to end", () => {
-    const s = series(60 * 24 * 5, Date.UTC(2024, 2, 11, 0, 0), (i) => 1.08 + Math.sin(i / 37) * 0.004);
+    const s = series(60 * 24 * 5, Date.UTC(2024, 2, 11, 0, 0), (i) => 1.08 + Math.sin(i / 37) * 0.004, 0.00002);
     for (const c of NAMED_CONFIGS) {
       const r = runBacktest(s, "EURUSD", engineConfigFor(c.key));
       expect(r.sessionsScanned).toBeGreaterThan(0);
