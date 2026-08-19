@@ -16,6 +16,8 @@ import { Download, FlaskConical, Loader2, Play, RotateCcw, TriangleAlert } from 
 import { useIctSweep } from "@/hooks/useIctSweep";
 import type { NullReport, SweepReport } from "@/lib/backtest/summaryPack";
 import { SWEEP } from "../../../../shared/quant/ict/sweep";
+import { ResultDashboard } from "./dashboard/ResultDashboard";
+import { HoldoutPanel } from "./HoldoutPanel";
 
 const HOLDOUT_START_MONTH = SWEEP.holdoutFromMonth;
 
@@ -177,6 +179,10 @@ function SweepReportView({ report, savedRunId }: { report: SweepReport; savedRun
 
   return (
     <div className="space-y-4">
+      <ResultDashboard report={report} />
+
+      <HoldoutPanel report={report} />
+
       <section className="rounded-lg border border-border/60 p-4 space-y-2">
         <h4 className="text-sm font-medium">Funnel</h4>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">

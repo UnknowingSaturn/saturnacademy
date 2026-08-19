@@ -19,7 +19,7 @@ import { decodeBarChunk, concatSeries, sliceSeries, type BarSeries } from "../..
 import { runBacktest, type BacktestTrade, type EngineConfig } from "../../shared/quant/ict/engine";
 import { instrumentSpec, withSpecOverrides, type InstrumentSpec } from "../../shared/quant/ict/instruments";
 import { buildConfigRow, type ConfigRow, type SweepCandidate } from "../../shared/quant/ict/sweep";
-import { randomEntryNull, shuffledDirectionNull, sessionHourWindows } from "../../shared/quant/ict/nulls";
+import { randomEntryNullSamples, shuffledDirectionNull, sessionHourWindows } from "../../shared/quant/ict/nulls";
 import type { TradeWindow } from "../../shared/quant/sessions";
 
 export type SweepRequest =
@@ -48,7 +48,14 @@ export type SweepResponse =
   | { type: "ready"; id: number; ok: true; bars: number; firstTs: number; lastTs: number; sessionsScanned: number }
   | { type: "rows"; id: number; ok: true; rows: ConfigRow[] }
   | { type: "tradeLog"; id: number; ok: true; hash: string; trades: BacktestTrade[]; sessionsScanned: number }
-  | { type: "nullResult"; id: number; ok: true; hash: string; randomEntry: number[]; shuffledDirection: number[]; realAvgR: number }
+  | {
+      type: "nullResult"; id: number; ok: true; hash: string;
+      randomEntry: number[];
+      /** Per-iteration Sharpe of the random-entry null (dashboard overlay). */
+      randomEntrySharpe: number[];
+      shuffledDirection: number[];
+      realAvgR: number;
+    }
   | { type: "hoursResult"; id: number; ok: true; hash: string; hours: HourStat[]; realAvgR: number }
   | { type: "error"; id: number; ok: false; error: string };
 
@@ -130,12 +137,14 @@ self.onmessage = (e: MessageEvent<SweepRequest>) => {
         const { s, sp } = requireSeries();
         const res = runCandidate(req.candidate);
         const windows = (req.candidate.patch.windows ?? []) as TradeWindow[];
+        const randomEntrySamples = randomEntryNullSamples(s, res.trades, windows, sp, req.iterations);
         post({
           type: "nullResult",
           id: req.id,
           ok: true,
           hash: req.candidate.hash,
-          randomEntry: randomEntryNull(s, res.trades, windows, sp, req.iterations),
+          randomEntry: randomEntrySamples.avgR,
+          randomEntrySharpe: randomEntrySamples.sharpe,
           shuffledDirection: shuffledDirectionNull(s, res.trades, sp, req.iterations),
           realAvgR: avgR(res.trades),
         });
