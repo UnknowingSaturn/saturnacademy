@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeSymbol } from "../../shared/quant/symbolAliasing";
+import { fetchManifest } from "@/lib/backtest/barLoader";
+
 import { configHash } from "../../shared/quant/ict/walkforward";
 import type { EngineConfig } from "../../shared/quant/ict/engine";
 import type { InstrumentSpec } from "../../shared/quant/ict/instruments";
