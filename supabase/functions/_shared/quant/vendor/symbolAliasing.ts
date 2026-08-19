@@ -50,6 +50,14 @@ const STRIP_SUFFIXES = [
 const STRIP_CHARS = ["+", "#", "*", "!", "~"];
 
 /**
+ * MT5 exports are named `SYMBOL_PERIOD_YYYYMMDDHHMM…` (e.g.
+ * `GBPUSD+_M1_202401020`). Pasting that filename into the importer used to
+ * create a whole separate instrument, which then fell through to the generic
+ * FX cost defaults. Strip the timeframe/date tail before anything else.
+ */
+const MT5_EXPORT_RE = /_(M1|M2|M3|M4|M5|M6|M10|M12|M15|M20|M30|H1|H2|H3|H4|H6|H8|H12|D1|W1|MN1)(_\d{4,})?$/i;
+
+/**
  * Normalize a single raw broker symbol to its canonical form.
  * Pure function, no DB lookup.
  */
@@ -57,10 +65,13 @@ export function normalizeSymbol(raw: string): string {
   if (!raw) return raw;
   let s = raw.trim().toUpperCase();
 
+  s = s.replace(MT5_EXPORT_RE, "");
+
   for (const suf of STRIP_SUFFIXES) {
     if (s.toLowerCase().endsWith(suf)) s = s.slice(0, -suf.length);
   }
   while (s.length > 3 && STRIP_CHARS.includes(s.slice(-1))) s = s.slice(0, -1);
+
 
   if (FAMILY_REVERSE.has(s)) return FAMILY_REVERSE.get(s)!;
 

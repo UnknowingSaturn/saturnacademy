@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useMt5Import } from "@/hooks/useMt5Import";
+import { normalizeSymbol } from "@/lib/symbolAliasing";
+
 
 interface Props {
   symbol: string;
@@ -36,8 +38,8 @@ export function Mt5ImportPanel({ symbol, onImported }: Props) {
   const onFile = useCallback(
     (file: File | undefined) => {
       if (!file) return;
-      const guess = file.name.replace(/\.[^.]+$/, "").match(/^[A-Za-z0-9._#+-]{2,20}/)?.[0];
-      if (guess) setTargetSymbol(guess.toUpperCase().replace(/[_-]?(1|M1|MIN)$/i, ""));
+      const guess = file.name.replace(/\.[^.]+$/, "").match(/^[A-Za-z0-9._#+-]{2,40}/)?.[0];
+      if (guess) setTargetSymbol(normalizeSymbol(guess));
       void analyze(file, null);
     },
     [analyze],
@@ -46,7 +48,10 @@ export function Mt5ImportPanel({ symbol, onImported }: Props) {
   const stepOk = preview?.stepMs === 60_000;
   const barCount = preview?.months.reduce((a, m) => a + m.barCount, 0) ?? 0;
   const gapMonths = preview?.months.filter((m) => m.missingDays > 3).length ?? 0;
-  const symbolOk = /^[A-Z0-9][A-Z0-9._#+-]{1,19}$/.test(targetSymbol);
+  // The server stores under the canonical name — show the user exactly that.
+  const canonical = normalizeSymbol(targetSymbol);
+  const symbolOk = /^[A-Z0-9][A-Z0-9._#+-]{1,19}$/.test(canonical);
+
 
   return (
     <div className="rounded-lg border border-border/60 p-4 space-y-3">
@@ -127,9 +132,15 @@ export function Mt5ImportPanel({ symbol, onImported }: Props) {
                 id="imp-symbol"
                 value={targetSymbol}
                 onChange={(e) => setTargetSymbol(e.target.value.toUpperCase())}
-                className="h-8 w-32"
+                className="h-8 w-40"
               />
+              {canonical !== targetSymbol.trim().toUpperCase() && (
+                <p className="text-[10px] text-muted-foreground">
+                  stored as <span className="text-foreground font-medium">{canonical}</span>
+                </p>
+              )}
             </div>
+
             <div className="space-y-1">
               <Label htmlFor="imp-offset" className="text-xs">Broker UTC offset</Label>
               <select
@@ -194,7 +205,7 @@ export function Mt5ImportPanel({ symbol, onImported }: Props) {
               size="sm"
               disabled={!stepOk || !symbolOk || isUploading || isParsing}
               onClick={async () => {
-                await commit(targetSymbol, offsetHours * 60);
+                await commit(canonical, offsetHours * 60);
                 onImported?.();
               }}
             >
