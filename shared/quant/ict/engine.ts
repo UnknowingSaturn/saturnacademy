@@ -687,13 +687,20 @@ function resolveStopBase(
   swings: Swing[],
   gap: FairValueGap,
   disp: Displacement | null,
+  leg: OrderFlowLeg | null,
   signalIndex: number,
   windowStart: number,
   long: boolean,
   entryLevel: number,
 ): number {
   if (c.stopMode === "swing") return swingStop(swings, signalIndex, long, entryLevel) ?? gap.distal;
+  if (c.stopMode === "leg_origin") {
+    // Stop beyond the origin of the 1-2-3 order-flow leg that produced the setup.
+    if (!leg) return gap.distal;
+    return long ? Math.min(leg.originPrice, gap.distal) : Math.max(leg.originPrice, gap.distal);
+  }
   if (c.stopMode === "displacement_swing") {
+
     if (!disp) return gap.distal;
     const from = Math.max(0, Math.min(disp.index - Math.max(0, c.displacementLegBars), signalIndex));
     let extreme = long ? Infinity : -Infinity;
