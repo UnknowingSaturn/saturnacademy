@@ -281,12 +281,19 @@ export function runBacktest(
   symbol: string,
   cfg: Partial<EngineConfig> = {},
   specOverride?: InstrumentSpec,
+  /** Correlated instrument, required only when `requireSmt` is on. */
+  reference?: BarSeries | null,
 ): BacktestResult {
   const c: EngineConfig = { ...DEFAULT_ENGINE_CONFIG, ...cfg };
   const spec = specOverride ?? instrumentSpec(symbol);
   const trades: BacktestTrade[] = [];
   const noTrades: NoTradeRecord[] = [];
   if (series.length < 5) return { trades, noTrades, sessionsScanned: 0 };
+  if (c.requireSmt && (!reference || reference.length < 5)) {
+    throw new Error(
+      "This strategy requires SMT divergence, but no reference instrument was loaded. Pick a reference symbol (e.g. DXY or the correlated pair) that has bar history imported.",
+    );
+  }
 
   const windows = c.windows.length ? c.windows : DEFAULT_ENGINE_CONFIG.windows;
   const maxPerWindow = Math.max(1, Math.min(c.maxTradesPerWindow, MAX_TRADES_PER_WINDOW_CAP));
@@ -318,11 +325,37 @@ export function runBacktest(
   const etMin = etMinutes(series);
   const spans = sessionSpans(series, spec.cls);
 
+  // --- playbook detectors (only paid for when the rule is on) --------------
+  const needLegs = c.requireOrderFlowLeg || c.stopMode === "leg_origin";
+  const legs = needLegs ? detectOrderFlowLegs(series, swings) : [];
+  const vShapes = c.requireVShape
+    ? detectVShapes(series, { timeframeMinutes: c.vShapeTimeframe, atrMultiple: c.vShapeAtrMultiple })
+    : [];
+  const needRanges = c.rangeZoneFilter === "quartile" || c.targetMode === "range_mean" || c.regimeFilter !== "any";
+  const ranges: (RangeContext | null)[] | null = needRanges
+    ? detectRanges(series, {
+        timeframeMinutes: c.rangeTimeframe,
+        lookbackBars: c.rangeLookbackBars,
+        maxWidthAtrMultiple: c.rangeMaxWidthAtr,
+      })
+    : null;
+  const midBalance = c.avoidMidBalance
+    ? midBalanceFlags(series, priorSessionProfiles(series, spec.cls))
+    : null;
+  const smt = c.requireSmt && reference
+    ? detectSmt(series, reference, { lookbackBars: c.smtLookbackBars, inverse: c.smtInverse })
+    : [];
+
   const fvgByIndex = groupByIndex(fvgs);
   const sweepByIndex = groupByIndex(sweeps);
   const mssByIndex = groupByIndex(mss);
   const dispByIndex = groupByIndex(displacement);
+  const legByIndex = groupByIndex(legs);
+  const vShapeByIndex = groupByIndex(vShapes);
+  const smtByIndex = groupByIndex(smt);
   const buffer = c.stopBufferTicks * spec.tickSize;
+  const minStop = c.minStopDistanceTicks * spec.tickSize;
+
 
   for (const span of spans) {
    for (const win of windows) {
