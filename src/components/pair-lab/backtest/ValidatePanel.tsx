@@ -15,7 +15,9 @@ import { Badge } from "@/components/ui/badge";
 import { Download, FlaskConical, Loader2, Play, RotateCcw, TriangleAlert } from "lucide-react";
 import { useIctSweep } from "@/hooks/useIctSweep";
 import type { NullReport, SweepReport } from "@/lib/backtest/summaryPack";
-import { HOLDOUT_START_MONTH } from "../../../../shared/quant/ict/sweep";
+import { SWEEP } from "../../../../shared/quant/ict/sweep";
+
+const HOLDOUT_START_MONTH = SWEEP.holdoutFromMonth;
 
 const n2 = (v: number) => (Number.isFinite(v) ? v.toFixed(2) : "n/a");
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
@@ -135,7 +137,7 @@ export function ValidatePanel({ symbol, fromMonth, toMonth }: Props) {
             <Stat label="Median / config" value={`${sweep.sizing.medianSecPerConfig.toFixed(2)}s`} />
             <Stat label="Workers" value={String(sweep.sizing.workers)} />
             <Stat label="Configs to run" value={sweep.sizing.n.toLocaleString()} />
-            <Stat label="Est. wall clock" value={`${Math.round(sweep.sizing.estimatedMinutes)} min`} />
+            <Stat label="Est. wall clock" value={`${Math.round(sweep.sizing.projectedMinutes)} min`} />
           </div>
           <p className="text-[11px] text-muted-foreground">
             Canonical grid holds {sweep.gridSize.toLocaleString()} distinct configurations.{" "}
@@ -294,26 +296,26 @@ function SweepReportView({ report, savedRunId }: { report: SweepReport; savedRun
           <table className="w-full text-[11px]">
             <thead className="text-muted-foreground">
               <tr className="border-b border-border/60">
-                <Th>config</Th><Th right>mechanical avg R</Th><Th right>top-half avg R</Th>
-                <Th right>skip worst 25%</Th><Th right>needed hit rate</Th>
+                <Th>config</Th><Th right>take-all avg R</Th><Th right>perfect-skip avg R</Th>
+                <Th right>skip % for breakeven</Th><Th right>skip % for SR 1.0</Th>
               </tr>
             </thead>
             <tbody>
               {report.discretion.map((d) => (
                 <tr key={`${d.symbol}-${d.key}`} className="border-b border-border/30">
                   <Td>{d.label}</Td>
-                  <Td right>{n2(d.premium.mechanicalAvgR)}</Td>
-                  <Td right>{n2(d.premium.topHalfAvgR)}</Td>
-                  <Td right>{n2(d.premium.skipWorstQuartileAvgR)}</Td>
-                  <Td right>{pct(d.premium.requiredSelectionAccuracy)}</Td>
+                  <Td right>{n2(d.premium.allSetups.avgR)}</Td>
+                  <Td right>{n2(d.premium.perfectSkip.avgR)}</Td>
+                  <Td right>{d.premium.skipForBreakeven === null ? "n/a" : pct(d.premium.skipForBreakeven)}</Td>
+                  <Td right>{d.premium.skipForSharpe1 === null ? "unreachable" : pct(d.premium.skipForSharpe1)}</Td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          The last column is the share of losers you would have to correctly skip, in advance, for
-          discretionary filtering to beat taking every signal.
+          The last two columns are the share of losing setups you would have to correctly skip, in
+          advance, for discretion to reach breakeven and a 1.0 net Sharpe respectively.
         </p>
       </section>
     </div>
@@ -336,8 +338,8 @@ function NullBlock({ n }: { n: NullReport }) {
           {rows.map((r) => (
             <tr key={r.label} className="border-b border-border/30">
               <Td>{r.label}</Td>
-              <Td right>real {n2(r.d.realValue)}</Td>
-              <Td right>null median {n2(r.d.median)}</Td>
+              <Td right>real {n2(r.d.real)}</Td>
+              <Td right>null median {n2(r.d.p50)}</Td>
               <Td right>p95 {n2(r.d.p95)}</Td>
               <Td right>
                 <span className={r.d.realPercentile >= 95 ? "text-primary" : "text-muted-foreground"}>
