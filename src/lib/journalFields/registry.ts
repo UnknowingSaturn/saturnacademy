@@ -353,12 +353,27 @@ export function buildFieldRegistry(
   return [...JOURNAL_FIELD_REGISTRY, ...custom];
 }
 
+/**
+ * Resolve a field's display name.
+ * Pass `fallbackLabel` (the label from the *built* registry) so custom fields
+ * resolve to their name instead of their storage key.
+ */
 export function resolveFieldLabel(
   key: string,
-  labelOverrides: Record<string, string> = {}
+  fallbackOrOverrides?: string | Record<string, string>,
+  maybeOverrides?: Record<string, string>
 ): string {
-  return labelOverrides[key]?.trim() || JOURNAL_FIELD_MAP.get(key)?.label || key;
+  const fallbackLabel = typeof fallbackOrOverrides === "string" ? fallbackOrOverrides : undefined;
+  const labelOverrides =
+    (typeof fallbackOrOverrides === "string" ? maybeOverrides : fallbackOrOverrides) ?? {};
+  return (
+    labelOverrides[key]?.trim() ||
+    JOURNAL_FIELD_MAP.get(key)?.label ||
+    fallbackLabel?.trim() ||
+    key
+  );
 }
+
 
 /**
  * Single source of truth for user-renamed field labels.
