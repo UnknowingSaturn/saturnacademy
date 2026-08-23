@@ -32,14 +32,16 @@ export const tradeKeys = {
   all: ["trades"] as const,
   list: (filters?: unknown) => ["trades", filters] as const,
   detail: (id: string | undefined) => ["trade", id] as const,
+  /** Sibling legs loaded by useTradeGroup. */
+  group: ["trade-group"] as const,
   open: ["open-trades"] as const,
   archived: ["archived-trades"] as const,
 };
 
 /**
  * Invalidate every cache that contains trade data. Use after any mutation
- * that could change a trade row, so all four views (filtered list, single
- * trade, open trades, archived) refresh together.
+ * that could change a trade row, so all views (filtered list, single trade,
+ * group legs, open trades, archived) refresh together.
  */
 export function invalidateAllTradeCaches(
   qc: QueryClient,
@@ -48,7 +50,10 @@ export function invalidateAllTradeCaches(
   qc.invalidateQueries({ queryKey: tradeKeys.all });
   qc.invalidateQueries({ queryKey: tradeKeys.open });
   qc.invalidateQueries({ queryKey: tradeKeys.archived });
-  if (opts?.tradeId) {
-    qc.invalidateQueries({ queryKey: tradeKeys.detail(opts.tradeId) });
-  }
+  // The detail view renders the group leader plus every leg, so a single-leg
+  // edit must refresh the whole ["trade", *] and ["trade-group", *] namespaces
+  // rather than only the id that was mutated.
+  qc.invalidateQueries({ queryKey: ["trade"] });
+  qc.invalidateQueries({ queryKey: tradeKeys.group });
 }
+
