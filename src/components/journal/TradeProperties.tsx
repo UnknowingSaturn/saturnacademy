@@ -290,15 +290,16 @@ function PropertyRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0 shrink-0 basis-[40%] pt-1">
         {icon}
-        <span>{label}</span>
+        <span className="truncate" title={label}>{label}</span>
       </div>
-      <div className="text-sm">{children}</div>
+      <div className="text-sm min-w-0 flex-1 flex justify-end overflow-hidden">{children}</div>
     </div>
   );
 }
+
 
 function PlaceEditor({ value, onSave }: { value: string; onSave: (v: string) => void | Promise<unknown> }) {
   const [editing, setEditing] = useState(false);
