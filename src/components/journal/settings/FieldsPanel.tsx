@@ -524,7 +524,10 @@ export function FieldsPanel() {
                 group={group}
                 layout={layout!}
                 rows={detailRows}
+                addableRows={addableDetailRows}
+                onAddField={(key) => handleAddFieldToGroup(key, group.id)}
                 overrides={overrides}
+
                 onRename={(label) => handleRenameGroup(group.id, label)}
                 onDelete={() => handleDeleteGroup(group.id)}
                 onToggleField={handleToggleDetail}
