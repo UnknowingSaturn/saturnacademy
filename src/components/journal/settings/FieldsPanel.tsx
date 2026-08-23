@@ -31,12 +31,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import {
   Plus, MoreHorizontal, RotateCcw, Trash2, GripVertical,
   Pencil, ChevronUp, ChevronDown, Eye, EyeOff, Settings2,
   Lock,
