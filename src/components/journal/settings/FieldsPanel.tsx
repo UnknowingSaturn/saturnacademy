@@ -227,6 +227,24 @@ export function FieldsPanel() {
     await saveLayout({ ...layout, detail: { ...layout.detail, groups } });
   };
 
+  // Adds a field that lives in no detail group yet (new custom fields, or
+  // fields only present in the table layout) to the chosen group.
+  const handleAddFieldToGroup = async (key: string, targetGroupId: string) => {
+    if (!layout) return;
+    const groups = layout.detail.groups.map((g) => ({
+      ...g,
+      fields: g.fields.filter((k) => k !== key),
+    }));
+    const target = groups.find((g) => g.id === targetGroupId);
+    if (!target) return;
+    target.fields.push(key);
+    const hidden = layout.detail.hidden.filter((k) => k !== key);
+    const removed = layout.removed.filter((k) => k !== key);
+    await saveLayout({ ...layout, detail: { ...layout.detail, groups, hidden }, removed });
+  };
+
+
+
   const handleReorderWithinGroup = async (groupId: string, event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id || !layout) return;
