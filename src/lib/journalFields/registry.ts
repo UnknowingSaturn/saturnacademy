@@ -360,6 +360,30 @@ export function resolveFieldLabel(
   return labelOverrides[key]?.trim() || JOURNAL_FIELD_MAP.get(key)?.label || key;
 }
 
+/**
+ * Single source of truth for user-renamed field labels.
+ * `journal_field_layout.labels` is canonical; the legacy `field_label_overrides`
+ * and `column_overrides[key].label` stores are read only as migration fallbacks.
+ */
+export function resolveLabelMap(settings?: {
+  journal_field_layout?: { labels?: Record<string, string> } | null;
+  field_label_overrides?: Record<string, string> | null;
+  column_overrides?: Record<string, { label?: string }> | null;
+} | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, ov] of Object.entries(settings?.column_overrides || {})) {
+    if (ov?.label?.trim()) out[key] = ov.label.trim();
+  }
+  for (const [key, label] of Object.entries(settings?.field_label_overrides || {})) {
+    if (label?.trim()) out[key] = label.trim();
+  }
+  for (const [key, label] of Object.entries(settings?.journal_field_layout?.labels || {})) {
+    if (label?.trim()) out[key] = label.trim();
+  }
+  return out;
+}
+
+
 export const DEFAULT_TABLE_ORDER = [
   "trade_number",
   "entry_time",

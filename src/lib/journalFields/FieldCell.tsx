@@ -38,6 +38,8 @@ interface FieldCellProps {
   legs?: Trade[];
   isExpanded?: boolean;
   toggleExpand?: () => void;
+  /** Resolved (user-renamed) label. Falls back to the registry default. */
+  label?: string;
 }
 
 export function FieldCell({
@@ -51,6 +53,7 @@ export function FieldCell({
   legs,
   isExpanded,
   toggleExpand,
+  label,
 }: FieldCellProps) {
   // RenderKey overrides are for complex cells that cannot be inferred from valueType.
   if (field.renderKey) {
@@ -79,7 +82,7 @@ export function FieldCell({
   }
 
   if (valueType === "select" || valueType === "multi_select") {
-    return <SelectCell field={field} trade={trade} surface={surface} legIds={legIds} />;
+    return <SelectCell field={field} trade={trade} surface={surface} legIds={legIds} label={label} />;
   }
 
   if (valueType === "text") {
@@ -155,11 +158,21 @@ function useLegMutate<T extends (args: any) => Promise<any>>(
   return useMemo(() => {
     if (!legIds || legIds.length === 0) return mutate;
     return async (args: any) => {
+      // Review payloads target trade_reviews via `review.trade_id`; trade
+      // payloads target `trades.id`. Rewriting the wrong key silently wrote
+      // the leader's row N times instead of one row per leg.
+      if (args && typeof args === "object" && args.review) {
+        const { review, ...rest } = args;
+        return Promise.all(
+          legIds.map((lid) => mutate({ ...rest, review: { ...review, trade_id: lid } } as any)),
+        );
+      }
       const { id, ...patch } = args;
       return Promise.all(legIds.map((lid) => mutate({ id: lid, ...patch } as any)));
     };
   }, [mutate, legIds]);
 }
+
 
 function AccountCell({
   field,
@@ -283,11 +296,13 @@ function SelectCell({
   trade,
   surface,
   legIds,
+  label,
 }: {
   field: FieldDef;
   trade: Trade;
   surface: "table" | "detail";
   legIds?: string[];
+  label?: string;
 }) {
   const propertyName = field.optionsProperty;
   const { data: optionRows = [] } = usePropertyOptions(propertyName, true);
@@ -326,7 +341,7 @@ function SelectCell({
         value={value}
         onChange={handleChange}
         options={options}
-        placeholder={field.label}
+        placeholder={label ?? field.label}
         multiple={isMulti}
       />
     </div>

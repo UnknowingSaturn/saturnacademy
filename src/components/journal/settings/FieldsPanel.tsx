@@ -20,7 +20,7 @@ import {
   CustomFieldDefinition,
   resolveFieldLabel,
 } from "@/types/settings";
-import { buildFieldRegistry, getFieldDef, JOURNAL_FIELD_REGISTRY } from "@/lib/journalFields/registry";
+import { buildFieldRegistry, getFieldDef, JOURNAL_FIELD_REGISTRY, resolveLabelMap } from "@/lib/journalFields/registry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -97,7 +97,7 @@ export function FieldsPanel() {
   );
 
   const layout = settings?.journal_field_layout;
-  const overrides = settings?.field_label_overrides || {};
+  const overrides = resolveLabelMap(settings);
 
   const allFields = useMemo(() => buildFieldRegistry(customFields), [customFields]);
   const allFieldMap = useMemo(() => new Map(allFields.map((f) => [f.key, f])), [allFields]);
@@ -266,20 +266,20 @@ export function FieldsPanel() {
     if (row.category === "custom" && row.customDef) {
       await updateField.mutateAsync({ id: row.customDef.id, label: trimmed });
     } else {
-      const nextOverrides = { ...overrides, [row.key]: trimmed };
-      const nextColOverrides = {
-        ...(settings?.column_overrides || {}),
-        [row.key]: { ...((settings?.column_overrides || {})[row.key] || {}), label: trimmed },
-      };
-      await updateSettings.mutateAsync({
-        field_label_overrides: nextOverrides,
-        column_overrides: nextColOverrides,
-      });
+      // journal_field_layout.labels is the single source of truth for labels.
+      if (layout) {
+        await saveLayout({ ...layout, labels: { ...(layout.labels || {}), [row.key]: trimmed } });
+      } else {
+        await updateSettings.mutateAsync({
+          field_label_overrides: { ...overrides, [row.key]: trimmed },
+        });
+      }
     }
   };
 
   const handleResetLabel = async (row: FieldRow) => {
     if (row.category === "custom") return;
+    // Clear every store so a reset can't be resurrected by a legacy fallback.
     const nextOverrides = { ...overrides };
     delete nextOverrides[row.key];
     const nextCol = { ...(settings?.column_overrides || {}) };
@@ -292,6 +292,11 @@ export function FieldsPanel() {
       field_label_overrides: nextOverrides,
       column_overrides: nextCol,
     });
+    if (layout?.labels?.[row.key] !== undefined) {
+      const nextLabels = { ...layout.labels };
+      delete nextLabels[row.key];
+      await saveLayout({ ...layout, labels: nextLabels });
+    }
   };
 
   const requestDelete = (row: FieldRow) => {
@@ -411,13 +416,25 @@ export function FieldsPanel() {
       seen.add(k);
       out.push({ kind: "system", key: k, label: resolveFieldLabel(k, f.label, overrides), category: f.group, deleted: false });
     }
+    // Registry fields that were never placed in any layout list (new custom
+    // fields, or fields missing from the shipped defaults) are otherwise
+    // unreachable — surface them here so they can be added to a surface.
+    for (const r of rows) {
+      if (seen.has(r.key)) continue;
+      if (layout.table.order.includes(r.key)) continue;
+      if (layout.detail.groups.some((g) => g.fields.includes(r.key))) continue;
+      const f = allFieldMap.get(r.key);
+      if (!f) continue;
+      seen.add(r.key);
+      out.push({ kind: "system", key: r.key, label: resolveFieldLabel(r.key, f.label, overrides), category: f.group, deleted: false });
+    }
     for (const f of customFields.filter((f) => !f.is_active)) {
       if (seen.has(f.key)) continue;
       seen.add(f.key);
       out.push({ kind: "custom", key: f.key, label: f.label, category: "custom", deleted: false });
     }
     return out;
-  }, [layout, tableRows, detailRows, allFieldMap, overrides, customFields]);
+  }, [layout, rows, tableRows, detailRows, allFieldMap, overrides, customFields]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
