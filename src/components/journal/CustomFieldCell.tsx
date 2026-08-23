@@ -11,13 +11,18 @@ import { ExternalLink } from "lucide-react";
 interface CustomFieldCellProps {
   trade: Trade;
   field: CustomFieldDefinition;
+  /** Ids of every leg in a grouped trade — edits fan out to all of them. */
+  legIds?: string[];
+  /** Resolved (user-renamed) label used as the empty-state placeholder. */
+  label?: string;
 }
 
-export function CustomFieldCell({ trade, field }: CustomFieldCellProps) {
+export function CustomFieldCell({ trade, field, legIds, label }: CustomFieldCellProps) {
   const updateTrade = useUpdateTrade();
   const current = (trade as any).custom_fields?.[field.key];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>(current ?? "");
+  const placeholder = label ?? field.label;
 
   const save = async (next: any) => {
     const nextFields = { ...((trade as any).custom_fields || {}) };
@@ -26,8 +31,12 @@ export function CustomFieldCell({ trade, field }: CustomFieldCellProps) {
     } else {
       nextFields[field.key] = next;
     }
-    await updateTrade.mutateAsync({ id: trade.id, custom_fields: nextFields } as any);
+    const targets = legIds && legIds.length > 0 ? legIds : [trade.id];
+    await Promise.all(
+      targets.map((id) => updateTrade.mutateAsync({ id, custom_fields: nextFields } as any)),
+    );
   };
+
 
   if (field.type === "select" || field.type === "multi_select") {
     // Pass the picker hex straight through — BadgeSelect uses customColor for an exact match.
