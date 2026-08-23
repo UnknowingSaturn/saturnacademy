@@ -71,7 +71,21 @@ export function FieldCell({
     );
   }
 
+  // Custom fields live in `trades.custom_fields` and carry their own option
+  // list — they must never fall through to the system select/readonly cells.
+  if (field.source.kind === "custom") {
+    return (
+      <CustomFieldCellWrapper
+        trade={trade}
+        fieldKey={field.source.key}
+        legIds={legIds}
+        label={label}
+      />
+    );
+  }
+
   const valueType = field.editor ?? field.valueType;
+
 
   if (valueType === "account") {
     return <AccountCell field={field} trade={trade} surface={surface} accounts={accounts} legIds={legIds} />;
