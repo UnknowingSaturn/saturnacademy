@@ -682,17 +682,25 @@ export function FieldsPanel() {
   );
 }
 
-function TableRowCard({
-  row, label, hasOverride, isVisible,
-  onRename, onResetLabel, onToggle, onDelete, onEditCustom, onConfigureSystem,
+function UnifiedFieldRow({
+  row, label, hasOverride, supportsTable, supportsDetail, inTable, inDetail,
+  groupId, groups, onRename, onResetLabel, onToggleTable, onToggleDetail,
+  onMoveToGroup, onDelete, onEditCustom, onConfigureSystem,
 }: {
   row: FieldRow;
   label: string;
   hasOverride: boolean;
-  isVisible: boolean;
+  supportsTable: boolean;
+  supportsDetail: boolean;
+  inTable: boolean;
+  inDetail: boolean;
+  groupId: string | null;
+  groups: JournalFieldLayout["detail"]["groups"];
   onRename: (next: string) => void;
   onResetLabel: () => void;
-  onToggle: () => void;
+  onToggleTable: () => void;
+  onToggleDetail: () => void;
+  onMoveToGroup: (groupId: string) => void;
   onDelete: () => void;
   onEditCustom?: () => void;
   onConfigureSystem?: () => void;
@@ -715,265 +723,14 @@ function TableRowCard({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "rounded-lg border border-border bg-card/50 transition-colors",
-        isDragging && "opacity-50 shadow-lg",
+        "flex items-center gap-3 px-3 py-2 border-b border-border last:border-b-0 hover:bg-muted/30 transition-colors",
+        isDragging && "opacity-50 bg-muted",
       )}
     >
-      <div className="flex items-center gap-3 p-3">
-        <button {...attributes} {...listeners} className="touch-none cursor-grab active:cursor-grabbing">
-          <GripVertical className="w-4 h-4 text-muted-foreground" />
-        </button>
-
-        <div className="flex-1 min-w-0">
-          {editing ? (
-            <Input
-              autoFocus
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commit}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commit();
-                if (e.key === "Escape") { setDraft(label); setEditing(false); }
-              }}
-              className="h-7 text-sm"
-            />
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => { setDraft(label); setEditing(true); }}
-                className="font-medium text-left text-sm hover:underline decoration-dotted underline-offset-4"
-              >
-                {label}
-              </button>
-              {isCore && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0 rounded text-[10px] border border-border bg-muted/50">
-                  <Lock className="w-2.5 h-2.5" />
-                  Core
-                </span>
-              )}
-              {row.category === "custom" && (
-                <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] border border-border bg-muted/50">Custom</span>
-              )}
-              {hasOverride && !isCore && (
-                <button onClick={onResetLabel} className="text-[10px] text-primary hover:underline" title="Reset to default name">
-                  reset
-                </button>
-              )}
-            </div>
-          )}
-          {row.description && <div className="text-[11px] text-muted-foreground mt-0.5">{row.description}</div>}
-        </div>
-
-        <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
-          <span>{isVisible ? "Visible" : "Hidden"}</span>
-          <Switch checked={isVisible} onCheckedChange={onToggle} />
-        </label>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <MoreHorizontal className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuItem onClick={() => { setDraft(label); setEditing(true); }}>
-              <Pencil className="w-4 h-4 mr-2" />
-              Rename
-            </DropdownMenuItem>
-            {row.category === "custom" && onEditCustom && (
-              <DropdownMenuItem onClick={onEditCustom}>
-                <Pencil className="w-4 h-4 mr-2" />
-                Edit field & change type…
-              </DropdownMenuItem>
-            )}
-            {onConfigureSystem && row.category !== "custom" && (
-              <DropdownMenuItem onClick={onConfigureSystem}>
-                <Settings2 className="w-4 h-4 mr-2" />
-                Configure type & options…
-              </DropdownMenuItem>
-            )}
-            {!isCore && (
-              <>
-                <DropdownMenuItem onClick={onDelete} className="text-destructive">
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete field
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </div>
-  );
-}
-
-function DetailGroup({
-  group, layout, rows, addableRows, onAddField, overrides,
-  onRename, onDelete, onToggleField, onMoveField, onReorder,
-  onRenameField, onResetLabel, onDeleteField, onEditCustom, onConfigureSystem,
-  editing, onStartEditing, onCancelEditing, draft, onDraftChange, onCommitRename,
-}: {
-  group: JournalFieldLayout["detail"]["groups"][number];
-  addableRows: FieldRow[];
-  onAddField: (key: string) => void;
-
-  layout: JournalFieldLayout;
-  rows: FieldRow[];
-  overrides: Record<string, string>;
-  onRename: (label: string) => void;
-  onDelete: () => void;
-  onToggleField: (key: string) => void;
-  onMoveField: (key: string, groupId: string) => void;
-  onReorder: (event: DragEndEvent) => void;
-  onRenameField: (row: FieldRow, label: string) => void;
-  onResetLabel: (row: FieldRow) => void;
-  onDeleteField: (row: FieldRow) => void;
-  onEditCustom: (row: FieldRow) => void;
-  onConfigureSystem: (row: FieldRow) => void;
-  editing: boolean;
-  onStartEditing: () => void;
-  onCancelEditing: () => void;
-  draft: string;
-  onDraftChange: (v: string) => void;
-  onCommitRename: (v: string) => void;
-}) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  const rowMap = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
-  const groupRows = useMemo(
-    () => group.fields.map((k) => rowMap.get(k)).filter((r): r is FieldRow => !!r),
-    [group.fields, rowMap],
-  );
-  const otherGroups = layout.detail.groups.filter((g) => g.id !== group.id);
-
-  return (
-    <div className="rounded-lg border border-border bg-card/50 overflow-hidden">
-      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-muted/30 border-b border-border">
-        {editing ? (
-          <div className="flex items-center gap-2 flex-1">
-            <Input
-              autoFocus
-              value={draft}
-              onChange={(e) => onDraftChange(e.target.value)}
-              onBlur={() => onCommitRename(draft)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onCommitRename(draft);
-                if (e.key === "Escape") onCancelEditing();
-              }}
-              className="h-7 text-sm"
-            />
-          </div>
-        ) : (
-          <button
-            onClick={onStartEditing}
-            className="font-medium text-sm hover:underline decoration-dotted underline-offset-4"
-          >
-            {group.label}
-          </button>
-        )}
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onStartEditing}>
-            <Pencil className="w-3.5 h-3.5" />
-          </Button>
-          {group.fields.length === 0 && (
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={onDelete}>
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
-          )}
-        </div>
-      </div>
-      <div className="p-2">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onReorder}>
-          <SortableContext items={group.fields} strategy={verticalListSortingStrategy}>
-            <div className="space-y-1">
-              {groupRows.map((row) => (
-                <DetailFieldRow
-                  key={row.key}
-                  row={row}
-                  label={resolveFieldLabel(row.key, row.label, overrides)}
-                  hasOverride={!!overrides[row.key]}
-                  groupOptions={otherGroups}
-                  onToggle={() => onToggleField(row.key)}
-                  onMove={(groupId) => onMoveField(row.key, groupId)}
-                  onRename={(next) => onRenameField(row, next)}
-                  onResetLabel={() => onResetLabel(row)}
-                  onDelete={() => onDeleteField(row)}
-                  onEditCustom={() => onEditCustom(row)}
-                  onConfigureSystem={() => onConfigureSystem(row)}
-                />
-              ))}
-              {groupRows.length === 0 && (
-                <div className="text-xs text-muted-foreground italic px-2 py-1">Drag fields here or use the move menu.</div>
-              )}
-            </div>
-          </SortableContext>
-        </DndContext>
-        {addableRows.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="w-full mt-1 justify-start text-muted-foreground">
-                <Plus className="w-3.5 h-3.5 mr-1" />
-                Add field
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64 max-h-72 overflow-y-auto">
-              {addableRows.map((r) => (
-                <DropdownMenuItem key={r.key} onClick={() => onAddField(r.key)}>
-                  <span className="truncate">{resolveFieldLabel(r.key, r.label, overrides)}</span>
-                  {r.category === "custom" && (
-                    <span className="ml-auto text-[10px] text-muted-foreground">Custom</span>
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
-
-    </div>
-  );
-}
-
-function DetailFieldRow({
-  row, label, hasOverride, groupOptions,
-  onToggle, onMove, onRename, onResetLabel, onDelete, onEditCustom, onConfigureSystem,
-}: {
-  row: FieldRow;
-  label: string;
-  hasOverride: boolean;
-  groupOptions: { id: string; label: string }[];
-  onToggle: () => void;
-  onMove: (groupId: string) => void;
-  onRename: (next: string) => void;
-  onResetLabel: () => void;
-  onDelete: () => void;
-  onEditCustom?: () => void;
-  onConfigureSystem?: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(label);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: row.key });
-  const style = { transform: CSS.Transform.toString(transform), transition };
-
-  const commit = () => {
-    if (draft.trim() && draft !== label) onRename(draft.trim());
-    setEditing(false);
-  };
-
-  const isCore = row.category === "core";
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        "flex items-center gap-2 p-2 rounded-md transition-colors",
-        isDragging && "opacity-50 shadow bg-muted",
-      )}
-    >
-      <button {...attributes} {...listeners} className="touch-none cursor-grab active:cursor-grabbing">
-        <GripVertical className="w-3.5 h-3.5 text-muted-foreground" />
+      <button {...attributes} {...listeners} className="touch-none cursor-grab active:cursor-grabbing shrink-0">
+        <GripVertical className="w-4 h-4 text-muted-foreground" />
       </button>
+
       <div className="flex-1 min-w-0">
         {editing ? (
           <Input
@@ -988,80 +745,100 @@ function DetailFieldRow({
             className="h-7 text-sm"
           />
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={() => { setDraft(label); setEditing(true); }}
-              className="text-sm text-left hover:underline decoration-dotted underline-offset-4"
+              className="font-medium text-left text-sm truncate hover:underline decoration-dotted underline-offset-4"
+              title={label}
             >
               {label}
             </button>
             {isCore && (
-              <span className="inline-flex items-center gap-1 px-1 py-0 rounded text-[10px] border border-border bg-muted/50">
-                <Lock className="w-2.5 h-2.5" />
-                Core
+              <span className="inline-flex items-center gap-1 px-1.5 py-0 rounded text-[10px] border border-border bg-muted/50 shrink-0">
+                <Lock className="w-2.5 h-2.5" /> Core
               </span>
             )}
-            {hasOverride && !isCore && (
-              <button onClick={onResetLabel} className="text-[10px] text-primary hover:underline" title="Reset to default name">
+            {row.category === "custom" && (
+              <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] border border-border bg-muted/50 shrink-0">Custom</span>
+            )}
+            {hasOverride && (
+              <button onClick={onResetLabel} className="text-[10px] text-primary hover:underline shrink-0" title="Reset to default name">
                 reset
               </button>
             )}
           </div>
         )}
+        {row.description && <div className="text-[11px] text-muted-foreground">{row.description}</div>}
       </div>
+
+      <div className="w-16 flex justify-center">
+        {supportsTable ? (
+          <Switch checked={inTable} onCheckedChange={onToggleTable} />
+        ) : (
+          <span className="text-[10px] text-muted-foreground">—</span>
+        )}
+      </div>
+
+      <div className="w-16 flex justify-center">
+        {supportsDetail ? (
+          <Switch checked={inDetail} onCheckedChange={onToggleDetail} />
+        ) : (
+          <span className="text-[10px] text-muted-foreground">—</span>
+        )}
+      </div>
+
+      <div className="w-36">
+        {supportsDetail && inDetail ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 w-full justify-start text-xs truncate">
+                {groups.find((g) => g.id === groupId)?.label ?? "Unassigned"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {groups.map((g) => (
+                <DropdownMenuItem key={g.id} onClick={() => onMoveToGroup(g.id)}>
+                  {g.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span className="text-[10px] text-muted-foreground pl-2">—</span>
+        )}
+      </div>
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-7 w-7">
-            <MoreHorizontal className="w-3.5 h-3.5" />
+          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+            <MoreHorizontal className="w-4 h-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem onClick={() => { setDraft(label); setEditing(true); }}>
-            <Pencil className="w-4 h-4 mr-2" />
-            Rename
-          </DropdownMenuItem>
-          {groupOptions.length > 0 && (
-            <>
-              <DropdownMenuItem disabled className="text-xs text-muted-foreground">
-                Move to group
-              </DropdownMenuItem>
-              {groupOptions.map((g) => (
-                <DropdownMenuItem key={g.id} onClick={() => onMove(g.id)}>
-                  <ChevronDown className="w-4 h-4 mr-2" />
-                  {g.label}
-                </DropdownMenuItem>
-              ))}
-            </>
-          )}
-          <DropdownMenuItem onClick={onToggle}>
-            <EyeOff className="w-4 h-4 mr-2" />
-            Hide from detail
+            <Pencil className="w-4 h-4 mr-2" /> Rename
           </DropdownMenuItem>
           {row.category === "custom" && onEditCustom && (
             <DropdownMenuItem onClick={onEditCustom}>
-              <Pencil className="w-4 h-4 mr-2" />
-              Edit field & change type…
+              <Pencil className="w-4 h-4 mr-2" /> Edit field & change type…
             </DropdownMenuItem>
           )}
           {onConfigureSystem && row.category !== "custom" && (
             <DropdownMenuItem onClick={onConfigureSystem}>
-              <Settings2 className="w-4 h-4 mr-2" />
-              Configure type & options…
+              <Settings2 className="w-4 h-4 mr-2" /> Configure type & options…
             </DropdownMenuItem>
           )}
           {!isCore && (
-            <>
-              <DropdownMenuItem onClick={onDelete} className="text-destructive">
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete field
-              </DropdownMenuItem>
-            </>
+            <DropdownMenuItem onClick={onDelete} className="text-destructive">
+              <Trash2 className="w-4 h-4 mr-2" /> Delete field
+            </DropdownMenuItem>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
   );
 }
+
 
 function kindHint(f: import("@/lib/journalFields/registry").FieldDef): string {
   switch (f.valueType) {
