@@ -149,13 +149,14 @@ export function useUpdateTrade() {
     mutationFn: async ({ id, ...updates }: Partial<Trade> & { id: string }) => {
       const updateData: Record<string, unknown> = {};
 
-      // Array fields
-      if (updates.alignment) {
+      // Array fields — compare against undefined so clearing to [] persists.
+      if (updates.alignment !== undefined) {
         updateData.alignment = updates.alignment;
       }
-      if (updates.entry_timeframes) {
+      if (updates.entry_timeframes !== undefined) {
         updateData.entry_timeframes = updates.entry_timeframes;
       }
+
       // Custom fields (jsonb) — explicit allowlist so silent strip never recurs
       if ((updates as any).custom_fields !== undefined) {
         updateData.custom_fields = (updates as any).custom_fields as unknown as Json;
