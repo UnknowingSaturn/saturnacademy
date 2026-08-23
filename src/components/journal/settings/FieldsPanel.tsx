@@ -140,13 +140,18 @@ export function FieldsPanel() {
     return out;
   }, [allFields, allFieldMap, customFields, layout]);
 
-  const saveLayout = async (next: JournalFieldLayout) => {
+  const saveLayout = async (raw: JournalFieldLayout) => {
+    // Group membership is the source of truth for detail order; keep the
+    // flattened order in sync so nothing reads a stale list.
+    const detailOrder = raw.detail.groups.flatMap((g) => g.fields);
+    const next: JournalFieldLayout = {
+      ...raw,
+      detail: { ...raw.detail, order: detailOrder },
+    };
     // Derive legacy fields for backward compatibility.
     const visibleColumns = next.table.order.filter((k) => !next.table.hidden.includes(k));
     const columnOrder = next.table.order;
-    const detailOrder = next.detail.groups.flatMap((g) => g.fields);
     const detailVisible = detailOrder.filter((k) => !next.detail.hidden.includes(k));
-    const detailHidden = next.detail.hidden;
 
     await updateSettings.mutateAsync({
       journal_field_layout: next,
@@ -157,6 +162,7 @@ export function FieldsPanel() {
       deleted_system_fields: next.removed,
     });
   };
+
 
   const handleTableReorder = async (event: DragEndEvent) => {
     const { active, over } = event;
