@@ -445,13 +445,18 @@ export function FieldsPanel() {
     // unreachable — surface them here so they can be added to a surface.
     for (const r of rows) {
       if (seen.has(r.key)) continue;
-      if (layout.table.order.includes(r.key)) continue;
-      if (layout.detail.groups.some((g) => g.fields.includes(r.key))) continue;
       const f = allFieldMap.get(r.key);
       if (!f) continue;
+      const inDetailGroup = layout.detail.groups.some((g) => g.fields.includes(r.key));
+      const inTable = layout.table.order.includes(r.key);
+      // A field is only "reachable" when every surface it supports lists it.
+      const detailOk = !f.surfaces.includes("detail") || inDetailGroup;
+      const tableOk = !f.surfaces.includes("table") || inTable;
+      if (detailOk && tableOk) continue;
       seen.add(r.key);
       out.push({ kind: "system", key: r.key, label: resolveFieldLabel(r.key, f.label, overrides), category: f.group, deleted: false });
     }
+
     for (const f of customFields.filter((f) => !f.is_active)) {
       if (seen.has(f.key)) continue;
       seen.add(f.key);
