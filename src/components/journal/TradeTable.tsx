@@ -29,7 +29,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useUserSettings, useUpdateUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
 import { FieldCell } from "@/lib/journalFields/FieldCell";
-import { buildFieldRegistry, FieldDef } from "@/lib/journalFields/registry";
+import { buildFieldRegistry, FieldDef, resolveLabelMap } from "@/lib/journalFields/registry";
 
 
 
@@ -141,10 +141,22 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
     [customFields, accounts]
   );
   const getField = (key: string) => fieldRegistry.find((f) => f.key === key);
-  const getColumn = (key: string): ColumnDefinition => {
-    const field = getField(key);
-    return toColumnDefinition(field, key, settings?.column_overrides?.[key]);
-  };
+  // Labels come from the unified label map so the table header, the detail row
+  // and the empty-state placeholder can never disagree.
+  const labelMap = useMemo(() => resolveLabelMap(settings), [settings]);
+  const getColumn = useMemo(() => {
+    const cache = new Map<string, ColumnDefinition>();
+    return (key: string): ColumnDefinition => {
+      const hit = cache.get(key);
+      if (hit) return hit;
+      const field = getField(key);
+      const width = settings?.column_overrides?.[key]?.width;
+      const def = toColumnDefinition(field, key, { label: labelMap[key], width });
+      cache.set(key, def);
+      return def;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldRegistry, labelMap, settings?.column_overrides]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -406,7 +418,9 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
                         field={field}
                         trade={trade}
                         surface="table"
+                        label={labelMap[field.key] ?? field.label}
                         legIds={legs.map(l => l.id)}
+
                         accounts={accounts}
                         playbooks={playbooks}
                         isGroup={isGroup}

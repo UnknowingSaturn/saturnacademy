@@ -1,10 +1,10 @@
 import { Trade, SessionType, EmotionalState, TimeframeAlignment, TradeProfile, RegimeType } from "@/types/trading";
-import { useUpdateTrade, useUpsertTradeReview } from "@/hooks/useTrades";
+
 import { usePlaybooks } from "@/hooks/usePlaybooks";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { useCustomFieldDefinitions } from "@/hooks/useCustomFields";
-import { buildFieldRegistry, getFieldDef, resolveFieldLabel } from "@/lib/journalFields/registry";
+import { buildFieldRegistry, getFieldDef, resolveFieldLabel, resolveLabelMap } from "@/lib/journalFields/registry";
 import { FieldCell } from "@/lib/journalFields/FieldCell";
 import { cn } from "@/lib/utils";
 import { formatFullDateTimeET, getDayNameET } from "@/lib/time";
@@ -30,32 +30,10 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const isGroup = !!legs && legs.length > 1;
   const legList = legs && legs.length > 0 ? legs : [trade];
   const agg = aggregate ?? trade;
-  const updateTradeMut = useUpdateTrade();
-  const upsertReviewMut = useUpsertTradeReview();
+  // Fan-out to every leg of a grouped trade lives in FieldCell's useLegMutate;
+  // this component just supplies the leg ids so there is a single implementation.
+  const legIds = useMemo(() => (isGroup ? legList.map((l) => l.id) : undefined), [isGroup, legList]);
 
-  // Wrap the base mutations so any qualitative edit made against the leader
-  // row automatically fans out to every leg in the group. Numeric/price
-  // fields are only rendered as read-only in this component, so all edit
-  // sites here are safe to propagate.
-  const legIds = useMemo(() => legList.map((l) => l.id), [legList]);
-  const updateTrade = useMemo(() => ({
-    mutateAsync: async (args: { id: string } & Partial<Trade>) => {
-      const { id, ...patch } = args;
-      if (isGroup && id === trade.id) {
-        return Promise.all(legIds.map((lid) => updateTradeMut.mutateAsync({ id: lid, ...patch } as Partial<Trade> & { id: string })));
-      }
-      return updateTradeMut.mutateAsync(args);
-    },
-  }), [updateTradeMut, isGroup, legIds, trade.id]);
-  const upsertReview = useMemo(() => ({
-    mutateAsync: async (args: { review: Partial<import("@/types/trading").TradeReview> & { trade_id: string }; silent?: boolean }) => {
-      const { review, silent } = args;
-      if (isGroup && review.trade_id === trade.id) {
-        return Promise.all(legIds.map((lid) => upsertReviewMut.mutateAsync({ review: { ...review, trade_id: lid }, silent })));
-      }
-      return upsertReviewMut.mutateAsync(args);
-    },
-  }), [upsertReviewMut, isGroup, legIds, trade.id]);
 
   const { data: playbooks } = usePlaybooks();
   const { data: accounts } = useAccounts();
@@ -94,7 +72,7 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const layout = settings?.journal_field_layout;
   const allFields = buildFieldRegistry(customFields, accounts ?? []);
   const allFieldMap = useMemo(() => new Map(allFields.map((f) => [f.key, f])), [allFields]);
-  const overrides = settings?.field_label_overrides || {};
+  const overrides = resolveLabelMap(settings);
 
   const groups = layout?.detail?.groups ?? [];
 
@@ -108,6 +86,7 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
           field={field}
           trade={trade}
           surface="detail"
+          label={label}
           legIds={legIds}
           accounts={accounts}
           playbooks={playbooks}

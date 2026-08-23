@@ -40,10 +40,7 @@ interface TradeDetailPanelProps {
 
 interface ReviewData {
   checklistAnswers: Record<string, boolean>;
-  regime: RegimeType | "";
   newsRisk: NewsRisk;
-  emotionBefore: EmotionalState | "";
-  emotionAfter: EmotionalState | "";
   psychNotes: string;
   mistakes: string[];
   didWell: string[];
@@ -52,6 +49,7 @@ interface ReviewData {
   thoughts: string;
   screenshots: TradeScreenshot[];
 }
+
 
 // Helper to parse screenshots from existing review
 function parseScreenshots(data: unknown): TradeScreenshot[] {
@@ -74,10 +72,8 @@ function parseScreenshots(data: unknown): TradeScreenshot[] {
 function getInitialReviewData(review?: TradeReview): ReviewData {
   return {
     checklistAnswers: review?.checklist_answers || {},
-    regime: review?.regime || "",
     newsRisk: review?.news_risk || "none",
-    emotionBefore: review?.emotional_state_before || "",
-    emotionAfter: review?.emotional_state_after || "",
+
     psychNotes: review?.psychology_notes || "",
     mistakes: review?.mistakes || [],
     didWell: review?.did_well || [],
@@ -140,10 +136,8 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       playbook_id: trade.playbook_id || null,
       checklist_answers: data.checklistAnswers,
       score,
-      regime: data.regime || null,
       news_risk: data.newsRisk,
-      emotional_state_before: data.emotionBefore || null,
-      emotional_state_after: data.emotionAfter || null,
+
       psychology_notes: data.psychNotes || null,
       mistakes: data.mistakes,
       did_well: data.didWell,
@@ -207,6 +201,19 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       setReviewData(getInitialReviewData(trade.review));
     }
   }, [trade?.id, trade?.review, lastTradeId, hasDraft, restoreDraft]);
+
+  // Re-seed from the server whenever the review row changes underneath us
+  // (e.g. another surface saved) and the user has nothing pending locally.
+  // Without this the panel keeps a stale snapshot for the whole session.
+  const serverReviewSignature = trade?.review ? JSON.stringify(trade.review) : "";
+  useEffect(() => {
+    if (!trade || trade.id !== lastTradeId) return;
+    if (hasUnsavedChanges || saveStatus === "saving") return;
+    const next = getInitialReviewData(trade.review);
+    setReviewData((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverReviewSignature, lastTradeId, hasUnsavedChanges, saveStatus]);
+
 
   // Persist input drafts to localStorage when they change
   useEffect(() => {

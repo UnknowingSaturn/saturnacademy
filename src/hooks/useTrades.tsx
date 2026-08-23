@@ -170,6 +170,8 @@ export function useUpdateTrade() {
         'r_multiple_actual', 'r_multiple_planned', 'session', 'is_open',
         'playbook_id', 'profile', 'place', 'trade_number', 'account_id',
         'actual_playbook_id', 'actual_profile', 'actual_regime',
+        'trade_type', 'risk_percent', 'original_lots', 'duration_seconds',
+        'is_archived', 'archived_at', 'ticket', 'terminal_id',
       ] as const;
 
       for (const field of scalarFields) {
@@ -177,6 +179,21 @@ export function useUpdateTrade() {
           updateData[field] = updates[field];
         }
       }
+
+      // Fail loudly instead of reporting success for a write we dropped.
+      const known = new Set<string>([
+        ...scalarFields,
+        'alignment',
+        'entry_timeframes',
+        'custom_fields',
+      ]);
+      const unknown = Object.keys(updates).filter(
+        (k) => !known.has(k) && (updates as Record<string, unknown>)[k] !== undefined,
+      );
+      if (unknown.length > 0) {
+        throw new Error(`Unsupported trade column(s): ${unknown.join(', ')}`);
+      }
+
 
       const { data, error } = await supabase
         .from('trades')
