@@ -891,7 +891,28 @@ function DetailGroup({
             </div>
           </SortableContext>
         </DndContext>
+        {addableRows.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full mt-1 justify-start text-muted-foreground">
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add field
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64 max-h-72 overflow-y-auto">
+              {addableRows.map((r) => (
+                <DropdownMenuItem key={r.key} onClick={() => onAddField(r.key)}>
+                  <span className="truncate">{resolveFieldLabel(r.key, r.label, overrides)}</span>
+                  {r.category === "custom" && (
+                    <span className="ml-auto text-[10px] text-muted-foreground">Custom</span>
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
+
     </div>
   );
 }
