@@ -495,93 +495,110 @@ export function FieldsPanel() {
         </Button>
       </div>
 
-      <Tabs defaultValue="table">
-        <TabsList className="w-full">
-          <TabsTrigger value="table" className="flex-1">Table columns</TabsTrigger>
-          <TabsTrigger value="detail" className="flex-1">Detail groups</TabsTrigger>
-        </TabsList>
+      {/* Detail groups (sections) — compact manager above the field list. */}
+      <div className="rounded-lg border border-border p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-medium text-muted-foreground">Detail sections</div>
+          <Button variant="ghost" size="sm" onClick={handleAddGroup}>
+            <Plus className="w-3.5 h-3.5 mr-1" /> Add section
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(layout?.detail?.groups ?? []).map((group) => (
+            <div key={group.id} className="flex items-center gap-1 rounded-md border border-border bg-muted/30 px-2 py-1">
+              {editingGroupId === group.id ? (
+                <Input
+                  autoFocus
+                  value={groupDraft}
+                  onChange={(e) => setGroupDraft(e.target.value)}
+                  onBlur={() => { handleRenameGroup(group.id, groupDraft); setEditingGroupId(null); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { handleRenameGroup(group.id, groupDraft); setEditingGroupId(null); }
+                    if (e.key === "Escape") setEditingGroupId(null);
+                  }}
+                  className="h-6 w-32 text-xs"
+                />
+              ) : (
+                <button
+                  className="text-xs hover:underline decoration-dotted underline-offset-4"
+                  onClick={() => { setEditingGroupId(group.id); setGroupDraft(group.label); }}
+                >
+                  {group.label}
+                </button>
+              )}
+              <span className="text-[10px] text-muted-foreground">{group.fields.length}</span>
+              <button
+                className="text-muted-foreground hover:text-destructive"
+                title="Delete section (fields move to hidden)"
+                onClick={() => handleDeleteGroup(group.id)}
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
 
-        <TabsContent value="table" className="space-y-3">
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleTableReorder}>
-            <SortableContext items={tableRows.map((r) => r.key)} strategy={verticalListSortingStrategy}>
-              <div className="space-y-2">
-                {tableRows.map((row) => (
-                  <TableRowCard
+      {/* Unified field list: one row per field, toggles per surface. */}
+      <div className="rounded-lg border border-border">
+        <div className="flex items-center gap-3 px-3 py-2 border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
+          <span className="flex-1">Field</span>
+          <span className="w-16 text-center">Table</span>
+          <span className="w-16 text-center">Detail</span>
+          <span className="w-36">Section</span>
+          <span className="w-8" />
+        </div>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleUnifiedReorder}>
+          <SortableContext items={unifiedRows.map((r) => r.key)} strategy={verticalListSortingStrategy}>
+            <div>
+              {unifiedRows.map((row) => {
+                const def = allFieldMap.get(row.key);
+                const supportsTable = !!def?.surfaces.includes("table");
+                const supportsDetail = !!def?.surfaces.includes("detail");
+                const groupId = layout?.detail.groups.find((g) => g.fields.includes(row.key))?.id ?? null;
+                return (
+                  <UnifiedFieldRow
                     key={row.key}
                     row={row}
                     label={resolveFieldLabel(row.key, row.label, overrides)}
-                    hasOverride={!!overrides[row.key]}
-                    isVisible={!!layout && layout.table.order.includes(row.key) && !layout.table.hidden.includes(row.key)}
+                    hasOverride={!!overrides[row.key] || !!layout?.labels?.[row.key]}
+                    supportsTable={supportsTable}
+                    supportsDetail={supportsDetail}
+                    inTable={!!layout && layout.table.order.includes(row.key) && !layout.table.hidden.includes(row.key)}
+                    inDetail={!!groupId}
+                    groupId={groupId}
+                    groups={layout?.detail.groups ?? []}
                     onRename={(next) => handleRename(row, next)}
                     onResetLabel={() => handleResetLabel(row)}
-                    onToggle={() => handleToggleTable(row.key)}
+                    onToggleTable={() => handleToggleTable(row.key)}
+                    onToggleDetail={() => handleToggleDetail(row.key)}
+                    onMoveToGroup={(gid) => handleAddFieldToGroup(row.key, gid)}
                     onDelete={() => requestDelete(row)}
                     onEditCustom={() => { if (row.customDef) { setEditingField(row.customDef); setDialogOpen(true); } }}
                     onConfigureSystem={() => setSystemConfigKey(row.key)}
                   />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        </TabsContent>
+                );
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
+      </div>
 
-        <TabsContent value="detail" className="space-y-4">
-          <div className="space-y-4">
-            {(layout?.detail?.groups ?? []).map((group) => (
-              <DetailGroup
-                key={group.id}
-                group={group}
-                layout={layout!}
-                rows={detailRows}
-                addableRows={addableDetailRows}
-                onAddField={(key) => handleAddFieldToGroup(key, group.id)}
-                overrides={overrides}
-
-                onRename={(label) => handleRenameGroup(group.id, label)}
-                onDelete={() => handleDeleteGroup(group.id)}
-                onToggleField={handleToggleDetail}
-                onMoveField={handleMoveToGroup}
-                onReorder={(event) => handleReorderWithinGroup(group.id, event)}
-                onRenameField={handleRename}
-                onResetLabel={handleResetLabel}
-                onDeleteField={requestDelete}
-                onEditCustom={(row) => { if (row.customDef) { setEditingField(row.customDef); setDialogOpen(true); } }}
-                onConfigureSystem={(row) => setSystemConfigKey(row.key)}
-                editing={editingGroupId === group.id}
-                onStartEditing={() => { setEditingGroupId(group.id); setGroupDraft(group.label); }}
-                onCancelEditing={() => setEditingGroupId(null)}
-                draft={groupDraft}
-                onDraftChange={setGroupDraft}
-                onCommitRename={(label) => { handleRenameGroup(group.id, label); setEditingGroupId(null); }}
-              />
-            ))}
-          </div>
-          <Button variant="outline" size="sm" className="w-full" onClick={handleAddGroup}>
-            <Plus className="w-4 h-4 mr-1" />
-            Add group
-          </Button>
-        </TabsContent>
-      </Tabs>
-
-      {hiddenEntries.length > 0 && (
+      {deletedEntries.length > 0 && (
         <div className="pt-4 border-t border-border">
           <div className="text-xs font-medium text-muted-foreground mb-2">
-            Hidden / deleted fields ({hiddenEntries.length})
+            Deleted fields ({deletedEntries.length})
           </div>
           <div className="space-y-2">
-            {hiddenEntries.map((entry) => (
+            {deletedEntries.map((entry) => (
               <div
                 key={entry.key}
-                className={cn(
-                  "flex items-center justify-between p-2.5 rounded-lg border border-dashed",
-                  entry.deleted ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/30"
-                )}
+                className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-destructive/40 bg-destructive/5"
               >
                 <div>
                   <div className="text-sm font-medium">{entry.label}</div>
                   <div className="text-xs text-muted-foreground">
-                    {entry.category === "core" ? "Core" : entry.category === "custom" ? "Custom" : "System"}
-                    {entry.deleted ? " · deleted" : " · hidden"}
+                    {entry.category === "core" ? "Core" : entry.category === "custom" ? "Custom" : "System"} · deleted
                   </div>
                 </div>
                 {entry.kind === "custom" ? (
@@ -600,6 +617,7 @@ export function FieldsPanel() {
           </div>
         </div>
       )}
+
 
       <CustomFieldDialog
         open={dialogOpen}
