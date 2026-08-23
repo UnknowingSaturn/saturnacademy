@@ -435,29 +435,31 @@ export function usePropertyOptions(propertyName?: string, activeOnly: boolean = 
   const queryClient = useQueryClient();
   const initializingRef = useRef(false);
 
-  const query = useQuery<PropertyOption[]>({
-    queryKey: ['property_options', user?.id, propertyName, activeOnly],
+  // One shared cache entry for every property. The journal renders hundreds of
+  // select cells; keying per property/activeOnly created hundreds of duplicate
+  // queries and subscriptions for what is a single small table.
+  const query = useQuery<PropertyOption[], Error, PropertyOption[]>({
+    queryKey: ['property_options', user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
 
-      let q = supabase
+      const { data, error } = await supabase
         .from('custom_field_definitions')
         .select('*')
         .eq('user_id', user.id)
         .eq('scope', 'system_options');
-
-      if (propertyName) q = q.eq('key', propertyName);
-
-      const { data, error } = await q;
       if (error) throw error;
 
-      const rows = (data || []) as any[];
-      const expanded = rows.flatMap(expandOptions);
-      const filtered = activeOnly ? expanded.filter((o) => o.is_active) : expanded;
-      return filtered.sort((a, b) => a.sort_order - b.sort_order);
+      return (data || []).flatMap(expandOptions);
     },
     enabled: !!user?.id,
+    select: (rows) => {
+      const scoped = propertyName ? rows.filter((o) => o.property_name === propertyName) : rows;
+      const filtered = activeOnly ? scoped.filter((o) => o.is_active) : scoped;
+      return [...filtered].sort((a, b) => a.sort_order - b.sort_order);
+    },
   });
+
 
   // Auto-initialize defaults if the requested property has no row yet.
   useEffect(() => {
