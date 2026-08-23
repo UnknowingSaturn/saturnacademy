@@ -130,9 +130,11 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
       <div className="space-y-5">
         {groups.map((group) => {
           const visibleFields = group.fields.filter((k) => {
+            if (suppressed.has(k)) return false;
             const f = allFieldMap.get(k) || getFieldDef(k);
             return f && (f.group !== "custom" || customFields.some((cf) => cf.key === k && cf.is_active));
           });
+
           if (visibleFields.length === 0) return null;
           return (
             <div key={group.id} className="space-y-3">
