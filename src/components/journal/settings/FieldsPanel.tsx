@@ -423,58 +423,56 @@ export function FieldsPanel() {
 
 
 
-  const hiddenEntries = useMemo(() => {
+  // Only *truly* removed things belong in the trash section. Fields that are
+  // merely hidden on one surface stay in the main list with their toggles off,
+  // which is what made the old panel confusing (rows offering "Restore" for
+  // fields that were already present elsewhere).
+  const deletedEntries = useMemo(() => {
     if (!layout) return [];
-    const tableKnown = new Set(tableRows.map((r) => r.key));
-    const detailKnown = new Set(detailRows.map((r) => r.key));
-    const out: Array<{ kind: "system" | "custom"; key: string; label: string; category: "core" | "system" | "custom"; deleted: boolean }> = [];
+    const out: Array<{ kind: "system" | "custom"; key: string; label: string; category: "core" | "system" | "custom" }> = [];
     const seen = new Set<string>();
     for (const k of layout.removed) {
       if (seen.has(k)) continue;
       const f = allFieldMap.get(k);
       if (!f) continue;
       seen.add(k);
-      out.push({ kind: "system", key: k, label: resolveFieldLabel(k, f.label, overrides), category: f.group, deleted: true });
+      out.push({ kind: "system", key: k, label: resolveFieldLabel(k, f.label, overrides), category: f.group });
     }
-    // Hidden fields that are not in removed but not visible in either surface.
-    for (const k of layout.table.hidden) {
-      if (seen.has(k) || !tableKnown.has(k)) continue;
-      const f = allFieldMap.get(k);
-      if (!f) continue;
-      seen.add(k);
-      out.push({ kind: "system", key: k, label: resolveFieldLabel(k, f.label, overrides), category: f.group, deleted: false });
-    }
-    for (const k of layout.detail.hidden) {
-      if (seen.has(k) || !detailKnown.has(k)) continue;
-      const f = allFieldMap.get(k);
-      if (!f) continue;
-      seen.add(k);
-      out.push({ kind: "system", key: k, label: resolveFieldLabel(k, f.label, overrides), category: f.group, deleted: false });
-    }
-    // Registry fields that were never placed in any layout list (new custom
-    // fields, or fields missing from the shipped defaults) are otherwise
-    // unreachable — surface them here so they can be added to a surface.
-    for (const r of rows) {
-      if (seen.has(r.key)) continue;
-      const f = allFieldMap.get(r.key);
-      if (!f) continue;
-      const inDetailGroup = layout.detail.groups.some((g) => g.fields.includes(r.key));
-      const inTable = layout.table.order.includes(r.key);
-      // A field is only "reachable" when every surface it supports lists it.
-      const detailOk = !f.surfaces.includes("detail") || inDetailGroup;
-      const tableOk = !f.surfaces.includes("table") || inTable;
-      if (detailOk && tableOk) continue;
-      seen.add(r.key);
-      out.push({ kind: "system", key: r.key, label: resolveFieldLabel(r.key, f.label, overrides), category: f.group, deleted: false });
-    }
-
-    for (const f of customFields.filter((f) => !f.is_active)) {
+    for (const f of customFields.filter((c) => !c.is_active)) {
       if (seen.has(f.key)) continue;
       seen.add(f.key);
-      out.push({ kind: "custom", key: f.key, label: f.label, category: "custom", deleted: false });
+      out.push({ kind: "custom", key: f.key, label: f.label, category: "custom" });
     }
     return out;
-  }, [layout, rows, tableRows, detailRows, allFieldMap, overrides, customFields]);
+  }, [layout, allFieldMap, overrides, customFields]);
+
+  // The unified list: every live field, in table order first, then the rest.
+  const unifiedRows = useMemo(() => {
+    if (!layout) return rows;
+    const removed = new Set(layout.removed);
+    const live = rows.filter((r) => !removed.has(r.key));
+    const orderIdx = new Map(layout.table.order.map((k, i) => [k, i]));
+    return [...live].sort((a, b) => {
+      const ai = orderIdx.has(a.key) ? orderIdx.get(a.key)! : Number.MAX_SAFE_INTEGER;
+      const bi = orderIdx.has(b.key) ? orderIdx.get(b.key)! : Number.MAX_SAFE_INTEGER;
+      return ai - bi;
+    });
+  }, [rows, layout]);
+
+  const handleUnifiedReorder = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !layout) return;
+    const ids = unifiedRows.map((r) => r.key);
+    const oldIdx = ids.indexOf(String(active.id));
+    const newIdx = ids.indexOf(String(over.id));
+    if (oldIdx < 0 || newIdx < 0) return;
+    const nextAll = arrayMove(ids, oldIdx, newIdx);
+    // Persist only keys that can live in the table, preserving the new order.
+    const tableSet = new Set(layout.table.order);
+    const nextOrder = nextAll.filter((k) => tableSet.has(k));
+    await saveLayout({ ...layout, table: { ...layout.table, order: nextOrder } });
+  };
+
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
