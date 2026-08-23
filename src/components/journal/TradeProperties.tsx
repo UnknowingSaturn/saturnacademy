@@ -75,6 +75,13 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const overrides = resolveLabelMap(settings);
 
   const groups = layout?.detail?.groups ?? [];
+  // Fields the user hid from the detail surface, or deleted outright, must not
+  // render even if a stale group still lists them.
+  const suppressed = useMemo(
+    () => new Set([...(layout?.detail?.hidden ?? []), ...(layout?.removed ?? [])]),
+    [layout?.detail?.hidden, layout?.removed],
+  );
+
 
   const renderField = (key: string) => {
     const field = allFieldMap.get(key) || getFieldDef(key);
