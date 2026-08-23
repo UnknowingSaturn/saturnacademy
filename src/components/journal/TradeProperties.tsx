@@ -75,6 +75,13 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const overrides = resolveLabelMap(settings);
 
   const groups = layout?.detail?.groups ?? [];
+  // Fields the user hid from the detail surface, or deleted outright, must not
+  // render even if a stale group still lists them.
+  const suppressed = useMemo(
+    () => new Set([...(layout?.detail?.hidden ?? []), ...(layout?.removed ?? [])]),
+    [layout?.detail?.hidden, layout?.removed],
+  );
+
 
   const renderField = (key: string) => {
     const field = allFieldMap.get(key) || getFieldDef(key);
@@ -123,9 +130,11 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
       <div className="space-y-5">
         {groups.map((group) => {
           const visibleFields = group.fields.filter((k) => {
+            if (suppressed.has(k)) return false;
             const f = allFieldMap.get(k) || getFieldDef(k);
             return f && (f.group !== "custom" || customFields.some((cf) => cf.key === k && cf.is_active));
           });
+
           if (visibleFields.length === 0) return null;
           return (
             <div key={group.id} className="space-y-3">

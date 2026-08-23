@@ -71,7 +71,21 @@ export function FieldCell({
     );
   }
 
+  // Custom fields live in `trades.custom_fields` and carry their own option
+  // list — they must never fall through to the system select/readonly cells.
+  if (field.source.kind === "custom") {
+    return (
+      <CustomFieldCellWrapper
+        trade={trade}
+        fieldKey={field.source.key}
+        legIds={legIds}
+        label={label}
+      />
+    );
+  }
+
   const valueType = field.editor ?? field.valueType;
+
 
   if (valueType === "account") {
     return <AccountCell field={field} trade={trade} surface={surface} accounts={accounts} legIds={legIds} />;
@@ -144,12 +158,23 @@ function DurationCell({ trade, field }: { trade: Trade; field: FieldDef }) {
   );
 }
 
-function CustomFieldCellWrapper({ trade, fieldKey }: { trade: Trade; fieldKey: string }) {
+function CustomFieldCellWrapper({
+  trade,
+  fieldKey,
+  legIds,
+  label,
+}: {
+  trade: Trade;
+  fieldKey: string;
+  legIds?: string[];
+  label?: string;
+}) {
   const { data: customFields = [] } = useCustomFieldDefinitions();
   const def = customFields.find((f) => f.key === fieldKey);
   if (!def) return <div className="text-sm text-muted-foreground">—</div>;
-  return <CustomFieldCell trade={trade} field={def} />;
+  return <CustomFieldCell trade={trade} field={def} legIds={legIds} label={label} />;
 }
+
 
 function useLegMutate<T extends (args: any) => Promise<any>>(
   mutate: T,

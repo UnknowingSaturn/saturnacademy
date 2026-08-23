@@ -140,13 +140,18 @@ export function FieldsPanel() {
     return out;
   }, [allFields, allFieldMap, customFields, layout]);
 
-  const saveLayout = async (next: JournalFieldLayout) => {
+  const saveLayout = async (raw: JournalFieldLayout) => {
+    // Group membership is the source of truth for detail order; keep the
+    // flattened order in sync so nothing reads a stale list.
+    const detailOrder = raw.detail.groups.flatMap((g) => g.fields);
+    const next: JournalFieldLayout = {
+      ...raw,
+      detail: { ...raw.detail, order: detailOrder },
+    };
     // Derive legacy fields for backward compatibility.
     const visibleColumns = next.table.order.filter((k) => !next.table.hidden.includes(k));
     const columnOrder = next.table.order;
-    const detailOrder = next.detail.groups.flatMap((g) => g.fields);
     const detailVisible = detailOrder.filter((k) => !next.detail.hidden.includes(k));
-    const detailHidden = next.detail.hidden;
 
     await updateSettings.mutateAsync({
       journal_field_layout: next,
@@ -157,6 +162,7 @@ export function FieldsPanel() {
       deleted_system_fields: next.removed,
     });
   };
+
 
   const handleTableReorder = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -220,6 +226,24 @@ export function FieldsPanel() {
     if (target) target.fields.push(key);
     await saveLayout({ ...layout, detail: { ...layout.detail, groups } });
   };
+
+  // Adds a field that lives in no detail group yet (new custom fields, or
+  // fields only present in the table layout) to the chosen group.
+  const handleAddFieldToGroup = async (key: string, targetGroupId: string) => {
+    if (!layout) return;
+    const groups = layout.detail.groups.map((g) => ({
+      ...g,
+      fields: g.fields.filter((k) => k !== key),
+    }));
+    const target = groups.find((g) => g.id === targetGroupId);
+    if (!target) return;
+    target.fields.push(key);
+    const hidden = layout.detail.hidden.filter((k) => k !== key);
+    const removed = layout.removed.filter((k) => k !== key);
+    await saveLayout({ ...layout, detail: { ...layout.detail, groups, hidden }, removed });
+  };
+
+
 
   const handleReorderWithinGroup = async (groupId: string, event: DragEndEvent) => {
     const { active, over } = event;
@@ -388,6 +412,17 @@ export function FieldsPanel() {
     [rows, allFieldMap],
   );
 
+  // Detail-capable fields that sit in no group yet — offered by each group's
+  // "Add field" picker so nothing can be stranded in the table layout.
+  const addableDetailRows = useMemo(() => {
+    if (!layout) return [] as FieldRow[];
+    const inGroup = new Set(layout.detail.groups.flatMap((g) => g.fields));
+    const removed = new Set(layout.removed);
+    return detailRows.filter((r) => !inGroup.has(r.key) && !removed.has(r.key));
+  }, [detailRows, layout]);
+
+
+
   const hiddenEntries = useMemo(() => {
     if (!layout) return [];
     const tableKnown = new Set(tableRows.map((r) => r.key));
@@ -421,13 +456,18 @@ export function FieldsPanel() {
     // unreachable — surface them here so they can be added to a surface.
     for (const r of rows) {
       if (seen.has(r.key)) continue;
-      if (layout.table.order.includes(r.key)) continue;
-      if (layout.detail.groups.some((g) => g.fields.includes(r.key))) continue;
       const f = allFieldMap.get(r.key);
       if (!f) continue;
+      const inDetailGroup = layout.detail.groups.some((g) => g.fields.includes(r.key));
+      const inTable = layout.table.order.includes(r.key);
+      // A field is only "reachable" when every surface it supports lists it.
+      const detailOk = !f.surfaces.includes("detail") || inDetailGroup;
+      const tableOk = !f.surfaces.includes("table") || inTable;
+      if (detailOk && tableOk) continue;
       seen.add(r.key);
       out.push({ kind: "system", key: r.key, label: resolveFieldLabel(r.key, f.label, overrides), category: f.group, deleted: false });
     }
+
     for (const f of customFields.filter((f) => !f.is_active)) {
       if (seen.has(f.key)) continue;
       seen.add(f.key);
@@ -495,7 +535,10 @@ export function FieldsPanel() {
                 group={group}
                 layout={layout!}
                 rows={detailRows}
+                addableRows={addableDetailRows}
+                onAddField={(key) => handleAddFieldToGroup(key, group.id)}
                 overrides={overrides}
+
                 onRename={(label) => handleRenameGroup(group.id, label)}
                 onDelete={() => handleDeleteGroup(group.id)}
                 onToggleField={handleToggleDetail}
@@ -749,12 +792,15 @@ function TableRowCard({
 }
 
 function DetailGroup({
-  group, layout, rows, overrides,
+  group, layout, rows, addableRows, onAddField, overrides,
   onRename, onDelete, onToggleField, onMoveField, onReorder,
   onRenameField, onResetLabel, onDeleteField, onEditCustom, onConfigureSystem,
   editing, onStartEditing, onCancelEditing, draft, onDraftChange, onCommitRename,
 }: {
   group: JournalFieldLayout["detail"]["groups"][number];
+  addableRows: FieldRow[];
+  onAddField: (key: string) => void;
+
   layout: JournalFieldLayout;
   rows: FieldRow[];
   overrides: Record<string, string>;
@@ -845,7 +891,28 @@ function DetailGroup({
             </div>
           </SortableContext>
         </DndContext>
+        {addableRows.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full mt-1 justify-start text-muted-foreground">
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add field
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64 max-h-72 overflow-y-auto">
+              {addableRows.map((r) => (
+                <DropdownMenuItem key={r.key} onClick={() => onAddField(r.key)}>
+                  <span className="truncate">{resolveFieldLabel(r.key, r.label, overrides)}</span>
+                  {r.category === "custom" && (
+                    <span className="ml-auto text-[10px] text-muted-foreground">Custom</span>
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
+
     </div>
   );
 }

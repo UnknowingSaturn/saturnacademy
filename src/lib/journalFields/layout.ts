@@ -102,19 +102,22 @@ export function normalizeLayout(
 
   const backfill = migrateLegacyLayout(legacy);
 
+  // Presence, not emptiness: an intentionally emptied array (e.g. "nothing is
+  // hidden") must persist instead of reverting to the legacy backfill.
   const order: JournalFieldLayout = {
     table: {
-      order: stored.table?.order?.length ? stored.table.order : backfill.table.order,
-      hidden: stored.table?.hidden?.length ? stored.table.hidden : backfill.table.hidden,
+      order: stored.table?.order ?? backfill.table.order,
+      hidden: stored.table?.hidden ?? backfill.table.hidden,
     },
     detail: {
-      order: stored.detail?.order?.length ? stored.detail.order : backfill.detail.order,
-      hidden: stored.detail?.hidden?.length ? stored.detail.hidden : backfill.detail.hidden,
-      groups: stored.detail?.groups?.length ? stored.detail.groups : backfill.detail.groups,
+      order: stored.detail?.order ?? backfill.detail.order,
+      hidden: stored.detail?.hidden ?? backfill.detail.hidden,
+      groups: stored.detail?.groups ?? backfill.detail.groups,
     },
-    removed: stored.removed?.length ? stored.removed : backfill.removed,
-    labels: stored.labels && Object.keys(stored.labels).length ? stored.labels : backfill.labels,
+    removed: stored.removed ?? backfill.removed,
+    labels: stored.labels ?? backfill.labels,
   };
+
 
   return order;
 }
