@@ -51,7 +51,7 @@ export function CustomFieldCell({ trade, field, legIds, label }: CustomFieldCell
           value={field.type === "multi_select" ? (current || []) : (current || "")}
           onChange={(v) => save(v)}
           options={options}
-          placeholder={field.label}
+          placeholder={placeholder}
           multiple={field.type === "multi_select"}
         />
       </div>
