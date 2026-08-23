@@ -212,7 +212,12 @@ export function TradeTable({ trades, onTradeClick, visibleColumns, columnOrder, 
   // Effective per-user column list: Notion-style layout wins, then legacy props
   const activeColumns = useMemo(() => {
     const layout = settings?.journal_field_layout;
-    const hiddenSet = new Set(layout?.table?.hidden || deletedFields || []);
+    // Deleted ("removed") fields are hidden everywhere, not just the detail view.
+    const hiddenSet = new Set([
+      ...(layout?.table?.hidden || deletedFields || []),
+      ...(layout?.removed || []),
+    ]);
+
     const knownSet = new Set(fieldRegistry.map(f => f.key));
     const defaultVisible = DEFAULT_COLUMNS.filter(c =>
       ['trade_number', 'entry_time', 'day', 'symbol', 'session', 'model', 'alignment', 'entry_timeframes', 'profile', 'r_multiple_actual', 'result', 'emotional_state_before', 'place'].includes(c.key)
