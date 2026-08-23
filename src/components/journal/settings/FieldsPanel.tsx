@@ -792,12 +792,15 @@ function TableRowCard({
 }
 
 function DetailGroup({
-  group, layout, rows, overrides,
+  group, layout, rows, addableRows, onAddField, overrides,
   onRename, onDelete, onToggleField, onMoveField, onReorder,
   onRenameField, onResetLabel, onDeleteField, onEditCustom, onConfigureSystem,
   editing, onStartEditing, onCancelEditing, draft, onDraftChange, onCommitRename,
 }: {
   group: JournalFieldLayout["detail"]["groups"][number];
+  addableRows: FieldRow[];
+  onAddField: (key: string) => void;
+
   layout: JournalFieldLayout;
   rows: FieldRow[];
   overrides: Record<string, string>;
