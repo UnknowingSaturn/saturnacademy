@@ -86,7 +86,10 @@ export function TradeProperties({ trade, legs, aggregate }: TradePropertiesProps
   const renderField = (key: string) => {
     const field = allFieldMap.get(key) || getFieldDef(key);
     if (!field) return null;
-    const label = resolveFieldLabel(key, overrides);
+    // Resolve against the *built* registry so custom fields show their name
+    // rather than their storage key (cf_ideal_entry_window_jdl1).
+    const label = resolveFieldLabel(key, field.label, overrides);
+
     return (
       <PropertyRow key={key} label={label}>
         <FieldCell
