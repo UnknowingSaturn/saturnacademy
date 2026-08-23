@@ -158,12 +158,23 @@ function DurationCell({ trade, field }: { trade: Trade; field: FieldDef }) {
   );
 }
 
-function CustomFieldCellWrapper({ trade, fieldKey }: { trade: Trade; fieldKey: string }) {
+function CustomFieldCellWrapper({
+  trade,
+  fieldKey,
+  legIds,
+  label,
+}: {
+  trade: Trade;
+  fieldKey: string;
+  legIds?: string[];
+  label?: string;
+}) {
   const { data: customFields = [] } = useCustomFieldDefinitions();
   const def = customFields.find((f) => f.key === fieldKey);
   if (!def) return <div className="text-sm text-muted-foreground">—</div>;
-  return <CustomFieldCell trade={trade} field={def} />;
+  return <CustomFieldCell trade={trade} field={def} legIds={legIds} label={label} />;
 }
+
 
 function useLegMutate<T extends (args: any) => Promise<any>>(
   mutate: T,
