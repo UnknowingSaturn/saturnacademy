@@ -412,6 +412,17 @@ export function FieldsPanel() {
     [rows, allFieldMap],
   );
 
+  // Detail-capable fields that sit in no group yet — offered by each group's
+  // "Add field" picker so nothing can be stranded in the table layout.
+  const addableDetailRows = useMemo(() => {
+    if (!layout) return [] as FieldRow[];
+    const inGroup = new Set(layout.detail.groups.flatMap((g) => g.fields));
+    const removed = new Set(layout.removed);
+    return detailRows.filter((r) => !inGroup.has(r.key) && !removed.has(r.key));
+  }, [detailRows, layout]);
+
+
+
   const hiddenEntries = useMemo(() => {
     if (!layout) return [];
     const tableKnown = new Set(tableRows.map((r) => r.key));
