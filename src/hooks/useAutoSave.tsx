@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { canonicalStringify } from '@/lib/canonicalJson';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'unsaved';
 
@@ -17,6 +18,8 @@ interface UseAutoSaveReturn<T> {
   hasDraft: boolean;
   clearDraft: () => void;
   restoreDraft: () => T | null;
+  /** Canonical signature of the last payload this hook persisted. */
+  lastSavedSignature: () => string;
 }
 
 export function useAutoSave<T>(
@@ -25,14 +28,19 @@ export function useAutoSave<T>(
   options: UseAutoSaveOptions = {}
 ): UseAutoSaveReturn<T> {
   const { delay = 500, enabled = true, storageKey } = options;
-  
+
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [error, setError] = useState<Error | null>(null);
-  
+
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
+  /** A change arrived while a save was in flight — save again when it settles. */
+  const pendingRef = useRef(false);
   const lastSavedRef = useRef<string>('');
   const saveFnRef = useRef(saveFn);
+  /** Always points at the live data so a coalesced save never sends a stale copy. */
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
   const prevStorageKeyRef = useRef<string | undefined>(storageKey);
 
@@ -41,24 +49,25 @@ export function useAutoSave<T>(
     saveFnRef.current = saveFn;
   }, [saveFn]);
 
+  // Canonical (key-order / null-vs-"" insensitive) signature of the current data.
+  const currentDataStr = canonicalStringify(data);
+
   // Reset state when storageKey (document ID) changes - prevents phantom saves
   useEffect(() => {
     if (storageKey !== prevStorageKeyRef.current) {
-      // Clear any pending timeout
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
-      // Reset baseline to current data
-      lastSavedRef.current = JSON.stringify(data);
+      lastSavedRef.current = canonicalStringify(dataRef.current);
       savingRef.current = false;
+      pendingRef.current = false;
       setStatus('idle');
       setError(null);
       prevStorageKeyRef.current = storageKey;
     }
-  }, [storageKey, data]);
+  }, [storageKey]);
 
-  const currentDataStr = JSON.stringify(data);
   const hasUnsavedChanges = lastSavedRef.current !== '' && currentDataStr !== lastSavedRef.current;
 
   // Check for existing draft
@@ -82,27 +91,43 @@ export function useAutoSave<T>(
     }
   }, [storageKey]);
 
-  // Perform save
-  const performSave = useCallback(async (dataToSave: T) => {
-    if (savingRef.current) return;
-    
+  // Perform save. Always sends the latest data (never a stale debounce capture)
+  // and coalesces changes that land mid-flight instead of dropping them.
+  const performSave = useCallback(async () => {
+    if (savingRef.current) {
+      pendingRef.current = true;
+      return;
+    }
+
     savingRef.current = true;
     setStatus('saving');
     setError(null);
 
+    const snapshot = dataRef.current;
+    const snapshotSig = canonicalStringify(snapshot);
+
     try {
-      await saveFnRef.current(dataToSave);
-      const dataStr = JSON.stringify(dataToSave);
-      lastSavedRef.current = dataStr;
+      await saveFnRef.current(snapshot);
+      lastSavedRef.current = snapshotSig;
       setStatus('saved');
       clearDraft(); // Clear localStorage only after successful save
-      
-      setTimeout(() => setStatus('idle'), 2000);
+
+      setTimeout(() => setStatus((s) => (s === 'saved' ? 'idle' : s)), 2000);
     } catch (err) {
       setStatus('error');
       setError(err instanceof Error ? err : new Error('Save failed'));
-    } finally {
       savingRef.current = false;
+      pendingRef.current = false;
+      return;
+    }
+
+    savingRef.current = false;
+
+    // Anything the user changed while the request was in flight gets saved now.
+    const hadPending = pendingRef.current;
+    pendingRef.current = false;
+    if (hadPending && canonicalStringify(dataRef.current) !== lastSavedRef.current) {
+      void performSave();
     }
   }, [clearDraft]);
 
@@ -112,14 +137,15 @@ export function useAutoSave<T>(
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
-    
-    const dataStr = JSON.stringify(data);
-    if (dataStr !== lastSavedRef.current && lastSavedRef.current !== '') {
-      await performSave(data);
+
+    if (canonicalStringify(dataRef.current) !== lastSavedRef.current && lastSavedRef.current !== '') {
+      await performSave();
     }
-  }, [data, performSave]);
+  }, [performSave]);
 
   const save = flush;
+
+  const lastSavedSignature = useCallback(() => lastSavedRef.current, []);
 
   // Auto-save effect
   useEffect(() => {
@@ -131,26 +157,24 @@ export function useAutoSave<T>(
       return;
     }
 
-    // No changes
+    // No real change (key reordering / null-vs-"" echoes are not changes)
     if (currentDataStr === lastSavedRef.current) return;
 
     // Save to localStorage immediately (crash recovery)
     if (storageKey) {
       try {
-        localStorage.setItem(storageKey, currentDataStr);
+        localStorage.setItem(storageKey, JSON.stringify(dataRef.current));
       } catch {}
     }
 
-    setStatus('unsaved');
+    setStatus((s) => (s === 'saving' ? s : 'unsaved'));
 
-    // Clear existing timeout
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
 
-    // Debounce server save
     timeoutRef.current = setTimeout(() => {
-      performSave(JSON.parse(currentDataStr));
+      void performSave();
     }, delay);
 
     return () => {
@@ -198,5 +222,6 @@ export function useAutoSave<T>(
     hasDraft,
     clearDraft,
     restoreDraft,
+    lastSavedSignature,
   };
 }
