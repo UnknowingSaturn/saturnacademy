@@ -129,6 +129,13 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
   // Persist input drafts to localStorage (separate from review autosave)
   const inputDraftKey = trade?.id ? `trade_input_drafts_${trade.id}` : undefined;
 
+  // Every leg of a grouped trade receives the same review so filters and stats
+  // stay consistent across the whole position.
+  const targetIds = useMemo(
+    () => (legs.length > 1 ? legs.map((l) => l.id) : trade ? [trade.id] : []),
+    [legs, trade],
+  );
+
   // Save function for auto-save - uses upsert (idempotent, no duplicates)
   const saveReview = useCallback(async (data: ReviewData) => {
     if (!trade) return;
@@ -147,19 +154,16 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       to_improve: data.toImprove,
       actionable_steps: data.actionableSteps,
       thoughts: data.thoughts || null,
-      screenshots: data.screenshots,
       reviewed_at: new Date().toISOString(),
     };
 
-    // Fan out review saves to every leg in a grouped trade so filters and
-    // stats stay consistent across the whole position.
-    const targetIds = legs.length > 1 ? legs.map((l) => l.id) : [trade.id];
-    await Promise.all(
-      targetIds.map((id) =>
-        upsertReview.mutateAsync({ review: { ...reviewPayload, trade_id: id }, silent: true }),
-      ),
-    );
-  }, [trade, legs, upsertReview]);
+    // One batched upsert for every leg (single request, single cache patch).
+    await upsertReview.mutateAsync({
+      review: reviewPayload,
+      tradeIds: targetIds,
+      silent: true,
+    });
+  }, [trade, targetIds, upsertReview]);
 
   const { status: saveStatus, flush, hasUnsavedChanges, hasDraft, restoreDraft } = useAutoSave(
     reviewData,
@@ -170,12 +174,32 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
     }
   );
 
+  // Screenshots write immediately — no debounce, no shared payload with the
+  // review body, so an upload can never be lost to a race or clobbered by a
+  // stale panel snapshot.
+  const persistScreenshots = useCallback(async (next: TradeScreenshot[]) => {
+    if (!trade) return;
+    setScreenshots(next);
+    pendingScreenshotSig.current = canonicalStringify(next);
+    try {
+      await upsertReview.mutateAsync({
+        review: { trade_id: trade.id, screenshots: next as unknown as TradeReview["screenshots"] },
+        tradeIds: targetIds,
+        silent: true,
+      });
+    } finally {
+      pendingScreenshotSig.current = null;
+    }
+  }, [trade, targetIds, upsertReview]);
+
   // Reset state when trade changes - handle draft vs server data
   useEffect(() => {
     const isTradeSwitch = trade?.id !== lastTradeId;
     
     if (isTradeSwitch && trade) {
       setLastTradeId(trade.id);
+      setScreenshots(parseScreenshots(trade.review?.screenshots));
+      pendingScreenshotSig.current = null;
       
       // Restore input drafts from localStorage
       const draftKey = `trade_input_drafts_${trade.id}`;
@@ -194,7 +218,7 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
       if (hasDraft) {
         const draft = restoreDraft();
         if (draft) {
-          setReviewData(draft);
+          setReviewData({ ...getInitialReviewData(trade.review), ...draft });
           // Don't clearDraft() here - let autosave clear it after successful save
           return;
         }
@@ -207,15 +231,31 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
 
   // Re-seed from the server whenever the review row changes underneath us
   // (e.g. another surface saved) and the user has nothing pending locally.
-  // Without this the panel keeps a stale snapshot for the whole session.
-  const serverReviewSignature = trade?.review ? JSON.stringify(trade.review) : "";
+  //
+  // The comparison is canonical (key-order and null-vs-"" insensitive) because
+  // jsonb round-trips reorder object keys; a raw JSON.stringify compare treats
+  // the echo of our own save as a change and re-arms the autosave debounce,
+  // which is exactly the save/unsave loop this panel used to exhibit.
+  const serverReviewSignature = trade?.review ? canonicalStringify(trade.review) : "";
   useEffect(() => {
     if (!trade || trade.id !== lastTradeId) return;
     if (hasUnsavedChanges || saveStatus === "saving") return;
     const next = getInitialReviewData(trade.review);
-    setReviewData((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    setReviewData((prev) => (canonicalStringify(prev) === canonicalStringify(next) ? prev : next));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverReviewSignature, lastTradeId, hasUnsavedChanges, saveStatus]);
+
+  // Same for screenshots, but never while our own screenshot write is in flight.
+  useEffect(() => {
+    if (!trade || trade.id !== lastTradeId) return;
+    const next = parseScreenshots(trade.review?.screenshots);
+    const nextSig = canonicalStringify(next);
+    if (pendingScreenshotSig.current !== null && pendingScreenshotSig.current !== nextSig) return;
+    setScreenshots((prev) => (canonicalStringify(prev) === nextSig ? prev : next));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverReviewSignature, lastTradeId]);
+
+
 
 
   // Persist input drafts to localStorage when they change
