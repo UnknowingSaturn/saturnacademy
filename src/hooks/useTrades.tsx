@@ -3,8 +3,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { Trade, TradeReview, SessionType } from '@/types/trading';
 import { toast } from "sonner";
 import { Json } from '@/integrations/supabase/types';
-import { transformTrade } from '@/lib/tradeTransform';
-import { TRADE_SELECT, tradeKeys, invalidateAllTradeCaches } from './_shared/tradeQueries';
+import { transformTrade, transformReview } from '@/lib/tradeTransform';
+import { TRADE_SELECT, tradeKeys, invalidateAllTradeCaches, patchTradeReviewInCaches } from './_shared/tradeQueries';
 
 export function useTrades(filters?: {
   accountId?: string;
