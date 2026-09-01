@@ -64,10 +64,11 @@ export function TradeScreenshotGallery({
   };
 
   const handleDelete = async (screenshot: TradeScreenshot) => {
-    const success = await deleteScreenshot(screenshot.url);
-    if (success) {
-      onScreenshotsChange(screenshots.filter((s) => s.id !== screenshot.id));
-    }
+    // Remove from the review row first — the record is the source of truth.
+    // Deleting the storage object is best-effort cleanup; if it fails the
+    // gallery must not resurrect an entry the user already removed.
+    onScreenshotsChange(screenshots.filter((s) => s.id !== screenshot.id));
+    await deleteScreenshot(screenshot.url);
   };
 
   return (
