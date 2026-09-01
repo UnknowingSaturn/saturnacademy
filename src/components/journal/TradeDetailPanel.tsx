@@ -47,7 +47,6 @@ interface ReviewData {
   toImprove: string[];
   actionableSteps: ActionableStep[];
   thoughts: string;
-  screenshots: TradeScreenshot[];
 }
 
 
@@ -80,7 +79,6 @@ function getInitialReviewData(review?: TradeReview): ReviewData {
     toImprove: review?.to_improve || [],
     actionableSteps: review?.actionable_steps || [],
     thoughts: review?.thoughts || "",
-    screenshots: parseScreenshots(review?.screenshots),
   };
 }
 
