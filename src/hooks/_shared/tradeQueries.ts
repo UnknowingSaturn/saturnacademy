@@ -42,6 +42,10 @@ export const tradeKeys = {
  * Invalidate every cache that contains trade data. Use after any mutation
  * that could change a trade row, so all views (filtered list, single trade,
  * group legs, open trades, archived) refresh together.
+ *
+ * Scoped where possible: when a tradeId is known we refresh that detail entry
+ * plus the group namespace (which carries the sibling legs) instead of every
+ * ["trade", *] entry in the cache.
  */
 export function invalidateAllTradeCaches(
   qc: QueryClient,
@@ -50,10 +54,56 @@ export function invalidateAllTradeCaches(
   qc.invalidateQueries({ queryKey: tradeKeys.all });
   qc.invalidateQueries({ queryKey: tradeKeys.open });
   qc.invalidateQueries({ queryKey: tradeKeys.archived });
+  if (opts?.tradeId) {
+    qc.invalidateQueries({ queryKey: tradeKeys.detail(opts.tradeId) });
+  } else {
+    qc.invalidateQueries({ queryKey: ["trade"] });
+  }
   // The detail view renders the group leader plus every leg, so a single-leg
-  // edit must refresh the whole ["trade", *] and ["trade-group", *] namespaces
-  // rather than only the id that was mutated.
-  qc.invalidateQueries({ queryKey: ["trade"] });
+  // edit must still refresh the ["trade-group", *] namespace.
   qc.invalidateQueries({ queryKey: tradeKeys.group });
 }
+
+/**
+ * Write a freshly saved trade_reviews row straight into every cached trade
+ * that references it, instead of invalidating (which would refetch and hand
+ * the autosaving panel a new object identity, re-arming its debounce).
+ *
+ * `reviewRow` is the raw row returned by the upsert; callers pass the
+ * transform so this module stays free of UI-layer imports.
+ */
+export function patchTradeReviewInCaches(
+  qc: QueryClient,
+  tradeIds: string[],
+  reviewRow: Record<string, unknown>,
+  transformReview: (row: unknown) => unknown,
+) {
+  const ids = new Set(tradeIds);
+  const review = transformReview(reviewRow);
+
+  const patchTrade = (trade: any) => {
+    if (!trade || typeof trade !== "object" || !ids.has(trade.id)) return trade;
+    return { ...trade, review };
+  };
+
+  const patchValue = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      let changed = false;
+      const next = value.map((item) => {
+        const patched = patchTrade(item);
+        if (patched !== item) changed = true;
+        return patched;
+      });
+      return changed ? next : value;
+    }
+    return patchTrade(value);
+  };
+
+  for (const key of [tradeKeys.all, tradeKeys.open, tradeKeys.archived, ["trade"], tradeKeys.group]) {
+    qc.setQueriesData({ queryKey: key as readonly unknown[] }, (old: unknown) =>
+      old == null ? old : patchValue(old),
+    );
+  }
+}
+
 
