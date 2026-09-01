@@ -3,8 +3,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { Trade, TradeReview, SessionType } from '@/types/trading';
 import { toast } from "sonner";
 import { Json } from '@/integrations/supabase/types';
-import { transformTrade } from '@/lib/tradeTransform';
-import { TRADE_SELECT, tradeKeys, invalidateAllTradeCaches } from './_shared/tradeQueries';
+import { transformTrade, transformReview } from '@/lib/tradeTransform';
+import { TRADE_SELECT, tradeKeys, invalidateAllTradeCaches, patchTradeReviewInCaches } from './_shared/tradeQueries';
 
 export function useTrades(filters?: {
   accountId?: string;
@@ -335,7 +335,16 @@ export function useArchivedTrades() {
 export function useUpsertTradeReview() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (params: { review: Partial<TradeReview> & { trade_id: string }; silent?: boolean }) => {
+    mutationFn: async (params: {
+      review: Partial<TradeReview> & { trade_id: string };
+      /**
+       * Optional sibling legs. When present the review is written to every id
+       * in ONE batched upsert instead of N parallel mutations (each of which
+       * used to trigger its own cache invalidation storm).
+       */
+      tradeIds?: string[];
+      silent?: boolean;
+    }) => {
       const { review, silent } = params;
 
       // Build a partial payload — only include columns the caller explicitly provided.
@@ -351,6 +360,7 @@ export function useUpsertTradeReview() {
       if ('emotional_state_after' in review)  payload.emotional_state_after = review.emotional_state_after;
       if ('psychology_notes' in review)       payload.psychology_notes = review.psychology_notes;
       if ('thoughts' in review)               payload.thoughts = review.thoughts;
+      if ('reviewed_at' in review)            payload.reviewed_at = (review as any).reviewed_at;
       if ('checklist_answers' in review)      payload.checklist_answers = (review.checklist_answers || {}) as unknown as Json;
       if ('mistakes' in review)               payload.mistakes = (review.mistakes || []) as unknown as Json;
       if ('did_well' in review)               payload.did_well = (review.did_well || []) as unknown as Json;
@@ -358,17 +368,36 @@ export function useUpsertTradeReview() {
       if ('actionable_steps' in review)       payload.actionable_steps = (review.actionable_steps || []) as unknown as Json;
       if ('screenshots' in review)            payload.screenshots = (review.screenshots || []) as unknown as Json;
 
+      const targetIds = params.tradeIds?.length ? params.tradeIds : [review.trade_id];
+      const rows = targetIds.map((id) => ({ ...payload, trade_id: id }));
+
       const { data, error } = await supabase
         .from('trade_reviews')
-        .upsert(payload as any, { onConflict: 'trade_id' })
-        .select()
-        .single();
+        .upsert(rows as any, { onConflict: 'trade_id' })
+        .select();
 
       if (error) throw error;
-      return { data, silent };
+      return { data: data ?? [], silent, targetIds };
     },
     onSuccess: (result, variables) => {
-      invalidateAllTradeCaches(queryClient, { tradeId: variables.review.trade_id });
+      // Silent (autosave) writes patch the caches in place. Invalidating here
+      // would refetch, hand the panel a new review object, and re-arm its
+      // debounce — the save/unsave loop.
+      if (result.silent && result.data.length > 0) {
+        for (const row of result.data as Record<string, unknown>[]) {
+          patchTradeReviewInCaches(
+            queryClient,
+            [row.trade_id as string],
+            row,
+            transformReview as (r: unknown) => unknown,
+          );
+        }
+        return;
+      }
+
+      invalidateAllTradeCaches(queryClient, {
+        tradeId: result.targetIds.length === 1 ? variables.review.trade_id : undefined,
+      });
       if (!result.silent) {
         toast.success('Review saved successfully');
       }
