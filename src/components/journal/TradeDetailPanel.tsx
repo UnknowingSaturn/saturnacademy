@@ -459,8 +459,8 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
                             <Label className="text-sm font-semibold mb-3 block">Screenshots</Label>
                             <TradeScreenshotGallery
                               tradeId={trade.id}
-                              screenshots={reviewData.screenshots}
-                              onScreenshotsChange={(screenshots) => updateField("screenshots", screenshots)}
+                              screenshots={screenshots}
+                              onScreenshotsChange={(next) => { void persistScreenshots(next); }}
                             />
                           </div>
                         );
