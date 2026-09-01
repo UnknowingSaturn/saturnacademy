@@ -29,6 +29,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { canonicalStringify } from "@/lib/canonicalJson";
 import { ArrowLeft, Plus, X, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
