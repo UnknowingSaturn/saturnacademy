@@ -96,6 +96,11 @@ export function TradeDetailPanel({ tradeId, isOpen, onClose }: TradeDetailPanelP
 
   const [lastTradeId, setLastTradeId] = useState<string | null>(null);
   const [reviewData, setReviewData] = useState<ReviewData>(getInitialReviewData());
+  // Screenshots are a discrete action (upload / delete / edit caption), not a
+  // typing surface — they save immediately on their own write, so they are kept
+  // out of the debounced review body entirely.
+  const [screenshots, setScreenshots] = useState<TradeScreenshot[]>([]);
+  const pendingScreenshotSig = useRef<string | null>(null);
   const [newItem, setNewItem] = useState({ mistakes: "", didWell: "", toImprove: "", actionable: "" });
   const [showProperties, setShowProperties] = useState(true);
 
