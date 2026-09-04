@@ -6,7 +6,7 @@
 // between prop accounts routes each event to the correct journal account.
 // Falls back to install-sibling, then to any-account-for-key, then auto-create.
 
-import { resolveUserFromApiKey } from "./apiKey.ts";
+import { resolveUserFromApiKey, touchInstall } from "./apiKey.ts";
 import type { EventPayload, ResolvedAccount } from "./eventTypes.ts";
 
 export interface ResolveResult {
@@ -27,17 +27,28 @@ export async function resolveAccount(
   apiKey: string,
   payload: EventPayload,
 ): Promise<ResolveResult> {
-  // Step 1: API key → user
+  // Step 1: API key → user (install-scoped credential first, legacy fallbacks)
   const keyRes = await resolveUserFromApiKey(supabase, apiKey);
   const anyAccountForKey = keyRes.accountForKey;
   const setupTokenRow: any = keyRes.setupToken;
   const userIdForKey: string | null = keyRes.userId;
 
   if (!userIdForKey) {
-    throw new ResolveError("Invalid API key", 401);
+    if (keyRes.reason === "revoked_install") {
+      throw new ResolveError(
+        "Revoked install: this MT5 installation's access was revoked",
+        401,
+      );
+    }
+    throw new ResolveError("Unknown API key: no install, account or setup token matches", 401);
   }
 
-  // Step 2: target account by broker login
+  // Keep the install registry current (and self-heal legacy installs onto it).
+  await touchInstall(supabase, userIdForKey, payload.install_id, apiKey);
+
+  // Step 2: target account by broker login.
+  // NOTE: deliberately not filtered by is_active — archiving an account is a
+  // display decision; its trades must keep landing on the same row.
   const brokerLogin = payload.account_info?.login != null
     ? String(payload.account_info.login)
     : null;
@@ -50,22 +61,25 @@ export async function resolveAccount(
       .select("id, user_id, terminal_id")
       .eq("user_id", userIdForKey)
       .eq("account_number", brokerLogin)
-      .eq("is_active", true)
+      .order("is_active", { ascending: false })
+      .order("last_heartbeat_at", { ascending: false, nullsFirst: false })
+      .limit(1)
       .maybeSingle();
     account = byLogin ?? null;
   }
 
-  // Sibling on same MT5 install — template for auto-create.
+  // Sibling on same MT5 install — template for auto-create. Archived siblings
+  // are still valid templates (broker, DST, copier + sync settings).
   let installSibling: any = null;
   if (!account && payload.install_id) {
     const { data: byInstall } = await supabase
       .from("accounts")
       .select(
-        "id, user_id, terminal_id, api_key, copier_role, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile",
+        "id, user_id, terminal_id, api_key, copier_role, master_account_id, sync_history_enabled, sync_history_from, account_type, prop_firm, broker, broker_utc_offset, broker_dst_profile, is_active",
       )
       .eq("user_id", userIdForKey)
       .eq("mt5_install_id", payload.install_id)
-      .eq("is_active", true)
+      .order("is_active", { ascending: false })
       .order("last_heartbeat_at", { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();
@@ -94,10 +108,17 @@ export async function resolveAccount(
   if (!account && payload.account_info) {
     console.log("No account found for login", brokerLogin, "— auto-creating");
 
-    const allowAutoCreate = !!anyAccountForKey || (setupTokenRow && !setupTokenRow.used);
+    // A known install (or any account bound to the key, or a fresh setup token)
+    // is sufficient authority to onboard a new login automatically.
+    const allowAutoCreate = !!keyRes.install || !!installSibling ||
+      !!anyAccountForKey || (setupTokenRow && !setupTokenRow.used);
     if (!allowAutoCreate) {
-      throw new ResolveError("Invalid API key", 401);
+      throw new ResolveError(
+        "Unknown install: cannot onboard a new login without a known MT5 install or setup token",
+        401,
+      );
     }
+
 
     const setupToken = setupTokenRow ?? {
       user_id: userIdForKey,
