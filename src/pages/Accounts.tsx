@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Link, AlertTriangle, Archive, HelpCircle } from 'lucide-react';
+import { Link, AlertTriangle, Archive, HelpCircle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAccounts } from '@/hooks/useAccounts';
+import { useAccounts, useArchivedAccounts, useRestoreAccount } from '@/hooks/useAccounts';
 import { useArchiveAllTrades } from '@/hooks/useTrades';
 import { AccountCard } from '@/components/accounts/AccountCard';
+import { ConnectionHealthStrip } from '@/components/accounts/ConnectionHealthStrip';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
 import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
 import { ChallengePlannerCard } from '@/components/accounts/ChallengePlannerCard';
