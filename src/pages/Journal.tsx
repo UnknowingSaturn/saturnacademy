@@ -33,6 +33,7 @@ import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, CheckCirc
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
+import { ConnectionHealthStrip } from "@/components/accounts/ConnectionHealthStrip";
 
 type PeriodType = "week" | "month" | "custom";
 type ResultFilter = "all" | "win" | "loss" | "open";
@@ -431,6 +432,7 @@ export default function Journal() {
   return (
     <div className="space-y-6 animate-fade-in">
       <DriftTray />
+      <ConnectionHealthStrip compact />
       <PageIntroBanner
         routeKey="journal"
         title="Trade journal — shows all trades by default"
