@@ -13,6 +13,7 @@ import {
 } from "../_shared/accountResolver.ts";
 import { handleHeartbeat, handleSnapshot } from "../_shared/healthEvents.ts";
 import { processEvent } from "../_shared/tradeEventProcessor.ts";
+import { canonicalIdempotencyKey, utcFromServerTime } from "../_shared/dealIdentity.ts";
 
 function json(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -58,7 +59,12 @@ serve(async (req) => {
       }
       throw e;
     }
-    const { account, brokerLogin } = resolved;
+    const { account, brokerLogin, brokerUtcOffset } = resolved;
+
+    // Source-independent identity for deal events (live / openpos / history all
+    // collapse onto the same key). Non-deal events keep their original key.
+    const canonicalKey = canonicalIdempotencyKey(payload, brokerLogin);
+    const eventKey = canonicalKey ?? payload.idempotency_key;
 
     // Per-event side effects (heartbeat bump, balance snapshot)
     await applyPerEventSideEffects(supabase, account, payload);
@@ -105,14 +111,18 @@ serve(async (req) => {
     }
 
     // ===== Idempotency =====
-    const { data: existingEvent } = await supabase
+    // Match the canonical key AND the raw key: rows ingested before the
+    // canonical scheme still carry source-prefixed keys.
+    const keyCandidates = Array.from(new Set([eventKey, payload.idempotency_key]));
+    const { data: existingEvents } = await supabase
       .from("events")
       .select("id")
-      .eq("idempotency_key", payload.idempotency_key)
-      .maybeSingle();
+      .in("idempotency_key", keyCandidates)
+      .limit(1);
+    const existingEvent = existingEvents?.[0];
 
     if (existingEvent) {
-      console.log("Duplicate event:", payload.idempotency_key);
+      console.log("Duplicate event:", eventKey);
       return json({
         status: "duplicate",
         event_id: existingEvent.id,
@@ -147,15 +157,17 @@ serve(async (req) => {
       (isOpenLike || isCloseLike)
     ) {
       const matchTypes = isOpenLike ? ["open"] : ["close", "partial_close"];
-      const { data: dupDeal } = await supabase
+      // Scoped to the USER, not the account: copies of one deal used to land on
+      // different account rows, which made an account-scoped check blind.
+      const { data: dupDeals } = await supabase
         .from("events")
-        .select("id, event_type")
-        .eq("account_id", account.id)
+        .select("id, event_type, account_id")
+        .eq("user_id", account.user_id)
         .eq("ticket", tradeTicketEarly)
         .filter("raw_payload->>deal_id", "eq", String(dealId))
         .in("event_type", matchTypes)
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
+      const dupDeal = dupDeals?.[0];
       if (dupDeal) {
         console.log("Duplicate deal-level event:", {
           ticket: tradeTicketEarly,
@@ -187,10 +199,16 @@ serve(async (req) => {
 
     const tradeTicket = payload.position_id || payload.ticket;
 
+    // One clock for every source: derive UTC from the broker's server_time
+    // using the offset stored on the account. Falls back to the EA-computed
+    // timestamp when server_time or the account offset is missing.
+    const eventTimestamp =
+      utcFromServerTime(payload.server_time, brokerUtcOffset) ?? payload.timestamp;
+
     const { data: newEvent, error: insertError } = await supabase
       .from("events")
       .insert({
-        idempotency_key: payload.idempotency_key,
+        idempotency_key: eventKey,
         user_id: account.user_id,
         account_id: account.id,
         terminal_id: payload.terminal_id,
@@ -207,7 +225,7 @@ serve(async (req) => {
         commission: payload.commission || 0,
         swap: payload.swap || 0,
         profit: payload.profit,
-        event_timestamp: payload.timestamp,
+        event_timestamp: eventTimestamp,
         raw_payload: {
           ...payload.raw_payload,
           position_id: payload.position_id,
