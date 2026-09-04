@@ -95,6 +95,29 @@ export function useUpdateAccount() {
   });
 }
 
+/**
+ * Archived (soft-deleted) accounts. Kept out of `useAccounts` so pickers stay
+ * clean, but listed on the Accounts page so they can be restored in place.
+ */
+export function useArchivedAccounts() {
+  return useQuery({
+    queryKey: ['accounts', 'archived'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('accounts')
+        .select('*')
+        .eq('is_active', false)
+        .order('name');
+      if (error) throw error;
+      return (data || []) as Account[];
+    },
+  });
+}
+
+/**
+ * Archive an account. This is a DISPLAY decision only — ingestion is
+ * authenticated per MT5 install, so archiving never stops the data feed.
+ */
 export function useDeleteAccount() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -108,13 +131,36 @@ export function useDeleteAccount() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      toast.success('Account deleted successfully');
+      toast.success('Account archived', {
+        description: 'Trades are kept and the MT5 feed keeps running. Restore it any time.',
+      });
     },
     onError: (error) => {
-      toast.error('Failed to delete account', { description: error.message });
+      toast.error('Failed to archive account', { description: error.message });
     },
   });
 }
+
+export function useRestoreAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (accountId: string) => {
+      const { error } = await supabase
+        .from('accounts')
+        .update({ is_active: true })
+        .eq('id', accountId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      toast.success('Account restored');
+    },
+    onError: (error) => {
+      toast.error('Failed to restore account', { description: error.message });
+    },
+  });
+}
+
 
 export function useUpdateSyncSettings() {
   const queryClient = useQueryClient();

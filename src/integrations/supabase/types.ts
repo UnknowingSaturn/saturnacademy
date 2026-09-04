@@ -1204,6 +1204,42 @@ export type Database = {
         }
         Relationships: []
       }
+      mt5_installs: {
+        Row: {
+          api_key: string
+          created_at: string
+          id: string
+          install_id: string
+          label: string | null
+          last_seen_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_key: string
+          created_at?: string
+          id?: string
+          install_id: string
+          label?: string | null
+          last_seen_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_key?: string
+          created_at?: string
+          id?: string
+          install_id?: string
+          label?: string | null
+          last_seen_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       note_embeddings: {
         Row: {
           content_hash: string

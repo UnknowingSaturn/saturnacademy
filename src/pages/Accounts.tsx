@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Link, AlertTriangle, Archive, HelpCircle } from 'lucide-react';
+import { Link, AlertTriangle, Archive, HelpCircle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAccounts } from '@/hooks/useAccounts';
+import { useAccounts, useArchivedAccounts, useRestoreAccount } from '@/hooks/useAccounts';
 import { useArchiveAllTrades } from '@/hooks/useTrades';
 import { AccountCard } from '@/components/accounts/AccountCard';
+import { ConnectionHealthStrip } from '@/components/accounts/ConnectionHealthStrip';
 import { MT5SetupDialog } from '@/components/accounts/MT5SetupDialog';
 import { QuickConnectDialog } from '@/components/accounts/QuickConnectDialog';
 import { ChallengePlannerCard } from '@/components/accounts/ChallengePlannerCard';
@@ -32,6 +33,8 @@ import {
 
 export default function Accounts() {
   const { data: accounts, isLoading } = useAccounts();
+  const { data: archivedAccounts } = useArchivedAccounts();
+  const restoreAccount = useRestoreAccount();
   const archiveAllMutation = useArchiveAllTrades();
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
@@ -66,6 +69,9 @@ export default function Accounts() {
         onAction={() => setTutorialOpen(true)}
       />
 
+      <ConnectionHealthStrip />
+
+
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2">
           {[1, 2].map((i) => (
@@ -99,6 +105,38 @@ export default function Accounts() {
               <div className="grid gap-3 md:grid-cols-2">
                 {accounts.filter((a) => a.prop_firm).map((a) => (
                   <ChallengePlannerCard key={a.id} account={a} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {archivedAccounts && archivedAccounts.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                Archived accounts
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Hidden from pickers and dashboards. Their MT5 feeds keep running — restore one to see it again.
+              </p>
+              <div className="grid gap-2 md:grid-cols-2">
+                {archivedAccounts.map((a) => (
+                  <div key={a.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{a.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {a.broker || 'Unknown broker'} · {a.account_number || 'no login'}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => restoreAccount.mutate(a.id)}
+                      disabled={restoreAccount.isPending}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                      Restore
+                    </Button>
+                  </div>
                 ))}
               </div>
             </div>

@@ -279,28 +279,28 @@ export function AccountCard({ account, onSetupMT5 }: AccountCardProps) {
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Account</AlertDialogTitle>
+                  <AlertDialogTitle>Archive account</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Are you sure you want to delete "{account.name}"? This action cannot be undone.
+                    "{account.name}" will be hidden from pickers and dashboards. Its trades are kept,
+                    and the MT5 terminal keeps sending — archiving never disconnects a feed.
+                    You can restore it any time from the Archived section.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => deleteAccount.mutate(account.id)}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Delete
+                  <AlertDialogAction onClick={() => deleteAccount.mutate(account.id)}>
+                    Archive
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
           </div>
         </CardContent>
       </Card>
