@@ -69,6 +69,9 @@ export default function Accounts() {
         onAction={() => setTutorialOpen(true)}
       />
 
+      <ConnectionHealthStrip />
+
+
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2">
           {[1, 2].map((i) => (
