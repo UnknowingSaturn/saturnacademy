@@ -110,6 +110,38 @@ export default function Accounts() {
             </div>
           )}
 
+          {archivedAccounts && archivedAccounts.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                Archived accounts
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Hidden from pickers and dashboards. Their MT5 feeds keep running — restore one to see it again.
+              </p>
+              <div className="grid gap-2 md:grid-cols-2">
+                {archivedAccounts.map((a) => (
+                  <div key={a.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{a.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {a.broker || 'Unknown broker'} · {a.account_number || 'no login'}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => restoreAccount.mutate(a.id)}
+                      disabled={restoreAccount.isPending}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                      Restore
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
 
 
           <div className="mt-8 border border-destructive/30 rounded-lg overflow-hidden">
