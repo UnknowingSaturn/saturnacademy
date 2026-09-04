@@ -12,6 +12,20 @@ import type { EventPayload, ResolvedAccount } from "./eventTypes.ts";
 export interface ResolveResult {
   account: ResolvedAccount;
   brokerLogin: string | null;
+  brokerUtcOffset: number | null;
+}
+
+/**
+ * MT5 terminal ids are shaped `MT5_<login>_<brokerPrefix>`. Sync payloads
+ * (history / open-position) omit `account_info`, so the terminal id is the only
+ * carrier of the login. Without this the resolver used to fall back to an
+ * arbitrary install sibling and scatter one position across several accounts.
+ */
+export function loginFromTerminalId(terminalId?: string | null): string | null {
+  if (!terminalId) return null;
+  const m = /^MT5_(\d+)_/.exec(terminalId);
+  if (!m) return null;
+  return m[1] === "0" ? null : m[1];
 }
 
 export class ResolveError extends Error {
@@ -49,27 +63,39 @@ export async function resolveAccount(
   // Step 2: target account by broker login.
   // NOTE: deliberately not filtered by is_active — archiving an account is a
   // display decision; its trades must keep landing on the same row.
+  // Login sources, in order of trust: account_info (live events) →
+  // active_login (v4 EA) → the login embedded in the terminal id (sync events).
   const brokerLogin = payload.account_info?.login != null
     ? String(payload.account_info.login)
-    : null;
+    : payload.active_login
+    ? String(payload.active_login)
+    : loginFromTerminalId(payload.terminal_id);
 
   let account: ResolvedAccount | null = null;
+  let brokerUtcOffset: number | null = null;
 
   if (brokerLogin) {
     const { data: byLogin } = await supabase
       .from("accounts")
-      .select("id, user_id, terminal_id")
+      .select("id, user_id, terminal_id, broker_utc_offset")
       .eq("user_id", userIdForKey)
       .eq("account_number", brokerLogin)
       .order("is_active", { ascending: false })
       .order("last_heartbeat_at", { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();
-    account = byLogin ?? null;
+    if (byLogin) {
+      account = byLogin;
+      brokerUtcOffset = typeof byLogin.broker_utc_offset === "number"
+        ? byLogin.broker_utc_offset
+        : null;
+    }
   }
 
   // Sibling on same MT5 install — template for auto-create. Archived siblings
   // are still valid templates (broker, DST, copier + sync settings).
+  // Ordered by created_at so the template is STABLE: ordering by
+  // last_heartbeat_at rotated between siblings on every event.
   let installSibling: any = null;
   if (!account && payload.install_id) {
     const { data: byInstall } = await supabase
@@ -79,24 +105,26 @@ export async function resolveAccount(
       )
       .eq("user_id", userIdForKey)
       .eq("mt5_install_id", payload.install_id)
-      .order("is_active", { ascending: false })
-      .order("last_heartbeat_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
     installSibling = byInstall ?? null;
-    // Adopt sibling as-is only when this event carries NO broker login
-    // (legacy EA without account_info).
+    // A sibling is a SETTINGS TEMPLATE only. It may own the event solely when
+    // the payload carries no login at all (legacy EA, no terminal id pattern).
     if (installSibling && !brokerLogin) {
       account = {
         id: installSibling.id,
         user_id: installSibling.user_id,
         terminal_id: installSibling.terminal_id,
       };
+      brokerUtcOffset = typeof installSibling.broker_utc_offset === "number"
+        ? installSibling.broker_utc_offset
+        : null;
     }
   }
 
-  // Fallback for older EA without account_info
-  if (!account && anyAccountForKey) {
+  // Fallback for older EA that sends no login of any kind
+  if (!account && !brokerLogin && anyAccountForKey) {
     account = {
       id: anyAccountForKey.id,
       user_id: anyAccountForKey.user_id,
@@ -104,8 +132,10 @@ export async function resolveAccount(
     };
   }
 
-  // Auto-create when we have account_info but no matching account row
-  if (!account && payload.account_info) {
+  // Auto-create when we know the login but have no matching account row.
+  // account_info may be absent (history / open-position sync) — the sibling
+  // template plus the login is enough to open the correct row.
+  if (!account && brokerLogin) {
     console.log("No account found for login", brokerLogin, "— auto-creating");
 
     // A known install (or any account bound to the key, or a fresh setup token)
@@ -119,6 +149,7 @@ export async function resolveAccount(
       );
     }
 
+    const info = payload.account_info;
 
     const setupToken = setupTokenRow ?? {
       user_id: userIdForKey,
@@ -134,7 +165,7 @@ export async function resolveAccount(
 
     let propFirm: string | null = installSibling?.prop_firm ?? null;
     if (!propFirm) {
-      const serverLower = (payload.account_info.server || "").toLowerCase();
+      const serverLower = (info?.server || "").toLowerCase();
       if (serverLower.includes("ftmo")) propFirm = "ftmo";
       else if (serverLower.includes("fundednext")) propFirm = "fundednext";
     }
@@ -142,15 +173,16 @@ export async function resolveAccount(
     const copierRole = installSibling?.copier_role ?? (setupToken.copier_role || "independent");
     const isCopierAccount = copierRole !== "independent";
 
-    const accountName = `${payload.account_info.broker} - ${payload.account_info.login}`;
+    const brokerName = installSibling?.broker ?? info?.broker ?? "MT5";
+    const accountName = `${brokerName} - ${brokerLogin}`;
     const insertPayload: Record<string, unknown> = {
       user_id: setupToken.user_id,
       name: accountName,
-      broker: installSibling?.broker ?? payload.account_info.broker,
-      account_number: String(payload.account_info.login),
-      account_type: installSibling?.account_type ?? payload.account_info.account_type,
-      balance_start: payload.account_info.balance,
-      equity_current: payload.account_info.equity,
+      broker: brokerName,
+      account_number: brokerLogin,
+      account_type: installSibling?.account_type ?? info?.account_type ?? "prop",
+      balance_start: info?.balance ?? null,
+      equity_current: info?.equity ?? null,
       terminal_id: payload.terminal_id,
       mt5_install_id: payload.install_id || null,
       last_sync_at: new Date().toISOString(),
@@ -175,17 +207,16 @@ export async function resolveAccount(
     let { data: newAccount, error: createError } = await supabase
       .from("accounts")
       .insert(insertPayload)
-      .select("id, user_id, terminal_id")
+      .select("id, user_id, terminal_id, broker_utc_offset")
       .single();
 
     // Race: concurrent event already created this (user_id, install_id, login)
     if (createError && (createError.code === "23505" || /duplicate key/i.test(createError.message || ""))) {
       const { data: existing } = await supabase
         .from("accounts")
-        .select("id, user_id, terminal_id")
+        .select("id, user_id, terminal_id, broker_utc_offset")
         .eq("user_id", setupToken.user_id)
-        .eq("mt5_install_id", payload.install_id || "")
-        .eq("account_number", String(payload.account_info.login))
+        .eq("account_number", brokerLogin)
         .maybeSingle();
       if (existing) {
         newAccount = existing;
@@ -206,6 +237,9 @@ export async function resolveAccount(
     }
 
     account = newAccount;
+    if (typeof (newAccount as any)?.broker_utc_offset === "number") {
+      brokerUtcOffset = (newAccount as any).broker_utc_offset;
+    }
     console.log(
       "Auto-created account:",
       account!.id,
@@ -229,7 +263,7 @@ export async function resolveAccount(
     await supabase.from("accounts").update(accountBackfill).eq("id", account.id);
   }
 
-  return { account, brokerLogin };
+  return { account, brokerLogin, brokerUtcOffset };
 }
 
 /**
