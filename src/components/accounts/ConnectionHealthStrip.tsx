@@ -10,9 +10,9 @@ import {
 } from '@/hooks/useMt5Installs';
 
 const TONE: Record<string, string> = {
-  live: 'border-success/40 bg-success/10 text-success',
-  quiet: 'border-warning/40 bg-warning/10 text-warning',
-  revoked: 'border-destructive/40 bg-destructive/10 text-destructive',
+  live: 'border-primary/40 bg-primary/10 text-primary',
+  quiet: 'border-destructive/30 bg-destructive/5 text-destructive',
+  revoked: 'border-destructive/50 bg-destructive/10 text-destructive',
   never: 'border-muted-foreground/30 bg-muted text-muted-foreground',
 };
 
