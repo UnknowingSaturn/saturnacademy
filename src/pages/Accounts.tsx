@@ -33,6 +33,8 @@ import {
 
 export default function Accounts() {
   const { data: accounts, isLoading } = useAccounts();
+  const { data: archivedAccounts } = useArchivedAccounts();
+  const restoreAccount = useRestoreAccount();
   const archiveAllMutation = useArchiveAllTrades();
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [setupAccount, setSetupAccount] = useState<Account | null>(null);
