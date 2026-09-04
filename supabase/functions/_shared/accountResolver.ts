@@ -129,7 +129,8 @@ export async function resolveAccount(
       master_account_id: null,
     };
 
-    const shouldConsumeToken = setupTokenRow && !setupTokenRow.used && !anyAccountForKey;
+    const shouldConsumeToken = setupTokenRow && !setupTokenRow.used &&
+      !anyAccountForKey && !keyRes.install;
 
     let propFirm: string | null = installSibling?.prop_firm ?? null;
     if (!propFirm) {
