@@ -336,10 +336,14 @@ export function buildJournalReport(input: JournalReportInput): string {
       block("Action steps", rv.actionable_steps);
       if (rv.thoughts) L.push(`- **Thoughts:** ${txt(rv.thoughts)}`);
       const shots = Array.isArray(rv.screenshots) ? (rv.screenshots as any[]) : [];
-      const described = shots.filter((s) => s?.description || s?.timeframe || s?.label);
+      const described = shots.filter((s) => s?.description || s?.timeframe || s?.label || s?.url);
       if (described.length) {
         L.push(`- **Screenshots:**`);
-        for (const s of described) L.push(`  - [${txt(s.timeframe ?? s.label)}] ${txt(s.description)}`);
+        for (const s of described) {
+          const file = typeof s.url === "string" ? s.url.split("/trade/")[1] : undefined;
+          const link = typeof s.url === "string" ? ` ![${txt(s.timeframe ?? s.label)} chart](${s.url})${file ? ` (zip: \`${file}\`)` : ""}` : "";
+          L.push(`  - [${txt(s.timeframe ?? s.label)}] ${txt(s.description)}${link}`);
+        }
       }
     }
     const cs = g.legs.flatMap((l) => commentsBy.get(l.id) ?? []);
