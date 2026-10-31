@@ -456,6 +456,32 @@ export default function Journal() {
               </ToggleGroupItem>
             </ToggleGroup>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={exporting}
+            onClick={async () => {
+              setExporting(true);
+              try {
+                const ids = filteredTrades
+                  .filter((tr) => tr.trade_type === "executed")
+                  .flatMap((tr: any) => (tr.legs?.length ? tr.legs.map((l: any) => l.id) : [tr.id]));
+                if (!ids.length) { toast.error("No executed trades in the current view"); return; }
+                const { loadJournalReport, downloadMarkdown } = await import("@/lib/export/loadJournalReport");
+                const md = await loadJournalReport(ids);
+                downloadMarkdown(md, `journal-report-${format(new Date(), "yyyy-MM-dd")}.md`);
+                toast.success("Report downloaded");
+              } catch (e: any) {
+                toast.error(e?.message ?? "Export failed");
+              } finally {
+                setExporting(false);
+              }
+            }}
+          >
+            <FileDown className="w-4 h-4" />
+            {exporting ? "Exporting…" : "Export for AI"}
+          </Button>
           <Button variant="outline" size="icon" onClick={() => setSettingsOpen(true)}>
             <Settings className="w-4 h-4" />
           </Button>
