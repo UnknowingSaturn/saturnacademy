@@ -17,6 +17,7 @@ export interface ReportTradeRow {
   entry_time: string;
   exit_time?: string | null;
   total_lots?: number | null;
+  original_lots?: number | null;
   entry_price?: number | null;
   exit_price?: number | null;
   sl_initial?: number | null;
@@ -140,6 +141,10 @@ const sum = (legs: ReportTradeRow[], f: (l: ReportTradeRow) => unknown) => {
   }
   return any ? s : null;
 };
+const lotsOf = (l: ReportTradeRow) => {
+  const o = num(l.original_lots);
+  return o != null && o > 0 ? o : num(l.total_lots);
+};
 const fmt = (v: unknown, dp = 2): string => {
   const n = num(v);
   if (n == null || Number.isNaN(n)) return "—";
@@ -164,7 +169,7 @@ function aggregateR(legs: ReportTradeRow[]): number | null {
   let acc = 0;
   for (const l of legs) {
     const r = num(l.r_multiple_actual);
-    const lots = num(l.total_lots) ?? 1;
+    const lots = lotsOf(l) || 1;
     if (r == null || Number.isNaN(r)) continue;
     acc += r * lots;
     w += lots;
@@ -296,10 +301,10 @@ export function buildJournalReport(input: JournalReportInput): string {
     L.push(`### ${i + 1}. ${p.symbol} ${p.direction.toUpperCase()} — ${utc(p.entry_time)}${p.trade_number ? ` (#${p.trade_number})` : ""}`);
     L.push(`- **Outcome:** ${open ? "OPEN" : pnl == null ? "—" : pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN"} | Net P&L ${fmt(pnl)} | R ${fmt(r)} (planned ${fmt(p.r_multiple_planned)})`);
     L.push(`- **Session:** ${txt(p.session)} | Exit ${utc(p.exit_time)} | Duration ${p.duration_seconds != null ? Math.round(p.duration_seconds / 60) + " min" : "—"}`);
-    L.push(`- **Size:** ${fmt(sum(g.legs, (l) => l.total_lots), 3)} lots across ${g.legs.length} leg(s) | Risk ${fmt(p.risk_percent)}%`);
+    L.push(`- **Size:** ${fmt(sum(g.legs, lotsOf), 3)} lots across ${g.legs.length} leg(s) | Risk ${fmt(p.risk_percent)}%`);
     L.push(`- **Prices:** entry ${fmtPrice(p.entry_price)} | SL ${fmtPrice(p.sl_initial)} → ${fmtPrice(p.sl_final)} | TP ${fmtPrice(p.tp_initial)} → ${fmtPrice(p.tp_final)} | exit ${fmtPrice(p.exit_price)}`);
     if (g.legs.length > 1) {
-      L.push(`- **Legs:** ${g.legs.map((l) => `${fmt(l.total_lots, 3)}L exit ${fmtPrice(l.exit_price)} TP ${fmtPrice(l.tp_initial)} P&L ${fmt(l.net_pnl)} R ${fmt(l.r_multiple_actual)}`).join("; ")}`);
+      L.push(`- **Legs:** ${g.legs.map((l) => `${fmt(lotsOf(l), 3)}L exit ${fmtPrice(l.exit_price)} TP ${fmtPrice(l.tp_initial)} P&L ${fmt(l.net_pnl)} R ${fmt(l.r_multiple_actual)}`).join("; ")}`);
     }
     L.push(`- **Costs:** commission ${fmt(sum(g.legs, (l) => l.commission))} | swap ${fmt(sum(g.legs, (l) => l.swap))}`);
     L.push(`- **Model:** planned playbook ${pbName(rv?.playbook_id ?? p.playbook_id)} / profile ${txt(p.profile)} | actual playbook ${pbName(p.actual_playbook_id)} / profile ${txt(p.actual_profile)}`);
