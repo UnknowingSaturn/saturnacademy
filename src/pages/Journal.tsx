@@ -29,7 +29,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { SessionType, Trade } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
-import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, CheckCircle, ChevronLeft, ChevronRight, CalendarIcon } from "lucide-react";
+import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, CheckCircle, ChevronLeft, ChevronRight, CalendarIcon, FileDown } from "lucide-react";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
@@ -62,6 +63,7 @@ const isType = (v: string | null): v is TradeTypeFilter =>
   v === "executed" || v === "ideas" || v === "all";
 
 export default function Journal() {
+  const [exporting, setExporting] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // J4 fix: promote filter state into the URL so Journal deep-links,
@@ -456,6 +458,32 @@ export default function Journal() {
               </ToggleGroupItem>
             </ToggleGroup>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={exporting}
+            onClick={async () => {
+              setExporting(true);
+              try {
+                const ids = filteredTrades
+                  .filter((tr) => tr.trade_type === "executed")
+                  .flatMap((tr: any) => (tr.legs?.length ? tr.legs.map((l: any) => l.id) : [tr.id]));
+                if (!ids.length) { toast.error("No executed trades in the current view"); return; }
+                const { loadJournalReport, downloadMarkdown } = await import("@/lib/export/loadJournalReport");
+                const md = await loadJournalReport(ids);
+                downloadMarkdown(md, `journal-report-${format(new Date(), "yyyy-MM-dd")}.md`);
+                toast.success("Report downloaded");
+              } catch (e: any) {
+                toast.error(e?.message ?? "Export failed");
+              } finally {
+                setExporting(false);
+              }
+            }}
+          >
+            <FileDown className="w-4 h-4" />
+            {exporting ? "Exporting…" : "Export for AI"}
+          </Button>
           <Button variant="outline" size="icon" onClick={() => setSettingsOpen(true)}>
             <Settings className="w-4 h-4" />
           </Button>
