@@ -29,7 +29,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { SessionType, Trade } from "@/types/trading";
 import { FilterCondition } from "@/types/settings";
-import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, CheckCircle, ChevronLeft, ChevronRight, CalendarIcon } from "lucide-react";
+import { Search, Settings, Table, CalendarDays, X, Archive, Lightbulb, CheckCircle, ChevronLeft, ChevronRight, CalendarIcon, FileDown } from "lucide-react";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { PageIntroBanner } from "@/components/tutorial/PageIntroBanner";
@@ -62,6 +63,7 @@ const isType = (v: string | null): v is TradeTypeFilter =>
   v === "executed" || v === "ideas" || v === "all";
 
 export default function Journal() {
+  const [exporting, setExporting] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // J4 fix: promote filter state into the URL so Journal deep-links,
